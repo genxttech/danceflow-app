@@ -169,10 +169,22 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
 export function mapTwilioStatusToSmsLogStatus(status: string | null | undefined) {
   const normalized = String(status ?? "").toLowerCase();
 
-  if (normalized === "delivered") return "delivered";
-  if (normalized === "failed" || normalized === "undelivered") return "failed";
+  if (normalized === "delivered" || normalized === "read") return "delivered";
+  if (normalized === "failed" || normalized === "undelivered" || normalized === "canceled") return "failed";
   if (normalized === "sent") return "sent";
   if (normalized === "received") return "received";
 
   return "queued";
+}
+
+/**
+ * TW-4F: the message-log statuses a status callback (already mapped by `mapTwilioStatusToSmsLogStatus`) may replace. Twilio does not guarantee that
+ * callbacks arrive in order, so a late `sent` or `sending` after `delivered` must not move the log back: a final status (delivered / failed) is only
+ * ever replaced by another final one, `sent` never by `queued`. Logs in any other state (suppressed, received) are never changed by a callback.
+ */
+export function smsLogStatusesReplaceableBy(mapped: string): string[] {
+  if (mapped === "delivered" || mapped === "failed") return ["draft", "queued", "sent", "delivered", "failed"];
+  if (mapped === "sent") return ["draft", "queued", "sent"];
+  if (mapped === "received") return ["received"];
+  return ["draft", "queued"];
 }

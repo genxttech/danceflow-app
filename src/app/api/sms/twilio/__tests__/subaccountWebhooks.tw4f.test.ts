@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getExpectedTwilioSignature } from "twilio/lib/webhooks/webhooks";
 import { createFakeSupabase as createBaseFake } from "@/lib/sms/__tests__/fakeSupabase";
@@ -315,5 +317,82 @@ describe("inbound messages to a subaccount", () => {
     const response = await inbound(post(INBOUND_URL, tokenA(), inboundParams(SUB_A, "STOP")));
     expect(response.status).toBe(200);
     expect(fake.current!.rpcCalls.some((c) => c.name === "record_sms_inbound_opt_event")).toBe(true);
+  });
+});
+
+describe("documented Twilio webhook requests (fixtures/twilio/documentedShapes.json)", () => {
+  /** Twilio's documented parameter sets (geo fields, SmsSid / SmsMessageSid / SmsStatus, ApiVersion, OptOutType, MediaUrl0 …), only the identity remapped to this suite's subaccount. */
+  const documented = (JSON.parse(readFileSync(path.join(process.cwd(), "src/lib/sms/__tests__/fixtures/twilio/documentedShapes.json"), "utf8")) as { webhooks: Record<string, Record<string, string>> }).webhooks;
+  const asA = (key: string, extra: Record<string, string> = {}): Record<string, string> => ({ ...documented[key], AccountSid: SUB_A, MessagingServiceSid: SERVICE_A, ...extra });
+  const statusAsA = (key: string, extra: Record<string, string> = {}) => asA(key, { MessageSid: MSG_A, SmsSid: MSG_A, ...extra });
+  const optEvents = () => fake.current!.rpcCalls.filter((c) => c.name === "record_sms_inbound_opt_event");
+
+  it("an Advanced Opt-Out STOP (OptOutType=STOP, body \"Stop\") opts the texter out and stays silent (Twilio already replied)", async () => {
+    seed();
+    const response = await inbound(post(INBOUND_URL, tokenA(), asA("inbound_stop_advanced_opt_out")));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("<Response></Response>");
+    expect(optEvents()).toEqual([expect.objectContaining({ args: { p_studio_id: STUDIO_A, p_phone_e164: PHONE, p_event: "stop" } })]);
+    expect(consent()).toBe("opted_out");
+  });
+
+  it("an Advanced Opt-Out START with a body the fallback list would not need (\"unstop\") applies START silently and records its START signal by MessageSid", async () => {
+    seed();
+    const params = asA("inbound_start_advanced_opt_out");
+    const response = await inbound(post(INBOUND_URL, tokenA(), params));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("<Response></Response>");
+    expect(optEvents()).toEqual([expect.objectContaining({ args: expect.objectContaining({ p_event: "start", p_studio_id: STUDIO_A }) })]);
+    const signal = fake.current!.rpcCalls.find((c) => c.name === "sms_inbound_start_signal_record");
+    expect(signal?.args).toMatchObject({ p_studio_id: STUDIO_A, p_phone_e164: PHONE, p_message_sid: params.MessageSid });
+  });
+
+  it("a picture message with no text (NumMedia=1, Body empty, MediaUrl0) changes no consent", async () => {
+    seed();
+    const response = await inbound(post(INBOUND_URL, tokenA(), asA("inbound_mms_no_body")));
+    expect(response.status).toBe(200);
+    expect(optEvents()).toHaveLength(0);
+    expect(consent()).toBe("opted_in");
+  });
+
+  it("callbacks out of order (Twilio does not guarantee order): a late sent / sending / queued after delivered never moves the log back", async () => {
+    seed();
+    const delivered = await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")));
+    expect(delivered.status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "delivered" });
+    const deliveredAt = logs()["log-a"].delivered_at;
+    for (const late of ["sent", "sending", "queued", "accepted"]) {
+      const response = await status(post(STATUS_URL, tokenA(), statusAsA("status_sent", { MessageStatus: late, SmsStatus: late })));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ ok: true, stale: true });
+      expect(logs()["log-a"]).toMatchObject({ status: "delivered", delivered_at: deliveredAt });
+    }
+  });
+
+  it("in order, the documented sequence sent -> delivered moves the log forward; a later final status still replaces a final one", async () => {
+    seed();
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_sent")))).status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "sent" });
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")))).status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "delivered" });
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_undelivered_30034")))).status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "failed", provider_error_code: "30034" });
+  });
+
+  it("undelivered with ErrorCode 30034 (sender not registered) reaches the billing recorder with its code", async () => {
+    seed();
+    const response = await status(post(STATUS_URL, tokenA(), statusAsA("status_undelivered_30034")));
+    expect(response.status).toBe(200);
+    const recorded = fake.current!.rpcCalls.find((c) => c.name === "tw4_usage_record_callback");
+    expect(recorded?.args).toMatchObject({ p_provider_sid: MSG_A, p_signer_account: SUB_A, p_status: "undelivered", p_error_code: "30034" });
+    expect(logs()["log-a"]).toMatchObject({ status: "failed" });
+  });
+
+  it("a callback never changes a suppressed log", async () => {
+    seed();
+    fake.current!.rows("sms_message_logs").find((r) => r.id === "log-a")!.status = "suppressed";
+    const response = await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")));
+    expect(response.status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "suppressed" });
   });
 });

@@ -1,7 +1,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { sanitizedSmsProviderError } from "@/lib/sms/compliance";
-import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
+import { mapTwilioStatusToSmsLogStatus, smsLogStatusesReplaceableBy } from "@/lib/sms/twilio";
 import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
 import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
 import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
@@ -174,11 +174,11 @@ export async function POST(request: Request) {
   // so one studio's sender can never update another studio's log.
   const { data: logRow, error: lookupError } = await supabase
     .from("sms_message_logs")
-    .select("id, studio_id")
+    .select("id, studio_id, status")
     .eq("provider", "twilio")
     .eq("provider_message_id", messageSid)
     .limit(1)
-    .maybeSingle<{ id: string; studio_id: string | null }>();
+    .maybeSingle<{ id: string; studio_id: string | null; status: string | null }>();
 
   if (lookupError) {
     console.error("Twilio status callback lookup failed", lookupError.message);
@@ -217,7 +217,7 @@ export async function POST(request: Request) {
   }
 
   // TW-4F replay protection: each (MessageSid, MessageStatus) is applied once, so an exact replay of an earlier callback changes nothing.
-  // (A genuine out-of-order callback, e.g. sent after delivered, still applies: there is no status ranking yet.)
+  // (A genuine out-of-order callback, e.g. sent after delivered, is acknowledged below without moving the log back.)
   // If the ledger is unreachable the callback is applied anyway (status updates are idempotent; the signature is already verified).
   const receiptKey = webhookReceiptKey("status", params);
   if (receiptKey) {
@@ -226,7 +226,12 @@ export async function POST(request: Request) {
     if (receipt === "unavailable") console.warn("sms_status_receipt_unavailable");
   }
 
-  let update = supabase.from("sms_message_logs").update(updatePayload).eq("id", logRow.id);
+  // TW-4F: Twilio does not guarantee callback order. A callback that would move the log backwards (a late `sent` after `delivered`) is acknowledged
+  // and changes nothing; the condition is repeated in the update so a callback racing another one cannot move it back either.
+  const replaceable = smsLogStatusesReplaceableBy(mappedStatus);
+  if (!replaceable.includes(String(logRow.status ?? ""))) return NextResponse.json({ ok: true, stale: true });
+
+  let update = supabase.from("sms_message_logs").update(updatePayload).eq("id", logRow.id).in("status", replaceable);
   if (logRow.studio_id) update = update.eq("studio_id", logRow.studio_id);
   const { error } = await update;
 
