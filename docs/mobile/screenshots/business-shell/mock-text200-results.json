@@ -1,0 +1,114 @@
+[
+  {
+    "screen": "sign-in",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "today",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "today-empty",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "today-not-linked",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "today-401",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "today-503",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "appointment-lesson",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "appointment-class-attendance",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "clients",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "client-detail",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "clients-403",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "pulse",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "instructor-my-clients",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "instructor-client-detail",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "more",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  },
+  {
+    "screen": "more-confirm",
+    "ok": true,
+    "pageOverflow": 0,
+    "clipped": [],
+    "offscreen": []
+  }
+]

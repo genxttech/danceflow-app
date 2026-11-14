@@ -1,3 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 import {
   getSmsSendingUnavailableMessage,
   isSmsSendingApproved,
@@ -5,6 +8,10 @@ import {
 } from "@/lib/sms/compliance";
 
 export type TwilioSendSmsInput = {
+  /** The studio texting: a parked opt-out for this studio + number suppresses the send (src/lib/sms/sendSuppression.ts). */
+  studioId: string;
+  /** Database client for that check (server-side admin client by default). */
+  admin?: Pick<SupabaseClient, "rpc">;
   to: string;
   body: string;
   /** SMS-A2P-2: the studio's own approved Messaging Service. There is no global fallback. */
@@ -100,6 +107,15 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
 
   if (!body) {
     return { ok: false, error: "Enter a message before sending a text." };
+  }
+
+  // last gate before the provider call: a parked STOP suppresses the text, and so does "cannot establish" (fail closed)
+  const suppression = await pendingOptOutState(input.admin ?? createAdminClient(), input.studioId, normalizedTo);
+  if (suppression === "blocked") {
+    return { ok: false, error: "This number has opted out of texts from your studio.", errorCode: "sms_opted_out" };
+  }
+  if (suppression === "unknown") {
+    return { ok: false, error: "SMS consent could not be verified.", errorCode: "sms_consent_check_failed" };
   }
 
   const params = new URLSearchParams();

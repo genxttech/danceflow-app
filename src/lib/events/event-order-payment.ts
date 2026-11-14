@@ -246,6 +246,8 @@ export type EventOrderPaymentResult = {
   clientSecret?: string;
   orderId: string;
   publishableKey?: string;
+  /** Connected account that owns a native-payment-sheet PaymentIntent (direct charge); the app must initialize Stripe with it. */
+  stripeAccountId?: string;
   registrationIds: string[];
 };
 
@@ -308,6 +310,10 @@ export async function startEventOrderPayment(params: {
     if (typeof authoritativeCents === "number" && authoritativeCents > 0) {
       throw new Error("This event checkout is still being prepared. Please try again in a moment.");
     }
+    // D7: confirming an unpaid pending $0 order on an organizer event is a new Organizer Suite purchase.
+    if (order.organizer_id && (await getOrganizerPlatformFeePercent(admin, order.studio_id)) <= 0) {
+      throw new Error("DanceFlow organizer checkout is not enabled for this listing.");
+    }
     const now = new Date().toISOString();
     await admin.from("event_orders").update({ status: "confirmed", payment_status: "paid", paid_at: now, updated_at: now }).eq("id", order.id).eq("status", "pending");
     if (registrationIds.length) {
@@ -365,7 +371,7 @@ export async function startEventOrderPayment(params: {
         { stripeAccount: connectedAccountId },
       );
       if (existing.client_secret && !["canceled", "succeeded"].includes(existing.status)) {
-        return { clientSecret: existing.client_secret, orderId: order.id, publishableKey: getStripePublishableKey(), registrationIds };
+        return { clientSecret: existing.client_secret, orderId: order.id, publishableKey: getStripePublishableKey(), stripeAccountId: connectedAccountId, registrationIds };
       }
     }
 
@@ -429,7 +435,7 @@ export async function startEventOrderPayment(params: {
         metadata: { ...(order.metadata ?? {}), payment_intent_attempt_count: paymentIntentAttempt + 1 },
       })
       .eq("id", order.id);
-    return { clientSecret: intent.client_secret, orderId: order.id, publishableKey: getStripePublishableKey(), registrationIds };
+    return { clientSecret: intent.client_secret, orderId: order.id, publishableKey: getStripePublishableKey(), stripeAccountId: connectedAccountId, registrationIds };
   }
 
   let staleSession: { id: string; onPlatform: boolean } | null = null;

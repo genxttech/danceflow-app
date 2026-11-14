@@ -11,6 +11,8 @@ import { VideoView, useVideoPlayer } from "expo-video";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import {
@@ -177,10 +179,7 @@ export default function DigitalContentPlaybackScreen() {
   if (!content || errorMessage) {
     return (
       <Screen>
-        <FeatureCard
-          title="Content unavailable"
-          detail={errorMessage ?? "This content could not be opened."}
-        />
+        <ErrorState error={errorMessage} fallback="This content could not be opened." title="Content unavailable" />
         <AppButton
           label="Try again"
           onPress={() => void load(initialCatalogItemId)}
@@ -205,10 +204,7 @@ export default function DigitalContentPlaybackScreen() {
       ) : null}
 
       {loading && content ? (
-        <FeatureCard
-          title="Loading selected lesson"
-          detail="Refreshing secure playback and progress."
-        />
+        <LoadingState label="Loading selected lesson" />
       ) : null}
 
       {playbackUrl ? (

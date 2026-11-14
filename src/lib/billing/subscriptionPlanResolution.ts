@@ -26,6 +26,8 @@ const PLAN_PRICE_ENV_NAMES: Record<string, string[]> = {
         STUDIO_FOUNDER_PRICE_ENV[code],
         STUDIO_STANDARD_PRICE_ENV[code],
         `${STUDIO_FOUNDER_PRICE_ENV[code]}_LEGACY`,
+        // D7 WP-3: the approved regular Price a protected subscription is moved to (comma-separated); set before the transition boundary.
+        `${STUDIO_STANDARD_PRICE_ENV[code]}_TRANSITION`,
       ],
     ]),
   ),

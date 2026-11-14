@@ -12,6 +12,7 @@ import {
   sanitizedSmsProviderError,
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
+import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 import { BILLED_REFUSAL_MESSAGE, replayMeaning, sendBilledSms, smsUsageBillingEnabled, type BilledSendRefusal } from "@/lib/sms/usageBilling";
 import { billedSmsProviderFromEnv } from "@/lib/sms/usageProvider";
 import { cleanTextValue, normalizeOptionalUuid } from "@/lib/validation/forms";
@@ -32,6 +33,7 @@ const REFUSAL_STATUS: Record<BilledSendRefusal, number> = {
   not_billed: 503,
   invalid: 400,
   forbidden: 403,
+  opted_out: 400,
   unavailable: 503,
 };
 
@@ -177,6 +179,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error }, { status: 400 });
     }
 
+    // TW-4F: a STOP parked because its consent change failed suppresses the text until it is applied or a START supersedes it (fail closed)
+    const parked = await pendingOptOutState(createAdminClient(), studioId, phoneE164);
+    if (parked === "blocked") {
+      return NextResponse.json({ ok: false, error: "This number has opted out of texts from your studio." }, { status: 400 });
+    }
+    if (parked === "unknown") {
+      return NextResponse.json({ ok: false, error: "SMS consent could not be verified." }, { status: 500 });
+    }
+
     // SMS-A2P-2: send only through this studio's own approved registration. The
     // registration table is platform-admin-only under RLS, so it is read server-side.
     const senderResult = await resolveStudioSmsSender(createAdminClient(), studioId);
@@ -264,6 +275,7 @@ export async function POST(request: Request) {
       : null;
 
     const sendResult = await sendTwilioSms({
+      studioId,
       to: phoneE164,
       body: finalBody,
       messagingServiceSid: senderResult.sender.messagingServiceSid,

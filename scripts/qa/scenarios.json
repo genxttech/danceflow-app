@@ -10,7 +10,7 @@
       "migrations": []
     },
     "main": {
-      "description": "origin/main in repo (merge) order: 20261207..20261217, 20261206 (PR #251, merged after 1217), then 20261218..20261227 (1220 is unused)",
+      "description": "origin/main in repo (merge) order: 20261207..20261217, 20261206 (PR #251, merged after 1217), 20261218..20261227 (1220 is unused), then 20261228, 20261229, 20261230, 20261231090000, 20261231100000 the price chain 20270210090000, 20270210100000, 20270210110000 the pending opt-out ledger 20270215100000 and the segment packing 20270217090000",
       "migrations": [
         [
           "MAIN",
@@ -95,11 +95,51 @@
         [
           "MAIN",
           "20261227"
+        ],
+        [
+          "MAIN",
+          "20261228"
+        ],
+        [
+          "MAIN",
+          "20261229"
+        ],
+        [
+          "MAIN",
+          "20261230"
+        ],
+        [
+          "MAIN",
+          "20261231090000"
+        ],
+        [
+          "MAIN",
+          "20261231100000"
+        ],
+        [
+          "MAIN",
+          "20270210090000"
+        ],
+        [
+          "MAIN",
+          "20270210100000"
+        ],
+        [
+          "MAIN",
+          "20270210110000"
+        ],
+        [
+          "MAIN",
+          "20270215100000"
+        ],
+        [
+          "MAIN",
+          "20270217090000"
         ]
       ]
     },
     "numeric": {
-      "description": "fresh-install order: every TW-4F migration above the cutoff in numeric order, 20261206..20261227",
+      "description": "fresh-install order: every TW-4F migration above the cutoff in numeric order, 20261206..20261227, 20261228..20261231100000, 20270210090000..20270210110000, 20270215100000 and 20270217090000",
       "migrations": [
         [
           "MAIN",
@@ -184,6 +224,46 @@
         [
           "MAIN",
           "20261227"
+        ],
+        [
+          "MAIN",
+          "20261228"
+        ],
+        [
+          "MAIN",
+          "20261229"
+        ],
+        [
+          "MAIN",
+          "20261230"
+        ],
+        [
+          "MAIN",
+          "20261231090000"
+        ],
+        [
+          "MAIN",
+          "20261231100000"
+        ],
+        [
+          "MAIN",
+          "20270210090000"
+        ],
+        [
+          "MAIN",
+          "20270210100000"
+        ],
+        [
+          "MAIN",
+          "20270210110000"
+        ],
+        [
+          "MAIN",
+          "20270215100000"
+        ],
+        [
+          "MAIN",
+          "20270217090000"
         ]
       ]
     }

@@ -12,6 +12,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deletePricesSql, ownerReactivate, seedPrice } from "../twilioIsv/__tests__/priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
@@ -214,7 +215,7 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
     closeRuns();
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
     for (const [kind, cents] of [["sms_usage", 3], ["sms_inbound", 2]] as const) {
-      expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: 1, p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
+      seedPrice(psql, { kind: kind, customer: cents, provider: 1, description: `fixture ${kind} price`, approver: U.padmin });
     }
     await readySender(rpc, (sql) => aged(sql), { studio: SA, account: ACC_A, actor: U.padmin, ids: newSenderIds(NUM_A) });
     await readySender(rpc, (sql) => aged(sql), { studio: SB, account: ACC_B, actor: U.padmin, ids: newSenderIds(NUM_B) });
@@ -223,7 +224,8 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
     try {
       closeRuns();
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }

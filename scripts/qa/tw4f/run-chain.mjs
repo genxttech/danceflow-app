@@ -13,7 +13,8 @@
  *   node scripts/qa/tw4f/run-chain.mjs chain  [options]
  *   node scripts/qa/tw4f/run-chain.mjs suites [options] [--suite <path> ...]
  *   node scripts/qa/tw4f/run-chain.mjs all    [options]            chain + suites
- *   node scripts/qa/tw4f/run-chain.mjs down                         remove this tool's leftover containers
+ *   node scripts/qa/tw4f/run-chain.mjs baseline [options]         apply the plan once and write the probe_fingerprint.sql / FP_SQL fingerprints (WP-D0)
+ *   node scripts/qa/tw4f/run-chain.mjs down                        remove this tool's leftover containers
  *
  * Options
  *   --base <ref>             ref providing the baseline chain and the default tests (default origin/main)
@@ -25,7 +26,13 @@
  *   --cutoff <version>       highest version already inside the baseline image (default 20261205090000)
  *   --label <text>           name of the run in the report
  *   --out <dir>              evidence directory (default <QA home>/runs/<time>-<label>)
- *   --env KEY=VALUE          extra environment for every suite (repeatable), e.g. --env TW4RFL_DB=postgres --env ISO_QA_MARKER=1
+ *   --env KEY=VALUE          extra environment for every suite (repeatable; the token {db} becomes the suite database container name), e.g. --env TW4RFL_DB=postgres --env ISO_QA_MARKER=1
+ *   --until <version>        drop every planned migration whose version is above <version> (e.g. 20261231100000: the hosted DEV pending list)
+ *   --track-functions        start every SUITE database with track_functions=all and write coverage.json per suite (pg_stat_user_functions vs public functions)
+ *   --marker                 create public.tw4_local_qa_only in the seed before the plan (plus the auth.users columns GoTrue adds, i.e. iso-qa.mjs parity: ISO_QA_MARKER=1 and its auth step; 11 localStack suites require them)
+ *   --auth                   also start a disposable local GoTrue (own container, TOTP MFA on, auto-confirm, no SMTP) behind Kong at /auth/v1 and export TW4_LOCAL_AUTH_URL (WP-D2 layer b)
+ *   --residue <regex>        (repeatable) catalog lines matching the regex are an ACCEPTED, DOCUMENTED residue of a fail-closed rollback: they are ignored (and listed) when a ROLLBACK stage is compared with the earlier catalog; re-apply stages are still compared exactly (D4-1)
+ *   (default residue) scripts/qa/tw4f/rollback-residue.json is loaded automatically; --no-residue-file ignores it
  *   --keep                   keep the chain image and worktrees
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
@@ -70,26 +77,36 @@ const CRASH_RE = /terminated by signal|was terminated by|exited with exit code [
 
 // ------------------------------------------------------------------------------------------------------------------------------------ args
 function parseArgs(argv) {
-  const flags = { extraBranch: [], extra: [], suite: [], env: {} };
+  const flags = { extraBranch: [], extra: [], suite: [], residue: [], env: {} };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) { rest.push(a); continue; }
     const k = a.slice(2);
     if (k === "keep") { flags.keep = true; continue; }
+    if (k === "no-residue-file") { continue; }
+    if (k === "marker") { flags.marker = true; continue; }
+    if (k === "auth") { flags.auth = true; continue; }
+    if (k === "track-functions") { flags.trackFunctions = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
     if (k === "extra-branch") flags.extraBranch.push(v);
     else if (k === "extra") flags.extra.push(v);
     else if (k === "suite") flags.suite.push(v);
+    else if (k === "residue") flags.residue.push(new RegExp(v));
     else if (k === "env") { const i = v.indexOf("="); flags.env[v.slice(0, i)] = v.slice(i + 1); }
     else flags[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
   }
   return { flags, rest };
 }
 const { flags, rest } = parseArgs(process.argv.slice(2));
+// the default rollback residue list (a fail-closed rollback leaves documented catalog lines); --residue adds to it, --no-residue-file ignores it
+{
+  const f = path.join(path.dirname(fileURLToPath(import.meta.url)), "rollback-residue.json");
+  if (!process.argv.includes("--no-residue-file") && existsSync(f)) for (const pat of JSON.parse(readFileSync(f, "utf8")).patterns ?? []) flags.residue.push(new RegExp(pat));
+}
 const cmd = rest[0];
-if (!["chain", "suites", "all", "down"].includes(cmd ?? "")) die("usage: run-chain.mjs chain|suites|all|down [options] (see the header of this file)");
+if (!["chain", "suites", "all", "baseline", "down"].includes(cmd ?? "")) die("usage: run-chain.mjs chain|suites|all|down [options] (see the header of this file)");
 
 const resolveRef = (ref) => { try { return git("rev-parse", "--verify", `${ref}^{commit}`); } catch { return die(`cannot resolve git ref ${ref} (git fetch origin first)`); } };
 const verOf = (name) => name.slice(0, 14);
@@ -130,10 +147,10 @@ function assertHealthy(c, since) {
   if (since && (st.startedAt !== since.startedAt || st.restarts !== since.restarts)) p.push("container restarted");
   if (p.length) throw Object.assign(new Error(`database unhealthy (${c}): ${p.join("; ")}`), { infra: true });
 }
-const startDb = async (name, image) => {
+const startDb = async (name, image, extraPgArgs = []) => {
   ensureNetwork();
   if (dockerTry("inspect", name).ok) { assertOurs(name); docker("rm", "-f", name); }
-  docker("run", "-d", "--name", name, "--label", LABEL, "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS);
+  docker("run", "-d", "--name", name, "--label", LABEL, "--network", NET, ...LIMITS.db, "-e", "POSTGRES_PASSWORD=postgres", image, ...PG_ARGS, ...extraPgArgs);
   await waitReady(name);
   return dbState(name);
 };
@@ -148,19 +165,33 @@ async function freePort() {
   }
   throw new Error("no free port in 56800-56899");
 }
-const kongYml = (rest) => `_format_version: "2.1"\nservices:\n  - name: rest-v1\n    url: http://${rest}:3000/\n    routes:\n      - name: rest-v1\n        strip_path: true\n        paths: ["/rest/v1/"]\n`;
+const GOTRUE_IMAGE = process.env.ISO_QA_GOTRUE_IMAGE ?? "public.ecr.aws/supabase/gotrue:v2.188.1";
+const kongYml = (rest, auth) => `_format_version: "2.1"\nservices:\n  - name: rest-v1\n    url: http://${rest}:3000/\n    routes:\n      - name: rest-v1\n        strip_path: true\n        paths: ["/rest/v1/"]\n${auth ? `  - name: auth-v1\n    url: http://${auth}:9999/\n    routes:\n      - name: auth-v1\n        strip_path: true\n        paths: ["/auth/v1/"]\n` : ""}`;
 /** PostgREST + Kong in front of a started database; returns the env the suites need. */
 async function startApi(base, dbName) {
-  const n = { rest: `${base}-rest`, kong: `${base}-kong` };
-  removeAll(n.kong, n.rest);
+  const n = { rest: `${base}-rest`, kong: `${base}-kong`, ...(flags.auth ? { auth: `${base}-auth` } : {}) };
+  removeAll(...Object.values(n));
   const jwt = createHash("sha256").update(`${Date.now()}${Math.random()}`).digest("hex").slice(0, 48);
   const port = await freePort();
   const yml = path.join(QA_HOME, `kong-${base}.yml`);
-  writeFileSync(yml, kongYml(n.rest));
+  writeFileSync(yml, kongYml(n.rest, n.auth));
   const pw = psql(dbName, "alter role authenticator with password 'postgres';", { user: "supabase_admin" });
   if (pw.code !== 0) throw new Error(`could not set authenticator password: ${pw.out.slice(0, 200)}`);
   docker("run", "-d", "--name", n.rest, "--label", LABEL, "--network", NET, ...LIMITS.rest, "-e", `PGRST_DB_URI=postgres://authenticator:postgres@${dbName}:5432/postgres`, "-e", "PGRST_DB_SCHEMAS=public",
     "-e", "PGRST_DB_ANON_ROLE=anon", "-e", `PGRST_JWT_SECRET=${jwt}`, "-e", "PGRST_DB_USE_LEGACY_GUCS=false", REST_IMAGE);
+  if (n.auth) {
+    // the baseline image pre-creates auth.jwt()/auth.uid() owned by supabase_admin and the auth tables by another role: GoTrue's own migrations need to own them (disposable database only)
+    const own = psql(dbName, "alter role supabase_auth_admin with password 'postgres';\ndo $q$ declare r record; begin\n  for r in select p.oid::regprocedure as sig from pg_proc p where p.pronamespace = 'auth'::regnamespace and p.proowner <> 'supabase_auth_admin'::regrole loop execute format('alter function %s owner to supabase_auth_admin', r.sig); end loop;\n  for r in select c.oid::regclass as rel, c.relkind from pg_class c where c.relnamespace = 'auth'::regnamespace and c.relkind in ('r','p','v','m','S') and c.relowner <> 'supabase_auth_admin'::regrole loop\n    execute format('alter %s %s owner to supabase_auth_admin', case r.relkind when 'S' then 'sequence' when 'v' then 'view' when 'm' then 'materialized view' else 'table' end, r.rel); end loop;\n  for r in select t.oid::regtype as ty from pg_type t where t.typnamespace = 'auth'::regnamespace and t.typtype = 'e' and t.typowner <> 'supabase_auth_admin'::regrole loop execute format('alter type %s owner to supabase_auth_admin', r.ty); end loop;\nend $q$;", { user: "supabase_admin" });
+    if (own.code !== 0) throw new Error(`could not hand the auth schema to supabase_auth_admin: ${own.out.slice(0, 200)}`);
+  }
+  if (n.auth) {
+    const e = (k, v) => ["-e", `${k}=${v}`];
+    docker("run", "-d", "--name", n.auth, "--label", LABEL, "--network", NET, "--memory", "256m", "--cpus", "0.5",
+      ...e("GOTRUE_API_HOST", "0.0.0.0"), ...e("GOTRUE_API_PORT", "9999"), ...e("API_EXTERNAL_URL", `http://127.0.0.1:${port}`), ...e("GOTRUE_DB_DRIVER", "postgres"), ...e("GOTRUE_DB_NAMESPACE", "auth"),
+      ...e("GOTRUE_DB_DATABASE_URL", `postgres://supabase_auth_admin:postgres@${dbName}:5432/postgres`), ...e("GOTRUE_SITE_URL", "http://127.0.0.1:3000"), ...e("GOTRUE_JWT_SECRET", jwt), ...e("GOTRUE_JWT_EXP", "3600"),
+      ...e("GOTRUE_JWT_AUD", "authenticated"), ...e("GOTRUE_JWT_DEFAULT_GROUP_NAME", "authenticated"), ...e("GOTRUE_DISABLE_SIGNUP", "false"), ...e("GOTRUE_EXTERNAL_EMAIL_ENABLED", "true"), ...e("GOTRUE_MAILER_AUTOCONFIRM", "true"),
+      ...e("GOTRUE_MFA_TOTP_ENROLL_ENABLED", "true"), ...e("GOTRUE_MFA_TOTP_VERIFY_ENABLED", "true"), ...e("GOTRUE_RATE_LIMIT_EMAIL_SENT", "1000"), ...e("GOTRUE_LOG_LEVEL", "info"), GOTRUE_IMAGE);
+  }
   docker("create", "--name", n.kong, "--label", LABEL, "--network", NET, ...LIMITS.kong, "-p", `127.0.0.1:${port}:8000`, "-e", "KONG_DATABASE=off", "-e", "KONG_NGINX_WORKER_PROCESSES=1",
     "-e", "KONG_NGINX_HTTP_KEEPALIVE_TIMEOUT=3600s", "-e", "KONG_NGINX_HTTP_KEEPALIVE_REQUESTS=100000", "-e", "KONG_DECLARATIVE_CONFIG=/home/kong/kong.yml", "-e", "KONG_PROXY_LISTEN=0.0.0.0:8000", "-e", "KONG_DNS_ORDER=LAST,A,CNAME", KONG_IMAGE);
   docker("cp", yml, `${n.kong}:/home/kong/kong.yml`);
@@ -172,7 +203,7 @@ async function startApi(base, dbName) {
     if (Date.now() - t0 > 180_000) throw Object.assign(new Error("the API did not come up"), { infra: true });
     await sleep(1500);
   }
-  return { names: n, env: { TW4A_LOCAL_URL: url, TW4A_LOCAL_DB_CONTAINER: dbName, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1" } };
+  return { names: n, env: { TW4A_LOCAL_URL: url, TW4A_LOCAL_DB_CONTAINER: dbName, TW4A_LOCAL_JWT_SECRET: jwt, TW4_ISO_QA: "1", ...(n.auth ? { TW4_LOCAL_AUTH_URL: `${url}/auth/v1` } : {}) } };
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------ migration plan
@@ -199,6 +230,7 @@ function buildPlan() {
     seen.set(v, it);
   }
   for (const it of items) it.rollbackFile = `${it.file.replace(/\.sql$/, "")}_rollback.sql`;
+  if (flags.until) for (let i = items.length - 1; i >= 0; i--) if (verOf(items[i].file) > flags.until) items.splice(i, 1);
   const sorted = [...items].sort((a, b) => (a.file < b.file ? -1 : 1));
   const ordered = flags.order === "given" ? [...sorted.filter((i) => i.origin === "base"), ...items.filter((i) => i.origin === "extra")] : sorted;
   for (const it of ordered) { it.sql = gitShow(it.ref, `${MIGRATIONS}/${it.file}`); try { it.rollbackSql = gitShow(it.ref, `${ROLLBACKS}/${it.rollbackFile}`); } catch { it.rollbackSql = null; } }
@@ -275,10 +307,16 @@ async function chainCheck(plan, image, outDir) {
       }
       return { ok: true, rows };
     };
-    const cmp = (stage, before, after, expectEqual = true) => {
-      const d = diffFp(before, after);
+    const cmp = (stage, before, after, expectEqual = true, residue = false) => {
+      let d = diffFp(before, after);
+      let ignored = [];
+      if (residue && flags.residue.length) {
+        const isRes = (l) => flags.residue.some((re) => re.test(l));
+        ignored = [...d.onlyBefore, ...d.onlyAfter].filter(isRes);
+        d = { onlyBefore: d.onlyBefore.filter((l) => !isRes(l)), onlyAfter: d.onlyAfter.filter((l) => !isRes(l)) };
+      }
       const same = d.onlyBefore.length === 0 && d.onlyAfter.length === 0;
-      rec(stage, same === expectEqual ? "PASS" : "FAIL", { equal: same, onlyBefore: d.onlyBefore.slice(0, 40), onlyAfter: d.onlyAfter.slice(0, 40), counts: [d.onlyBefore.length, d.onlyAfter.length] });
+      rec(stage, same === expectEqual ? "PASS" : "FAIL", { ...(ignored.length ? { note: `${ignored.length} accepted rollback-residue catalog line(s)`, residue: ignored.slice(0, 40) } : {}), equal: same, onlyBefore: d.onlyBefore.slice(0, 40), onlyAfter: d.onlyAfter.slice(0, 40), counts: [d.onlyBefore.length, d.onlyAfter.length] });
       return same;
     };
 
@@ -296,7 +334,7 @@ async function chainCheck(plan, image, outDir) {
       fpTop = fingerprint(name);
       const r2 = rollAll(extras, "rollback extras");
       if (!r2.ok) return finish("FAIL");
-      cmp("rollback extras == main-only catalog", fpMain, fingerprint(name));
+      cmp("rollback extras == main-only catalog", fpMain, fingerprint(name), true, true);
       const a3 = applyAll(extras, "re-apply extras");
       if (!a3.ok) return finish("FAIL");
       cmp("re-apply extras == first apply", fpTop, fingerprint(name));
@@ -305,7 +343,7 @@ async function chainCheck(plan, image, outDir) {
     const rAll = rollAll(plan, "rollback all (reverse order)");
     if (!rAll.ok) return finish("FAIL");
     rec("rollback all (reverse order)", "PASS", { note: `${plan.length} rollback(s) ran without error`, rows: rAll.rows });
-    cmp("rollback all == baseline catalog", fp0, fingerprint(name));
+    cmp("rollback all == baseline catalog", fp0, fingerprint(name), true, true);
     // 4. re-apply the full plan in plan order
     const a4 = applyAll(plan, "re-apply all");
     if (!a4.ok) return finish("FAIL");
@@ -342,6 +380,10 @@ const saturated = (h) => Boolean(h && ((h.cpuPct ?? 0) >= 85 || h.freeRamGb < 2)
 // ------------------------------------------------------------------------------------------------------------------------------------ suites
 const known = (() => { const f = flags.known ?? path.join(here, "known-failures.json"); return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : { known: [] }; })();
 
+/** One JSON array: every public function/procedure with its volatility and the calls recorded by track_functions=all (0 when never called). */
+const COVERAGE_SQL = `select coalesce(json_agg(json_build_object('name', p.proname, 'args', pg_get_function_identity_arguments(p.oid), 'vol', p.provolatile::text, 'kind', p.prokind::text, 'calls', coalesce(s.calls, 0), 'self_ms', coalesce(s.self_time, 0)) order by p.proname, p.oid), '[]'::json)
+  from pg_proc p left join pg_stat_user_functions s on s.funcid = p.oid where p.pronamespace = 'public'::regnamespace and p.prokind in ('f', 'p');`;
+
 function testWorktree(ref) {
   const sha = resolveRef(ref);
   if (sha === git("rev-parse", "HEAD") && !flags.noWorktree) { /* still use a detached copy: never run a slice's suites from a dirty tree */ }
@@ -375,11 +417,13 @@ async function suiteRun(plan, image, testsRef, outDir) {
 
   // one database with the whole plan applied, stopped and committed: every suite starts from a pristine clone of it
   const seed = `df-q1-seed-${process.pid}`;
-  const chainTag = `df-q1/chain:${sha256(image + plan.map((p) => p.file + sha256(p.sql)).join("|")).slice(0, 12)}`;
+  const chainTag = `df-q1/chain:${sha256(image + plan.map((p) => p.file + sha256(p.sql)).join("|") + (flags.marker ? "|marker" : "")).slice(0, 12)}`;
   const results = [];
   try {
     if (!dockerTry("image", "inspect", chainTag).ok) {
       await startDb(seed, image);
+      if (flags.marker) { const r0 = psql(seed, "alter table auth.users add column if not exists email_confirmed_at timestamptz, add column if not exists banned_until timestamptz, add column if not exists deleted_at timestamptz; do $q$ begin if to_regclass('public.outbound_deliveries') is not null then grant update, delete on public.outbound_deliveries to authenticated; end if; end $q$;", { user: "supabase_admin" }); if (r0.code !== 0) return { verdict: "INFRA", results, note: `auth columns: ${r0.out.slice(0, 200)}` }; }
+      if (flags.marker) { const r = psql(seed, "create table if not exists public.tw4_local_qa_only (note text); revoke all on public.tw4_local_qa_only from public, anon, authenticated, service_role;"); if (r.code !== 0) return { verdict: "INFRA", results, note: `marker: ${r.out.slice(0, 200)}` }; }
       for (const m of plan) { const r = applySql(seed, m.file, m.sql); if (!r.ok) return { verdict: "INFRA", results, note: `${m.file}: ${r.error}` }; }
       const ident = psql(seed, `select set_config('request.jwt.claims', '{"sub":"11111111-2222-4333-8444-555555555555","role":"authenticated"}', false) is not null and auth.uid() = '11111111-2222-4333-8444-555555555555'::uuid;`, { tuples: true });
       if (ident.out.trim().split("\n").pop() !== "t") return { verdict: "INFRA", results, note: "auth.uid() identity round trip failed" };
@@ -394,15 +438,20 @@ async function suiteRun(plan, image, testsRef, outDir) {
       const runDir = path.join(outDir, `suite-${i}-${path.basename(f, ".test.ts")}`);
       mkdirSync(path.join(runDir, "tmp"), { recursive: true });
       try {
-        const since = await startDb(base, chainTag);
+        const since = await startDb(base, chainTag, flags.trackFunctions ? ["-c", "track_functions=all"] : []);
         const api = await startApi(base, base);
         const jsonOut = path.join(runDir, "vitest.json");
         const args = [path.join(tests.dir, "node_modules", "vitest", "vitest.mjs"), "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, "--testTimeout=60000", "--hookTimeout=120000", f];
         const tmp = path.join(runDir, "tmp");
-        const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...flags.env, ...api.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp }, encoding: "utf8", maxBuffer: 1 << 28, timeout: 30 * 60_000, killSignal: "SIGKILL" });
+        const r = spawnSync(process.execPath, args, { cwd: tests.dir, env: { ...process.env, ...Object.fromEntries(Object.entries(flags.env).map(([k, v]) => [k, v.replaceAll("{db}", base)])), ...api.env, TMP: tmp, TEMP: tmp, TMPDIR: tmp }, encoding: "utf8", maxBuffer: 1 << 28, timeout: 30 * 60_000, killSignal: "SIGKILL" });
         const out = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
         writeFileSync(path.join(runDir, "vitest.log"), out);
         writeFileSync(path.join(runDir, "postgres.log"), dockerLogs(base));
+        if (flags.trackFunctions) {
+          await sleep(2500); // let backends flush pending function stats
+          const cv = psql(base, COVERAGE_SQL, { tuples: true });
+          writeFileSync(path.join(runDir, "coverage.json"), cv.code === 0 ? cv.out : JSON.stringify({ error: cv.out.slice(0, 300) }));
+        }
         let unhealthy = null;
         try { assertHealthy(base, since); } catch (e) { unhealthy = e.message; }
         if (r.error || r.status === null) unhealthy = `${unhealthy ? unhealthy + "; " : ""}test process did not exit normally (${r.error?.code ?? r.signal})`;
@@ -432,7 +481,7 @@ async function suiteRun(plan, image, testsRef, outDir) {
         rec.host.end = await hostSample();
         rec.hostSaturated = saturated(rec.host.start) || saturated(rec.host.end);
         if (rec.hostSaturated && ["FAIL", "INFRA"].includes(rec.status)) rec.note = `${rec.note} [resource exhaustion suspected: host saturated during this suite; rerun on an idle host before treating as a regression]`.trim();
-        removeAll(`${base}-kong`, `${base}-rest`, base);
+        removeAll(`${base}-kong`, `${base}-rest`, `${base}-auth`, base);
       }
       results.push(rec);
       log(`${rec.status.padEnd(7)} ${f} ${rec.counts ? `${rec.counts.passed}/${rec.counts.total}` : ""} ${rec.seconds}s ${rec.note ? "- " + rec.note.slice(0, 100) : ""}`);
@@ -454,6 +503,7 @@ async function main() {
     log(`removed ${all.length} container(s)`);
     return 0;
   }
+  if (cmd === "baseline") return baseline();
   const image = flags.image ?? PG_IMAGE_DEFAULT;
   if (!dockerTry("image", "inspect", image).ok) die(`baseline image ${image} not found: build it with \`node scripts/qa/iso-qa.mjs baseline\` (PR #266)`, 3);
   const plan = buildPlan();
@@ -490,6 +540,30 @@ async function main() {
   console.log(markdown(report));
   log(`evidence: ${outDir}  exit=${code}`);
   return code;
+}
+
+/** WP-D0: apply the plan once on a fresh database and record both fingerprints (the hosted probe_fingerprint.sql method, and this runner's FP_SQL). */
+async function baseline() {
+  const image = flags.image ?? PG_IMAGE_DEFAULT;
+  if (!dockerTry("image", "inspect", image).ok) die(`baseline image ${image} not found`, 3);
+  const plan = buildPlan();
+  const outDir = flags.out ?? path.join(QA_HOME, "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-${flags.label ?? "baseline"}`);
+  mkdirSync(outDir, { recursive: true });
+  const name = `df-q1-base-${process.pid}`;
+  log(`baseline plan (${plan.length}): ${plan.map((p) => p.file.slice(0, 14)).join(" ")}`);
+  try {
+    await startDb(name, image);
+    for (const m of plan) { const r = applySql(name, m.file, m.sql); if (!r.ok) { log(`FAIL ${m.file}: ${r.error}`); return 3; } }
+    const probe = readFileSync(path.join(REPO, "scripts", "hosted", "tw4f", "probe_fingerprint.sql"), "utf8");
+    const pr = psql(name, `begin read only;\n${probe}\nrollback;`, { tuples: true });
+    writeFileSync(path.join(outDir, "probe_fingerprint.txt"), pr.out);
+    const fp = fingerprint(name);
+    writeFileSync(path.join(outDir, "fp_sql.txt"), fp.join("\n"));
+    const all = pr.out.split("\n").find((l) => l.startsWith("rollup:ALL"));
+    const count = psql(name, "select count(*) filter (where provolatile = 'v'), count(*) from pg_proc where pronamespace = 'public'::regnamespace and prokind in ('f','p');", { tuples: true }).out.trim();
+    console.log(JSON.stringify({ plan: plan.map((p) => p.file.slice(0, 14)), applied: plan.length, probeRollupAll: all, fpSqlRows: fp.length, fpSqlMd5: createHash("md5").update(fp.join("\n")).digest("hex").slice(0, 8), publicFnVolatileAndTotal: count, outDir }, null, 2));
+    return 0;
+  } finally { removeAll(name); }
 }
 
 function markdown(r) {

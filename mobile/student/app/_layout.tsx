@@ -1,16 +1,19 @@
 import { useEffect } from "react";
 import { useColorScheme } from "react-native";
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StripeProvider } from "@stripe/stripe-react-native";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { guestMayView } from "@/lib/guestAccess";
 import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
 import { colorsForScheme, hydrateAppearanceMode } from "@/constants/theme";
 
 const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
 
 function AppStack() {
-  const { session } = useAuth();
+  const { loading, session } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
   const scheme = useColorScheme();
   const colors = colorsForScheme(scheme);
 
@@ -19,6 +22,13 @@ function AppStack() {
   useEffect(() => {
     hydrateAppearanceMode();
   }, []);
+
+  // Guest discovery: a signed-out visitor may open public screens only (see guestAccess). Anything
+  // else, including a deep link to Wallet or a ticket, goes to sign-in.
+  const blockedForGuest = !loading && !session && !guestMayView(segments);
+  useEffect(() => {
+    if (blockedForGuest) router.replace("/(auth)/sign-in");
+  }, [blockedForGuest, router]);
 
   return (
     <>
@@ -35,7 +45,6 @@ function AppStack() {
         }}
       >
         <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="lumi"
@@ -46,7 +55,7 @@ function AppStack() {
           }}
         />
         <Stack.Screen
-          name="partners"
+          name="partners/index"
           options={{
             headerShown: true,
             title: "Partner Search"
@@ -67,7 +76,7 @@ function AppStack() {
           }}
         />
         <Stack.Screen
-          name="jobs"
+          name="jobs/index"
           options={{
             headerShown: true,
             title: "Now Hiring"
@@ -95,7 +104,7 @@ function AppStack() {
           }}
         />
         <Stack.Screen
-          name="discover/events"
+          name="discover/events/index"
           options={{
             headerShown: true,
             title: "Events"
@@ -151,7 +160,7 @@ function AppStack() {
           }}
         />
         <Stack.Screen
-          name="studios/[id]"
+          name="studios/[id]/index"
           options={{
             headerShown: true,
             title: "Studio"
@@ -223,7 +232,8 @@ function AppStack() {
         <Stack.Screen
           name="events/[id]"
           options={{
-            headerShown: true,
+            // The redesigned hero is full-bleed with its own back button.
+            headerShown: false,
             title: "Event"
           }}
         />

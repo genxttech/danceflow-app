@@ -1,0 +1,57 @@
+{
+  "day": "2026-11-10",
+  "gotrue": "v2.188.1",
+  "evidence": [
+    {
+      "step": "magic link",
+      "subject": "Your Magic Link",
+      "verifyStatus": 303,
+      "redirectScheme": "danceflow-business://auth/callback",
+      "hasCode": true
+    },
+    {
+      "step": "instructor tabs",
+      "tabs": [
+        "\n\nToday",
+        "\n\nClients",
+        "\n\nMore"
+      ]
+    },
+    {
+      "step": "before sign-out",
+      "status": 200,
+      "code": null
+    },
+    {
+      "step": "old token after sign-out",
+      "status": 401,
+      "code": "unauthenticated"
+    },
+    {
+      "step": "storage after sign-out",
+      "hasSession": false
+    },
+    {
+      "step": "revoke all sessions",
+      "status": 204
+    },
+    {
+      "step": "sign in again",
+      "landedOnSignIn": true
+    },
+    {
+      "step": "owner tabs",
+      "tabs": [
+        "\n\nPulse",
+        "\n\nToday",
+        "\n\nClients",
+        "\n\nMore"
+      ]
+    },
+    {
+      "step": "page errors",
+      "count": 0,
+      "first": null
+    }
+  ]
+}

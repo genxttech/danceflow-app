@@ -6,6 +6,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { getVerifiedAal2SessionId, requirePlatformStepUp, stepUpChallengeUrl } from "@/lib/auth/platform-assurance";
+import { recordPlatformSupportEvent, resolveCurrentSupportStudio } from "@/lib/auth/platform-support-audit";
+import { SUPPORT_COOKIE_MAX_AGE_SECONDS, newSupportNonce, signSupportCookie, supportCookieStudioHint } from "@/lib/auth/platform-support-cookie";
 import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
 import { getVerifiedEmailForUser, verifiedEmailMatches } from "@/lib/auth/verifiedIdentity";
 import {
@@ -55,7 +58,9 @@ function optionalSafeUrl(value: string) {
 }
 
 export async function enterStudioContextAction(formData: FormData) {
-  await requirePlatformAdmin();
+  // H1: entering a studio as platform admin grants studio-owner-equivalent authority, so it needs a VERIFIED aal2 session (role first, then claims).
+  // Called outside any try/catch: a refusal is a redirect to the MFA challenge. getCurrentStudioContext enforces the same rule on every later request.
+  const admin = await requirePlatformStepUp("aal2", "/platform/studios");
 
   const studioId = requireUuidFromForm(formData, "studioId", "Studio", "/platform/studios");
 
@@ -71,35 +76,62 @@ export async function enterStudioContextAction(formData: FormData) {
   }
 
   const cookieStore = await cookies();
-  cookieStore.set(PLATFORM_STUDIO_COOKIE, studioId, {
+  const previousStudioId = await resolveCurrentSupportStudio(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
+  const nonce = newSupportNonce();
+  // Bind the cookie to this verified auth session so it cannot outlive a sign-out/re-login.
+  const sessionId = await getVerifiedAal2SessionId(admin.id);
+  if (!sessionId) redirect(stepUpChallengeUrl("aal1", "/platform/studios"));
+  const token = signSupportCookie(admin.id, studioId, sessionId, nonce);
+  if (!token) redirect("/platform/studios");
+
+  // Fail closed: no audit row, no support context. The row carries the token's nonce, which also revokes every earlier token for this admin.
+  const audited = await recordPlatformSupportEvent({
+    event: previousStudioId && previousStudioId !== studioId ? "switch" : "enter",
+    studioId,
+    userId: admin.id,
+    previousStudioId,
+    nonce,
+  });
+  if (!audited) redirect("/platform/studios");
+
+  cookieStore.set(PLATFORM_STUDIO_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
+    maxAge: SUPPORT_COOKIE_MAX_AGE_SECONDS,
   });
 
   redirect("/app");
 }
 
 export async function clearStudioContextAction() {
-  await requirePlatformAdmin();
+  // Leaving a studio only REDUCES privilege, so it stays available to a platform admin at any assurance level and its audit write is best-effort.
+  const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
+  const rawCookie = cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value;
+  // Fall back to the unauthenticated studio hint so a failed claims read or an AAL1 session cannot leave a copied cookie un-revoked: the exit row only
+  // reduces privilege, so it is safe to write for an unverified cookie (the caller is an authenticated platform admin and can only revoke their own context).
+  const current = (await resolveCurrentSupportStudio(rawCookie, admin.id)) ?? supportCookieStudioHint(rawCookie);
+  if (current) {
+    // The exit row is what REVOKES the cookie (it makes the entry row no longer the latest), so retry once before giving up.
+    let recorded = await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+    if (!recorded) recorded = await recordPlatformSupportEvent({ event: "exit", studioId: current, userId: admin.id });
+    // Without the revoking row a copied cookie stays valid, so never present this as a completed exit: keep the (still live) context, say so, and let the
+    // admin retry. Signing out also ends it, because the cookie is bound to the auth session.
+    if (!recorded) redirect("/platform/studios?exit=failed");
+  }
   cookieStore.delete(PLATFORM_STUDIO_COOKIE);
 
   redirect("/platform");
 }
 
 export async function getPlatformSelectedStudioId() {
-  await requirePlatformAdmin();
+  const admin = await requirePlatformAdmin();
 
   const cookieStore = await cookies();
-  const selectedStudioIdResult = normalizeOptionalUuid(
-    cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "",
-    "Selected studio",
-  );
-
-  return selectedStudioIdResult.ok ? selectedStudioIdResult.value : null;
+  return resolveCurrentSupportStudio(cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value, admin.id);
 }
 function normalizePlatformAlertType(value: FormDataEntryValue | null) {
   const normalized = String(value ?? "info").trim().toLowerCase();

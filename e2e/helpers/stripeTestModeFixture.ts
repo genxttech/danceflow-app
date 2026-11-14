@@ -236,7 +236,9 @@ export async function cleanupStripeTestModeFixture(config: E2EConfig, fixture: S
   await step("events", () => admin.from("events").delete().in("id", eventIds));
   await step("document_templates", () => admin.from("document_templates").delete().eq("id", fixture.templateId));
   await step("organizers", () => admin.from("organizers").delete().eq("id", fixture.organizerId));
-  await step("usage_addon_entitlements", () => admin.from("usage_addon_entitlements").delete().eq("studio_id", fixture.studioId));
+  // No direct delete of usage_addon_entitlements: since D7 (migration 20270203100000) the service role has no DELETE on that
+  // table. The organizer suite row is studio-scoped (studio_id ... on delete cascade), so the studios delete below removes it
+  // and the audit trigger records a 'delete' event. The check after the studio delete proves nothing was left behind.
   await step("studio_subscriptions", () => admin.from("studio_subscriptions").delete().eq("studio_id", fixture.studioId));
   await step("payment exceptions", () => admin.from("event_order_settlement_exceptions").delete().eq("studio_id", fixture.studioId));
   await step("outbound_deliveries", () => admin.from("outbound_deliveries").delete().eq("studio_id", fixture.studioId));
@@ -260,5 +262,9 @@ export async function cleanupStripeTestModeFixture(config: E2EConfig, fixture: S
 
   const { data: studioLeft } = await admin.from("studios").select("id").eq("id", fixture.studioId).maybeSingle();
   if (studioLeft) failures.push("studio row still present");
+  const { count: entitlementsLeft, error: entitlementsError } = await admin.from("usage_addon_entitlements")
+    .select("id", { count: "exact", head: true }).eq("studio_id", fixture.studioId);
+  if (entitlementsError) failures.push(`usage_addon_entitlements check: ${entitlementsError.message}`);
+  else if (entitlementsLeft) failures.push(`usage_addon_entitlements: ${entitlementsLeft} row(s) still present`);
   if (failures.length) throw new Error(`Stripe test-mode fixture cleanup incomplete: ${failures.join("; ")}`);
 }

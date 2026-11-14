@@ -5,6 +5,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
 import { countTerminalPaymentSessions } from "@/lib/payments/terminal-quick-charge";
+import { TERMINAL_ORGANIZER_SUITE_ERROR_CODE, terminalSaleNeedsOrganizerSuite } from "@/lib/events/terminalOrganizerSuite";
 
 function getBaseUrl() {
   return (
@@ -168,6 +169,25 @@ export async function POST(request: NextRequest) {
 
     if (openSession?.id) {
       return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_session_already_open" }));
+    }
+
+    // D7 P2-3: collecting a NEW ticket sale for an organizer event needs a current Organizer Suite entitlement. Checked
+    // before the ticket hold and before any PaymentIntent exists. Other payment types, ordinary studio events and
+    // payments that were already collected (not pending/failed, refused above) are untouched.
+    if (payment.payment_type === "event_registration" && payment.external_reference) {
+      const { data: saleRegistration, error: saleRegistrationError } = await supabase
+        .from("event_registrations")
+        .select("id, events:event_id ( studio_id, organizer_id )")
+        .eq("id", payment.external_reference)
+        .eq("studio_id", studio.id)
+        .maybeSingle();
+      const saleEvent = Array.isArray(saleRegistration?.events) ? saleRegistration?.events[0] : saleRegistration?.events;
+      if (saleRegistrationError || !saleRegistration || !saleEvent) {
+        return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_ticket_sale_not_payable" }));
+      }
+      if (await terminalSaleNeedsOrganizerSuite(supabase, { studioId: studio.id, organizerId: saleEvent.organizer_id })) {
+        return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: TERMINAL_ORGANIZER_SUITE_ERROR_CODE }));
+      }
     }
 
     // PAY-WH-1A: a box-office ticket sale reserves its tickets (database-checked) before the card is charged.

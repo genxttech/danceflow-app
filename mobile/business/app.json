@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "DanceFlow Business",
+    "slug": "danceflow-business",
+    "scheme": "danceflow-business",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "backgroundColor": "#fff9f3",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.idanceflow.business",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.idanceflow.business",
+      "versionCode": 1
+    },
+    "web": {
+      "output": "single",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-dev-client"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "description": "DanceFlow Business is the studio staff companion to DanceFlow: your teaching day, lesson details and studio pulse."
+  }
+}

@@ -49,7 +49,7 @@ vi.mock("@/lib/sms/twilioIsv/factory", async (orig) => {
   return { ...real, buildRunnerRuntime: trap("runner"), buildRunnerStore: trap("store"), buildProvisioningRuntime: trap("prov"), buildNumberRuntime: trap("num") };
 });
 
-type Tier = "aal2" | "recent";
+type Tier = "aal2" | "recent" | "fresh";
 
 /** file -> action -> tier. Classification rationale is in docs/twilio/TW-4F_Platform_Admin_AAL2.md. */
 const REGISTRY: Record<string, Record<string, Tier>> = {
@@ -78,6 +78,10 @@ const REGISTRY: Record<string, Record<string, Tier>> = {
     panelCreateSubaccountAction: "recent",
     panelDecideTierAction: "aal2",
   },
+  "priceChangeActions.ts": {
+    pricePropose: "fresh", priceApprove: "fresh", priceReject: "aal2", priceRevise: "fresh", priceFreeze: "aal2", priceReportCompromise: "aal2", priceAuthzBegin: "fresh", priceAuthzFinish: "fresh",
+    priceCredBegin: "fresh", priceCredEnroll: "fresh", priceCredRevoke: "fresh", priceThaw: "fresh", priceCredApply: "fresh", priceCredCancel: "fresh", priceCredPending: "aal2", priceRecoveryEnroll: "fresh", priceRecoveryFreeze: "aal2",
+  },   // D4-1: dual-controlled SMS price changes
   "provisioningActions.ts": {
     resolveProvisioningOperationAction: "recent",
     recordProviderListingAction: "aal2",
@@ -145,8 +149,8 @@ describe("completeness and source order", () => {
         const tier = actions[name];
         it(`${name} runs the ${tier} guard before any other work`, () => {
           const inner = body.slice(body.indexOf("{", body.indexOf(")")) + 1);
-          if (file === "recurringFeeActions.ts") {
-            expect(inner.trimStart().startsWith(`await guarded("${tier}", `)).toBe(true);
+          if (file === "recurringFeeActions.ts" || file === "priceChangeActions.ts") {
+            expect(inner.trimStart().startsWith(`await guarded("${tier}", `) || inner.trimStart().startsWith(`return await guardedData("${tier}", `)).toBe(true);
           } else {
             expect(inner.trimStart().startsWith(`const admin = await requirePlatformStepUp("${tier}");`) || inner.trimStart().startsWith(`await requirePlatformStepUp("${tier}");`)).toBe(true);
           }
@@ -162,6 +166,13 @@ describe("completeness and source order", () => {
     expect(helper.indexOf("requirePlatformStepUp(tier)")).toBeLessThan(helper.indexOf("await work(admin)"));
   });
 
+  it("the price-change helper passes its tier to the guard before running the work", () => {
+    const src = source("priceChangeActions.ts");
+    const helper = src.slice(src.indexOf("async function guarded("), src.indexOf("const store = "));
+    expect(helper).toContain("await requirePlatformStepUp(tier);");
+    expect(helper.indexOf("requirePlatformStepUp(tier)")).toBeLessThan(helper.indexOf("await work(admin)"));
+  });
+
   it("the sensitive set is what the design doc says: no recent-tier action is downgraded", () => {
     const recent = Object.values(REGISTRY).flatMap((a) => Object.entries(a).filter(([, t]) => t === "recent").map(([n]) => n));
     expect(recent.sort()).toEqual(
@@ -173,6 +184,16 @@ describe("completeness and source order", () => {
         "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction",
       ].sort(),
     );
+  });
+
+  it("every pricing ceremony runs the fresh-MFA tier (10 minutes); only the emergency stops, reject and the read stay plain aal2", () => {
+    const fresh = Object.values(REGISTRY).flatMap((a) => Object.entries(a).filter(([, t]) => t === "fresh").map(([n]) => n));
+    expect(fresh.sort()).toEqual(
+      ["pricePropose", "priceApprove", "priceRevise", "priceAuthzBegin", "priceAuthzFinish", "priceCredBegin", "priceCredEnroll", "priceCredRevoke", "priceThaw", "priceCredApply", "priceCredCancel", "priceRecoveryEnroll"].sort(),
+    );
+    expect(REGISTRY["priceChangeActions.ts"].priceFreeze).toBe("aal2");
+    expect(REGISTRY["priceChangeActions.ts"].priceReportCompromise).toBe("aal2");
+    expect(REGISTRY["priceChangeActions.ts"].priceRecoveryFreeze).toBe("aal2");
   });
 });
 

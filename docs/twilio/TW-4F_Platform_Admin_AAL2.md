@@ -82,6 +82,8 @@ All `/platform/sms` pages and panels (`page.tsx`, `ActivationPanel`, `RecurringF
 3. `evaluateAssurance` (pure, unit-tested): `sub` equals the admin id from step 1; `exp` is a number in the future; `aal === "aal2"` exactly; `amr` contains a `totp` entry. For tier `recent`, the **newest** `totp` entry must have a numeric `timestamp` no older than `STEP_UP_WINDOW_SECONDS` (900 s) and no more than 60 s in the future. A string-format `amr` cannot prove recency, so it passes `aal2` but fails `recent`.
 4. Anything else (claims error, thrown error, missing/unknown/malformed field) is a refusal. Fail closed; there is no fallback to the role alone.
 
+PRICING (D4-1/D4-2): the price ceremonies use a third tier, `fresh`, with a 10-minute window (`STEP_UP_FRESH_SECONDS`) that matches the database default `fresh_mfa_max_age_seconds = 600`, which the database enforces again (a missing or malformed timestamp is refused). Freeze, report-compromise and the recovery freeze stay plain `aal2` so an emergency stop is not blocked by an old code. Observed against the local GoTrue: a refresh-token refresh keeps the original `amr` timestamp; re-verifying a code on the session (the step-up page) issues a newer one (test RTA-10).
+
 The window uses the `amr` TOTP timestamp, which Supabase sets when `mfa.challengeAndVerify` succeeds and preserves across token refresh. A password re-login does not renew it. Replay: a stolen aal2 cookie is usable for `A2` actions until the session ends, and for `A2+R` actions only within 15 minutes of the last authenticator code; after that the thief needs a fresh code. (Whether GoTrue rejects reuse of a TOTP code inside its validity window was not verified; do not rely on it.)
 
 ### 3.2 Failure experience (never silent)

@@ -4,6 +4,8 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -74,15 +76,12 @@ export default function DigitalPurchasesPage() {
       </AppText>
 
       {loading ? (
-        <FeatureCard
-          title="Loading digital purchases..."
-          detail="Checking your active content access."
-        />
+        <LoadingState label="Loading digital purchases" />
       ) : null}
 
       {!loading && errorMessage ? (
         <>
-          <FeatureCard title="Digital purchases unavailable" detail={errorMessage} />
+          <ErrorState error={errorMessage} title="Digital purchases unavailable" />
           <AppButton label="Try again" onPress={() => void load()} variant="secondary" />
         </>
       ) : null}

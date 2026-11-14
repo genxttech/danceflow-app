@@ -324,6 +324,9 @@ type EventRow = {
   registration_required: boolean | null;
   latitude: number | null;
   longitude: number | null;
+  venue_name?: string | null;
+  city?: string | null;
+  state?: string | null;
 };
 
 type EventPublicStyleRow = {
@@ -555,6 +558,18 @@ function locationLabel(value: {
   return venue || cityState || "Location coming soon";
 }
 
+type PlaceFields = { city?: string | null; state?: string | null; venue_name?: string | null; location_name?: string | null };
+
+/**
+ * Where a listed event is: the event's own venue_name, city and state; when the event has none, its
+ * first event location, then its studio. No distance and no device location.
+ */
+export function publicEventLocation(event: PlaceFields, firstLocation: PlaceFields | null, studio: PlaceFields | null) {
+  const hasOwnPlace = [event.venue_name, event.city, event.state].some((value) => Boolean(value?.trim()));
+  if (hasOwnPlace) return locationLabel({ venue_name: event.venue_name, city: event.city, state: event.state });
+  return firstLocation ? locationLabel(firstLocation) : locationLabel(studio ?? {});
+}
+
 function firstJoin<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
@@ -681,7 +696,7 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     supabase
       .from("events")
       .select(
-        "id, slug, studio_id, organizer_id, name, event_type, public_cover_image_url, cover_image_url, start_date, end_date, start_time, end_time, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude"
+        "id, slug, studio_id, organizer_id, name, event_type, public_cover_image_url, cover_image_url, start_date, end_date, start_time, end_time, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude, venue_name, city, state"
       )
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
@@ -779,7 +794,7 @@ export async function getPublicEventsForMobile(userId?: string | null) {
       hostName: organizer?.name || (studio ? studioTitle(studio) : "DanceFlow event"),
       categoryLabel: categoryLabelForEventStyles(eventStyles),
       schedule: formatSchedule(event),
-      location: firstLocation ? locationLabel(firstLocation) : locationLabel(studio ?? {}),
+      location: publicEventLocation(event, firstLocation, studio ?? null),
       latitude,
       longitude,
       summary: event.public_summary || event.public_description,

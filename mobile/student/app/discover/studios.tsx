@@ -6,6 +6,8 @@ import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -244,11 +246,11 @@ export default function DiscoverStudiosScreen() {
         </View>
       ) : null}
 
-      {locationError ? <FeatureCard title="Location" detail={locationError} /> : null}
+      {locationError ? <ErrorState error={locationError} title="Location" /> : null}
 
-      {loading ? <FeatureCard title="Loading studios" detail="Finding public studio profiles." /> : null}
+      {loading ? <LoadingState label="Loading studios" /> : null}
       {message ? <FeatureCard title="Studios" detail={message} /> : null}
-      {errorMessage ? <FeatureCard title="Studios need attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Studios need attention" /> : null}
 
       {favoriteStudios.length > 0 ? (
         <View style={styles.sectionHeading}>
@@ -290,7 +292,7 @@ export default function DiscoverStudiosScreen() {
                 pressed && styles.cardPressed
               ]}
             >
-              <Ionicons color="#EF4444" name="heart" size={22} />
+              <Ionicons color={colors.danger} name="heart" size={22} />
             </Pressable>
             <AppButton
               label="Open"
@@ -418,8 +420,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
   },
   cardImageFallback: {
     alignItems: "center",
-    backgroundColor: "rgba(244, 63, 142, 0.12)",
-    borderColor: "rgba(244, 63, 142, 0.25)",
+    backgroundColor: colors.surfaceGlow,
+    borderColor: colors.borderStrong,
     borderRadius: 16,
     borderWidth: 1,
     height: 72,
@@ -555,7 +557,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "700"
   },
   radiusTextActive: {
-    color: colors.white
+    color: colors.onPrimary
   },
   sectionHeading: {
     gap: 4,

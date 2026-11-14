@@ -66,3 +66,16 @@ export async function recordWebhookReceipt(
     return "unavailable";
   }
 }
+
+/** Read-only check of the replay ledger: "seen" when the event was already recorded, "unseen" when not, "unavailable" when it cannot be read (the caller then processes the event). */
+export async function receiptSeen(
+  supabase: Pick<SupabaseClient, "rpc">, kind: "inbound" | "status", key: string,
+): Promise<"seen" | "unseen" | "unavailable"> {
+  try {
+    const { data, error } = (await supabase.rpc("sms_webhook_receipt_seen", { p_kind: kind, p_event_key: key })) as { data: unknown; error: { code?: string } | null };
+    if (error) return "unavailable";
+    return data === true ? "seen" : data === false ? "unseen" : "unavailable";
+  } catch {
+    return "unavailable";
+  }
+}

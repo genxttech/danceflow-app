@@ -1,0 +1,208 @@
+{
+  "apiVersion": "2026-03-25.dahlia",
+  "account": "acct_1UWz98RESPl6zEVj",
+  "summary": {
+    "catalog": {
+      "product": "prod_VY6R2O6fbH9Hre",
+      "legacy": "price_1UX0EXRESPl6zEVjXZhrkSDk",
+      "regular": "price_1UX0EXRESPl6zEVj0DPfJFAm"
+    },
+    "mainBoundary": "2027-07-09T04:00:00.000Z",
+    "mainRolled": true,
+    "reconcileEvidence": {
+      "subscription_id": "sub_1UX0EdRESPl6zEVjlRRzZGgq",
+      "price_id": "price_1UX0EXRESPl6zEVj0DPfJFAm",
+      "schedule_id": "sub_sched_1UX0EhRESPl6zEVjxxubnQ1W",
+      "boundary_at": "2027-07-09T04:00:00.000Z",
+      "observed_at": "2027-07-09T06:00:00.000Z",
+      "subscription_status": "active",
+      "observed_period_start": "2027-07-09T04:00:00.000Z",
+      "observed_period_end": "2027-08-09T04:00:00.000Z",
+      "observed_price_ids": "price_1UX0EXRESPl6zEVj0DPfJFAm",
+      "observed_amount_cents": 15900,
+      "customer_matches": true,
+      "studio_matches": true,
+      "phase_entered": true,
+      "price_changed": true,
+      "amount_matches_notice": true,
+      "period_start": "2027-07-09T04:00:00.000Z",
+      "schedule_status": "active"
+    },
+    "testClocksCreated": 16,
+    "executorAttempts": {
+      "create": 6,
+      "update": 5,
+      "release": 4
+    }
+  },
+  "results": [
+    {
+      "id": "T1",
+      "title": "dry run is the default and writes nothing",
+      "pass": true,
+      "detail": "ok=true schedule=null audits=0 writes unchanged=true"
+    },
+    {
+      "id": "T0",
+      "title": "test clock lands the first period end on the exact policy boundary 2027-07-09T04:00:00Z",
+      "pass": true,
+      "detail": "2027-07-09T04:00:00.000Z"
+    },
+    {
+      "id": "T2",
+      "title": "execute with the correct hash creates a verified two-phase schedule and finalizes the audit row",
+      "pass": true,
+      "detail": "status=scheduled reason= blockers= phases=2 audit=scheduled schedule=sub_sched_1UX0EhRESPl6zEVjxxubnQ1W"
+    },
+    {
+      "id": "T2b",
+      "title": "phase 1 ends at the boundary on the legacy price; phase 2 starts there on the regular price, no proration",
+      "pass": true,
+      "detail": "[{\"start\":1812513600,\"end\":1815105600,\"price\":\"price_1UX0EXRESPl6zEVjXZhrkSDk\",\"proration\":\"none\"},{\"start\":1815105600,\"end\":1817784000,\"price\":\"price_1UX0EXRESPl6zEVj0DPfJFAm\",\"proration\":\"none\"}]"
+    },
+    {
+      "id": "T10",
+      "title": "subscription and item metadata survive into both phases",
+      "pass": true,
+      "detail": "[{\"metadata\":{\"studio\":\"d7wp3-main\"},\"item\":{\"seat\":\"owner\"}},{\"metadata\":{\"studio\":\"d7wp3-main\"},\"item\":{\"seat\":\"owner\"}}]"
+    },
+    {
+      "id": "T12",
+      "title": "Stripe accepted a final phase sent with no end date; it gives that phase one implicit billing cycle and end_behavior release",
+      "pass": true,
+      "detail": "sent no end_date; Stripe stored phase2 end_date=1817784000 (boundary+31d) end_behavior=release"
+    },
+    {
+      "id": "T3",
+      "title": "scheduling created no invoice or charge and left the subscription on the legacy price",
+      "pass": true,
+      "detail": "invoices 1->1 price=price_1UX0EXRESPl6zEVjXZhrkSDk"
+    },
+    {
+      "id": "T6",
+      "title": "a replayed execute is refused and exactly one schedule exists",
+      "pass": true,
+      "detail": "blockers=open_transition_exists,subscription_has_schedule"
+    },
+    {
+      "id": "R1",
+      "title": "reconciliation before the boundary is not_due and changes nothing",
+      "pass": true,
+      "detail": "not_due"
+    },
+    {
+      "id": "T4a",
+      "title": "after the boundary the subscription is on the regular price, in a period starting exactly at the boundary",
+      "pass": true,
+      "detail": "rolled=true price=price_1UX0EXRESPl6zEVj0DPfJFAm"
+    },
+    {
+      "id": "T4b",
+      "title": "the renewal invoice charges only the regular price, once, with no proration lines",
+      "pass": true,
+      "detail": "renewal=in_1UX0EnRESPl6zEVjBHovkpam amount_due=15900 lines=1 cycleInvoices=1"
+    },
+    {
+      "id": "T10b",
+      "title": "metadata survives on the live subscription after the price change",
+      "pass": true,
+      "detail": "{\"sub\":{\"studio\":\"d7wp3-main\"},\"item\":{\"seat\":\"owner\"}}"
+    },
+    {
+      "id": "R2",
+      "title": "reconciliation (dry run, apply, replay) distinguishes activation, price change and registry release, and is replay safe",
+      "pass": true,
+      "detail": "dry=ready apply=completed replay=already_reconciled milestones={\"phaseEntered\":true,\"priceChanged\":true} reasons="
+    },
+    {
+      "id": "R3",
+      "title": "an approved-price mismatch fails closed to needs_review and the registry stays protected",
+      "pass": true,
+      "detail": "state=needs_review reasons=target_price_amount_differs_from_notice"
+    },
+    {
+      "id": "T12b",
+      "title": "after the regular-price phase Stripe releases the schedule and the subscription keeps billing the regular price",
+      "pass": true,
+      "detail": "rolled=true scheduleStatus=released price=price_1UX0EXRESPl6zEVj0DPfJFAm status=active cycleInvoices=15900,15900"
+    },
+    {
+      "id": "T5",
+      "title": "an approval is stale once the subscription changes after the dry run (nothing written)",
+      "pass": true,
+      "detail": "blockers=stale_or_mismatched_approval"
+    },
+    {
+      "id": "T7a",
+      "title": "SIMULATED failed schedule update (thrown before reaching Stripe); real release: the created schedule is released, the subscription is unchanged, the audit row is failed",
+      "pass": true,
+      "detail": "report=failed released=true schedule=null audit=failed"
+    },
+    {
+      "id": "T7b",
+      "title": "SIMULATED read-back mismatch (corrupted in memory); real release: the schedule is released and the subscription is unchanged",
+      "pass": true,
+      "detail": "reason=read-back mismatch: second phase is not the disclosed price schedule=null"
+    },
+    {
+      "id": "F1",
+      "title": "failed schedule creation (a schedule appeared after the approval): the foreign schedule is left untouched and no write is attempted",
+      "pass": true,
+      "detail": "blockers=subscription_has_schedule reason= schedule still the foreign one"
+    },
+    {
+      "id": "F2",
+      "title": "SIMULATED failed release (hook throws; the schedule really stays attached): reported loudly with the live schedule id, audit row failed",
+      "pass": true,
+      "detail": "released=false blockers=schedule_may_still_be_attached liveSchedule=sub_sched_1UX0FXRESPl6zEVjYAII9Wko"
+    },
+    {
+      "id": "F2b",
+      "title": "operator cleanup releases it and leaves the subscription clean",
+      "pass": true,
+      "detail": "released by hand"
+    },
+    {
+      "id": "F3",
+      "title": "SIMULATED lost create response (Stripe really created it): the orphan schedule is found and released",
+      "pass": true,
+      "detail": "scheduleId=sub_sched_1UX0FdRESPl6zEVjl9My2Tfo released=true schedule=null"
+    },
+    {
+      "id": "F4",
+      "title": "audit-update outage after the Stripe write: the live schedule id is still reported, the schedule id was recorded first, and a retry is refused",
+      "pass": true,
+      "detail": "blockers=audit_finalize_failed_schedule_is_live recorded=true retry=open_transition_exists,subscription_has_schedule"
+    },
+    {
+      "id": "T8",
+      "title": "cancel-at-period-end, two items and an existing schedule are each refused with nothing written",
+      "pass": true,
+      "detail": "cancel=subscription_cancelling,subscription_unsupported_settings | items=current_price_unexpected,subscription_unsupported_items | schedule=subscription_has_schedule"
+    },
+    {
+      "id": "T11",
+      "title": "a discount and a paused collection are refused as unsupported settings, nothing written",
+      "pass": true,
+      "detail": "discount=subscription_unsupported_settings | pause=subscription_unsupported_settings"
+    },
+    {
+      "id": "T13",
+      "title": "the same Stripe idempotency key returns the same schedule (no second object)",
+      "pass": true,
+      "detail": "sub_sched_1UX0GERESPl6zEVjQJrax3ZH == sub_sched_1UX0GERESPl6zEVjQJrax3ZH"
+    },
+    {
+      "id": "T14",
+      "title": "an approver not on the owner list is refused before any write",
+      "pass": true,
+      "detail": "approver_not_authorized"
+    },
+    {
+      "id": "T9",
+      "title": "a live key mode without explicit allowLive is refused before any provider call (stub client, no live key used)",
+      "pass": true,
+      "detail": "calls=0 reason=live Stripe key refused without explicit allowLive"
+    }
+  ]
+}

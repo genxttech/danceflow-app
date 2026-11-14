@@ -10,7 +10,8 @@ import {
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
 import { inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
-import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
+import { recordPendingOptOut, supersedePendingOptOuts } from "@/lib/sms/pendingOptOuts";
+import { buildWebhookAccountDeps, receiptSeen, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
 import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
 import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
@@ -60,6 +61,11 @@ function emptyTwiml() {
       "Content-Type": "text/xml",
     },
   });
+}
+
+/** Non-2xx: a STOP whose opt-out could not be recorded must never be acknowledged as handled. */
+function unavailableResponse() {
+  return new Response("Service unavailable", { status: 503, headers: { "Content-Type": "text/plain" } });
 }
 
 // A2P-1A: only requests that fail verification count against the per-IP limiter, so
@@ -175,52 +181,71 @@ export async function POST(request: Request) {
   // TW-4F replay protection: each inbound MessageSid is processed once. A replayed (or retried) delivery gets an empty
   // response: no second reply and no second consent change. If the ledger is unreachable the message is processed anyway.
   const receiptKey = webhookReceiptKey("inbound", params);
+  const receiptAccount = signer.kind === "subaccount" ? signer.accountSid : null;
+  // A STOP is claimed only AFTER its opt-out is applied or parked (below): a delivery that finds the claim already there therefore provably succeeded the
+  // first time and is never re-applied (an out-of-order redelivery must not undo a later START), while one whose first attempt could not be applied or
+  // parked (answered 503, no claim) is processed afresh when it is redelivered. Every other message is claimed here, before its effects.
+  let deferStopReceipt = false;
   if (receiptKey) {
-    const receipt = await recordWebhookReceipt(supabase, "inbound", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
-    if (receipt === "duplicate") return emptyTwiml();
-    if (receipt === "unavailable") console.warn("sms_inbound_receipt_unavailable");
+    if (keyword === "stop") {
+      const seen = await receiptSeen(supabase, "inbound", receiptKey);
+      if (seen === "seen") return emptyTwiml();
+      if (seen === "unavailable") console.warn("sms_inbound_receipt_unavailable");
+      deferStopReceipt = true;
+    } else {
+      const receipt = await recordWebhookReceipt(supabase, "inbound", receiptKey, receiptAccount);
+      if (receipt === "duplicate") return emptyTwiml();
+      if (receipt === "unavailable") console.warn("sms_inbound_receipt_unavailable");
+    }
   }
 
   const studioId = routing.studioId;
 
-  const { data: studioRow } = await supabase
-    .from("studios")
-    .select("name")
-    .eq("id", studioId)
-    .maybeSingle<{ name: string | null }>();
-  const studioName = studioRow?.name ?? null;
+  // Nothing in this block (studio name, permission read, inbound log) may stop the consent change below: a failure here only costs the
+  // personalised reply text or the inbox entry.
+  let studioName: string | null = null;
+  try {
+    const { data: studioRow } = await supabase
+      .from("studios")
+      .select("name")
+      .eq("id", studioId)
+      .maybeSingle<{ name: string | null }>();
+    studioName = studioRow?.name ?? null;
 
-  const { data: permissions } = await supabase
-    .from("sms_contact_permissions")
-    .select("*")
-    .eq("studio_id", studioId)
-    .eq("phone_e164", from)
-    .order("updated_at", { ascending: false })
-    .limit(20);
+    const { data: permissions } = await supabase
+      .from("sms_contact_permissions")
+      .select("*")
+      .eq("studio_id", studioId)
+      .eq("phone_e164", from)
+      .order("updated_at", { ascending: false })
+      .limit(20);
 
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-  // One inbound log per known client/contact; TW-2 phone-level opt-out rows carry no identity.
-  const identifiedPermissions = (permissions ?? []).filter(
-    (permission) => permission.client_id != null || permission.organizer_contact_id != null,
-  );
+    // One inbound log per known client/contact; TW-2 phone-level opt-out rows carry no identity.
+    const identifiedPermissions = (permissions ?? []).filter(
+      (permission) => permission.client_id != null || permission.organizer_contact_id != null,
+    );
 
-  for (const permission of identifiedPermissions) {
-    await supabase.from("sms_message_logs").insert({
-      studio_id: studioId,
-      organizer_id: null,
-      client_id: permission.client_id ?? null,
-      organizer_contact_id: permission.organizer_contact_id ?? null,
-      phone_e164: from,
-      direction: "inbound",
-      message_type: keyword,
-      body,
-      segment_count: 1,
-      status: "received",
-      provider: "twilio",
-      provider_message_id: messageSid || null,
-      sent_at: now,
-    });
+    for (const permission of identifiedPermissions) {
+      await supabase.from("sms_message_logs").insert({
+        studio_id: studioId,
+        organizer_id: null,
+        client_id: permission.client_id ?? null,
+        organizer_contact_id: permission.organizer_contact_id ?? null,
+        phone_e164: from,
+        direction: "inbound",
+        message_type: keyword,
+        body,
+        segment_count: 1,
+        status: "received",
+        provider: "twilio",
+        provider_message_id: messageSid || null,
+        sent_at: now,
+      });
+    }
+  } catch {
+    console.warn("sms_inbound_log_failed");
   }
 
   // TW-4F usage recording: AFTER the signature, tenant and replay checks (a duplicate delivery returned above) and after this message's own effects, so it
@@ -261,17 +286,27 @@ export async function POST(request: Request) {
     //            number matches no client, so a later client with this phone stays blocked.
     //   START -> restores only rows with recorded prior consent and lifts the studio+phone
     //            block; it never creates consent, even though Twilio has unblocked the number.
-    const { data: outcome, error: consentError } = await supabase.rpc("record_sms_inbound_opt_event", {
-      p_studio_id: studioId,
-      p_phone_e164: from,
-      p_event: keyword,
-    });
+    // A START is the texter's newest intent: any STOP of theirs still waiting in the pending-opt-out queue must not be applied after it.
+    if (keyword === "start" && !(await supersedePendingOptOuts(supabase, { studioId, phone: from })) && !(await supersedePendingOptOuts(supabase, { studioId, phone: from }))) {
+      console.warn("sms_pending_opt_out_supersede_failed"); // safe direction: a waiting STOP may still be applied (the texter can START again)
+    }
+    const applyConsent = () => supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: studioId, p_phone_e164: from, p_event: keyword });
+    let consent = await applyConsent();
+    // one inline retry: a transient failure must not leave a STOP unrecorded (the START direction is fail-safe and is not retried)
+    if (consent.error && keyword === "stop") consent = await applyConsent();
+    const { data: outcome, error: consentError } = consent;
 
     if (consentError) {
       // Code only. Twilio Advanced Opt-Out still enforces the carrier-level block.
       console.error("sms_inbound_consent_update_failed", consentError.code ?? "unknown");
       consentFailed = true;
+      // A STOP that could not be applied is parked durably (applied later by the scheduled sender, before it can text anyone) and answered as handled.
+      // Only when even that cannot be stored is it not acknowledged: non-2xx and NO claim is recorded, so a redelivery is processed afresh.
+      if (keyword === "stop" && !(await recordPendingOptOut(supabase, { studioId, phone: from, messageSid: messageSid || null }))) return unavailableResponse();
     }
+
+    // the STOP is now applied or parked: claim it. A concurrent first delivery that lost the race stays silent (its opt-out above was idempotent).
+    if (deferStopReceipt && receiptKey && (await recordWebhookReceipt(supabase, "inbound", receiptKey, receiptAccount)) === "duplicate") return emptyTwiml();
 
     if (keyword === "stop") {
       const stopReply = buildSmsStopReply(studioName);

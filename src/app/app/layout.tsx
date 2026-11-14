@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers, cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { isPlatformAdmin } from "@/lib/auth/platform";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -14,6 +13,7 @@ import { clearStudioContextAction } from "@/app/platform/actions";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import AppSidebarShell from "./AppSidebarShell";
 import { isEventPast } from "@/lib/events/eventTiming";
+import { websiteEmbedsAvailable } from "@/lib/public/embedSettings";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -697,6 +697,15 @@ export function buildStudioSections(params: {
                 href: "/app/settings/public-profile",
                 icon: "settings" as const,
               },
+              ...(websiteEmbedsAvailable()
+                ? [
+                    {
+                      label: "Website Embeds",
+                      href: "/app/settings/embeds",
+                      icon: "settings" as const,
+                    },
+                  ]
+                : []),
               {
                 label: "View Public Profile",
                 href: publicProfileHref ?? "/discover/studios",
@@ -1109,7 +1118,7 @@ export default async function AppLayout({
 
   let studioBanner: React.ReactNode = null;
 
-  if (await isPlatformAdmin()) {
+  if (context.isPlatformAdmin) {
     studioBanner = (
       <div className="border-b border-amber-200 bg-amber-50">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-3 md:flex-row md:items-center md:justify-between">

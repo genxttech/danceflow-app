@@ -7,6 +7,8 @@ import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -820,13 +822,13 @@ export default function PartnerSearchScreen() {
         Create, edit, save, or submit your dancer-owned partner listing. Contact stays inside DanceFlow.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading Partner Search" detail="Loading dancer listings." /> : null}
+      {loading ? <LoadingState label="Loading Partner Search" /> : null}
       {message ? <FeatureCard title="Partner Search" detail={message} /> : null}
-      {errorMessage ? <FeatureCard title="Partner Search needs attention" detail={errorMessage} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Partner Search needs attention" /> : null}
 
       <View style={styles.safetyCard}>
         <View style={styles.safetyIcon}>
-          <Ionicons color="#fff" name="shield-checkmark-outline" size={22} />
+          <Ionicons color={colors.white} name="shield-checkmark-outline" size={22} />
         </View>
         <View style={{ flex: 1 }}>
           <AppText style={styles.safetyTitle}>Safety and listing rules</AppText>
@@ -1190,7 +1192,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "800"
   },
   optionTextActive: {
-    color: "#fff"
+    color: colors.onPrimary
   },
   partnerCard: {
     backgroundColor: colors.surface,
@@ -1266,7 +1268,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     lineHeight: 19
   },
   safetyTitle: {
-    color: "#fff",
+    color: colors.white,
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 4

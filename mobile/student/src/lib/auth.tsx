@@ -9,11 +9,12 @@ import {
 } from "react";
 import { router } from "expo-router";
 import * as Linking from "expo-linking";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase";
+import { clearPersistedSupabaseSessions, supabase } from "@/lib/supabase";
 import { reactivateDanceFlowAccount } from "@/lib/accountControls";
+import { parseAuthLink, resolveEmailOtpType } from "@/lib/authLink";
 import { recordMobileEmailProof } from "@/lib/emailVerification";
+import { unbindPushTokenForSignOut } from "@/lib/pushNotifications";
 
 type AuthContextValue = {
   session: Session | null;
@@ -37,43 +38,6 @@ function getMobileCallbackUrl() {
   return "danceflow://auth/callback";
 }
 
-function extractAuthParams(url: string) {
-  const normalized = url.replace("#", "?");
-
-  try {
-    const parsed = new URL(normalized);
-    return {
-      code: parsed.searchParams.get("code"),
-      tokenHash: parsed.searchParams.get("token_hash"),
-      type: parsed.searchParams.get("type"),
-      accessToken: parsed.searchParams.get("access_token"),
-      refreshToken: parsed.searchParams.get("refresh_token")
-    };
-  } catch (_error) {
-    return {
-      code: null,
-      tokenHash: null,
-      type: null,
-      accessToken: null,
-      refreshToken: null
-    };
-  }
-}
-
-
-async function clearPersistedSupabaseSessions() {
-  const keys = await AsyncStorage.getAllKeys();
-  const authKeys = keys.filter(
-    (key) =>
-      key.startsWith("sb-") &&
-      (key.endsWith("-auth-token") || key.includes("-auth-token-"))
-  );
-
-  if (authKeys.length) {
-    await AsyncStorage.multiRemove(authKeys);
-  }
-}
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,15 +45,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [emailBindingRequired, setEmailBindingRequired] = useState(false);
 
   const handleAuthUrl = useCallback(async (url: string) => {
-    const { code, tokenHash, type, accessToken, refreshToken } = extractAuthParams(url);
+    const { code, tokenHash, type } = parseAuthLink(url);
 
     if (tokenHash) {
+      const otpType = resolveEmailOtpType(type);
+      if (!otpType) throw new Error("This sign-in link type is not supported.");
+
       setIdentityCheckPending(true);
 
       try {
         const { error } = await supabase.auth.verifyOtp({
           token_hash: tokenHash,
-          type: type === "recovery" ? "recovery" : "magiclink"
+          type: otpType
         });
         if (error) throw error;
 
@@ -108,15 +75,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
-      if (error) throw error;
-      return true;
-    }
-
-    if (accessToken && refreshToken) {
-      const { error } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken
-      });
       if (error) throw error;
       return true;
     }
@@ -236,7 +194,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: normalizeEmail(email),
       options: {
         emailRedirectTo: getMobileCallbackUrl(),
-        shouldCreateUser: false,
+        // New or returning: the mailbox link is what proves the address, and the
+        // first proof still requires binding (LAUNCH-SEC-1C-A), same as web sign-up.
+        shouldCreateUser: true,
+        data: { signup_intent: "public" },
       },
     });
 
@@ -250,6 +211,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     setLoading(true);
+    // While this session can still prove ownership of the device row (RLS).
+    await unbindPushTokenForSignOut();
     setSession(null);
 
     try {

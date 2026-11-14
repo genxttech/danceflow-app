@@ -1,0 +1,166 @@
+{
+  "day": "2026-11-10",
+  "timeZone": "America/Denver",
+  "server": "next dev (Turbopack) @ claude/staff-api-slice2 7dafe207",
+  "passed": 27,
+  "failed": 0,
+  "results": [
+    {
+      "check": "front desk tabs from /me",
+      "result": "PASS",
+      "tabs": [
+        "Pulse",
+        "Today",
+        "Clients",
+        "More"
+      ]
+    },
+    {
+      "check": "front desk search: first page of 25, active only, lead excluded",
+      "result": "PASS",
+      "rows": 25
+    },
+    {
+      "check": "front desk paging: page 2 appends the rest, no duplicates, no more pages",
+      "result": "PASS",
+      "rows": 31
+    },
+    {
+      "check": "front desk search by name",
+      "result": "PASS"
+    },
+    {
+      "check": "a lead is not in a front-desk search",
+      "result": "PASS"
+    },
+    {
+      "check": "client detail: status, packages with remaining/unlimited/expiry",
+      "result": "PASS"
+    },
+    {
+      "check": "client detail: next booking in the studio zone (America/Denver)",
+      "result": "PASS",
+      "expected": "10:00 AM"
+    },
+    {
+      "check": "client detail shows no contact details",
+      "result": "PASS"
+    },
+    {
+      "check": "mark attended and no-show in the UI, stored in attendance_records",
+      "result": "PASS",
+      "ana": "attended",
+      "colin": "no_show"
+    },
+    {
+      "check": "marks survive a reload (read back from the roster)",
+      "result": "PASS",
+      "anaChecked": "true",
+      "colinChecked": "true"
+    },
+    {
+      "check": "a cancelled class shows no marking controls",
+      "result": "PASS"
+    },
+    {
+      "check": "repeat the same mark: 200 with the current record",
+      "result": "PASS",
+      "status": 200,
+      "attendee": {
+        "clientId": "074e028d-388d-482a-a2f3-98b2257cecf1",
+        "displayName": "Ana Rivera",
+        "status": "attended",
+        "updatedAt": "2026-11-10T14:02:33.659Z"
+      }
+    },
+    {
+      "check": "no Idempotency-Key: 400 invalid_request, nothing written",
+      "result": "PASS",
+      "status": 400,
+      "code": "invalid_request"
+    },
+    {
+      "check": "client not on the roster: 404 not_found",
+      "result": "PASS",
+      "status": 404,
+      "code": "not_found"
+    },
+    {
+      "check": "cancelled class: 409 not_markable",
+      "result": "PASS",
+      "status": 409,
+      "code": "not_markable"
+    },
+    {
+      "check": "a status outside attended/no_show: 400",
+      "result": "PASS",
+      "status": 400
+    },
+    {
+      "check": "a non-class appointment: 409 not_markable",
+      "result": "PASS",
+      "status": 409,
+      "code": "not_markable"
+    },
+    {
+      "check": "another studio's instructor: 403 not_a_member on clients and attendance",
+      "result": "PASS",
+      "clients": [
+        403,
+        "not_a_member"
+      ],
+      "attendance": [
+        403,
+        "not_a_member"
+      ]
+    },
+    {
+      "check": "instructor My clients: only the people Ida teaches, status hidden",
+      "result": "PASS",
+      "rows": [
+        "Sam Okafor",
+        "Ana Rivera"
+      ]
+    },
+    {
+      "check": "instructor client detail: status and packages hidden",
+      "result": "PASS"
+    },
+    {
+      "check": "instructor: a client they don't teach is 404",
+      "result": "PASS",
+      "status": 404,
+      "code": "not_found"
+    },
+    {
+      "check": "instructor marks their own class",
+      "result": "PASS",
+      "colin": "attended"
+    },
+    {
+      "check": "403 in the app: role removed mid-session",
+      "result": "PASS"
+    },
+    {
+      "check": "no token: 401 unauthenticated",
+      "result": "PASS",
+      "status": 401
+    },
+    {
+      "check": "revoked session: 401 on the clients route",
+      "result": "PASS",
+      "logout": 204,
+      "status": 401
+    },
+    {
+      "check": "401 in the app: Sign in again",
+      "result": "PASS"
+    },
+    {
+      "check": "no page errors",
+      "result": "PASS",
+      "count": 0,
+      "first": null
+    }
+  ]
+}

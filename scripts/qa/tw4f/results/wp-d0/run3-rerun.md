@@ -1,0 +1,11 @@
+### TW-4F Q1 run: wpd0-rerun
+- base origin/main @ 23ffbc43; tests origin/main @ 23ffbc43; image df-isoqa/base:20261119092100 (14e2a42e657c); order numeric
+- applied: 20261120090000 20261121090000 20261122090000 20261123090000 20261124090000 20261125090000 20261126090000 20261127090000 20261128090000 20261129090000 20261130090000 20261201090000 20261202090000 20261202140000 20261202150000 20261203090000 20261204090000 20261205090000 20261206090000 20261207090000 20261208090000 20261209090000 20261210090000 20261211090000 20261212090000 20261213090000 20261214090000 20261215090000 20261216090000 20261217090000 20261218090000 20261219090000 20261221090000 20261222090000 20261223090000 20261224090000 20261225090000 20261226090000 20261227090000 20261228090000 20261229090000 20261230090000 20261231090000 20261231100000 (* = extra)
+
+**Suites (each on a fresh clone of the applied chain)**: FAIL in 1656s
+| Suite | Result | Tests | Seconds | Host start -> end (CPU %/free GB/containers) | Note |
+|---|---|---|---|---|---|
+| billing/__tests__/localStack.tw4payhardening.test.ts | KNOWN | 14/15 | 254 | 84%/3.9/25 -> 28%/4.1/29 | property test pinned at 90 s times out under CPU saturation; passes on an idle host (PR #266 notes). Cascades to later assertions in the file; the match requires every failing test to be listed. failing: prepaid credit integrity: hold enforcement, refund/dispute accounting, replays (real schema, rea |
+| billing/__tests__/localStack.tw4recexec.test.ts | PASS | 20/20 | 175 | 36%/4.1/26 -> 19%/3.9/29 |  |
+| sms/twilioIsv/__tests__/localStack.j4activation.test.ts | FAIL | 9/10 | 189 | 48%/3.9/26 -> 36%/4.9/29 |  failing: TW-4F J4: activation console end to end (real schema, real server functions, fake provider) a credit-funded (non-pilot) location 2. one refusal per checklist item: activate and mark ready refuse with TW042 naming the item and its detail; the state does not change |
+| sms/twilioIsv/__tests__/localStack.tw4rflops.test.ts | PASS | 64/64 | 948 | 39%/5/26 -> 13%/4.4/28 |  |

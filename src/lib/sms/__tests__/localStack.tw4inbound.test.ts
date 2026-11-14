@@ -12,6 +12,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deletePricesSql, ownerReactivate, seedPrice, seedPriceSql } from "../twilioIsv/__tests__/priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
@@ -160,13 +161,14 @@ describe.skipIf(!enabled)("inbound SMS usage recording: ceiling, compliance, lim
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
   });
   const publish = async (kind: "sms_inbound" | "sms_usage" | "monthly" | "number", cents: number, provider: number) =>
-    expect((await rpc("tw4_price_set", { p_kind: kind, p_customer_cents: cents, p_provider_cents: provider, p_description: `fixture ${kind} price`, p_actor: U.padmin })).error).toBeNull();
+    seedPrice(psql, { kind: kind, customer: cents, provider: provider, description: `fixture ${kind} price`, approver: U.padmin });
   const unpublish = (kind: string) => aged(`update public.studio_sms_price_list set active = false where kind = '${kind}' and created_by = '${U.padmin}'`);
 
   it("privileges: the tables are unreachable by API roles; the functions are service-role only; the helpers are callable by no API role; records are final", async () => {
@@ -327,6 +329,24 @@ describe.skipIf(!enabled)("inbound SMS usage recording: ceiling, compliance, lim
         .toContain("studio_sms_inbound_usage_compliance_free"); // even a direct write cannot charge compliance traffic
       unpublish("sms_inbound");
       unpublish("sms_usage");
+    });
+
+    it("D2b: a price FREEZE (publication suspended) or an unpublished price never stops compliance traffic: STOP / START / HELP are still recorded, free, with no credit", async () => {
+      reset(EA);
+      const freeze = (on: boolean) => psql(`begin; select set_config('tw4.priceauth_write', 'on', true); update public.studio_sms_price_auth_config set frozen = ${on}, frozen_at = ${on ? "now()" : "null"}, freeze_reason = ${on ? "'compliance traffic test'" : "null"}; commit;`);
+      freeze(true);
+      try {
+        expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("t");
+        for (const body of ["You have been unsubscribed from INB Alpha. Reply START to resubscribe.", "Reply HELP for help. Msg&data rates may apply.", "You are subscribed again. Reply STOP to unsubscribe."]) {
+          const r = await recorded(PA1, { p_classification: "compliance", p_segments: 1, p_reply_body: body });
+          expect(r).toMatchObject({ classification: "compliance", charged_cents: 0, uncollected_cents: 0 });
+        }
+        expect(balance(EA)).toBe(0);
+        expect(psql(`select count(*) from public.studio_sms_inbound_usage where legal_entity_id = '${EA}' and classification = 'compliance'`)).toBe("3");
+      } finally {
+        freeze(false);
+      }
+      expect(psql("select frozen from public.studio_sms_price_auth_config")).toBe("f");
     });
 
     it("reply counters: one error reply per sender per day, five HELP/START confirmations; per account and kind; the sender is a hash", async () => {
@@ -627,8 +647,7 @@ describe.skipIf(!enabled)("inbound SMS usage recording: ceiling, compliance, lim
       const inPilot = () =>
         execFileSync("docker", ["exec", "-i", PG, "psql", "-U", "postgres", "-At", "-v", "ON_ERROR_STOP=1"], {
           input: `begin; set local session_replication_role = replica; insert into public.studio_sms_pilot_exceptions (legal_entity_id, ceiling_cents, approval_ref, approved_by) values ('${EB}', 15000, 'fixture approval reference text', '${U.padmin}'); reset session_replication_role;
-                  update public.studio_sms_price_list set active = false where kind = 'sms_inbound' and active;
-                  insert into public.studio_sms_price_list (kind, customer_price_cents, provider_cost_cents, description, created_by) values ('sms_inbound', 3, 1, 'fixture inbound price', '${U.padmin}');
+                  ${seedPriceSql({ kind: "sms_inbound", customer: 3, provider: 1, description: "fixture inbound price", approver: U.padmin })}
                   select (public.tw4_inbound_record('${PB1}', '${ACC_B}', '${sid()}', 1, 0, 'ordinary', null, null, 'webhook'))->>'charged_cents';
                   select (public.tw4_inbound_record('${PB1}', '${ACC_B}', '${sid()}', 1, 0, 'ordinary', null, null, 'webhook'))->>'uncollected_cents';
                   select (select balance_cents from public.studio_sms_credit_accounts where legal_entity_id = '${EB}');

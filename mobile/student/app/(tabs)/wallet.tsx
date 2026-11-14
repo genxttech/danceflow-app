@@ -5,6 +5,8 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
@@ -79,6 +81,11 @@ function orderTicketToWalletTicket(ticket: StudentEventOrderTicket): StudentTick
     studioName: "Event",
     ticketCode: ticket.ticketCode,
     ticketName: ticket.ticketName,
+    // The order API carries none of these; the pass then claims nothing about payment or party size.
+    attendeeName: null,
+    paymentState: null,
+    admitPosition: 1,
+    admitTotal: 1,
     venue: ticket.venue,
     waiverSignedAt: ticket.waiverSignedAt
   };
@@ -112,7 +119,7 @@ function WalletCategoryCard({
       ]}
     >
       <View style={[styles.categoryIcon, active && styles.categoryIconActive]}>
-        <Ionicons color="#fff" name={icon} size={24} />
+        <Ionicons color={colors.onPrimary} name={icon} size={24} />
       </View>
       <View style={{ flex: 1 }}>
         <View style={styles.cardHeader}>
@@ -473,10 +480,7 @@ export default function WalletScreen() {
       ) : null}
 
       {loading ? (
-        <FeatureCard
-          title="Loading wallet..."
-          detail="Checking your tickets, passes, and studio items."
-        />
+        <LoadingState label="Loading wallet" />
       ) : null}
 
       {!loading && showCheckoutSync ? (
@@ -494,7 +498,7 @@ export default function WalletScreen() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Wallet unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} onRetry={() => void loadWallet({ force: true })} title="Wallet unavailable" />
       ) : null}
 
       {!loading && isSignedIn ? (
@@ -743,8 +747,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     gap: 7
   },
   paymentRequestCard: {
-    backgroundColor: "#fff4e7",
-    borderColor: "#fed7aa",
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
     gap: 8,
@@ -777,8 +781,8 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     padding: 16
   },
   syncCard: {
-    backgroundColor: "#ecfeff",
-    borderColor: "#67e8f9",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
     gap: 8,

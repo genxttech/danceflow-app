@@ -253,8 +253,9 @@ describe("usage recording when SMS_INBOUND_RECORDING=on", () => {
     fake.current.overrideRpc("record_sms_inbound_opt_event", () => ({ data: null, error: { code: "57014" } }));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const response = await POST(inboundRequest(word));
-    expect(response.status).toBe(200); // the texter still gets the STOP confirmation / an answer
-    expect(calls("record_sms_inbound_opt_event")).toHaveLength(1);
+    // a STOP that could not be recorded is not acknowledged (503, after one inline retry); a START failure is fail-safe (200, stays opted out)
+    expect(response.status).toBe(word === "STOP" ? 503 : 200);
+    expect(calls("record_sms_inbound_opt_event")).toHaveLength(word === "STOP" ? 2 : 1);
     expect(calls("tw4_inbound_record")).toHaveLength(0);
   });
 
@@ -343,10 +344,10 @@ describe("recording never happens on rejected or replayed deliveries", () => {
     process.env.SMS_INBOUND_RECORDING = "on";
   });
 
-  it("a duplicate delivery returns empty TwiML and records nothing, with no consent change", async () => {
+  it("a duplicate delivery returns empty TwiML and records nothing; a replayed STOP only re-applies the (idempotent) opt-out, a replayed START changes nothing", async () => {
     fake.current = createFakeSupabase();
     fake.current.overrideRpc("sms_webhook_receipt_record", () => ({ data: false, error: null }));
-    const xml = await (await POST(inboundRequest("STOP"))).text();
+    const xml = await (await POST(inboundRequest("START"))).text();
     expect(xml).toBe(EMPTY_TWIML);
     expect(calls("tw4_inbound_record")).toHaveLength(0);
     expect(calls("record_sms_inbound_opt_event")).toHaveLength(0);

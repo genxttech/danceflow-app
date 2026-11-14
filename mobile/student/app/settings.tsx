@@ -3,6 +3,8 @@ import { Alert, Share, StyleSheet, TextInput, useColorScheme, View } from "react
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
+import { LegalLinks } from "@/components/LegalLinks";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
@@ -141,11 +143,12 @@ export default function SettingsScreen() {
                     try {
                       await deleteDanceFlowAccount();
                       await signOut();
-                    } catch {
-                      Alert.alert(
-                        "Account deletion failed",
-                        "Your account was not deleted. Try again or contact DanceFlow support.",
-                      );
+                    } catch (error) {
+                      // The server explains a refusal (for example a login that also manages a studio).
+                      const reason = error instanceof Error && error.message.includes("can't be deleted here")
+                        ? error.message
+                        : "Your account was not deleted. Try again or contact DanceFlow support.";
+                      Alert.alert("Account deletion failed", reason);
                     }
                   },
                 },
@@ -201,7 +204,7 @@ export default function SettingsScreen() {
 
       {errorMessage ? (
         <View style={styles.stateBlock}>
-          <FeatureCard title="Settings update" detail={errorMessage} />
+          <ErrorState error={errorMessage} title="Settings update" />
           <AppButton label="Try again" onPress={loadSettings} variant="secondary" />
         </View>
       ) : null}
@@ -258,6 +261,8 @@ export default function SettingsScreen() {
           onPress={shareAccountData}
           variant="secondary"
         />
+        <AppText variant="eyebrow">Legal</AppText>
+        <LegalLinks prefix="Read the DanceFlow" />
         </View>
       </View>
 

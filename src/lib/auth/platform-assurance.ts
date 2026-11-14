@@ -13,7 +13,8 @@ import { createClient } from "@/lib/supabase/server";
  *  2. the session's JWT claims are VERIFIED by `auth.getClaims()` (signature checked against the project's keys, or by the Auth server for a symmetric
  *     secret). The unverified cookie contents are never trusted;
  *  3. tier "aal2": the verified claims say `aal === "aal2"`, the token has not expired, the subject is the admin from step 1, and a TOTP method is in `amr`;
- *  4. tier "recent": additionally the newest TOTP entry in `amr` is at most STEP_UP_WINDOW_SECONDS old. Refreshing the session keeps the original `amr`
+ *  4. tier "fresh" (pricing ceremonies): like "recent" with the shorter STEP_UP_FRESH_SECONDS window, matching the database default (fresh_mfa_max_age_seconds = 10 minutes);
+ *     tier "recent": additionally the newest TOTP entry in `amr` is at most STEP_UP_WINDOW_SECONDS old. Refreshing the session keeps the original `amr`
  *     timestamp, so only a fresh authenticator code (the challenge page with `stepup=1`) renews it.
  *
  * Fail closed: anything missing, malformed, unknown, unverifiable or errored is a refusal that redirects to the MFA challenge (or, with no verified
@@ -23,10 +24,12 @@ import { createClient } from "@/lib/supabase/server";
 
 /** How long after a TOTP verification a "recent" action is allowed. Not configurable by environment on purpose: a mis-set value must not weaken it. */
 export const STEP_UP_WINDOW_SECONDS = 15 * 60;
+/** The window for the pricing ceremonies (propose, approve, authorize, credential changes, thaw): the database default is the same 10 minutes and refuses an older code too. */
+export const STEP_UP_FRESH_SECONDS = 10 * 60;
 /** Clock skew tolerated between this server and the Auth server when a `timestamp` is slightly in the future. */
 export const STEP_UP_SKEW_SECONDS = 60;
 
-export type AssuranceTier = "aal2" | "recent";
+export type AssuranceTier = "aal2" | "recent" | "fresh";
 
 export type AssuranceRefusal = "claims_unavailable" | "subject_mismatch" | "session_expired" | "aal1" | "no_totp" | "stale";
 
@@ -65,7 +68,7 @@ export function evaluateAssurance(claims: Claims, nowSeconds: number, tier: Assu
   if (known.length === 0) return { ok: false, reason: "stale" };
   const newest = Math.max(...known);
   if (newest > nowSeconds + STEP_UP_SKEW_SECONDS) return { ok: false, reason: "stale" };
-  if (nowSeconds - newest > STEP_UP_WINDOW_SECONDS) return { ok: false, reason: "stale" };
+  if (nowSeconds - newest > (tier === "fresh" ? STEP_UP_FRESH_SECONDS : STEP_UP_WINDOW_SECONDS)) return { ok: false, reason: "stale" };
   return { ok: true };
 }
 
@@ -94,6 +97,42 @@ export async function requirePlatformStepUp(tier: AssuranceTier, returnTo = "/pl
 
   if (!decision.ok) redirect(stepUpChallengeUrl(decision.reason, returnTo));
   return admin;
+}
+
+/**
+ * H1: the authoritative gate for platform-admin authority over a studio. True only when the caller's VERIFIED session is aal2 (TOTP) for `userId`.
+ * It is a pure predicate, not a redirect, so a context resolver can DEMOTE an aal1 admin to an ordinary user (their own memberships only) instead of
+ * locking them out of a studio they genuinely belong to. Fail closed: a claims error, a throw, a subject mismatch, an expired token or a missing TOTP entry is
+ * false, never the role alone. Callers must have established the platform_admin ROLE first; this function does not read it.
+ */
+export async function hasVerifiedAal2Session(userId: string): Promise<boolean> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getClaims();
+    if (error || !data) return false;
+    return evaluateAssurance(data.claims as Claims, Math.floor(Date.now() / 1000), "aal2", userId).ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * H1: the id of the caller's VERIFIED aal2 (TOTP) auth session, or null. Support-context cookies are bound to it, so signing out (which does not clear the
+ * support cookie) and signing back in, even as the same admin at aal2, starts a new session and the old cookie stops verifying. Null on any assurance failure
+ * or when the verified claims carry no session id (fail closed).
+ */
+export async function getVerifiedAal2SessionId(userId: string): Promise<string | null> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.getClaims();
+    if (error || !data) return null;
+    const claims = data.claims as Claims;
+    if (!evaluateAssurance(claims, Math.floor(Date.now() / 1000), "aal2", userId).ok) return null;
+    const sid = isRecord(claims) ? claims.session_id : null;
+    return typeof sid === "string" && sid.length > 0 && sid.length <= 200 ? sid : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The sentence the challenge page shows for a refusal reason. Unknown reasons get the generic sentence. */

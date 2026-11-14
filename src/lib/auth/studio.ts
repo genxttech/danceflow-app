@@ -2,7 +2,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isPlatformAdmin, requireAuthenticatedUser } from "./platform";
+import { requireAuthenticatedUser } from "./platform";
+import { hasVerifiedAal2Session, stepUpChallengeUrl } from "./platform-assurance";
+import { resolveCurrentSupportStudio } from "./platform-support-audit";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -274,6 +276,40 @@ export async function getAccessibleStudioRolesForUser(
   });
 }
 
+/**
+ * The caller's workspaces for a bearer-authenticated surface, which has no selected-workspace cookie. One entry per studio, and the role is the one
+ * getStudioContextForStudio would resolve for that studio: the first matching row, normalized the same way.
+ */
+export async function getWorkspacesForUserWithClient(
+  userId: string,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+) {
+  const roles = await getAccessibleStudioRolesForUser(userId, supabase);
+  const seen = new Set<string>();
+  const workspaces: {
+    studioId: string;
+    role: string;
+    studioName: string;
+    studioSlug: string | null;
+    studioPublicName: string | null;
+  }[] = [];
+
+  for (const row of roles) {
+    const studio = getStudioFromJoin(row.studios);
+    if (!studio || seen.has(row.studio_id)) continue;
+    seen.add(row.studio_id);
+    workspaces.push({
+      studioId: row.studio_id,
+      role: normalizeWorkspaceRole(row),
+      studioName: studio.name,
+      studioSlug: studio.slug,
+      studioPublicName: studio.public_name,
+    });
+  }
+
+  return workspaces;
+}
+
 function pickSelectedWorkspace(
   roles: StudioRoleRow[],
   selectedStudioId: string | null
@@ -296,8 +332,9 @@ export function isWorkspaceAccessAllowedStatus(status: string | null | undefined
   return status === "active" || status === "trialing";
 }
 
-export async function getSelectedPlatformStudioIdFromCookie() {
-  return getCookieValue(PLATFORM_STUDIO_COOKIE);
+/** H1: only an authentic, user-bound, unexpired support token yields a studio id; a bare or foreign cookie value is null. */
+export async function getSelectedPlatformStudioIdFromCookie(userId: string) {
+  return resolveCurrentSupportStudio(await getCookieValue(PLATFORM_STUDIO_COOKIE), userId);
 }
 
 export async function getSelectedAppStudioIdFromCookie() {
@@ -345,12 +382,29 @@ export async function getCurrentStudioRole() {
   } as StudioRoleRow;
 }
 
+/**
+ * H1: platform-admin authority over a studio (the support context and its studio-owner-equivalent powers) is granted ONLY to a platform_admin whose verified
+ * session is aal2. A platform_admin whose session is not aal2 (aal1, downgraded, unverifiable, expired) is resolved as an ORDINARY user: they keep whatever
+ * memberships they genuinely hold, and the support cookie is ignored. This is the one boundary every server action, route handler and page reaches through
+ * getCurrentStudioContext / getStudioContextForStudio, so the layout redirect is not what protects it. Ordinary users never reach the claims read.
+ */
+async function hasPlatformAdminAuthority(profile: { id: string; platform_role: string | null }) {
+  if (profile.platform_role !== "platform_admin") return false;
+  return hasVerifiedAal2Session(profile.id);
+}
+
+/** An admin-role user with no membership of their own and no verified aal2 session goes to the step-up challenge, not to a dead end. */
+function redirectUnverifiedAdmin(profile: { platform_role: string | null }): never {
+  if (profile.platform_role === "platform_admin") redirect(stepUpChallengeUrl("aal1", "/platform/studios"));
+  redirect("/app");
+}
+
 export async function getCurrentStudioContext(): Promise<StudioContext> {
   const profile = await requireAuthenticatedUser();
-  const platformAdmin = await isPlatformAdmin();
+  const platformAdmin = await hasPlatformAdminAuthority(profile);
 
   if (platformAdmin) {
-    const selectedStudioId = await getSelectedPlatformStudioIdFromCookie();
+    const selectedStudioId = await getSelectedPlatformStudioIdFromCookie(profile.id);
 
     if (!selectedStudioId) {
       redirect("/platform/studios");
@@ -368,6 +422,7 @@ export async function getCurrentStudioContext(): Promise<StudioContext> {
   const studioRole = await getCurrentStudioRole();
 
   if (!studioRole) {
+    if (profile.platform_role === "platform_admin") redirect(stepUpChallengeUrl("aal1", "/platform/studios"));
     redirect("/account");
   }
 
@@ -384,9 +439,11 @@ export async function getStudioContextForStudio(
   studioId: string
 ): Promise<StudioContext> {
   const profile = await requireAuthenticatedUser();
-  const platformAdmin = await isPlatformAdmin();
+  const platformAdmin = await hasPlatformAdminAuthority(profile);
 
-  if (platformAdmin) {
+  // Platform authority over a studio exists only inside an entered (and therefore audited) support context for THAT studio: the verified,
+  // user-bound cookie must name it. A caller-supplied studio id alone never grants it (it would bypass the entry audit).
+  if (platformAdmin && (await getSelectedPlatformStudioIdFromCookie(profile.id)) === studioId) {
     return {
       studioId,
       studioRole: "platform_admin",
@@ -400,7 +457,8 @@ export async function getStudioContextForStudio(
   const matchingRole = roles.find((row) => row.studio_id === studioId);
 
   if (!matchingRole) {
-    redirect("/app");
+    if (platformAdmin) redirect("/platform/studios");
+    redirectUnverifiedAdmin(profile);
   }
 
   return {

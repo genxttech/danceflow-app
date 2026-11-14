@@ -36,7 +36,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import {
   STEP_UP_SKEW_SECONDS,
-  STEP_UP_WINDOW_SECONDS,
+  STEP_UP_FRESH_SECONDS, STEP_UP_WINDOW_SECONDS,
   evaluateAssurance,
   requirePlatformStepUp,
   safePlatformReturnPath,
@@ -106,6 +106,20 @@ describe("evaluateAssurance (pure)", () => {
     expect(evaluateAssurance(edge, NOW, "recent", ADMIN)).toEqual({ ok: true });
     const mixed = claims({ amr: [{ method: "totp", timestamp: NOW - 99999 }, { method: "totp", timestamp: NOW - 10 }] });
     expect(evaluateAssurance(mixed, NOW, "recent", ADMIN)).toEqual({ ok: true });
+  });
+
+  it("fresh (pricing ceremonies): the 10 minute window is shorter than recent's, inclusive at the edge, and refuses a missing, malformed or far-future timestamp", () => {
+    expect(STEP_UP_FRESH_SECONDS).toBe(600);
+    expect(STEP_UP_FRESH_SECONDS).toBeLessThan(STEP_UP_WINDOW_SECONDS);
+    const edge = claims({ amr: [{ method: "totp", timestamp: NOW - STEP_UP_FRESH_SECONDS }] });
+    expect(evaluateAssurance(edge, NOW, "fresh", ADMIN)).toEqual({ ok: true });
+    const between = claims({ amr: [{ method: "totp", timestamp: NOW - STEP_UP_FRESH_SECONDS - 1 }] });
+    expect(evaluateAssurance(between, NOW, "fresh", ADMIN)).toEqual({ ok: false, reason: "stale" });
+    expect(evaluateAssurance(between, NOW, "recent", ADMIN)).toEqual({ ok: true });
+    expect(evaluateAssurance(between, NOW, "aal2", ADMIN)).toEqual({ ok: true });
+    for (const amr of [["totp"], [{ method: "totp" }], [{ method: "totp", timestamp: Number.NaN }], [{ method: "totp", timestamp: String(NOW) }], [{ method: "totp", timestamp: NOW + STEP_UP_SKEW_SECONDS + 1 }]]) {
+      expect(evaluateAssurance(claims({ amr }), NOW, "fresh", ADMIN)).toEqual({ ok: false, reason: "stale" });
+    }
   });
 
   it("recent: a password re-login timestamp does not renew the step-up", () => {

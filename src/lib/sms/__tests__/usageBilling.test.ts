@@ -104,7 +104,7 @@ describe("sendBilledSms: begin refusals", () => {
   it("passes the whole input to begin", async () => {
     const rpc = fakeRpc();
     await sendBilledSms(rpc.client, new FakeBilledSmsProvider(), input());
-    expect(rpc.calls[0]).toEqual({
+    expect(rpc.calls.find((c) => c.name === "tw4_usage_begin")).toEqual({
       name: "tw4_usage_begin",
       args: {
         p_source_kind: "manual",

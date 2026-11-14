@@ -7,9 +7,10 @@ import {
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { resolveMembershipStripeAccount } from "@/lib/payments/membershipStripeAccount";
-import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
+import { livemodeMismatch, verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import { handleSmsCreditStripeEvent } from "@/lib/billing/smsCreditPurchases";
 import { resolvePlanCodeFromEnvPriceIds } from "@/lib/billing/subscriptionPlanResolution";
+import { maybeReconcilePriceTransition, subscriptionIdFromSchedule } from "@/lib/billing/priceTransitionWebhook";
 
 import {
   handleChargeDisputeEvent,
@@ -48,6 +49,7 @@ import {
   handleEventCartPaymentIntentEvent,
   type WebhookClaim,
 } from "@/lib/events/cartWebhook";
+import { handleHostedInvoiceEvent } from "@/lib/payments/hostedInvoice/handlers";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -3351,6 +3353,12 @@ export async function POST(request: Request) {
 
   const event = verification.event;
 
+  // Stage 3 (F-1): refuse live-mode events in a deployment configured with a test key, before any claim or handler.
+  if (livemodeMismatch(event, process.env.STRIPE_SECRET_KEY)) {
+    console.error("webhook_livemode_mismatch");
+    return webhookResponse("Invalid webhook environment.", 400);
+  }
+
   const supabase = getSupabaseAdmin();
   const payloadHash = createHash("sha256").update(body).digest("hex");
 
@@ -3380,6 +3388,8 @@ export async function POST(request: Request) {
     return webhookResponse("Webhook event is being processed.", 409);
   }
   const claim: WebhookClaim = { eventId: event.id, owner: claimOwner };
+
+  let completionOutcome: string | null = null;
 
   try {
     // TW-4F-3b-pay: events about prepaid SMS credit purchases (our own Checkout Sessions / PaymentIntents, platform-scoped only) are handled exclusively here;
@@ -3609,6 +3619,26 @@ export async function POST(request: Request) {
           );
         }
 
+        // D7 WP-3: dark hook; re-reads Stripe truth, never throws, never writes to Stripe.
+        if (!event.account) {
+          await maybeReconcilePriceTransition({ db: supabase, stripe, stripeSubscriptionId: subscription.id });
+        }
+
+        break;
+      }
+
+      case "subscription_schedule.updated":
+      case "subscription_schedule.released":
+      case "subscription_schedule.completed":
+      case "subscription_schedule.canceled": {
+        // D7 WP-3: a schedule event only triggers a re-evaluation (payload not trusted); dark unless PRICE_TRANSITION_RECONCILE_ENABLED.
+        if (!event.account) {
+          await maybeReconcilePriceTransition({
+            db: supabase,
+            stripe,
+            stripeSubscriptionId: subscriptionIdFromSchedule(event.data.object as Stripe.SubscriptionSchedule),
+          });
+        }
         break;
       }
 
@@ -3629,6 +3659,17 @@ export async function POST(request: Request) {
           event.data.object as Stripe.Invoice,
           event.account,
         );
+        break;
+      }
+
+      case "invoice.voided":
+      case "invoice.marked_uncollectible":
+      case "invoice_payment.paid":
+      case "credit_note.created":
+      case "credit_note.updated":
+      case "credit_note.voided": {
+        // D24 M1: hosted-invoice facts only (no settlement, ledger, refund or credit effect). Dark unless D24_HOSTED_INVOICE_EVENTS=on.
+        completionOutcome = (await handleHostedInvoiceEvent({ supabase, event, claim })).outcome;
         break;
       }
 
@@ -3674,7 +3715,7 @@ export async function POST(request: Request) {
       p_provider_event_id: event.id,
       p_owner: claimOwner,
       p_status: "processed",
-      p_outcome: null,
+      p_outcome: completionOutcome,
       p_error: null,
     });
 

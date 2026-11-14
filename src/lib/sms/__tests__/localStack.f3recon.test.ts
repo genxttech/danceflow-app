@@ -12,6 +12,7 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { deletePricesSql, ownerReactivate, seedPrice } from "../twilioIsv/__tests__/priceFixture";
 
 vi.mock("server-only", () => ({}));
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 1_000_000 });
@@ -143,7 +144,7 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     // readiness reads EVERY usage_reconcile run: anything not ours means this is not a dedicated database
     expect(psql("select count(*) from public.studio_sms_reconcile_runs where job = 'usage_reconcile' and runner not like 'tw4f3recon:%'"), "needs a dedicated database").toBe("0");
     snapshotActivePrices = psql("select id from public.studio_sms_price_list where active").split("\n").filter(Boolean);
-    expect((await rpc("tw4_price_set", { p_kind: "sms_usage", p_customer_cents: 3, p_provider_cents: 1, p_description: "fixture sms_usage price", p_actor: U.padmin })).error).toBeNull();
+    seedPrice(psql, { kind: "sms_usage", customer: 3, provider: 1, description: "fixture sms_usage price", approver: U.padmin });
     await readySender(rpc, (sql) => aged(sql), { studio: SA, account: ACC_A, actor: U.padmin, ids: newSenderIds(NUM_A) });
     n += 1;
     await credits.topupPending(EA, SA, `cs_f3r_${RUN}_${n}`, 5_000, new Date(Date.now() + 20 * 60_000).toISOString());
@@ -153,7 +154,8 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
   afterAll(() => {
     try {
       psqlFile(CLEANUP);
-      aged(`delete from public.studio_sms_price_list where created_by = '${U.padmin}'; update public.studio_sms_price_list set active = true where id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
+      psql(deletePricesSql(`created_by = '${U.padmin}'`));
+      ownerReactivate(psql, `id in (${snapshotActivePrices.map((id) => `'${id}'`).join(", ") || "null"})`);
     } catch {
       /* best effort */
     }
@@ -348,7 +350,12 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
     expect(switchOn()).toBe(false);
   });
 
-  it("F3-09 (d) rollback: refused while billed texting is on or another function calls the helper; otherwise restores the exact main fingerprints; re-apply is clean", () => {
+  const EXPECTED_LATER_CALLER = "_tw4act_items(uuid)";
+  const externalCallers = () => psql(`select coalesce(string_agg(p.oid::regprocedure::text, ',' order by p.oid::regprocedure::text), '') from pg_proc p
+    where (p.prosrc like '%\_tw4usage\_reconciler\_ready%' or p.prosrc like '%\_tw4usage\_run\_proved%')
+      and p.oid not in ('public._tw4usage_reconciler_ready()'::regprocedure, '${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure)`);
+
+  it("F3-09 (d) rollback: refused while billed texting is on or another function calls the helper (a true dependency of later migrations)", () => {
     const migration = readFileSync(MIGRATION, "utf8");
     const rollback = readFileSync(ROLLBACK, "utf8");
     expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
@@ -364,17 +371,47 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
       psqlFile("drop function public.tw4f3recon_probe()");
     }
     expect(fp("public._tw4usage_reconciler_ready()")).toBe("39b0ad11");
+    // The refusal is a TRUE dependency on a stack with later migrations: 20261219 and 20261226 replace public._tw4act_items(uuid), which calls the helper (dynamic SQL).
+    // On such a stack the real caller must be exactly that set, and the rollback must refuse because of it with nothing changed; the clean-rollback leg then cannot run
+    // (the next test then runs the clean rollback with that one caller stubbed inside a rolled-back transaction).
+    const callers = externalCallers();
+    expect(["", EXPECTED_LATER_CALLER]).toContain(callers);
+    if (callers !== "") {
+      expect(psqlError(rollback)).toContain("another function calls");
+      expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
+      expect(psql("select to_regprocedure('public._tw4usage_run_proved(jsonb)') is not null")).toBe("t");
+    }
+  });
 
-    const acl = () => psql(`select string_agg(p.proname || ':' || array_to_string(p.proacl, ','), ' ' order by p.proname) from pg_proc p where p.oid in ('${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure)`);
-    const aclBefore = acl();
-    expect(psqlError(rollback)).toBe("");
-    expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["3013c006", "90813ea0", ""]);
-    expect(acl()).toBe(aclBefore);
-    expect(psql("select to_regprocedure('public._tw4usage_run_proved(jsonb)') is null and to_regclass('public.studio_sms_reconcile_runs_completed') is null")).toBe("t");
-    expect(psqlError(rollback)).toContain("the migration is not applied");
-    expect(psqlError(migration)).toBe("");
+  it("F3-09 (d2) rollback once nothing else calls the helper: restores the exact main fingerprints; re-apply is clean (one transaction, rolled back)", () => {
+    const migration = readFileSync(MIGRATION, "utf8");
+    const rollback = readFileSync(ROLLBACK, "utf8");
+    const strip = (t: string) => t.replace(/^begin;/m, "").replace(/^commit;/m, "");
+    // On a stack with later migrations the only external caller is public._tw4act_items(uuid) (asserted above). Rolling those layers back first is what removes it;
+    // inside this rolled-back transaction it is replaced by an inert stub with the same signature, which is exactly the state after those layers are gone.
+    const stub = externalCallers() === "" ? "" : "create or replace function public._tw4act_items(p_studio_id uuid) returns jsonb language sql as $stub$ select '[]'::jsonb $stub$;";
+    const line = (label: string, sig: string) => `select '${label}=' || coalesce((select left(md5(replace(p.prosrc, chr(13), '')), 8) from pg_proc p where p.oid = to_regprocedure('${sig}')), '');`;
+    const fps = (tag: string) => [line(`${tag}.begin`, BEGIN_SIG), line(`${tag}.switch`, SWITCH_SIG), line(`${tag}.ready`, "public._tw4usage_reconciler_ready()")].join(" ");
+    const aclSql = (tag: string) => `select '${tag}.acl=' || (select string_agg(p.proname || ':' || array_to_string(p.proacl, ','), ' ' order by p.proname) from pg_proc p where p.oid in ('${BEGIN_SIG}'::regprocedure, '${SWITCH_SIG}'::regprocedure));`;
+    const anonSql = "select 'anon=' || (has_function_privilege('anon', 'public._tw4usage_reconciler_ready()', 'execute') or has_function_privilege('authenticated', 'public._tw4usage_reconciler_ready()', 'execute'))::text;";
+    const gone = "select 'gone=' || (to_regprocedure('public._tw4usage_run_proved(jsonb)') is null and to_regclass('public.studio_sms_reconcile_runs_completed') is null)::text;";
+    const out = psqlFile(`begin; ${stub}
+      ${aclSql("before")}
+      ${strip(rollback)}
+      ${fps("rolled")} ${aclSql("rolled")} ${gone}
+      ${strip(migration)}
+      ${fps("reapplied")} ${aclSql("reapplied")} ${anonSql}
+      rollback;`).split(String.fromCharCode(10)).filter((l) => /^(before|rolled|reapplied|gone|anon)/.test(l));
+    const v = (k: string) => out.find((l) => l.startsWith(k + "="))?.slice(k.length + 1);
+    expect([v("rolled.begin"), v("rolled.switch"), v("rolled.ready")]).toEqual(["3013c006", "90813ea0", ""]);
+    expect(v("rolled.acl")).toBe(v("before.acl"));
+    expect(v("gone")).toBe("true");
+    expect([v("reapplied.begin"), v("reapplied.switch"), v("reapplied.ready")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
+    expect(v("reapplied.acl")).toBe(v("before.acl"));
+    expect(v("anon")).toBe("false");
+    // a second rollback in the same state is refused as not applied
+    expect(psqlError(`begin; ${stub} ${strip(rollback)} ${strip(rollback)} rollback;`)).toContain("the migration is not applied");
+    // nothing leaked out of the rolled-back transaction
     expect([fp(BEGIN_SIG), fp(SWITCH_SIG), fp("public._tw4usage_reconciler_ready()")]).toEqual(["7e85d636", "8adf296c", "39b0ad11"]);
-    expect(acl()).toBe(aclBefore);
-    expect(psql("select has_function_privilege('anon', 'public._tw4usage_reconciler_ready()', 'execute') or has_function_privilege('authenticated', 'public._tw4usage_reconciler_ready()', 'execute')")).toBe("f");
   });
 });
