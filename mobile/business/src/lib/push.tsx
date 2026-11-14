@@ -57,7 +57,9 @@ export function usePushTaps(navigate: (target: NotificationTarget) => void) {
   const config = useContext(PushContext);
   const taps = config?.taps;
   const go = useRef(navigate);
-  go.current = navigate;
+  useEffect(() => {
+    go.current = navigate;
+  });
 
   useEffect(() => {
     if (!taps) return;
