@@ -7,6 +7,7 @@ import * as O from './orchestrator.mjs';
 import { CHILD_TOOLS, CHILD_FLAGS, EXTRA_DENY, CAPS, childSettings, childArgs, childEnv, childConfigSha, validateTemplateIsolation, checkExamples, loadRequired } from './child-config.mjs';
 import { buildSuite, abuseVariants, evaluate, checkIsolationReport } from './isolation-test.mjs';
 import { StreamParser } from './driver.mjs';
+import { entries } from './owner-tool.mjs';
 import { bashMatch } from './deny-check.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -110,4 +111,12 @@ test('I3. isolation report check: must pass, be fresh, match the exact configura
   assert.match(p({ ...good, versionOk: false }), /untested claude version/); assert.match(p(good, sha, now + 25 * 3600000), /stale/); assert.match(p({ ...good, at: new Date(now + 3 * 3600000).toISOString() }), /future-dated/);
   assert.match(p({ ...good, templates: { a: { ok: true, denied: 100, allowedControls: 0 } } }), /always-deny child proves nothing/); assert.match(p({ ...good, templates: {} }), /no denied probes|always-deny/);
   assert.match(p({ ...good, templates: { a: { ok: false, denied: 100, allowedControls: 3 } } }), /always-deny|no denied/);
+});
+
+test('C9. the shipped authorizations match the shipped policy and queue exactly (no stale scope hashes), and Q5 stays unauthorized', () => {
+  const queue = JSON.parse(fs.readFileSync(path.join(HERE, 'phase2', 'queue.json'), 'utf8'));
+  const shipped = JSON.parse(fs.readFileSync(path.join(HERE, 'phase2', 'authorizations.json'), 'utf8'));
+  assert.deepEqual(shipped, entries(queue, policy, { notAfter: '2026-11-17T00:00:00Z' }));
+  assert.deepEqual(shipped.map((a) => a.id), ['Q1', 'Q2', 'Q3', 'Q4']); assert.equal(policy.pilot.enabled, false, 'shipped inert');
+  O.validatePolicy(policy, shipped);
 });
