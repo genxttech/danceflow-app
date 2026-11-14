@@ -4,6 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import {
@@ -176,7 +178,7 @@ export default function JobsScreen() {
 
       <View style={styles.searchCard}>
         <View style={styles.searchIcon}>
-          <Ionicons color="#fff" name="briefcase-outline" size={22} />
+          <Ionicons color={colors.white} name="briefcase-outline" size={22} />
         </View>
         <View style={{ flex: 1 }}>
           <AppText style={styles.searchTitle}>Find studio opportunities</AppText>
@@ -290,8 +292,8 @@ export default function JobsScreen() {
         </Pressable>
       </View>
 
-      {loading ? <FeatureCard title="Loading jobs" detail="Finding studio openings." /> : null}
-      {errorMessage ? <FeatureCard title="Now Hiring needs attention" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading jobs" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Now Hiring needs attention" /> : null}
 
       {filteredJobs.length ? (
         filteredJobs.map((job) => (
@@ -370,7 +372,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     paddingVertical: 12
   },
   applyButtonText: {
-    color: "#fff",
+    color: colors.onPrimary,
     fontSize: 15,
     fontWeight: "900"
   },
@@ -458,7 +460,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "800"
   },
   optionTextActive: {
-    color: "#fff"
+    color: colors.onPrimary
   },
   roleBadge: {
     backgroundColor: colors.surfaceAlt,
@@ -493,7 +495,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     width: 42
   },
   searchTitle: {
-    color: "#fff",
+    color: colors.white,
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 4

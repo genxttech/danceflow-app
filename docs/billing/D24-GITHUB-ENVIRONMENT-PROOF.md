@@ -136,6 +136,8 @@ Settings -> **Environments** -> **New environment** -> name `d24-stripe-test` ->
 
 ### 3.E [OWNER] Ruleset `Protect main`
 
+> **Superseded in part on 2026-11-12** by `docs/ops/GitHub_Governance_Change_Package.md` (owner-authorized governance change). The JSON below is the **new** ruleset: 0 general approvals, code-owner review ON, last-push approval OFF, two required checks pinned to GitHub Actions. CODEOWNERS no longer has the catch-all; it lists the sensitive areas (governance, supply chain, this D24 boundary, database, auth, money, Twilio, platform admin). Where the text below says every PR needs the owner, read: every PR that touches an owned path needs the owner. The D24 boundary itself (all of `/.github/`, the package files, `scripts/qa/d24-*`, these docs, the environment reviewer) is unchanged.
+
 Today's ruleset has admin bypass `always`, 0 required approvals, code-owner review off, last-push approval off, no required status check, and review-thread resolution **on** (kept on below). Replace it with the values below.
 Settings -> **Rules** -> **Rulesets**: first rename the existing one to `Protect main (old)`, then **New ruleset** -> **Import a ruleset** and upload this JSON saved as `protect-main.json`, then check the imported ruleset shows **Active**, then delete `Protect main (old)`:
 
@@ -153,10 +155,10 @@ Settings -> **Rules** -> **Rulesets**: first rename the existing one to `Protect
     {
       "type": "pull_request",
       "parameters": {
-        "required_approving_review_count": 1,
+        "required_approving_review_count": 0,
         "dismiss_stale_reviews_on_push": true,
         "require_code_owner_review": true,
-        "require_last_push_approval": true,
+        "require_last_push_approval": false,
         "required_review_thread_resolution": true,
         "allowed_merge_methods": ["squash"]
       }
@@ -166,7 +168,10 @@ Settings -> **Rules** -> **Rulesets**: first rename the existing one to `Protect
       "parameters": {
         "strict_required_status_checks_policy": false,
         "do_not_enforce_on_create": false,
-        "required_status_checks": [{ "context": "Typecheck, build, lint, unit/integration tests", "integration_id": 15368 }]
+        "required_status_checks": [
+          { "context": "Typecheck, build, lint, unit/integration tests", "integration_id": 15368 },
+          { "context": "Mobile apps typecheck and tests", "integration_id": 15368 }
+        ]
       }
     }
   ]

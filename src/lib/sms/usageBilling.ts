@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BilledSmsProvider } from "@/lib/sms/usageProvider";
+import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 
 /**
  * TW-4F SMS usage billing (design: docs/twilio/TW-4F_Usage_Financials_Design.md v2). SERVER ONLY.
@@ -30,6 +31,7 @@ export type BilledSendRefusal =
   | "not_billed"
   | "invalid"
   | "forbidden"
+  | "opted_out"
   | "unavailable";
 
 const REFUSALS: Record<string, BilledSendRefusal> = {
@@ -86,6 +88,10 @@ function withAttempt(base: string | null, attemptId: string): string | null {
 }
 
 export async function sendBilledSms(admin: Client, provider: BilledSmsProvider, input: BilledSendInput): Promise<BilledSendOutcome> {
+  // a parked STOP (not yet applied to consent) suppresses every ordinary text; "cannot establish" also stops it. Nothing is reserved yet.
+  const precheck = await pendingOptOutState(admin, input.studioId, input.phoneE164);
+  if (precheck === "blocked") return { outcome: "refused", reason: "opted_out" };
+  if (precheck === "unknown") return { outcome: "refused", reason: "unavailable" };
   const begun = await admin.rpc("tw4_usage_begin", {
     p_source_kind: input.source.kind,
     p_source_id: input.source.id,
@@ -126,6 +132,15 @@ export async function sendBilledSms(admin: Client, provider: BilledSmsProvider, 
     if (released.error) console.warn("sms_usage_unprepared_release_failed", released.error.code ?? "unknown");
     return { outcome: "refused", reason: "unavailable" };
   };
+  // the last gate before the dispatch marker: a STOP parked after the check above (or before a replayed, still-reserved attempt proceeds) still stops it, and the
+  // reservation is released. The number checked is the one that would be texted (the stored one for a replay).
+  const gate = await pendingOptOutState(admin, input.studioId, phoneE164);
+  if (gate === "blocked") {
+    const released = await admin.rpc("tw4_usage_release_unprepared", { p_attempt_id: attemptId, p_code: "pending_opt_out" });
+    if (released.error) console.warn("sms_usage_unprepared_release_failed", released.error.code ?? "unknown");
+    return { outcome: "refused", reason: "opted_out" };
+  }
+  if (gate === "unknown") return { outcome: "refused", reason: "unavailable" }; // transient: the attempt stays reserved and the retry replays it
   if (!from) return releaseUnprepared("no_sender_number");
 
   // the subaccount's credentials are obtained BEFORE the marker, so a credential failure never leaves a marked attempt behind
@@ -200,5 +215,6 @@ export const BILLED_REFUSAL_MESSAGE: Record<BilledSendRefusal, string> = {
   not_billed: "Texting is not set up for your studio yet.",
   invalid: "This text cannot be sent. Check the number (US and Canada only) and the message length.",
   forbidden: "This text cannot be sent from this studio.",
+  opted_out: "This number has opted out of texts from your studio.",
   unavailable: "Texting could not be verified. Please try again.",
 };

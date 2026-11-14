@@ -1,13 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { Link, router } from "expo-router";
-import { useEffect, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-native";
+import type React from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
-import { colorsForScheme } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { EVENT_ART_ACCENT, EVENT_ART_END, EVENT_ART_GRADIENT, EVENT_ART_START, EVENT_ART_TEXT, EVENT_ART_TEXT_MUTED } from "@/lib/eventArt";
+import { initialsFor } from "@/lib/initials";
+import { useEnterUp } from "@/lib/motion";
 import { getPublicEventsForMobile, getPublicStudiosForMobile, type PublicEventItem, type PublicStudioItem } from "@/lib/publicDiscovery";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -15,9 +21,12 @@ import {
   loadStudentScheduleOverview,
   type StudentScheduleOverview
 } from "@/lib/studentSchedule";
+import { momentLabel, weekStrip, weekStripLabel } from "@/lib/todayView";
 
-const danceFlowLogo = require("../../assets/danceflow-logo.png");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../../assets/lumi-avatar.png");
+
+type Styles = ReturnType<typeof createStyles>;
 
 function displayNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
   const metadata = session?.user.user_metadata ?? {};
@@ -45,61 +54,122 @@ function firstNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
   return displayName.split(" ")[0] || "Dancer";
 }
 
-function HomeSummaryChip({
-  label,
-  value,
-  styles,
-}: {
-  label: string;
-  value: string | number;
-  styles: ReturnType<typeof createStyles>;
-}) {
+function todayLabel(now = new Date()) {
+  return now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+function TodayHeader({ initials, styles }: { initials: string; styles: Styles }) {
   return (
-    <View style={styles.summaryChip}>
-      <AppText style={styles.summaryChipLabel}>{label}</AppText>
-      <AppText style={styles.summaryChipValue}>{value}</AppText>
+    <View style={styles.todayHeader}>
+      <AppText style={styles.todayDate}>{todayLabel()}</AppText>
+      <Pressable
+        accessibilityHint="Opens your profile, settings and more"
+        accessibilityLabel="Profile and settings"
+        accessibilityRole="button"
+        hitSlop={4}
+        onPress={() => router.push("/(tabs)/more")}
+        style={({ pressed }) => [styles.profileButton, pressed && styles.pressed]}
+        testID="today-profile-button"
+      >
+        <AppText style={styles.profileInitials}>{initials}</AppText>
+      </Pressable>
     </View>
   );
 }
 
-function HomeActionCard({
-  detail,
-  icon,
-  label,
-  onPress,
+/** The day's moment: brand art with display type, the same in both themes, like a photo hero. */
+function MomentHero({
+  eyebrow,
   title,
-  styles,
+  detail,
+  children,
+  styles
 }: {
-  detail: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress: () => void;
+  eyebrow: string;
   title: string;
-  styles: ReturnType<typeof createStyles>;
+  detail?: string;
+  children?: React.ReactNode;
+  styles: Styles;
 }) {
-  const colors = colorsForScheme(useColorScheme());
+  const entering = useEnterUp();
+  return (
+    <Animated.View entering={entering}>
+      <LinearGradient colors={EVENT_ART_GRADIENT} end={EVENT_ART_END} start={EVENT_ART_START} style={styles.moment} testID="today-moment">
+        <AppText style={styles.momentEyebrow}>{eyebrow}</AppText>
+        <AppText accessibilityRole="header" style={styles.momentTitle} variant="display">
+          {title}
+        </AppText>
+        {detail ? <AppText style={styles.momentDetail}>{detail}</AppText> : null}
+        {children ? <View style={styles.momentActions}>{children}</View> : null}
+      </LinearGradient>
+    </Animated.View>
+  );
+}
 
+function WeekStrip({ items, styles, colors }: { items: StudentScheduleOverview["upcoming"]; styles: Styles; colors: ThemeColors }) {
+  const days = useMemo(() => weekStrip(items, new Date(), items[0]?.timeZone), [items]);
   return (
     <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionCard,
-        {
-          backgroundColor: colors.surface,
-          borderColor: colors.border,
-          shadowColor: colors.black,
-        },
-        pressed && styles.cardPressed,
-      ]}
+      accessibilityLabel={weekStripLabel(days)}
+      accessibilityRole="button"
+      onPress={() => router.push("/(tabs)/schedule")}
+      style={({ pressed }) => [styles.week, pressed && styles.pressed]}
+      testID="today-week"
     >
-      <View style={[styles.actionIcon, { backgroundColor: colors.primary }]}>
-        <Ionicons color="#fff" name={icon} size={22} />
+      <View style={styles.weekHeader}>
+        <AppText style={styles.sectionTitle}>This week</AppText>
+        <View style={styles.inlineLink}>
+          <AppText style={styles.linkText}>Full schedule</AppText>
+          <Ionicons color={colors.primary} name="chevron-forward" size={16} />
+        </View>
       </View>
-      <View style={{ flex: 1 }}>
-        <AppText variant="eyebrow">{label}</AppText>
-        <AppText variant="subtitle">{title}</AppText>
+      <View style={styles.weekDays}>
+        {days.map((day) => (
+          <View key={day.key} style={[styles.day, day.isToday && styles.dayToday]}>
+            <AppText style={[styles.dayName, day.isToday && styles.dayTodayText]}>{day.weekday}</AppText>
+            <AppText style={[styles.dayNumber, day.isToday && styles.dayTodayText]}>{day.dayOfMonth}</AppText>
+            <View style={[styles.dayDot, day.count > 0 && { backgroundColor: day.isToday ? colors.onPrimary : colors.primary }]} />
+          </View>
+        ))}
+      </View>
+    </Pressable>
+  );
+}
+
+function ShortcutRow({
+  icon,
+  title,
+  detail,
+  onPress,
+  styles,
+  colors,
+  testID
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  detail: string;
+  onPress: () => void;
+  styles: Styles;
+  colors: ThemeColors;
+  testID?: string;
+}) {
+  return (
+    <Pressable
+      accessibilityHint={detail}
+      accessibilityLabel={title}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.shortcut, pressed && styles.pressed]}
+      testID={testID}
+    >
+      <View style={styles.shortcutIcon}>
+        <Ionicons color={colors.primary} name={icon} size={22} />
+      </View>
+      <View style={styles.shortcutCopy}>
+        <AppText style={styles.shortcutTitle}>{title}</AppText>
         <AppText variant="caption">{detail}</AppText>
       </View>
+      <Ionicons color={colors.muted} name="chevron-forward" size={18} />
     </Pressable>
   );
 }
@@ -107,7 +177,7 @@ function HomeActionCard({
 export default function HomeScreen() {
   const { session } = useAuth();
   const colors = colorsForScheme(useColorScheme());
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [loadingAccess, setLoadingAccess] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -185,349 +255,197 @@ export default function HomeScreen() {
   const nextItem = scheduleOverview?.nextItem ?? null;
   const pendingRequests = scheduleOverview?.bookingRequests.length ?? 0;
   const recentCount = scheduleOverview?.recent.length ?? 0;
-  const favoritePreview = [...favoriteStudios, ...favoriteEvents].slice(0, 4);
+  const savedCount = favoriteStudios.length + favoriteEvents.length;
   const greetingName = primaryStudio?.clientFirstName?.trim() || firstNameFromSession(session);
+  const initials = initialsFor(
+    primaryStudio
+      ? [primaryStudio.clientFirstName, primaryStudio.clientLastName].filter(Boolean).join(" ")
+      : displayNameFromSession(session),
+    session?.user.email
+  );
+
+  if (isGuest) {
+    return (
+      <Screen>
+        <MomentHero
+          detail="Explore studios, events, lessons and social dancing from one place."
+          eyebrow="DanceFlow"
+          styles={styles}
+          title="Find your next place to dance"
+        />
+        <Link href="/(tabs)/discover" asChild>
+          <AppButton label="Start exploring" />
+        </Link>
+        <Link href="/(auth)/sign-in" asChild>
+          <AppButton label="Continue with email" variant="secondary" />
+        </Link>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
-      <View style={styles.hero}>
-        <Image accessibilityIgnoresInvertColors resizeMode="contain" source={danceFlowLogo} style={styles.logo} />
-        <AppText style={styles.heroEyebrow}>
-          {isGuest ? "DanceFlow" : "Your dance day"}
-        </AppText>
-        <AppText style={styles.heroTitle}>
-          {isGuest ? "Find your next place to dance" : `Welcome back, ${greetingName}`}
-        </AppText>
-        <AppText style={styles.heroDetail}>
-          {isGuest
-            ? "Explore studios, events, lessons, and social dancing from one place."
-            : hasPortalAccess
-              ? `${primaryStudio?.studioPublicName || primaryStudio?.studioName} is connected to your DanceFlow account.`
-              : "Your dancer account is ready. Save favorites, keep tickets handy, and connect with a studio when you're ready."}
-        </AppText>
+      <TodayHeader initials={initials} styles={styles} />
 
-        {!isGuest ? (
-          <ScrollView
-            horizontal
-            contentContainerStyle={styles.summaryScroller}
-            showsHorizontalScrollIndicator={false}
-          >
-            <HomeSummaryChip
-              label="Upcoming"
-              value={scheduleOverview?.upcoming.length ?? 0}
-              styles={styles}
-            />
-            <HomeSummaryChip
-              label="Requests"
-              value={pendingRequests}
-              styles={styles}
-            />
-            <HomeSummaryChip
-              label="Saved"
-              value={favoritePreview.length}
-              styles={styles}
-            />
-          </ScrollView>
-        ) : null}
-      </View>
-
-      {isGuest ? (
-        <>
-          <FeatureCard
-            label="Explore"
-            title="Browse without an account"
-            detail="Search studios and events, view details, share listings, and open public registration links."
+      {loadingAccess || loadingSchedule ? (
+        <LoadingState label="Loading your day" rows={1} />
+      ) : hasPortalAccess && nextItem ? (
+        <MomentHero
+          detail={[nextItem.studioName, nextItem.roomName, formatScheduleTimeRange(nextItem.startsAt, nextItem.endsAt, nextItem.timeZone)]
+            .filter(Boolean)
+            .join(" · ")}
+          eyebrow={momentLabel(nextItem.startsAt, nextItem.timeZone)}
+          styles={styles}
+          title={nextItem.title}
+        >
+          <AppButton
+            label="Details"
+            onPress={() => router.push({ pathname: "/appointments/[id]", params: { id: nextItem.id } })}
+            style={styles.momentButton} variant="onArt"
           />
-          <Link href="/(tabs)/discover" asChild>
-            <AppButton label="Start exploring" />
-          </Link>
-          <Link href="/(auth)/sign-in" asChild>
-            <AppButton label="Continue with email" variant="secondary" />
-          </Link>
-        </>
+        </MomentHero>
       ) : hasPortalAccess ? (
-        <>
-          <View style={styles.nextCard}>
-            <AppText style={styles.nextEyebrow}>Next up</AppText>
-            <AppText style={styles.nextTitle}>
-              {loadingSchedule ? "Loading your schedule..." : nextItem?.title || "No upcoming lessons yet"}
-            </AppText>
-            <AppText style={styles.nextDetail}>
-              {loadingSchedule
-                ? "Checking your connected studio schedule."
-                : nextItem
-                  ? `${formatScheduleTimeRange(nextItem.startsAt, nextItem.endsAt, nextItem.timeZone)} · ${nextItem.studioName}`
-                  : "When your studio schedules a lesson, class, rental, or coaching, it will appear here."}
-            </AppText>
-            <AppButton
-              label={nextItem ? "Open schedule" : "View schedule"}
-              onPress={() => router.push("/(tabs)/schedule")}
-              variant="secondary"
-            />
-          </View>
-
-          <View style={styles.sectionHeader}>
-            <AppText variant="eyebrow">Quick actions</AppText>
-            <AppText variant="subtitle">Keep moving</AppText>
-          </View>
-          <View style={styles.actionList}>
-            <HomeActionCard
-              detail={`${scheduleOverview?.upcoming.length ?? 0} confirmed schedule item${
-                (scheduleOverview?.upcoming.length ?? 0) === 1 ? "" : "s"
-              }`}
-              icon="calendar-outline"
-              label="Upcoming"
-              onPress={() => router.push({ pathname: "/(tabs)/schedule", params: { section: "upcoming" } })}
-              title="Go to schedule"
-              styles={styles}
-            />
-            <HomeActionCard
-              detail={`${pendingRequests} pending or approved request${
-                pendingRequests === 1 ? "" : "s"
-              }`}
-              icon="swap-horizontal-outline"
-              label="Requests"
-              onPress={() => router.push({ pathname: "/(tabs)/schedule", params: { section: "requests" } })}
-              title="View requests"
-              styles={styles}
-            />
-            <HomeActionCard
-              detail={
-                recentCount > 0
-                  ? `${recentCount} recent schedule item${recentCount === 1 ? "" : "s"} can support recaps and practice.`
-                  : "Lesson notes, practice assignments, and skill progress will appear as your studio adds them."
-              }
-              icon="school-outline"
-              label="Progress"
-              onPress={() => router.push("/(tabs)/learn")}
-              title="Open Learn"
-              styles={styles}
-            />
-          </View>
-        </>
+        <MomentHero
+          detail="When your studio schedules a lesson, class or coaching, it shows here."
+          eyebrow={`Welcome back, ${greetingName}`}
+          styles={styles}
+          title="Nothing booked yet"
+        >
+          <AppButton label="Request a lesson" onPress={() => router.push("/schedule/request")} style={styles.momentButton} variant="onArt" />
+        </MomentHero>
       ) : (
-        <>
-          <FeatureCard
-            label="Dancer account"
-            title="Save, profile, and discover"
-            detail="Complete your profile, save studios and events, and keep event tickets handy even before a studio connects your account."
-          />
-          <Link href="/profile" asChild>
-            <AppButton label="Complete profile" />
-          </Link>
+        <MomentHero
+          detail="Save studios and events, keep tickets handy, and connect with a studio when you are ready."
+          eyebrow={`Welcome, ${greetingName}`}
+          styles={styles}
+          title="Your dancer account is ready"
+        >
           <Link href="/(tabs)/discover" asChild>
-            <AppButton label="Find studios and events" variant="secondary" />
+            <AppButton label="Find studios and events" style={styles.momentButton} variant="onArt" />
           </Link>
-        </>
+        </MomentHero>
       )}
 
-      {!isGuest ? (
-        <>
-          <View style={styles.sectionHeader}>
-            <AppText variant="eyebrow">Saved</AppText>
-            <AppText variant="subtitle">Studios and events you follow</AppText>
-          </View>
-          <View style={styles.savedCard}>
-          <View style={styles.savedHeader}>
-            <View style={{ flex: 1 }}>
-              <AppText variant="eyebrow">Saved</AppText>
-              <AppText variant="subtitle">
-                {favoritePreview.length ? "Your favorite studios and events" : "Save studios and events"}
-              </AppText>
-            </View>
-            <Link href="/favorites" asChild>
-              <AppButton label="View all" variant="secondary" />
-            </Link>
-          </View>
-          {favoritePreview.length ? (
-            favoritePreview.map((item) => (
-              <AppText key={item.id} variant="caption">
-                ♥ {item.name}
-              </AppText>
-            ))
-          ) : (
-            <AppText variant="caption">Tap the heart on studios and events in Discover to keep them here.</AppText>
-          )}
-          </View>
-        </>
-      ) : null}
+      {hasPortalAccess ? <WeekStrip colors={colors} items={scheduleOverview?.upcoming ?? []} styles={styles} /> : null}
 
-      <View style={styles.lumiCard}>
-        <Image accessibilityIgnoresInvertColors resizeMode="cover" source={lumiAvatar} style={styles.lumiAvatar} />
-        <View style={styles.lumiCopy}>
-          <AppText variant="eyebrow">LUMI</AppText>
-          <AppText variant="title">
-            {hasPortalAccess ? "Your DanceFlow assistant" : "Your dance journey assistant"}
-          </AppText>
-          <AppText variant="caption">
-            {hasPortalAccess
-              ? "Ask LUMI about practice ideas, lesson recaps, syllabus progress, and what to focus on next."
-              : "LUMI becomes available after a studio connects your account so guidance can use real lesson and progress data."}
-          </AppText>
-          {hasPortalAccess ? (
-            <Link href="/lumi" asChild>
-              <AppButton label="Ask LUMI" />
-            </Link>
-          ) : null}
-        </View>
+      <View style={styles.shortcuts}>
+        {hasPortalAccess && pendingRequests > 0 ? (
+          <ShortcutRow
+            colors={colors}
+            detail={`${pendingRequests} lesson request${pendingRequests === 1 ? "" : "s"} waiting on your studio`}
+            icon="swap-horizontal-outline"
+            onPress={() => router.push({ pathname: "/(tabs)/schedule", params: { section: "requests" } })}
+            styles={styles}
+            title="Your requests"
+          />
+        ) : hasPortalAccess ? (
+          <ShortcutRow
+            colors={colors}
+            detail={
+              recentCount > 0
+                ? "Recaps and practice from your recent lessons"
+                : "Lesson notes and practice appear as your studio adds them"
+            }
+            icon="school-outline"
+            onPress={() => router.push("/(tabs)/learn")}
+            styles={styles}
+            title="Keep practising"
+          />
+        ) : (
+          <ShortcutRow
+            colors={colors}
+            detail="Add your styles, goals and photo"
+            icon="person-outline"
+            onPress={() => router.push("/profile")}
+            styles={styles}
+            title="Complete your profile"
+          />
+        )}
+        <ShortcutRow
+          colors={colors}
+          detail={
+            savedCount > 0
+              ? `${savedCount} studio${savedCount === 1 ? "" : "s"} and events you follow`
+              : "Tap the heart on studios and events to keep them here"
+          }
+          icon="heart-outline"
+          onPress={() => router.push("/favorites")}
+          styles={styles}
+          testID="today-saved"
+          title="Saved"
+        />
+        {hasPortalAccess ? (
+          <Pressable
+            accessibilityHint="Opens LUMI"
+            accessibilityLabel="Ask LUMI"
+            accessibilityRole="button"
+            onPress={() => router.push("/lumi")}
+            style={({ pressed }) => [styles.shortcut, pressed && styles.pressed]}
+          >
+            <Image accessibilityIgnoresInvertColors resizeMode="cover" source={lumiAvatar} style={styles.lumiAvatar} />
+            <View style={styles.shortcutCopy}>
+              <AppText style={styles.shortcutTitle}>Ask LUMI</AppText>
+              <AppText variant="caption">Practice ideas, recaps and what to focus on next</AppText>
+            </View>
+            <Ionicons color={colors.muted} name="chevron-forward" size={18} />
+          </Pressable>
+        ) : (
+          <AppButton label="Full schedule" onPress={() => router.push("/(tabs)/schedule")} variant="ghost" />
+        )}
       </View>
     </Screen>
   );
 }
 
-function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-  hero: {
-    backgroundColor: colors.backgroundSoft,
-    borderColor: colors.border,
-    borderRadius: 28,
-    borderWidth: 1,
-    gap: 8,
-    padding: 20
-  },
-  heroEyebrow: {
-    color: colors.accent,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1.4,
-    textTransform: "uppercase"
-  },
-  heroTitle: {
-    color: colors.text,
-    fontSize: 29,
-    fontWeight: "900",
-    lineHeight: 35
-  },
-  heroDetail: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 21
-  },
-  summaryScroller: {
-    gap: 8,
-    paddingTop: 8,
-    paddingRight: 8
-  },
-  summaryChip: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    minWidth: 94,
-    paddingHorizontal: 12,
-    paddingVertical: 10
-  },
-  summaryChipLabel: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: "800",
-    textTransform: "uppercase"
-  },
-  summaryChipValue: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "900",
-    marginTop: 3
-  },
-  nextCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 22,
-    borderWidth: 1,
-    gap: 8,
-    padding: 17
-  },
-  nextEyebrow: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase"
-  },
-  nextTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "900"
-  },
-  nextDetail: {
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 19
-  },
-  sectionHeader: {
-    gap: 3,
-    paddingHorizontal: 2
-  },
-  logo: {
-    height: 68,
-    marginBottom: 6,
-    width: 230
-  },
-  lumiAvatar: {
-    borderRadius: 34,
-    height: 68,
-    width: 68
-  },
-  lumiCard: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 22,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 14,
-    padding: 17
-  },
-  lumiCopy: {
-    flex: 1,
-    gap: 8
-  },
-  savedCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 22,
-    borderWidth: 1,
-    elevation: 1,
-    gap: 9,
-    padding: 17,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12
-  },
-  savedHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12
-  },
-  actionCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 20,
-    borderWidth: 1,
-    elevation: 1,
-    flexDirection: "row",
-    gap: 14,
-    padding: 16,
-    shadowColor: colors.black,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12
-  },
-  actionIcon: {
-    alignItems: "center",
-    borderRadius: 16,
-    height: 46,
-    justifyContent: "center",
-    width: 46
-  },
-  actionList: {
-    gap: 10
-  },
-  cardPressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.99 }]
-  }
+    todayHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", minHeight: 44 },
+    todayDate: { color: colors.text, fontSize: 15, fontWeight: "600" },
+    profileButton: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.borderStrong,
+      borderRadius: 22,
+      borderWidth: 1,
+      height: 44,
+      justifyContent: "center",
+      width: 44
+    },
+    profileInitials: { color: colors.text, fontSize: 14, fontWeight: "700" },
+    moment: { borderRadius: 24, gap: 10, justifyContent: "flex-end", minHeight: 260, overflow: "hidden", padding: 20 },
+    momentEyebrow: { color: EVENT_ART_ACCENT, fontSize: 15, fontWeight: "700" },
+    momentTitle: { color: EVENT_ART_TEXT },
+    momentDetail: { color: EVENT_ART_TEXT_MUTED, fontSize: 15, lineHeight: 21 },
+    momentActions: { flexDirection: "row", gap: 10, marginTop: 6 },
+    momentButton: { flex: 1 },
+    week: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: 20, borderWidth: 1, gap: 12, padding: 16 },
+    weekHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
+    sectionTitle: { color: colors.text, fontSize: 17, fontWeight: "700" },
+    inlineLink: { alignItems: "center", flexDirection: "row", gap: 2 },
+    linkText: { color: colors.primary, fontSize: 15, fontWeight: "700" },
+    weekDays: { flexDirection: "row", justifyContent: "space-between" },
+    day: { alignItems: "center", borderRadius: 12, gap: 2, minWidth: 40, paddingVertical: 8 },
+    dayToday: { backgroundColor: colors.primary },
+    dayName: { color: colors.muted, fontSize: 12, fontWeight: "600" },
+    dayNumber: { color: colors.text, fontSize: 17, fontWeight: "700" },
+    dayTodayText: { color: colors.onPrimary },
+    dayDot: { backgroundColor: "transparent", borderRadius: 3, height: 5, marginTop: 2, width: 5 },
+    shortcuts: { gap: 10 },
+    shortcut: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 14,
+      minHeight: 64,
+      padding: 12
+    },
+    shortcutIcon: { alignItems: "center", backgroundColor: colors.surfaceAlt, borderRadius: 12, height: 44, justifyContent: "center", width: 44 },
+    shortcutCopy: { flex: 1, gap: 2 },
+    shortcutTitle: { color: colors.text, fontSize: 16, fontWeight: "700" },
+    lumiAvatar: { borderRadius: 22, height: 44, width: 44 },
+    pressed: { opacity: 0.88 }
   });
 }

@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess } from "@/lib/studentAccess";
 import {
@@ -25,6 +26,8 @@ function lumiPromptHref(prompt: string): Href {
 }
 
 export default function LessonRecapDetailScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { lessonId: lessonIdParam } = useLocalSearchParams<{ lessonId: string }>();
   const lessonId = normalizeParam(lessonIdParam);
   const router = useRouter();
@@ -76,7 +79,7 @@ export default function LessonRecapDetailScreen() {
   if (loading) {
     return (
       <Screen>
-        <FeatureCard title="Loading recap" detail="Finding your lesson notes." />
+        <LoadingState label="Loading recap" />
       </Screen>
     );
   }
@@ -84,7 +87,7 @@ export default function LessonRecapDetailScreen() {
   if (!lesson) {
     return (
       <Screen>
-        <FeatureCard title="Recap unavailable" detail={errorMessage ?? "This recap could not be found."} />
+        <ErrorState error={errorMessage} fallback="This recap could not be found." title="Recap unavailable" />
         <AppButton label="Back to Learn" onPress={() => router.replace("/(tabs)/learn")} />
       </Screen>
     );
@@ -128,16 +131,18 @@ export default function LessonRecapDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  actions: {
-    gap: 10
-  },
-  detailCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
-    padding: 16
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    actions: {
+      gap: 10
+    },
+    detailCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      gap: 8,
+      padding: 16
+    }
+  });
+}

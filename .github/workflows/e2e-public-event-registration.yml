@@ -13,53 +13,15 @@ name: Public Event Registration E2E
 #      infrastructure prerequisite this repo doesn't have yet).
 
 on:
-  pull_request:
-    paths:
-      - "src/app/events/**"
-      - "src/app/discover/events/**"
-      - "src/app/sign/**"
-      - "src/app/api/events/cart/**"
-      # Whole directory, not individual files: every file here (PDF
-      # rendering, signing-token/storage-path helpers, checkpoint
-      # advancement, rate limiting) is load-bearing for the signing flow
-      # this harness tests, and a per-file list silently misses new
-      # additions to this directory.
-      - "src/lib/documents/**"
-      - "src/lib/events/event-order-payment.ts"
-      - "src/lib/payments/**"
-      # Payment webhook/routes, credit/billing code and the SMS (Twilio ISV) stack and their migrations move money or tenant access:
-      # they must run the typecheck/build/full-Vitest gate too (a PR touching only these paths previously got no check at all).
-      - "src/app/api/payments/**"
-      - "src/app/api/billing/**"
-      - "src/lib/billing/**"
-      # BILLING-QA: billing QA tools, platform admin endpoints, QA scripts, auth helpers and dependency changes
-      # (a PR touching only these previously got Vercel checks but no typecheck/build/test).
-      - "src/lib/billing-qa/**"
-      - "src/app/api/platform/**"
-      - "scripts/qa/**"
-      - "src/lib/auth/**"
-      - "package.json"
-      - "package-lock.json"
-      - "src/lib/payment-harness/**"
-      - "src/lib/memberships/**"
-      - "src/lib/accounting/**"
-      - "src/lib/sms/**"
-      - "src/lib/supabase/migrations/**"
-      # Phase 10C.5: Competition setup wizard / registration isolation browser coverage
-      # (e2e/tests/competition-setup-registration-isolation.spec.ts).
-      - "src/app/app/events/*/competition/**"
-      - "src/lib/competition/**"
-      - "e2e/**"
-      - "src/lib/e2e/**"
-      - "playwright.config.ts"
-      - ".github/workflows/e2e-public-event-registration.yml"
-      # D24 Stripe TEST proof boundary: its tests (scripts/qa/d24-gh-proof) must gate PRs that touch only these files.
-      - ".github/workflows/d24-*"
-      - "scripts/qa/d24-test-provision/**"
-      - ".github/CODEOWNERS"
-      - "docs/billing/D24-*"
-      - "vitest.config.mts"
-      - "tsconfig.json"
+  # No paths filter: the static-checks job is a REQUIRED merge check for main (docs/ops/GitHub_Governance_Change_Package.md),
+  # so it must report on every pull request. A paths filter would leave PRs outside it waiting forever for the check.
+  # The browser-e2e job still gates itself on secrets.
+  pull_request: {}
+  # Also run on every merge to main. The required check runs on the pull request's merge ref as of its last push, and the main ruleset does not require
+  # branches to be up to date, so two PRs that are each green alone can break main together (#470 + #472 did, fixed in #476). This run makes such a break visible
+  # on the merge commit itself instead of in the next unrelated PR.
+  push:
+    branches: [main]
   workflow_dispatch: {}
 
 # Never grant this workflow more than it needs.

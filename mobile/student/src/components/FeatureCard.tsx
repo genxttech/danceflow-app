@@ -1,7 +1,9 @@
 import { StyleSheet, useColorScheme, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import Animated from "react-native-reanimated";
 import { AppText } from "@/components/AppText";
 import { colorsForScheme } from "@/constants/theme";
+import { useEnterUp } from "@/lib/motion";
 
 type FeatureCardProps = {
   title: string;
@@ -11,26 +13,32 @@ type FeatureCardProps = {
 
 export function FeatureCard({ title, detail, label }: FeatureCardProps) {
   const colors = colorsForScheme(useColorScheme());
+  const entering = useEnterUp();
 
   return (
-    <View
-      accessible
-      accessibilityLabel={[label, title, detail].filter(Boolean).join(". ")}
-      accessibilityRole="summary"
-      style={[
-        styles.card,
-        {
-          backgroundColor: colors.surface,
-          borderColor: colors.border,
-          shadowColor: colors.black,
-        },
-      ]}
-    >
-      <LinearGradient colors={colors.brandGradient} style={styles.accentBar} />
-      {label ? <AppText variant="eyebrow">{label}</AppText> : null}
-      <AppText variant="subtitle">{title}</AppText>
-      <AppText variant="caption">{detail}</AppText>
-    </View>
+    <Animated.View entering={entering}>
+      <View
+        accessible
+        accessibilityLabel={[label, title, detail].filter(Boolean).join(". ")}
+        accessibilityRole="summary"
+        style={[
+          styles.card,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            shadowColor: colors.black,
+          },
+        ]}
+      >
+        <LinearGradient
+          colors={colors.brandGradient}
+          style={styles.accentBar}
+        />
+        {label ? <AppText variant="eyebrow">{label}</AppText> : null}
+        <AppText variant="subtitle">{title}</AppText>
+        <AppText variant="caption">{detail}</AppText>
+      </View>
+    </Animated.View>
   );
 }
 

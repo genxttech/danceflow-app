@@ -552,7 +552,10 @@ describe("TW-2: inbound consent goes through the canonical consent function", ()
       error: { code: "XX001", message: `boom ${PHONE}` },
     }));
 
-    await expectNoSecondMessage(await POST(inboundRequest("STOP", { optOutType: "STOP" })));
+    // TW-4F compliance: an unrecorded STOP is not acknowledged (503); it still carries no message body and logs only a code
+    const failed = await POST(inboundRequest("STOP", { optOutType: "STOP" }));
+    expect(failed.status).toBe(503);
+    expect(await failed.text()).not.toContain("<Message");
 
     const logged = errorLog.mock.calls.flat().map(String).join(" ");
     expect(logged).toContain("sms_inbound_consent_update_failed");

@@ -5,7 +5,8 @@ import {
   Pressable,
   StyleSheet,
   TextInput,
-  View,
+  useColorScheme,
+  View
 } from "react-native";
 import Pdf from "react-native-pdf";
 import * as FileSystem from "expo-file-system/legacy";
@@ -13,8 +14,9 @@ import { router, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { supabase } from "@/lib/supabase";
 import {
   completeStudentDocument,
@@ -58,6 +60,8 @@ function FieldEditor({
   value: StudentSigningValue | undefined;
   onChange: (value: StudentSigningValue) => void;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (field.fieldType === "checkbox") {
     const checked = value === true;
     return (
@@ -136,6 +140,8 @@ function FieldEditor({
 }
 
 export default function StudentDocumentDetailScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const params = useLocalSearchParams<{ assignmentId?: string | string[] }>();
   const assignmentId = normalizeParam(params.assignmentId);
   const [detail, setDetail] = useState<StudentDocumentDetail | null>(null);
@@ -428,7 +434,7 @@ export default function StudentDocumentDetailScreen() {
   if (error && !detail) {
     return (
       <Screen>
-        <FeatureCard title="Document unavailable" detail={error} />
+        <ErrorState error={error} title="Document unavailable" />
         <AppButton label="Try again" onPress={load} />
       </Screen>
     );
@@ -451,7 +457,7 @@ export default function StudentDocumentDetailScreen() {
         <AppText variant="caption">{detail.document.description}</AppText>
       ) : null}
 
-      {error ? <FeatureCard title="Signing needs attention" detail={error} /> : null}
+      {error ? <ErrorState error={error} title="Signing needs attention" /> : null}
 
       {pdfLoading ? (
         <View style={styles.pdfLoadingCard}>
@@ -595,145 +601,147 @@ export default function StudentDocumentDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  checkbox: {
-    alignItems: "center",
-    borderColor: colors.border,
-    borderRadius: 7,
-    borderWidth: 2,
-    height: 26,
-    justifyContent: "center",
-    width: 26,
-  },
-  checkboxChecked: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  checkboxMark: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  checkboxRow: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 16,
-  },
-  checkboxRowChecked: {
-    borderColor: colors.primary,
-  },
-  consentCard: {
-    alignItems: "flex-start",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 16,
-  },
-  consentCardChecked: {
-    borderColor: colors.primary,
-  },
-  consentText: {
-    color: colors.text,
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  fieldCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  fieldCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  input: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 16,
-    minHeight: 50,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  multilineInput: {
-    minHeight: 96,
-    textAlignVertical: "top",
-  },
-  pdf: {
-    flex: 1,
-    minHeight: 520,
-    width: "100%",
-  },
-  pdfCard: {
-    backgroundColor: "#e2e8f0",
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    height: 610,
-    overflow: "hidden",
-  },
-  pdfNavigation: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  pdfNavigationButton: {
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    minWidth: 88,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-  },
-  pdfNavigationButtonDisabled: {
-    opacity: 0.4,
-  },
-  pdfNavigationButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  pdfLoadingCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 12,
-    justifyContent: "center",
-    minHeight: 220,
-    padding: 24,
-  },
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-  },
-  section: {
-    gap: 12,
-  },
-  signatureInput: {
-    fontSize: 22,
-    fontStyle: "italic",
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    checkbox: {
+      alignItems: "center",
+      borderColor: colors.border,
+      borderRadius: 7,
+      borderWidth: 2,
+      height: 26,
+      justifyContent: "center",
+      width: 26,
+    },
+    checkboxChecked: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    checkboxMark: {
+      color: colors.onPrimary,
+      fontSize: 17,
+      fontWeight: "900",
+    },
+    checkboxRow: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      padding: 16,
+    },
+    checkboxRowChecked: {
+      borderColor: colors.primary,
+    },
+    consentCard: {
+      alignItems: "flex-start",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      padding: 16,
+    },
+    consentCardChecked: {
+      borderColor: colors.primary,
+    },
+    consentText: {
+      color: colors.text,
+      flex: 1,
+      fontSize: 14,
+      lineHeight: 21,
+    },
+    fieldCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 10,
+      padding: 16,
+    },
+    fieldCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    input: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 14,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 16,
+      minHeight: 50,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    multilineInput: {
+      minHeight: 96,
+      textAlignVertical: "top",
+    },
+    pdf: {
+      flex: 1,
+      minHeight: 520,
+      width: "100%",
+    },
+    pdfCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      height: 610,
+      overflow: "hidden",
+    },
+    pdfNavigation: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    pdfNavigationButton: {
+      alignItems: "center",
+      backgroundColor: colors.primary,
+      borderRadius: 10,
+      minWidth: 88,
+      paddingHorizontal: 14,
+      paddingVertical: 9,
+    },
+    pdfNavigationButtonDisabled: {
+      opacity: 0.4,
+    },
+    pdfNavigationButtonText: {
+      color: colors.onPrimary,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    pdfLoadingCard: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 12,
+      justifyContent: "center",
+      minHeight: 220,
+      padding: 24,
+    },
+    row: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10,
+      justifyContent: "space-between",
+    },
+    section: {
+      gap: 12,
+    },
+    signatureInput: {
+      fontSize: 22,
+      fontStyle: "italic",
+    },
+  });
+}

@@ -1,8 +1,8 @@
-import { StyleSheet, Text, useColorScheme, type TextProps } from "react-native";
+import { Platform, StyleSheet, Text, useColorScheme, type StyleProp, type TextProps, type TextStyle } from "react-native";
 import { colorsForScheme } from "@/constants/theme";
 
 type AppTextProps = TextProps & {
-  variant?: "title" | "subtitle" | "body" | "caption" | "eyebrow";
+  variant?: "display" | "title" | "subtitle" | "body" | "caption" | "eyebrow";
 };
 
 export function AppText({ variant = "body", style, ...props }: AppTextProps) {
@@ -14,12 +14,34 @@ export function AppText({ variant = "body", style, ...props }: AppTextProps) {
         ? { color: colors.primary }
         : { color: colors.text };
 
-  return <Text {...props} maxFontSizeMultiplier={1.35} style={[styles.base, styles[variant], dynamicStyle, style]} />;
+  return (
+    <Text maxFontSizeMultiplier={1.35} {...props} style={platformTextStyle([styles.base, styles[variant], dynamicStyle, style])} />
+  );
+}
+
+/**
+ * Android scales fontSize with the system text size but not a fixed lineHeight, so at large text
+ * sizes glyphs are clipped (the Business app found it at 200% on the emulator). Android therefore
+ * gets no fixed lineHeight at all, from the variant or from the caller, and native layout fits the
+ * rendered font. iOS and web scale both together, so they keep the rhythm. Same rule as Business.
+ */
+export function platformTextStyle(style: StyleProp<TextStyle>, os: string = Platform.OS): StyleProp<TextStyle> {
+  if (os !== "android") return style;
+  const { lineHeight: _lineHeight, ...rest } = StyleSheet.flatten(style) ?? {};
+  return rest;
 }
 
 const styles = StyleSheet.create({
   base: {
     includeFontPadding: false,
+  },
+  // Names, dates and moments (design direction: display type). System font until the
+  // approved display face's licence is confirmed.
+  display: {
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+    lineHeight: 40,
   },
   title: {
     fontSize: 28,

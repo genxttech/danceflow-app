@@ -1,22 +1,27 @@
 import { router } from "expo-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   TextInput,
+  useColorScheme,
   View
 } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { LegalLinks } from "@/components/LegalLinks";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 
-const danceFlowLogo = require("../../assets/danceflow-logo.png");
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
+const danceFlowLogo = require("../../assets/danceflow-logo-primary.png");
 
 export default function SignInScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { continueWithEmail } = useAuth();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -97,60 +102,64 @@ export default function SignInScreen() {
             onPress={handleContinue}
             variant="secondary"
           />
+
+          <LegalLinks prefix="By continuing you agree to the DanceFlow" />
         </View>
       </KeyboardAvoidingView>
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    justifyContent: "center",
-    gap: 28
-  },
-  header: {
-    alignItems: "flex-start",
-    gap: 10
-  },
-  logo: {
-    height: 70,
-    marginBottom: 8,
-    width: 190
-  },
-  form: {
-    gap: 12
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 16,
-    minHeight: 52,
-    paddingHorizontal: 14
-  },
-  dividerRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    marginVertical: 6
-  },
-  divider: {
-    backgroundColor: colors.border,
-    flex: 1,
-    height: 1
-  },
-  dividerText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: "700"
-  },
-  success: {
-    color: colors.success
-  },
-  error: {
-    color: colors.danger
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrap: {
+      flex: 1,
+      justifyContent: "center",
+      gap: 28
+    },
+    header: {
+      alignItems: "flex-start",
+      gap: 10
+    },
+    logo: {
+      height: 70,
+      marginBottom: 8,
+      width: 190
+    },
+    form: {
+      gap: 12
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 12,
+      borderWidth: 1,
+      color: colors.text,
+      fontSize: 16,
+      minHeight: 52,
+      paddingHorizontal: 14
+    },
+    dividerRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 12,
+      marginVertical: 6
+    },
+    divider: {
+      backgroundColor: colors.border,
+      flex: 1,
+      height: 1
+    },
+    dividerText: {
+      color: colors.muted,
+      fontSize: 13,
+      fontWeight: "700"
+    },
+    success: {
+      color: colors.success
+    },
+    error: {
+      color: colors.danger
+    }
+  });
+}

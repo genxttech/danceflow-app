@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import { type LinkedStudioAccess } from "@/lib/studentAccess";
 import { loadStudentDigitalLibrary } from "@/lib/studentDigitalContent";
+import { admitCount, attendeeDisplayName, ticketPaymentState, type TicketPaymentState } from "@/lib/ticketFacts";
 
 const DEFAULT_WEB_BASE_URL = "https://idanceflow.com";
 const WALLET_CACHE_TTL_MS = 15000;
@@ -65,6 +66,13 @@ export type StudentTicket = {
   eventName: string;
   eventSlug: string | null;
   ticketName: string;
+  /** first_name + last_name, or null when the host has no name for this attendee. */
+  attendeeName: string | null;
+  paymentState: TicketPaymentState | null;
+  /** This pass's place in its registration ("2 of 4"); each attendee row admits one person. */
+  admitPosition: number;
+  /** People the whole registration admits: quantity × attendees_per_ticket. */
+  admitTotal: number;
   ticketCode: string | null;
   qrImageUrl: string | null;
   checkedInAt: string | null;
@@ -86,7 +94,9 @@ export type StudentEventRegistration = {
   eventSlug: string | null;
   status: string;
   paymentStatus: string | null;
+  paymentState: TicketPaymentState | null;
   quantity: number | null;
+  admits: number;
   totalAmount: number | null;
   eventDate: string | null;
   eventTime: string | null;
@@ -219,6 +229,7 @@ type EventRegistrationRow = {
   quantity: number | null;
   total_amount: number | null;
   total_price?: number | null;
+  event_ticket_types?: Joined<{ attendees_per_ticket: number | null }>;
   events: Joined<{
     id: string;
     name: string | null;
@@ -363,6 +374,7 @@ function registrationSelect() {
     quantity,
     total_amount,
     total_price,
+    event_ticket_types ( attendees_per_ticket ),
     events (
       id,
       name,
@@ -378,6 +390,7 @@ function registrationSelect() {
 
 function registrationToWallet(row: EventRegistrationRow, linkedStudios: LinkedStudioAccess[]): StudentEventRegistration {
   const event = firstJoin(row.events);
+  const totalAmount = moneyFromCents(row.total_amount ?? row.total_price ?? null);
   return {
     id: row.id,
     eventId: row.event_id,
@@ -388,8 +401,10 @@ function registrationToWallet(row: EventRegistrationRow, linkedStudios: LinkedSt
     eventSlug: event?.slug ?? null,
     status: row.status ?? "confirmed",
     paymentStatus: row.payment_status,
+    paymentState: ticketPaymentState(row.payment_status, totalAmount),
     quantity: row.quantity,
-    totalAmount: moneyFromCents(row.total_amount ?? row.total_price ?? null),
+    admits: admitCount(row.quantity, firstJoin(row.event_ticket_types)?.attendees_per_ticket ?? null),
+    totalAmount,
     eventDate: event?.start_date ?? null,
     eventTime: event?.start_time ?? null,
     venue: event?.venue_name ?? null,
@@ -707,8 +722,11 @@ export async function loadStudentWallet(
 
     const registrationById = new Map(registrations.map((item) => [item.id, item]));
 
+    const positionInRegistration = new Map<string, number>();
     tickets = ((data ?? []) as TicketRow[]).map((row) => {
       const registration = registrationById.get(row.registration_id);
+      const admitPosition = (positionInRegistration.get(row.registration_id) ?? 0) + 1;
+      positionInRegistration.set(row.registration_id, admitPosition);
       const ticketCode = row.ticket_code;
       return {
         id: row.id,
@@ -720,6 +738,10 @@ export async function loadStudentWallet(
         eventName: registration?.eventName ?? "Event",
         eventSlug: registration?.eventSlug ?? null,
         ticketName: attendeeName(row),
+        attendeeName: attendeeDisplayName(row.first_name, row.last_name),
+        paymentState: registration?.paymentState ?? null,
+        admitPosition,
+        admitTotal: Math.max(registration?.admits ?? 1, admitPosition),
         ticketCode,
         qrImageUrl: ticketCode ? `${webBaseUrl()}/api/tickets/qr?code=${encodeURIComponent(ticketCode)}` : null,
         checkedInAt: row.checked_in_at,
@@ -749,7 +771,16 @@ export async function loadStudentWallet(
 
     if (entitlementsError) throw entitlementsError;
 
-    digitalEntitlements = (entitlementRows ?? []).map((row: any) => {
+    type EntitlementRow = {
+      id: string;
+      studio_id: string;
+      catalog_item_id: string;
+      granted_at: string;
+      expires_at: string | null;
+      status: string | null;
+      commerce_catalog_items: Joined<{ name: string | null; item_type: string | null }>;
+    };
+    digitalEntitlements = ((entitlementRows ?? []) as unknown as EntitlementRow[]).map((row) => {
       const item = firstJoin(row.commerce_catalog_items);
       return {
         id: String(row.id),

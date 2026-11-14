@@ -217,7 +217,7 @@ async function fetchLegacyFallbackAttendee(params: {
   const { data: appointmentRow, error: appointmentError } = await supabase
     .from("appointments")
     .select(
-      "client_id, billing_type, payment_status, client_package_id, appointment_type, status, cancelled_at, starts_at, clients ( id, first_name, last_name, email, phone )",
+      "client_id, billing_type, payment_status, client_package_id, appointment_type, status, cancelled_at, starts_at, clients:clients!appointments_client_id_fkey ( id, first_name, last_name, email, phone )",
     )
     .eq("id", appointmentId)
     .eq("studio_id", studioId)
@@ -347,34 +347,24 @@ export async function getClassRosterForInstructor(params: {
 }): Promise<ClassRosterEntryForInstructor[]> {
   const { supabase, appointmentId, studioId } = params;
 
-  const { data: attendeeRows, error } = await supabase
-    .from("appointment_attendees")
-    .select("client_id, clients ( id, first_name, last_name )")
-    .eq("studio_id", studioId)
-    .eq("appointment_id", appointmentId);
+  // clients RLS hides attendee rows' names from an instructor, so the former `clients` embed came back null and every attendee was dropped. The
+  // RPC returns names only to the class's currently assigned instructor and pins every row to the appointment's own studio.
+  const { data: nameRows, error } = await supabase.rpc("get_class_roster_names_for_instructor", {
+    target_appointment_id: appointmentId,
+  });
 
   if (error) {
     throw new Error(`Failed to load class roster: ${error.message}`);
   }
 
-  const roster = (attendeeRows ?? [])
-    .map((row): ClassRosterEntryForInstructor | null => {
-      const client = relation(
-        row.clients as
-          | { id: string; first_name: string | null; last_name: string | null }
-          | { id: string; first_name: string | null; last_name: string | null }[]
-          | null,
-      );
-      if (!client) return null;
-
-      return {
-        clientId: row.client_id as string,
-        firstName: client.first_name ?? "",
-        lastName: client.last_name ?? "",
-        source: "roster",
-      };
-    })
-    .filter((entry): entry is ClassRosterEntryForInstructor => entry !== null);
+  const roster = ((nameRows ?? []) as { client_id: string; first_name: string | null; last_name: string | null }[]).map(
+    (row): ClassRosterEntryForInstructor => ({
+      clientId: row.client_id,
+      firstName: row.first_name ?? "",
+      lastName: row.last_name ?? "",
+      source: "roster",
+    }),
+  );
 
   if (roster.length > 0) {
     return roster;

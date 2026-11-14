@@ -5,6 +5,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import {
   colorsForScheme,
@@ -180,9 +182,9 @@ export default function ProfileScreen() {
         Complete your information so studios can recognize you when you register, request lessons, or connect later.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading your profile..." detail="Loading your profile." /> : null}
+      {loading ? <LoadingState label="Loading your profile" /> : null}
 
-      {!loading && errorMessage ? <FeatureCard title="Profile not available yet" detail={errorMessage} /> : null}
+      {!loading && errorMessage ? <ErrorState error={errorMessage} title="Profile not available yet" /> : null}
       {!loading && message ? <FeatureCard title="Saved" detail={message} /> : null}
 
       {!loading && !session ? (
@@ -205,7 +207,7 @@ export default function ProfileScreen() {
           style={({ pressed }) => [styles.partnerCard, pressed && styles.cardPressed]}
         >
           <View style={styles.partnerIcon}>
-            <Ionicons color="#fff" name="people-outline" size={22} />
+            <Ionicons color={themeColors.white} name="people-outline" size={22} />
           </View>
           <View style={{ flex: 1 }}>
             <AppText style={styles.partnerTitle}>Partner Search profile</AppText>
@@ -238,7 +240,7 @@ export default function ProfileScreen() {
                     active && { backgroundColor: themeColors.primary, borderColor: themeColors.primary }
                   ]}
                 >
-                  <AppText style={[styles.appearancePillText, { color: active ? "#fff" : themeColors.text }]}>
+                  <AppText style={[styles.appearancePillText, { color: active ? themeColors.onPrimary : themeColors.text }]}>
                     {option.label}
                   </AppText>
                 </Pressable>
@@ -477,7 +479,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     fontWeight: "800"
   },
   choicePillTextActive: {
-    color: "#fff"
+    color: colors.onPrimary
   },
   choiceSection: {
     gap: 10
@@ -522,7 +524,7 @@ function createStyles(colors: ReturnType<typeof colorsForScheme>) {
     width: 42
   },
   partnerTitle: {
-    color: "#fff",
+    color: colors.white,
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 4

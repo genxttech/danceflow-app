@@ -1,11 +1,14 @@
 import { Link, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -30,6 +33,8 @@ function SectionHeader({
   title: string;
   count: number;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.sectionHeader}>
       <View>
@@ -50,6 +55,8 @@ function ClassCard({
   item: StudentScheduleItem;
   muted?: boolean;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
   const subtitle = displayScheduleSubtitle(item);
 
@@ -72,7 +79,7 @@ function ClassCard({
       <View style={styles.classBody}>
         <View style={styles.classTopRow}>
           <View style={styles.classIcon}>
-            <Ionicons color="#0F766E" name="people-outline" size={18} />
+            <Ionicons color={colors.success} name="people-outline" size={18} />
           </View>
 
           <View style={{ flex: 1 }}>
@@ -82,7 +89,7 @@ function ClassCard({
             <AppText style={styles.classStudio}>{item.studioName}</AppText>
           </View>
 
-          <Ionicons color="#94A3B8" name="chevron-forward" size={18} />
+          <Ionicons color={colors.muted} name="chevron-forward" size={18} />
         </View>
 
         <AppText style={styles.classTitle}>
@@ -90,7 +97,7 @@ function ClassCard({
         </AppText>
 
         <View style={styles.metaRow}>
-          <Ionicons color="#64748B" name="time-outline" size={15} />
+          <Ionicons color={colors.muted} name="time-outline" size={15} />
           <AppText style={styles.metaText}>
             {formatScheduleTimeRange(
               item.startsAt,
@@ -102,7 +109,7 @@ function ClassCard({
 
         {subtitle ? (
           <View style={styles.metaRow}>
-            <Ionicons color="#64748B" name="location-outline" size={15} />
+            <Ionicons color={colors.muted} name="location-outline" size={15} />
             <AppText style={styles.metaText}>{subtitle}</AppText>
           </View>
         ) : null}
@@ -112,6 +119,8 @@ function ClassCard({
 }
 
 export default function ScheduleClassesScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -180,14 +189,11 @@ export default function ScheduleClassesScreen() {
       </View>
 
       {loading ? (
-        <FeatureCard
-          title="Loading classes"
-          detail="Checking your connected studios."
-        />
+        <LoadingState label="Loading classes" />
       ) : null}
 
       {!loading && errorMessage ? (
-        <FeatureCard title="Classes unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Classes unavailable" />
       ) : null}
 
       {!loading && !session ? (
@@ -251,7 +257,7 @@ export default function ScheduleClassesScreen() {
             pressed && styles.pressed
           ]}
         >
-          <Ionicons color="#64748B" name="refresh-outline" size={16} />
+          <Ionicons color={colors.muted} name="refresh-outline" size={16} />
           <AppText style={styles.refreshLinkText}>Refresh classes</AppText>
         </Pressable>
       ) : null}
@@ -259,158 +265,160 @@ export default function ScheduleClassesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  classAccent: {
-    alignSelf: "stretch",
-    backgroundColor: "#0F766E",
-    borderBottomLeftRadius: 20,
-    borderTopLeftRadius: 20,
-    width: 5
-  },
-  classBody: {
-    flex: 1,
-    gap: 8,
-    padding: 16
-  },
-  classCard: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#99F6E4",
-    borderRadius: 20,
-    borderWidth: 1,
-    elevation: 1,
-    flexDirection: "row",
-    overflow: "hidden"
-  },
-  classCardMuted: {
-    borderColor: "#E2E8F0",
-    opacity: 0.78
-  },
-  classIcon: {
-    alignItems: "center",
-    backgroundColor: "#F0FDFA",
-    borderRadius: 12,
-    height: 36,
-    justifyContent: "center",
-    width: 36
-  },
-  classStatus: {
-    color: "#0F766E",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.7,
-    textTransform: "uppercase"
-  },
-  classStudio: {
-    color: "#64748B",
-    fontSize: 12,
-    marginTop: 2
-  },
-  classTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "900"
-  },
-  classTopRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10
-  },
-  countBadge: {
-    alignItems: "center",
-    backgroundColor: "#F0FDFA",
-    borderRadius: 999,
-    minWidth: 32,
-    paddingHorizontal: 10,
-    paddingVertical: 6
-  },
-  countBadgeText: {
-    color: "#0F766E",
-    fontSize: 13,
-    fontWeight: "900"
-  },
-  hero: {
-    alignItems: "center",
-    backgroundColor: "#102A2A",
-    borderRadius: 28,
-    flexDirection: "row",
-    gap: 14,
-    padding: 20
-  },
-  heroDetail: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 6
-  },
-  heroEyebrow: {
-    color: "#99F6E4",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase"
-  },
-  heroIcon: {
-    alignItems: "center",
-    backgroundColor: "#0F766E",
-    borderRadius: 18,
-    height: 54,
-    justifyContent: "center",
-    width: 54
-  },
-  heroTitle: {
-    color: "#FFFFFF",
-    fontSize: 23,
-    fontWeight: "900",
-    marginTop: 3
-  },
-  list: {
-    gap: 12
-  },
-  metaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7
-  },
-  metaText: {
-    color: "#64748B",
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 19
-  },
-  pressed: {
-    opacity: 0.75
-  },
-  refreshLink: {
-    alignItems: "center",
-    alignSelf: "center",
-    flexDirection: "row",
-    gap: 7,
-    paddingVertical: 8
-  },
-  refreshLinkText: {
-    color: "#64748B",
-    fontSize: 13,
-    fontWeight: "800"
-  },
-  section: {
-    gap: 12
-  },
-  sectionEyebrow: {
-    color: "#0F766E",
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase"
-  },
-  sectionHeader: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 21,
-    fontWeight: "900",
-    marginTop: 3
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    classAccent: {
+      alignSelf: "stretch",
+      backgroundColor: "#0F766E",
+      borderBottomLeftRadius: 20,
+      borderTopLeftRadius: 20,
+      width: 5
+    },
+    classBody: {
+      flex: 1,
+      gap: 8,
+      padding: 16
+    },
+    classCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 20,
+      borderWidth: 1,
+      elevation: 1,
+      flexDirection: "row",
+      overflow: "hidden"
+    },
+    classCardMuted: {
+      borderColor: colors.border,
+      opacity: 0.78
+    },
+    classIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 12,
+      height: 36,
+      justifyContent: "center",
+      width: 36
+    },
+    classStatus: {
+      color: colors.success,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 0.7,
+      textTransform: "uppercase"
+    },
+    classStudio: {
+      color: colors.muted,
+      fontSize: 12,
+      marginTop: 2
+    },
+    classTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: "900"
+    },
+    classTopRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10
+    },
+    countBadge: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      minWidth: 32,
+      paddingHorizontal: 10,
+      paddingVertical: 6
+    },
+    countBadgeText: {
+      color: colors.success,
+      fontSize: 13,
+      fontWeight: "900"
+    },
+    hero: {
+      alignItems: "center",
+      backgroundColor: "#102A2A",
+      borderRadius: 28,
+      flexDirection: "row",
+      gap: 14,
+      padding: 20
+    },
+    heroDetail: {
+      color: "rgba(255,255,255,0.7)",
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 6
+    },
+    heroEyebrow: {
+      color: "#99F6E4",
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    },
+    heroIcon: {
+      alignItems: "center",
+      backgroundColor: "#0F766E",
+      borderRadius: 18,
+      height: 54,
+      justifyContent: "center",
+      width: 54
+    },
+    heroTitle: {
+      color: "#FFFFFF",
+      fontSize: 23,
+      fontWeight: "900",
+      marginTop: 3
+    },
+    list: {
+      gap: 12
+    },
+    metaRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 7
+    },
+    metaText: {
+      color: colors.muted,
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 19
+    },
+    pressed: {
+      opacity: 0.75
+    },
+    refreshLink: {
+      alignItems: "center",
+      alignSelf: "center",
+      flexDirection: "row",
+      gap: 7,
+      paddingVertical: 8
+    },
+    refreshLinkText: {
+      color: colors.muted,
+      fontSize: 13,
+      fontWeight: "800"
+    },
+    section: {
+      gap: 12
+    },
+    sectionEyebrow: {
+      color: colors.success,
+      fontSize: 11,
+      fontWeight: "900",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    },
+    sectionHeader: {
+      alignItems: "flex-end",
+      flexDirection: "row",
+      justifyContent: "space-between"
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 21,
+      fontWeight: "900",
+      marginTop: 3
+    }
+  });
+}

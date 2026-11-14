@@ -1,7 +1,8 @@
-import { Pressable, StyleSheet, Switch, View } from "react-native";
+import { useMemo } from "react";
+import { Pressable, StyleSheet, Switch, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
   type NotificationPreferences,
   useNotificationPreferences
@@ -47,6 +48,8 @@ const preferenceOptions: PreferenceOption[] = [
 ];
 
 export function NotificationPreferencesCard({ userId }: { userId: string }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const {
     preferences,
     permissionStatus,
@@ -142,58 +145,60 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 14,
-    padding: 16
-  },
-  header: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 12
-  },
-  masterOption: {
-    alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    padding: 14
-  },
-  option: {
-    alignItems: "center",
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    paddingVertical: 14
-  },
-  optionDisabled: {
-    opacity: 0.5
-  },
-  optionPressed: {
-    opacity: 0.78
-  },
-  options: {
-    marginTop: -2
-  },
-  optionTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "900",
-    marginBottom: 3
-  },
-  saved: {
-    color: colors.success,
-    flexShrink: 1,
-    fontSize: 12,
-    fontWeight: "900",
-    textAlign: "right"
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 14,
+      padding: 16
+    },
+    header: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: 12
+    },
+    masterOption: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      padding: 14
+    },
+    option: {
+      alignItems: "center",
+      borderTopColor: colors.border,
+      borderTopWidth: 1,
+      flexDirection: "row",
+      gap: 12,
+      paddingVertical: 14
+    },
+    optionDisabled: {
+      opacity: 0.5
+    },
+    optionPressed: {
+      opacity: 0.78
+    },
+    options: {
+      marginTop: -2
+    },
+    optionTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "900",
+      marginBottom: 3
+    },
+    saved: {
+      color: colors.success,
+      flexShrink: 1,
+      fontSize: 12,
+      fontWeight: "900",
+      textAlign: "right"
+    }
+  });
+}

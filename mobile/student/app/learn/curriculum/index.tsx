@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, type Href } from "expo-router";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import {
   loadStudentCurriculumAssignments,
   type StudentCurriculumAssignment,
@@ -19,6 +21,8 @@ function statusLabel(value: string) {
 }
 
 export default function CurriculumAssignmentsScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [assignments, setAssignments] = useState<StudentCurriculumAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,14 +61,11 @@ export default function CurriculumAssignmentsScreen() {
       </AppText>
 
       {loading ? (
-        <FeatureCard
-          title="Loading assignments"
-          detail="Checking what your studio wants you to practice next."
-        />
+        <LoadingState label="Loading assignments" />
       ) : null}
 
       {errorMessage ? (
-        <FeatureCard title="Assignments unavailable" detail={errorMessage} />
+        <ErrorState error={errorMessage} title="Assignments unavailable" />
       ) : null}
 
       {!loading && !errorMessage && assignments.length === 0 ? (
@@ -112,41 +113,43 @@ export default function CurriculumAssignmentsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  headerRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: 10,
-  },
-  practiceText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 21,
-  },
-  pressed: {
-    opacity: 0.78,
-  },
-  section: {
-    gap: 10,
-  },
-  statusBadge: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusText: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    card: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      gap: 10,
+      padding: 16,
+    },
+    headerRow: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: 10,
+    },
+    practiceText: {
+      color: colors.primary,
+      fontSize: 14,
+      fontWeight: "700",
+      lineHeight: 21,
+    },
+    pressed: {
+      opacity: 0.78,
+    },
+    section: {
+      gap: 10,
+    },
+    statusBadge: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    statusText: {
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "800",
+    },
+  });
+}

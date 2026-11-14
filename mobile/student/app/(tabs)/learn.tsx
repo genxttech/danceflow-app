@@ -14,6 +14,7 @@ import {
   type StudentLearnOverview,
 } from "@/lib/studentLearn";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
 type StudentSyllabusSummary = {
@@ -58,6 +59,7 @@ function LearnCategoryCard({
   title: string;
   styles: ReturnType<typeof createStyles>;
 }) {
+  const colors = colorsForScheme(useColorScheme());
   return (
     <Pressable
       onPress={onPress}
@@ -67,7 +69,7 @@ function LearnCategoryCard({
       ]}
     >
       <View style={styles.categoryIcon}>
-        <Ionicons color="#fff" name={icon} size={24} />
+        <Ionicons color={colors.onPrimary} name={icon} size={24} />
       </View>
       <View style={{ flex: 1 }}>
         <View style={styles.cardHeader}>

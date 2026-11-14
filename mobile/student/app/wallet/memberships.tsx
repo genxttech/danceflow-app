@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -19,6 +21,8 @@ function statusLabel(value: string | null | undefined) {
 }
 
 function MembershipCard({ membership }: { membership: StudentMembership }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const price = formatCurrency(membership.price);
   const periodEnd = membership.currentPeriodEnd || membership.endsOn;
 
@@ -42,6 +46,8 @@ function MembershipCard({ membership }: { membership: StudentMembership }) {
 }
 
 export default function MembershipsScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -94,8 +100,8 @@ export default function MembershipsScreen() {
       <AppText variant="title">Memberships</AppText>
       <AppText variant="caption">Review active memberships, renewal dates, and status.</AppText>
 
-      {loading ? <FeatureCard title="Loading memberships" detail="Checking active memberships." /> : null}
-      {errorMessage ? <FeatureCard title="Memberships unavailable" detail={errorMessage} /> : null}
+      {loading ? <LoadingState label="Loading memberships" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Memberships unavailable" /> : null}
 
       {!loading && hasPortalAccess && memberships.length > 0 ? (
         <View style={styles.section}>
@@ -118,14 +124,16 @@ export default function MembershipsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  itemCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
-    gap: 7,
-    padding: 14
-  },
-  section: {
-    gap: 10
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    itemCard: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: 18,
+      gap: 7,
+      padding: 14
+    },
+    section: {
+      gap: 10
+    }
+  });
+}
