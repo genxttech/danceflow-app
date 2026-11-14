@@ -131,4 +131,25 @@ describe("RosterAttendance on the web", () => {
     expect(ariaChecked("No-show, Dancer")).toBe(false);
     expect(ariaChecked("Present, Ana Rivera")).toBe(false);
   });
+
+  it("shows a status the app cannot set (cancelled, checked in) while marking is allowed, and counts no-shows", () => {
+    render(
+      <StaffTestProviders api={fakeApi()}>
+        <RosterAttendance
+          studioId={STUDIO_ID}
+          appointmentId="appt-1"
+          attendees={[
+            { clientId: "c1", name: "Ana Rivera", attendanceStatus: "cancelled" },
+            { clientId: "c2", name: "Ben Ortiz", attendanceStatus: "no_show" },
+            { clientId: "c3", name: "Cy Lee", attendanceStatus: null },
+          ]}
+          canMark
+        />
+      </StaffTestProviders>,
+    );
+    expect(screen.getByTestId("attendance-status-c1")).toBeTruthy();
+    expect(screen.queryByTestId("attendance-status-c2")).toBeNull();
+    expect(screen.queryByTestId("attendance-status-c3")).toBeNull();
+    expect(screen.getByTestId("attendance-absent-summary").props.children.join("")).toBe("1 marked no-show");
+  });
 });
