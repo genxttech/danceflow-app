@@ -1,0 +1,64 @@
+{
+  "pilot": {
+    "enabled": true,
+    "coordinator": "COMPETITION",
+    "not_before": "2026-11-14T12:00:00Z",
+    "not_after": "2026-11-17T00:00:00Z",
+    "maxHours": 4,
+    "maxWakeups": 10,
+    "maxClaims": 4,
+    "maxCalls": 60,
+    "claimTtlMs": 3600000,
+    "maxAttempts": 2
+  },
+  "templates": {
+    "u18-rollback-rehearsal": {
+      "class": "A",
+      "title": "Rehearse U18-S then U18 rollback on a disposable chain; prove clean removal and clean re-apply",
+      "cmd": "local disposable Postgres (container prefix cf1pilot-) via /tmp/run_u18s2.sh; apply P1+P2, run rollback P2 then P1, assert objects/privileges restored, re-apply forward",
+      "done": "Evidence note in the df-u18pkg worktree (docs/qa/cf1-u18-package/rollback-rehearsal.md) with before/after catalog checks; container removed; no hosted system touched",
+      "dbslot": "cf1pilot-pg",
+      "touches": [
+        "docs/qa/cf1-u18-package/"
+      ],
+      "worktree": "df-u18pkg"
+    },
+    "u18-tooling-residual-check": {
+      "class": "A",
+      "title": "Verify pg_dump/pg_restore, COPY and MERGE behaviour with client TRIGGER privilege revoked (documented U18 residual)",
+      "cmd": "local disposable Postgres (container prefix cf1pilot-) with the U18/U18-S chain applied; exercise pg_dump --data-only/restore, COPY FROM, MERGE against event_competition_heat_entries as owner and as client roles",
+      "done": "Evidence appended to docs/qa/cf1-u18-package/tooling-residual-check.md: which paths the guards cover, which they do not; container removed; no hosted system touched",
+      "dbslot": "cf1pilot-pg",
+      "touches": [
+        "docs/qa/cf1-u18-package/"
+      ],
+      "worktree": "df-u18pkg"
+    },
+    "release-migration-inventory": {
+      "class": "A",
+      "title": "Read-only: Competition migrations on the release branch not yet applied on PROD, with dependency order and per-migration pins",
+      "cmd": "git on release/competition-cf1-app-candidate (read) + sb.sh prod-read and sb.sh dev-read catalog/migration-history queries only",
+      "done": "Inventory doc docs/qa/cf1-competition-migration-inventory-2026-11-14.md: list, sha256 pins, required order, owner-gate checklist; no apply, no hosted write",
+      "touches": [
+        "docs/qa/"
+      ],
+      "worktree": "df-u18pkg"
+    },
+    "sql-suite-runner-script": {
+      "class": "A",
+      "title": "Portable local runner for the rollback-only SQL suites (release-branch CI gap), as a draft proposal in a worktree",
+      "cmd": "write scripts/qa/run-sql-suites.sh in worktree df-pilot-runner; run it locally against a disposable chain; do NOT edit .github, package.json or any workflow",
+      "done": "Script + short README in the worktree, local commit only, passing against the U18/U18-S suites; no push, no PR, no workflow change",
+      "dbslot": "cf1pilot-pg",
+      "touches": [
+        "scripts/qa/run-sql-suites.sh"
+      ],
+      "worktree": "df-pilot-runner"
+    },
+    "prod-sql-apply": {
+      "class": "G",
+      "title": "Apply JC1/U18/U18-S migrations to PROD (OWNER GATE)",
+      "cmd": "sb.sh prod-apply (never executed by the loop)"
+    }
+  }
+}

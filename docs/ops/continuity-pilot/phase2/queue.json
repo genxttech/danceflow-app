@@ -1,0 +1,10 @@
+{
+  "meta": {},
+  "items": [
+    { "id": "Q1", "template": "u18-rollback-rehearsal", "state": "PENDING", "params": {}, "deps": [] },
+    { "id": "Q2", "template": "u18-tooling-residual-check", "state": "PENDING", "params": {}, "deps": ["Q1"] },
+    { "id": "Q3", "template": "release-migration-inventory", "state": "PENDING", "params": {}, "deps": [] },
+    { "id": "Q4", "template": "sql-suite-runner-script", "state": "PENDING", "params": {}, "deps": ["Q2"] },
+    { "id": "Q5", "template": "prod-sql-apply", "state": "PENDING", "params": {}, "deps": ["Q1", "Q3"] }
+  ]
+}
