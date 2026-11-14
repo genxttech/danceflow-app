@@ -8,6 +8,7 @@ import { LayoutProbe } from "@/components/LayoutProbe";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useFontScale } from "@/lib/fontScale";
 import { PushProvider, usePushTaps } from "@/lib/push";
+import { nativePush } from "@/lib/pushNative";
 import { stackAnimation, useReduceMotion } from "@/lib/motion";
 import { StaffApiProvider, StaffSessionProvider } from "@/lib/staff";
 import { createStaffApi } from "@/lib/staffApi";
@@ -37,7 +38,7 @@ function StaffProviders({ children }: { children: React.ReactNode }) {
       {/* Keyed by user, so a different sign-in never sees the previous person's workspaces. */}
       <StaffSessionProvider key={session?.user.id ?? "signed-out"} signOut={signOut} signOutEverywhere={signOutEverywhere}>
         {/* The real adapter (expo-notifications) is provided here once the dependency lands; null means no push UI. */}
-        <PushProvider value={null}>
+        <PushProvider value={nativePush}>
           <PushTapRouter />
           {children}
         </PushProvider>
