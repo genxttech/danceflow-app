@@ -19,11 +19,12 @@ The migration is additive (one RLS-protected table, five functions, nothing alte
 ## 2. Relationship to main and the production reconciliation
 
 - Live www is `dpl_FEzqXu6NEtBejTk5vQQMB8jszcEX`, built from `c0172455` (PR 466 price monitor, on 39eaec03; rollback `dpl_813hjGqT…`).
-- Live is **not an ancestor of main**: merge-base `2cc05d9e`; 70 commits are live-only and main is 189 commits ahead. Website Embeds exist only on main. Draft PR #445 (main-reconcile-live) is the TW-4F/release coordinator's work to make main a superset of live; main is also not promotable until PROD has the migrations main's webhook and invoices need (0202, 0209) and two forward timestamp collisions are renumbered. This work is **not** touched or duplicated here.
+- Live is **not an ancestor of main**: merge-base `2cc05d9e`; 70 commits are live-only and main is 189 commits ahead. Website Embeds exist only on main.
+- The reconcile vehicle is stale. Draft PR #445 (`claude/main-reconcile-live`, App-authored, head `af413c0d`, base `ab257f59`, last updated 2026-11-10) reconciles main with the *old* live `ab940288`; it does **not** contain current live `c0172455`. Main is also not promotable until PROD has the migrations main's webhook and invoices need (0202, 0209) and two forward timestamp collisions are renumbered. The TW-4F/Twilio coordinator confirmed (2026-11-14) that it does **not** own the reconcile or the PROD SQL order; those belong to the owner and the COMPETITION/release owner. No reconcile onto `c0172455` exists yet, so Path A has no current vehicle.
+- #445 carries no Embeds files or migration; Embeds migration `20270216090000` sorts after every migration #445 or the TW-4F work carries (0103, 0211, 0212, 0217), so there is no collision to renumber. This work does not touch #445 or main promotability.
 - Two ways to ship Embeds, owner to choose (decision D1):
-  - **Path A (wait for reconcile):** Embeds ride main once #445 and the PROD SQL prerequisites are done and main is promotable. No extra branch. Timing depends on the other coordinator.
-  - **Path B (independent, narrow release branch):** `release/website-embeds` = live `c0172455` + #469 + the release gate. Verified without creating a branch: #469 cherry-picks onto `c0172455` with **no conflicts**; on that base `tsc --noEmit` exits 0, the 3 embed unit files pass (33/33), and eslint is clean. It does not conflict with #445 later (same content). A release branch needs one owner approval under CODEOWNERS governance, a qfem preview build, and a manual `vercel promote`.
-- Coordination: the TW-4F/release coordinator owns #445 and main promotability; this package asks only for (a) the PROD migration order for 20270216090000 relative to their SQL, and (b) confirmation that #445 will not remove or renumber embeds files. Nothing has been merged or changed on their behalf.
+  - **Path A (wait for a new reconcile):** Embeds ride main once someone reconciles main with `c0172455`, the PROD SQL prerequisites are applied and main is promotable. No extra branch, but there is currently no owner, plan or date for that work.
+  - **Path B (independent, narrow release branch):** `release/website-embeds` = live `c0172455` + #469 + the release gate. Verified without creating a branch: #469 cherry-picks onto `c0172455` with **no conflicts**; on that base `tsc --noEmit` exits 0, the 3 embed unit files pass (33/33), and eslint is clean. It would not conflict with a later reconcile (same content) and, per the TW-4F coordinator, touches nothing in their domain. A release branch needs one owner approval under CODEOWNERS governance, a qfem preview build, and a manual `vercel promote`.
 
 ## 3. Cannot become public by accident (three independent layers)
 
@@ -35,7 +36,7 @@ Gap to know: flipping the gate is a Vercel environment change plus a new deploym
 
 ## 4. Release sequence (each hosted step needs owner approval; none authorized yet)
 
-0. Preconditions: gate PR merged; decision D1 made; if Path B, branch created and CI green; the two coordinators agree PROD SQL order.
+0. Preconditions: gate PR merged; decision D1 made; if Path B, branch created and CI green; the release owner confirms the PROD SQL order.
 1. `sb.sh prod-read prod-preflight.sql` must return `"ready": true` (migration absent, dependencies present, no fixtures). Repeat immediately before applying (drift check).
 2. Owner approves the migration hash in chat, then `sb.sh prod-apply <migration> 2ddcb78b…`; then `sb.sh prod-read postflight.sql` must return `"all_ok": true`. The running app is unaffected (additive, nothing reads it yet).
 3. Build the candidate (Path A: main; Path B: release branch) as a staged, non-domain deployment with `WEBSITE_EMBEDS` **unset**. Staged checks: embed routes 404, no menu item, ordinary pages unchanged, plus the usual smoke. Owner approves promotion; promote. Feature is still dark.
@@ -57,7 +58,7 @@ Why C is a small residual risk, not a blocker by itself: the embeds only link (n
 
 ## 6. Owner decisions genuinely required
 
-- **D1:** Path A (wait for #445 and main promotability) or Path B (independent `release/website-embeds`). Recommendation: B if Embeds should not wait on the TW-4F reconciliation; A if the owner prefers a single promotion path.
+- **D1:** Path A (wait for a new main-to-live reconcile that nobody currently owns) or Path B (independent `release/website-embeds`). Recommendation: B, because A has no vehicle, owner or date.
 - **D2:** Approve merging the dark release gate (a small, routine PR; this package assumes yes, it changes no behaviour until the flag is on).
 - **D3:** Accept the registration/Stripe residual (section 5, C) for a dark release, or require Stripe TEST evidence before activation. Not needed to apply SQL or deploy dark.
 - Later, each as its own approval: PROD migration apply (hash above), promotion, setting `WEBSITE_EMBEDS=on`.
