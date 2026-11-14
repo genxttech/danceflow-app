@@ -42,7 +42,7 @@ function SyllabusCard({ syllabus }: { syllabus: StudentSyllabusSummary }) {
 
   return (
     <Link href={href} asChild>
-      <Pressable style={({ pressed }) => [styles.syllabusCard, pressed && styles.cardPressed]}>
+      <Pressable accessibilityRole="button" style={({ pressed }) => [styles.syllabusCard, pressed && styles.cardPressed]}>
         <View style={{ flex: 1 }}>
           <AppText variant="eyebrow">Syllabus</AppText>
           <AppText variant="subtitle">{syllabus.name}</AppText>
@@ -123,7 +123,7 @@ export default function SyllabusScreen() {
       </AppText>
 
       <Link href={"/learn/curriculum" as Href} asChild>
-        <Pressable style={({ pressed }) => [styles.focusCard, pressed && styles.cardPressed]}>
+        <Pressable accessibilityRole="button" style={({ pressed }) => [styles.focusCard, pressed && styles.cardPressed]}>
           <View style={{ flex: 1 }}>
             <AppText variant="eyebrow">Focused Practice</AppText>
             <AppText variant="subtitle">Individual step assignments</AppText>

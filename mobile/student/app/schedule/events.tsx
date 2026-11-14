@@ -165,6 +165,7 @@ function EventCard({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={() => router.push(`/events/${item.eventId}`)}
       style={({ pressed }) => [
         styles.eventCard,
@@ -220,6 +221,7 @@ function EventCard({
           </View>
 
           <Pressable
+            accessibilityRole="button"
             onPress={(event) => {
               event.stopPropagation();
               router.push("/wallet/event-tickets");
@@ -341,6 +343,7 @@ export default function ScheduleEventsScreen() {
 
       {session ? (
         <Pressable
+          accessibilityRole="button"
           onPress={loadEvents}
           style={({ pressed }) => [
             styles.refreshLink,

@@ -269,6 +269,8 @@ function OptionRow<T extends string>({
         const active = option.value === value;
         return (
           <Pressable
+            accessibilityState={{ selected: Boolean(active) }}
+            accessibilityRole="button"
             key={option.value}
             onPress={() => onChange(option.value)}
             style={[styles.optionPill, active && styles.optionPillActive]}
@@ -302,7 +304,7 @@ function DanceStylePicker({
 
   return (
     <View style={styles.stylePicker}>
-      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
         <View style={{ flex: 1 }}>
           <AppText style={styles.dropdownLabel}>Dance styles</AppText>
           <AppText style={styles.dropdownValue}>{selectionSummary(selected, "Select styles")}</AppText>
@@ -313,6 +315,8 @@ function DanceStylePicker({
         ? danceStyleGroups.map((group) => (
             <View key={group.label} style={styles.styleGroup}>
               <Pressable
+                accessibilityState={{ selected: Boolean(selected.includes(group.label)) }}
+                accessibilityRole="button"
                 onPress={() => toggle(group.label)}
                 style={[
                   styles.categoryPill,
@@ -333,6 +337,8 @@ function DanceStylePicker({
                   const active = selected.includes(style);
                   return (
                     <Pressable
+                      accessibilityState={{ selected: Boolean(active) }}
+                      accessibilityRole="button"
                       key={style}
                       onPress={() => toggle(style)}
                       style={[styles.optionPill, active && styles.optionPillActive]}
@@ -370,7 +376,7 @@ function CollapsibleSinglePicker({
 
   return (
     <View style={styles.dropdownField}>
-      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
         <View style={{ flex: 1 }}>
           <AppText style={styles.dropdownLabel}>{label}</AppText>
           <AppText style={styles.dropdownValue}>{value || emptyLabel}</AppText>
@@ -380,6 +386,8 @@ function CollapsibleSinglePicker({
       {expanded ? (
         <View style={styles.optionRow}>
           <Pressable
+            accessibilityState={{ selected: Boolean(!value) }}
+            accessibilityRole="button"
             onPress={() => onChange("")}
             style={[styles.optionPill, !value && styles.optionPillActive]}
           >
@@ -391,6 +399,8 @@ function CollapsibleSinglePicker({
             const active = option === value;
             return (
               <Pressable
+                accessibilityState={{ selected: Boolean(active) }}
+                accessibilityRole="button"
                 key={option}
                 onPress={() => onChange(option)}
                 style={[styles.optionPill, active && styles.optionPillActive]}
@@ -427,7 +437,7 @@ function CollapsibleMultiPicker({
 
   return (
     <View style={styles.dropdownField}>
-      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
         <View style={{ flex: 1 }}>
           <AppText style={styles.dropdownLabel}>{label}</AppText>
           <AppText style={styles.dropdownValue}>{selectionSummary(selected, emptyLabel)}</AppText>
@@ -440,6 +450,8 @@ function CollapsibleMultiPicker({
             const active = selected.includes(option);
             return (
               <Pressable
+                accessibilityState={{ selected: Boolean(active) }}
+                accessibilityRole="button"
                 key={option}
                 onPress={() => onChange(toggleListValue(option, value))}
                 style={[styles.optionPill, active && styles.optionPillActive]}
@@ -479,7 +491,7 @@ function CollapsibleArrayPicker({
 
   return (
     <View style={styles.dropdownField}>
-      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
         <View style={{ flex: 1 }}>
           <AppText style={styles.dropdownLabel}>{label}</AppText>
           <AppText style={styles.dropdownValue}>{selectionSummary(value, emptyLabel)}</AppText>
@@ -492,6 +504,8 @@ function CollapsibleArrayPicker({
             const active = value.includes(option);
             return (
               <Pressable
+                accessibilityState={{ selected: Boolean(active) }}
+                accessibilityRole="button"
                 key={option}
                 onPress={() => toggle(option)}
                 style={[styles.optionPill, active && styles.optionPillActive]}
@@ -525,7 +539,7 @@ function DanceStyleFilterPicker({
 
   return (
     <View style={styles.stylePicker}>
-      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+      <Pressable accessibilityRole="button" onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
         <View style={{ flex: 1 }}>
           <AppText style={styles.dropdownLabel}>Dance styles</AppText>
           <AppText style={styles.dropdownValue}>{selectionSummary(value, "Any style")}</AppText>
@@ -536,6 +550,8 @@ function DanceStyleFilterPicker({
         ? danceStyleGroups.map((group) => (
             <View key={group.label} style={styles.styleGroup}>
               <Pressable
+                accessibilityState={{ selected: Boolean(value.includes(group.label)) }}
+                accessibilityRole="button"
                 onPress={() => toggle(group.label)}
                 style={[
                   styles.categoryPill,
@@ -554,6 +570,8 @@ function DanceStyleFilterPicker({
               <View style={styles.optionRow}>
                 {group.styles.map((style) => (
                   <Pressable
+                    accessibilityState={{ selected: Boolean(value.includes(style)) }}
+                    accessibilityRole="button"
                     key={`${group.label}-${style}`}
                     onPress={() => toggle(style)}
                     style={[styles.optionPill, value.includes(style) && styles.optionPillActive]}
@@ -931,6 +949,8 @@ export default function PartnerSearchScreen() {
           <View style={styles.optionRow}>
             {[25, 50, 100].map((radius) => (
               <Pressable
+                accessibilityState={{ selected: Boolean(radiusMiles === radius) }}
+                accessibilityRole="button"
                 key={radius}
                 onPress={() => setRadiusMiles(radius)}
                 style={[styles.optionPill, radiusMiles === radius && styles.optionPillActive]}
@@ -940,7 +960,7 @@ export default function PartnerSearchScreen() {
                 </AppText>
               </Pressable>
             ))}
-            <Pressable onPress={useMyLocationFilter} style={styles.optionPill}>
+            <Pressable accessibilityRole="button" onPress={useMyLocationFilter} style={styles.optionPill}>
               <AppText style={styles.optionText}>{filterLocation ? "Near me on" : "Use my location"}</AppText>
             </Pressable>
           </View>
@@ -973,13 +993,14 @@ export default function PartnerSearchScreen() {
         <View style={styles.filterSection}>
           <DanceStyleFilterPicker value={filterStyles} onChange={setFilterStyles} />
         </View>
-        <Pressable onPress={clearFilters} style={styles.clearFiltersButton}>
+        <Pressable accessibilityRole="button" onPress={clearFilters} style={styles.clearFiltersButton}>
           <AppText style={styles.clearFiltersText}>Clear filters</AppText>
         </Pressable>
       </View>
 
       {myProfile ? (
         <Pressable
+          accessibilityRole="button"
           onPress={() => router.push("/partners/draft" as unknown as RouterPushTarget)}
           style={({ pressed }) => [styles.listingButton, pressed && styles.cardPressed]}
         >
@@ -1020,6 +1041,7 @@ export default function PartnerSearchScreen() {
           </View>
           {threads.map((thread) => (
             <Pressable
+              accessibilityRole="button"
               key={thread.id}
               onPress={() => router.push(`/partners/${thread.id}` as unknown as RouterPushTarget)}
               style={({ pressed }) => [styles.threadRow, pressed && styles.cardPressed]}
@@ -1054,6 +1076,9 @@ export default function PartnerSearchScreen() {
                 <AppText variant="caption">{profile.location}</AppText>
               </View>
               <Pressable
+                accessibilityLabel={profile.favorited ? `Remove ${profile.displayName} from saved partners` : `Save ${profile.displayName}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: Boolean(profile.favorited) }}
                 onPress={() => togglePartnerFavorite(profile)}
                 style={({ pressed }) => [styles.heartButton, pressed && styles.cardPressed]}
               >

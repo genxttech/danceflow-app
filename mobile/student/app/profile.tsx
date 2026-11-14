@@ -203,6 +203,7 @@ export default function ProfileScreen() {
 
       {!loading && session ? (
         <Pressable
+          accessibilityRole="button"
           onPress={() => router.push("/partners" as unknown as RouterPushTarget)}
           style={({ pressed }) => [styles.partnerCard, pressed && styles.cardPressed]}
         >
@@ -232,6 +233,7 @@ export default function ProfileScreen() {
               const active = option.value === appearanceMode;
               return (
                 <Pressable
+                  accessibilityRole="button"
                   key={option.value}
                   onPress={() => chooseAppearanceMode(option.value)}
                   style={[

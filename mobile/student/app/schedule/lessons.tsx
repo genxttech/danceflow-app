@@ -71,6 +71,7 @@ function LessonCard({
 
   return (
     <Pressable
+      accessibilityRole="button"
       onPress={() => openAppointment()}
       style={({ pressed }) => [
         styles.lessonCard,
@@ -126,6 +127,7 @@ function LessonCard({
         {!muted ? (
           <View style={styles.cardActions}>
             <Pressable
+              accessibilityRole="button"
               onPress={(event) => {
                 event.stopPropagation();
                 openAppointment("reschedule");
@@ -136,6 +138,7 @@ function LessonCard({
             </Pressable>
 
             <Pressable
+              accessibilityRole="button"
               onPress={(event) => {
                 event.stopPropagation();
                 openAppointment("cancel");
@@ -261,6 +264,7 @@ export default function ScheduleLessonsScreen() {
       {session ? (
         <Link href="/schedule/request" asChild>
           <Pressable
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.primaryAction,
               pressed && styles.pressed
@@ -363,6 +367,7 @@ export default function ScheduleLessonsScreen() {
 
       {session ? (
         <Pressable
+          accessibilityRole="button"
           onPress={loadLessons}
           style={({ pressed }) => [
             styles.refreshLink,

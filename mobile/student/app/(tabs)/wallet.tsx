@@ -111,6 +111,8 @@ function WalletCategoryCard({
 
   return (
     <Pressable
+      accessibilityState={{ selected: Boolean(active) }}
+      accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
         styles.categoryCard,

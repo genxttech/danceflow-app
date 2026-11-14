@@ -171,7 +171,7 @@ function EventCard({
   primaryColor: string;
 }) {
   return (
-    <Pressable onPress={() => onOpen(event)} style={({ pressed }) => [styles.eventCard, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" onPress={() => onOpen(event)} style={({ pressed }) => [styles.eventCard, pressed && styles.pressed]}>
       <View style={{ flex: 1 }}>
         <AppText style={styles.eventName}>{event.name}</AppText>
         <AppText variant="caption">{event.schedule}</AppText>
@@ -391,6 +391,8 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
 
       <View style={styles.footerActions}>
         <Pressable
+          accessibilityState={{ selected: Boolean(studio.favorited) }}
+          accessibilityRole="button"
           accessibilityLabel={studio.favorited ? "Remove saved studio" : "Save studio"}
           disabled={savingFavorite}
           onPress={toggleFavorite}
@@ -408,6 +410,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
           />
         </Pressable>
         <Pressable
+          accessibilityRole="button"
           accessibilityLabel="Share studio"
           onPress={() =>
             Share.share({
@@ -433,6 +436,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
           <View style={styles.sectionGrid}>
             {STUDIO_SECTIONS.map((item) => (
               <Pressable
+                accessibilityRole="button"
                 key={item.key}
                 onPress={() => openSection(item.key)}
                 style={({ pressed }) => [styles.sectionButton, pressed && styles.pressed]}
@@ -556,6 +560,8 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
 
                     return (
                       <Pressable
+                        accessibilityState={{ selected: Boolean(selected) }}
+                        accessibilityRole="button"
                         key={instructor.id}
                         onPress={() => setSelectedInstructorId(instructor.id)}
                         style={({ pressed }) => [
@@ -579,6 +585,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
                 <View style={styles.slotList}>
                   {selfServiceSlots.slice(0, 12).map((slot) => (
                     <Pressable
+                      accessibilityRole="button"
                       key={`${slot.startsAt}-${slot.instructorId ?? "any"}`}
                       disabled={requestingSlotKey === slot.startsAt}
                       onPress={() => requestSlot(slot)}

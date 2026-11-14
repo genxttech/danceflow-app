@@ -105,6 +105,7 @@ export default function StudentDocumentsScreen() {
 
     return (
       <Pressable
+        accessibilityRole="button"
         key={document.id}
         onPress={() => openDocument(document)}
         style={({ pressed }) => [

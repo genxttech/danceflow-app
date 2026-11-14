@@ -78,7 +78,7 @@ export default function CurriculumAssignmentsScreen() {
       <View style={styles.section}>
         {assignments.map((assignment) => (
           <Link key={assignment.id} href={detailHref(assignment.id)} asChild>
-            <Pressable style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
               <View style={styles.headerRow}>
                 <View style={{ flex: 1 }}>
                   <AppText variant="eyebrow">{assignment.studioName}</AppText>

@@ -126,6 +126,7 @@ export default function FavoritesScreen() {
             return (
               <View key={studio.id} style={styles.item}>
                 <Pressable
+                  accessibilityRole="button"
                   onPress={() =>
                     router.push({
                       pathname: "/studios/[id]",
@@ -138,6 +139,7 @@ export default function FavoritesScreen() {
                 </Pressable>
                 <View style={styles.iconRow}>
                   <Pressable
+                    accessibilityRole="button"
                     accessibilityLabel="Remove saved studio"
                     disabled={busyKey === key}
                     onPress={() => toggleFavorite("studio", studio.id)}
@@ -146,6 +148,7 @@ export default function FavoritesScreen() {
                     <Ionicons color={colors.onPrimary} name="heart" size={20} />
                   </Pressable>
                   <Pressable
+                    accessibilityRole="button"
                     accessibilityLabel="Share studio"
                     onPress={() => shareItem(studio.name, studio.webUrl)}
                     style={styles.iconButton}
@@ -167,6 +170,7 @@ export default function FavoritesScreen() {
             return (
               <View key={event.id} style={styles.item}>
                 <Pressable
+                  accessibilityRole="button"
                   onPress={() =>
                     router.push({
                       pathname: "/events/[id]",
@@ -182,6 +186,7 @@ export default function FavoritesScreen() {
                 </Pressable>
                 <View style={styles.iconRow}>
                   <Pressable
+                    accessibilityRole="button"
                     accessibilityLabel="Remove saved event"
                     disabled={busyKey === key}
                     onPress={() => toggleFavorite("event", event.id)}
@@ -190,6 +195,7 @@ export default function FavoritesScreen() {
                     <Ionicons color={colors.onPrimary} name="heart" size={20} />
                   </Pressable>
                   <Pressable
+                    accessibilityRole="button"
                     accessibilityLabel="Share event"
                     onPress={() => shareItem(event.name, event.webUrl)}
                     style={styles.iconButton}
