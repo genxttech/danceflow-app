@@ -4,7 +4,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { ErrorState } from "@/components/ErrorState";
-import { LegalLinks } from "@/components/LegalLinks";
+import { AccountDeletionLink, LegalLinks } from "@/components/LegalLinks";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
@@ -279,6 +279,7 @@ export default function SettingsScreen() {
           Studios may retain their business records.
         </AppText>
         <AppButton label="Delete Account" onPress={confirmDeleteAccount} variant="secondary" />
+        <AccountDeletionLink />
         </View>
       </View>
 

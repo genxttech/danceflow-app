@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Linking } from "react-native";
-import { LegalLinks, legalUrl } from "@/components/LegalLinks";
+import { AccountDeletionLink, LegalLinks, legalUrl } from "@/components/LegalLinks";
 import { AppButton } from "@/components/AppButton";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
@@ -70,5 +72,21 @@ describe("AppText font scaling cap", () => {
     );
     expect(getByText("Body").props.maxFontSizeMultiplier).toBe(1.35);
     expect(getByText("HLD-HM-7Q2K-1842").props.maxFontSizeMultiplier).toBe(1);
+  });
+
+  it("links the in-app delete button to the public account-deletion page", () => {
+    expect(legalUrl("accountDeletion")).toBe("https://danceflow.test/account-deletion");
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    render(<AccountDeletionLink />);
+    fireEvent.press(screen.getByRole("link", { name: "How account deletion works" }));
+    expect(open).toHaveBeenCalledWith("https://danceflow.test/account-deletion");
+    open.mockRestore();
+  });
+
+  it("sits beside the Delete Account button on the settings screen", () => {
+    const settings = readFileSync(join(__dirname, "..", "..", "..", "app", "settings.tsx"), "utf8");
+    const button = settings.indexOf("label=\"Delete Account\"");
+    expect(button).toBeGreaterThan(-1);
+    expect(settings.indexOf("<AccountDeletionLink />")).toBeGreaterThan(button);
   });
 });
