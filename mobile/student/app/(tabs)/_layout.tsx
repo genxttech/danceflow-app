@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs, useSegments } from "expo-router";
-import { ActivityIndicator, StyleSheet, useColorScheme, useWindowDimensions, View, type ColorValue } from "react-native";
+import { ActivityIndicator, StyleSheet, useColorScheme, View, type ColorValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { guestMayView } from "@/lib/guestAccess";
+import { useFontScale } from "@/lib/fontScale";
 import { TAB_BAR_BORDER_TOP, TAB_ICON_SIZE, TAB_LABEL_FONT_SIZE, tabBarMetrics } from "@/lib/tabBar";
 
 type TabIconName = "today-outline" | "compass-outline" | "school-outline" | "wallet-outline";
@@ -19,7 +20,8 @@ export default function TabsLayout() {
   const { loading, session } = useAuth();
   const colors = colorsForScheme(useColorScheme());
   const insets = useSafeAreaInsets();
-  const { fontScale } = useWindowDimensions();
+  // PixelRatio-backed and re-read after layout: the window metrics can still hold the first-frame scale on Android.
+  const fontScale = useFontScale();
   const segments = useSegments();
   const tabBar = tabBarMetrics(fontScale, insets.bottom);
 

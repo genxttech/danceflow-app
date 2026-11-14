@@ -92,7 +92,7 @@ describe("turning push on without working credentials", () => {
   });
 
   it("says push is blocked in device settings when permission is denied", async () => {
-    (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValue({ granted: false, status: "denied" });
+    (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValue({ granted: false, status: "denied", canAskAgain: false });
     (Notifications.requestPermissionsAsync as jest.Mock).mockResolvedValue({ granted: false });
 
     const { result } = renderHook(() => useNotificationPreferences("u1"));
@@ -103,5 +103,22 @@ describe("turning push on without working credentials", () => {
     });
 
     expect(result.current.message).toBe("Push notifications are blocked in your device settings.");
+    expect(result.current.permissionStatus).toBe("denied");
+  });
+
+  it("does not call a not-yet-asked or one-time refusal blocked (Android reports denied before the first prompt)", async () => {
+    (Notifications.getPermissionsAsync as jest.Mock).mockResolvedValue({ granted: false, status: "denied", canAskAgain: true });
+    (Notifications.requestPermissionsAsync as jest.Mock).mockResolvedValue({ granted: false });
+
+    const { result } = renderHook(() => useNotificationPreferences("u1"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.permissionStatus).toBe("undetermined");
+
+    await act(async () => {
+      await result.current.setPushEnabled(true);
+    });
+
+    expect(result.current.message).toBe("Push notifications were not enabled.");
+    expect(result.current.permissionStatus).toBe("undetermined");
   });
 });

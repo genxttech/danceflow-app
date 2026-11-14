@@ -4,6 +4,7 @@ import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StripeProvider } from "@stripe/stripe-react-native";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { useFontScale } from "@/lib/fontScale";
 import { guestMayView } from "@/lib/guestAccess";
 import { rememberPostSignInRoute } from "@/lib/postSignInRoute";
 import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
@@ -18,6 +19,8 @@ function AppStack() {
   const pathname = usePathname();
   const scheme = useColorScheme();
   const colors = colorsForScheme(scheme);
+  // Rebuild the screens when the system text size differs from the one they were first laid out with.
+  const fontScale = useFontScale();
 
   usePushNotificationBootstrap(session?.user.id);
 
@@ -39,6 +42,7 @@ function AppStack() {
     <>
       <StatusBar style={scheme === "light" ? "dark" : "light"} />
       <Stack
+        key={`font-${fontScale}`}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: colors.background },

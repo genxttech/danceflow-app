@@ -208,6 +208,15 @@ export async function getNotificationPermissionStatus() {
   }
 
   const current = await Notifications.getPermissionsAsync();
+  return normalizePermissionStatus(current);
+}
+
+/**
+ * Android (13+) reports "denied" before the first prompt, with canAskAgain still true. That is "not
+ * asked yet", not "blocked in device settings": only a refusal that cannot be asked again is denied.
+ */
+export function normalizePermissionStatus(current: { status: string; canAskAgain?: boolean }): string {
+  if (current.status === "denied" && current.canAskAgain !== false) return "undetermined";
   return current.status;
 }
 
