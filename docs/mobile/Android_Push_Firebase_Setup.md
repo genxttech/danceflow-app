@@ -71,3 +71,7 @@ Prereqs: a Google Play image emulator (the shared `df-api35` uses `google_apis`,
 2. Send: `curl -X POST https://exp.host/--/api/v2/push/send -H "Content-Type: application/json" -d '{"to":"ExponentPushToken[...]","title":"DanceFlow test","body":"DEV push"}'` (or https://expo.dev/notifications). Then fetch the receipt from `https://exp.host/--/api/v2/push/getReceipts`.
 3. Expect the notification on the emulator and the tap to route as in `routeFromNotificationData`.
 The registration half can be run today with the real file; delivery stays BLOCKED until owner step 1.
+
+### Result of the DEV push test (2026-11-14)
+
+On a release build with the real DEV `google-services.json`, the Student app obtained an Expo push token, claimed it (`claim_mobile_push_token`) and Expo's push service accepted a test message, returned an `ok` receipt, and the notification appeared on the emulator (channel `default`). That means **an FCM v1 service-account credential is already configured in Expo for the Student EAS project**, so step 1 under "Credentials that need the owner" is done or no longer blocks DEV delivery. Still open: confirm the key belongs to the intended Firebase project (`danceflow-mobile-dev`), the same for Business once it has an EAS project and a `google-services.json`, and delete `danceflow-mobile-dev-firebase-adminsdk-…json` from `C:\Users\mcurt\Downloads` if it is still there. Evidence: `Android_Release_Audit.md` §7 (R-7 to R-11).
