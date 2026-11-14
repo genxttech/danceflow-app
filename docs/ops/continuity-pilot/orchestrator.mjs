@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 import { loadProtected } from './protected-source.mjs';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_SOURCE } from './config.mjs';
-import { loadDenyRules, defaultSettingsFiles } from './deny-check.mjs';
+import { childConfigSha, validateTemplateIsolation } from './child-config.mjs';
 
 export const PROTECTED_CMD = [
   /prod[-_ ]?apply/i, /dev[-_ ]?apply/i, /\bpr\s+merge\b/i, /\bapi\b.*\/merge\b/i, /\b(deploy|promote|vercel)\b/i,
@@ -52,6 +52,7 @@ export function validatePolicy(policy, auths) {
     if (t.class === 'A') {
       if (typeof t.cmd !== 'string') throw new Error(`template ${name}: cmd missing`);
       if (PROTECTED_CMD.some((r) => r.test(t.cmd))) throw new Error(`template ${name}: class A with protected command`);
+      validateTemplateIsolation(name, t); // allowlist, scratch dir, model, budget and timeout: the isolated child's whole authority
       for (const [k, re] of Object.entries(t.params || {})) if (typeof re !== 'string' || !re.startsWith('^') || !re.endsWith('$')) throw new Error(`template ${name}: param ${k} regex must be anchored`);
     }
   }
@@ -129,7 +130,7 @@ function satisfiedFn(q, policy, doneLog) {
   };
 }
 
-export function claim(root, { worker = 'W', external = false, source = DEFAULT_SOURCE, wake = false, now = Date.now(), settingsFiles = defaultSettingsFiles() } = {}) {
+export function claim(root, { worker = 'W', external = false, source = DEFAULT_SOURCE, wake = false, now = Date.now() } = {}) {
   if (isStopped(root)) return { status: 'STOPPED' };
   let prot;
   try { prot = loadProtected(source); validatePolicy(prot.policy, prot.auths); }
@@ -142,7 +143,7 @@ export function claim(root, { worker = 'W', external = false, source = DEFAULT_S
   if (cm.length) return halt(root, `local code differs from the reviewed code on the protected ref: ${cm.join(', ')}`);
   const att = readAttestation(root);
   if (!att || att.policySha !== prot.policySha || att.authSha !== prot.authSha || !(now < att.expiresAt)) return halt(root, 'activation preflight attestation missing, stale, expired or for different policy content');
-  if (JSON.stringify(att.settingsHashes ?? null) !== JSON.stringify(loadDenyRules(settingsFiles).hashes)) return halt(root, 'permission settings changed since the activation preflight (deny rules must be re-verified)');
+  if (att.childConfigSha !== childConfigSha(policy)) return halt(root, 'isolated child configuration changed since the activation preflight and isolation test (re-run both)');
   try {
     return withMutex(root, () => {
       const q = loadQ(root); const m = q.meta; let dirty = true;
@@ -210,7 +211,7 @@ export function claim(root, { worker = 'W', external = false, source = DEFAULT_S
       i.runner = { pid: process.pid, worker, token: crypto.randomUUID(), started: now, hb: now, external, template: i.template, scope: sc };
       saveQ(root, q);
       log(root, { ev: 'START', id: i.id, worker, attempt: i.attempts, commit, template: i.template, scope: sc });
-      return { status: 'CLAIMED', commit, item: { id: i.id, template: i.template, title: tpl.title, cmd, done: tpl.done, action: tpl.action, worktree: tpl.worktree, dbslot: tpl.dbslot, attempts: i.attempts, runner: i.runner } };
+      return { status: 'CLAIMED', commit, item: { id: i.id, template: i.template, title: tpl.title, cmd, done: tpl.done, action: tpl.action, worktree: tpl.worktree, dbslot: tpl.dbslot, iso: { allow: tpl.allow, addDirs: tpl.addDirs, cwd: tpl.cwd, model: tpl.model, maxBudgetUsd: tpl.maxBudgetUsd, timeoutMs: tpl.timeoutMs }, attempts: i.attempts, runner: i.runner } };
     });
   } catch (e) { return halt(root, `claim failed: ${String(e.message).split('\n')[0]}`); }
 }

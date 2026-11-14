@@ -2,7 +2,7 @@
 
 An **advisory scheduler for a cooperative agent**. A self-paced Claude Code `/loop` in the COMPETITION session calls `orchestrator.mjs claim` once per iteration to learn which queue item it may work next. The session does the work and calls `complete`. It is not a sandbox.
 
-> Phase 2 activation is BLOCKED pending a demonstrated, pilot-only isolation of the deny rules: see ISOLATION-BLOCKER.md.
+> Phase 2 runs each item in an ISOLATED `claude -p` child (own settings, default-deny permissions, no MCP, minimal tools) started by `driver.mjs`, never in a shared session; nothing global is changed. Activation is BLOCKED until `isolation-test.mjs` passes against the real CLI (the CLI must first be signed in by the owner): see ISOLATION-BLOCKER.md and PHASE2-ACTIVATION.md.
 
 ## What it guarantees
 It never **hands out** a class-G, unauthorized, expired, replayed or out-of-policy item, using only state fetched from a protected remote ref:
@@ -22,10 +22,10 @@ It never **hands out** a class-G, unauthorized, expired, replayed or out-of-poli
 The shipped policy is `enabled:false`, `claim` also refuses to run if any local code file differs from the reviewed copy on the protected ref, and `claim` HALTs without a fresh `PREFLIGHT_OK.json` attestation that matches the exact policy and authorization content and the permission-settings hashes verified at preflight. `preflight.mjs` writes it only after every activation check passes (policy integrity against owner-approved hashes, scope, expiry, stop controls, resource limits, fail-closed behavior exercised on the real code, deny rules incl. a live probe). See PHASE2-ACTIVATION.md. The pilot is local-only.
 
 ## Files
-`orchestrator.mjs` (claim/complete/heartbeat/stop/status), `protected-source.mjs`, `config.mjs`, `preflight.mjs` (activation preflight), `deny-check.mjs` + `deny-probe.mjs` (deny-rule coverage matcher and live-probe evidence; read-only, never edit settings), `owner-tool.mjs` (prints authorization entries for the owner to review and merge; not part of the loop prompt), `test-cli.mjs` (test helper only), `orchestrator.test.mjs`, `preflight.test.mjs`, `phase2/` (proposed policy, queue, authorizations, required deny coverage), `PHASE2-ACTIVATION.md`.
+`orchestrator.mjs` (claim/complete/heartbeat/stop/status), `protected-source.mjs`, `config.mjs`, `preflight.mjs` (activation preflight), `child-config.mjs` (isolated-child flags, per-item settings, allowlist validation), `driver.mjs` (one-item-at-a-time executor), `isolation-test.mjs` (real-binary enforcement test), `deny-check.mjs` + `deny-probe.mjs` (matcher and inert-probe helpers; read-only), `owner-tool.mjs` (prints authorization entries for the owner to review and merge; not part of the loop prompt), `test-cli.mjs`, `test-world.mjs`, `fake-claude.mjs` (test helpers only), `orchestrator.test.mjs`, `preflight.test.mjs`, `child-config.test.mjs`, `driver.test.mjs`, `phase2/` (proposed policy, queue, authorizations, required deny coverage), `PHASE2-ACTIVATION.md`.
 
 ## Behavior
 Claim picks the next item that is PENDING, authorized, has satisfied dependencies (class-A DONE with a log record, or listed in `owner_done`), and holds no worktree/DB slot a RUNNING item holds. Class-G items park BLOCKED-OWNER once and are re-evaluated if the policy changes; dependents wait; independent items continue. A dead runner (pid gone or heartbeat older than the policy TTL) is requeued; a failed item retries up to `maxAttempts`, then NEEDS-REVIEW and is reported on IDLE. A zombie completion with a stale token is refused. `stop` writes a STOP file; remote disable is `pilot.enabled=false` on main.
 
 ## Tests
-`node --test orchestrator.test.mjs preflight.test.mjs` (slow: each test builds a real local git remote). Includes a regression test per finding of the independent review.
+`node --test orchestrator.test.mjs preflight.test.mjs child-config.test.mjs driver.test.mjs` (slow: each test builds a real local git remote). Includes a regression test per finding of the independent review.

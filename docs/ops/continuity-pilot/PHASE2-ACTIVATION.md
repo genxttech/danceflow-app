@@ -1,67 +1,54 @@
-# Phase 2 activation: Competition-only continuity pilot (NOT active)
+# Phase 2 activation: Competition-only continuity pilot, isolated child executor (NOT active)
 
-> **STATUS: BLOCKED (2026-11-14). Do not activate.** The owner requires the pilot's deny rules to apply to the Competition pilot only, not to the global Claude Code user settings (Apps and Twilio must be unaffected), and isolation must be demonstrated by test first. It has not been: see [ISOLATION-BLOCKER.md](ISOLATION-BLOCKER.md). **Step 2 below (installing deny rules in user-level `settings.json`) and step 3's user-settings probe are WITHDRAWN** and will be replaced by the evidence of the isolation option the owner chooses. Merging the pilot PR installs nothing and activates nothing; the preflight cannot pass today, so the loop HALTs.
+> **STATUS: BLOCKED until the isolation test passes (see [ISOLATION-BLOCKER.md](ISOLATION-BLOCKER.md)).** Do not activate. The earlier design (global deny rules plus an in-session `/loop`) is withdrawn. Nothing in the user's global Claude Code settings is changed by any step here, so the Apps and Twilio coordinators are unaffected.
 
-Merging the pilot PR does **not** activate anything. The shipped `phase2/policy.json` has `pilot.enabled: false`, and `claim` refuses to run without a fresh preflight attestation, so even a started loop HALTs. Activation is a separate, explicit owner decision after independent review and merge. The pilot is **local-only**: no push, no PR, no hosted access of any kind (including PROD reads). Twilio and Apps are excluded. No new coordinator, no archived session resumed.
+Merging the pilot PR installs nothing and activates nothing. The shipped `phase2/policy.json` has `pilot.enabled: false`; `claim` also refuses to run without a fresh preflight attestation and when any local code file differs from the reviewed copy on `main`. The pilot is **local-only**: no push, PR, merge or hosted access, including PROD reads. Twilio and Apps are excluded. No new standing coordinator; the executor is a bounded, local process that runs one item at a time and exits.
 
-## Sequence (each step is a gate; a failure stops here)
-1. **Independent review and merge of the pilot PR.** Owner code-owner approval (the PR changes `.github/CODEOWNERS`; `/docs/ops/continuity-pilot/` becomes owner-protected). Result: inert code, tests and a disabled policy on `main`. Recommended hardening for the owner: a tag ruleset for `main` (the code already fetches `refs/heads/main` explicitly, so a shadowing tag has no effect).
-2. **Owner installs the pilot-window deny rules** (the pilot never edits settings): `phase2/required-deny.json` > `recommendedRules` into the **user-level** `settings.json` (only user-level rules count; paths use absolute `//c/...` forms so they do not depend on the working directory). 130 rules cover 116 required variants:
-   - shell strings, mirrored for Bash and PowerShell: `prod-apply`, `dev-apply`, any `sb.sh`, `wd-prod`, `db push`, `supabase db|link|login|projects|migration|functions|secrets`, the Supabase pooler and `.supabase.co` hosts, `DATABASE_URL`/`POSTGRES_URL`/service keys, `pr merge|create|review`, `pulls/*/merge`, `graphql`, `ghapp`, `gh api`, `gh *merge*`, `gh release`, `gh workflow`, `vercel`, `vc`, `*git*push*` (so `git -C <path> push`, `git --no-pager push`, `git.exe push` are caught), `send-pack`, git alias definitions, and the test seam. Database rules are command- and host-qualified, so `docker exec ... psql` inside a `cf1pilot-` container and git reads of `src/lib/supabase/migrations` are NOT blocked;
-   - edits and writes to settings, hooks, `.claude.json`, `~/.claude/CLAUDE.md`, plugins, agents, skills, commands, `.gitconfig`, project `CLAUDE.md`/`CLAUDE.local.md`/`.mcp.json`, `docs/ops/continuity-pilot/**`, the live queue/attestation root, `danceflow-ops/**` and the credential helper; and **reads** of `danceflow-ops/**` (including prod working-directory secrets), `d24-app-key/**`, `.env*` and `.ssh`;
-   - non-shell tools that reach the same effects: the terminal tools, PR auto-merge, both browsers, settings, permission-mode and connector-enable tools, session start / move-to-cloud / send-message, `SendMessage`, scheduled tasks, cron and remote triggers, the docs connector, `Artifact`, `ArtifactData`, `ArtifactComments`, `NotebookEdit` and `Monitor`.
-   - While these rules are installed this session cannot use `sb.sh`, `ghapp`, `gh`, `vercel`, `git push`, the connectors above, `Artifact*`, `SendMessage` or `Monitor`. Remove them after the pilot. Not denied: memory files under `~/.claude/projects` (the coordinator writes them).
-3. **Live deny probe.** The coordinator runs every probe from `node deny-probe.mjs plan` and records whether the harness denied it (`node deny-probe.mjs record`). Command probes only echo the protected text, quoted so nothing can execute (verified against real bash and PowerShell with hostile text, including Unicode single quotes; variants must be pure ASCII). Edit probes use the real protected path with an impossible match string (cannot change anything even if allowed). Write probes create a new scratch file inside the protected glob. Read probes use a nonexistent path inside the protected glob (a real secret is never read). Tool probes send only empty or invalid arguments: a tool counts as denied only if it is absent from the tool list or the call is refused by a permission rule; an input-validation error is NOT a denial. Evidence is bound to the sha256 of the settings files and of `required-deny.json`, must be under 24 hours old and not future-dated.
-4. **Separate explicit owner activation approval** in chat naming (a) the sha256 of `policy.json` and `authorizations.json` as merged (`git cat-file blob <commit>:<path> | sha256sum`), (b) that the deny rules are installed, (c) the intended start time. Without this message nothing proceeds.
-5. **Activation PR** (tiny, owner-approved, CODEOWNERS-gated): flips `pilot.enabled` to `true` and sets the authorization window. Its hashes are the ones named in step 4.
-6. **Activation preflight** (`node preflight.mjs --root ... --expect-policy-sha ... --expect-auth-sha ... --probe ...`). Writes `PREFLIGHT_REPORT.json` always and `PREFLIGHT_OK.json` only if every check passes; any failure deletes the attestation and the loop HALTs:
-   - 1 policy and code integrity: fresh fetch of `refs/heads/main` from the hard-coded source; hashes equal the owner-approved values; policy and authorizations validate (unique ids, authorizations only for class-A templates); **every local code file (orchestrator, protected-source, config, deny-check, deny-probe, preflight, owner-tool, `required-deny.json`, the pinned runner script) byte-equals (CRLF-normalized) the reviewed copy at the fetched commit**, so a stale or edited working-tree copy cannot attest. `claim` repeats the code check on every call.
-   - 2 scope and expiry: `enabled=true`, inside the window with at least `maxHours` remaining, every authorization expires at least `maxHours` away, coordinator is COMPETITION.
-   - 3 authorization scope: the live queue holds exactly the authorized class-A items (scope hash, template, params, deps), no class-G authorization, no unauthorized item, no duplicate ids, class-A commands pass an **advisory** local-only text screen (the real control is the deny rules), no class-A template touches a protected path.
-   - 4 stop controls and fail-closed behavior, run against the real `claim`/`complete` code on the live queue with throwaway protected remotes: items completed through `complete()` so dependencies clear; class-G items parked by the class gate (a mutation test proves removing the gate fails this check); forged local owner-done hands out nothing; a policy authorizing a class-G template HALTs; STOP and resume; unreachable source, wrong worker, missing or stale attestation, settings drift, duplicate ids, remote disable and the claim limit each HALT with the specific reason.
-   - 5 limits and host: policy limits within the hard caps in code (4 h, 10 wakeups, 4 claims, 60 calls, 60 min TTL, 2 attempts); Docker reachable, no leftover `cf1pilot-` containers, at least 20 GiB free, live root writable. A run that skips host checks or the fail-closed suite cannot attest.
-   - 6 deny rules: coverage of every variant from user-level rules; **the pilot's own representative commands (docker/psql in a `cf1pilot-` container, git reads of migration paths, the pinned runner, the orchestrator) are not denied by those rules**; settings posture over user, session-cwd, current-cwd and managed settings (no bypass mode, no hooks, no enabled plugins, which can carry hooks); complete, all-denied, fresh probe.
-7. **Start the single `/loop`** (prompt below). `claim` re-hashes the settings files on every call: any change to them after the preflight HALTs the loop until the deny rules are re-verified.
+## How the executor works
+`driver.mjs` (deterministic code, not a model) claims one item, writes that item's settings file, and launches an isolated `claude -p` child:
+`--restricted --strict-mcp-config --tools "Bash,Read,Edit,Write,Glob,Grep" --permission-mode dontAsk --permission-prompts none --settings <item settings> --add-dir <item directories> --max-budget-usd <cap> --no-session-persistence --disable-slash-commands`.
+`--restricted` ignores the user, project and local settings files, so the child sees only the item's own settings. `dontAsk` plus no one to answer prompts denies everything not on the item's allowlist. The allowlist comes from the owner-authorized policy template (part of its scope hash), restricted to a few reviewed command shapes, with the 130-rule pilot deny list and shell-smuggling denies (`;`, `&&`, `|`, `>`, `<`, `$()`, backticks, `..`, `--output`...) as a second layer. File tools are confined to the item's directories. The child environment carries no GitHub, Supabase, Vercel or database tokens. The model cannot claim, schedule or complete items.
+
+## Sequence (each step is a gate)
+1. **Independent review and merge of the pilot PR** (owner code-owner approval). Inert.
+2. **Owner signs the CLI in once** (`claude auth login`, command in ISOLATION-BLOCKER.md). Separate from the desktop app's own sessions.
+3. **Isolation test** (coordinator): `node isolation-test.mjs --root C:/Dev/continuity-live/COMPETITION`. About 120 probes per template through the real binary; judged from harness records and filesystem canaries; writes `ISOLATION_REPORT.json`. Any allowed abuse probe, existing canary, wrong tool surface or untested version fails it. The result is reported to the owner. If it fails, tighten and repeat, or fall back to option C.
+4. **Separate explicit owner activation approval** in chat naming the sha256 of `policy.json` and `authorizations.json` as merged (`git cat-file blob <commit>:<path> | sha256sum`) and the intended start time.
+5. **Activation PR** (tiny, owner-approved, CODEOWNERS-gated): flips `pilot.enabled` to `true` and sets the window. The coordinator creates the `C:/Dev/df-pilot-runner` worktree beforehand (the pilot cannot).
+6. **Activation preflight** (`node preflight.mjs --root ... --expect-policy-sha ... --expect-auth-sha ...`). Writes `PREFLIGHT_REPORT.json` always and `PREFLIGHT_OK.json` only if everything passes:
+   - 1 policy and code integrity: fresh fetch of `refs/heads/main`; hashes equal the owner-approved values; policy and authorizations validate; every local code file (orchestrator, protected-source, config, child-config, driver, isolation-test, deny-check, deny-probe, preflight, owner-tool, `required-deny.json`, the two pinned scripts) byte-equals the reviewed copy at the fetched commit.
+   - 2 scope and expiry: enabled, inside the window with at least `maxHours` left, every authorization expires at least `maxHours` away, coordinator is COMPETITION.
+   - 3 authorization scope: the live queue holds exactly the authorized class-A items, no class-G authorization, no unauthorized item, advisory local-only screen on commands, no class-A template touching a protected path.
+   - 4 stop controls and fail-closed behavior, exercised against the real `claim`/`complete` code on the live queue: STOP and resume, unreachable source, wrong worker, missing or stale attestation, child-configuration drift, duplicate ids, remote disable, claim limit, class-G parked by the gate (mutation-tested), forged owner-done.
+   - 5 limits within the hard caps in code; Docker reachable, no leftover `cf1pilot-` containers, at least 20 GiB free, root writable. A run that skips host checks or the suite cannot attest.
+   - 6 isolated child: every template's allowlist valid, every example command allowed and not denied; installed `claude` version equals the tested one; the isolation report passed, is fresh, is bound to the exact child configuration hash and has both denied probes and allowed controls.
+7. **Start the driver**: `node driver.mjs --root C:/Dev/continuity-live/COMPETITION --worker COMPETITION` (from the coordinator session in the background, or the owner's terminal). One driver at a time (lock file). No `/loop`, no wakeups.
 
 ## Scope when active (exact)
 Four class-A items in `phase2/queue.json`; nothing else is authorized. Q5 (PROD SQL apply) is class G with no authorization and can never be handed out.
-- Q1 rollback rehearsal, Q2 tooling residual check, Q4 SQL-suite runner script: disposable local Postgres (container name starts `cf1pilot-`, one at a time, removed at the end), local commits in existing worktrees only. They run only the reviewed script `phase2/scripts/run_u18s2.sh` fetched from `main`, after verifying its sha256 (`410b1ee68a0ab6a1949571f9932af4fedf499250cd7f9eb9246f8e6b8acb6bb8`).
-- Q3 migration inventory: git reads only. No database access of any kind; the comparison with PROD migration history is done by the coordinator outside the loop.
-- Never: any push, PR, merge, hosted access or write, deploy, flag change, credential use, settings edit, or Twilio/Apps work.
+- Q1 rollback rehearsal and Q2 tooling residual check: a disposable `cf1pilot-qN` database container only; the reviewed runner and SQL helper (pinned through the code pin); SQL run only inside the container; local evidence commits in `df-u18pkg`.
+- Q3 migration inventory: git reads in `df-u18pkg` only; no network, no database.
+- Q4 runner script: the child writes `scripts/qa/run-sql-suites.sh` and a README in `df-pilot-runner` and checks it with `bash -n`; it never executes model-written code.
+- Never: any push, PR, merge, hosted access or write, deploy, flag change, credential use, settings edit, Twilio or Apps work.
 
 ## Bounds
 | Limit | Value |
 |---|---|
 | Wall clock after first claim | 4 hours (`maxHours`) |
-| Wakeups | 10 (`maxWakeups`), 20 to 30 minute heartbeat, never a fast poll |
-| Claims / claim calls | 4 / 60 |
-| Claim TTL | 60 minutes without heartbeat; heartbeat about every 10 minutes |
-| Retries | 2 attempts per item, then NEEDS-REVIEW |
-| Containers | one `cf1pilot-` Postgres at a time; never the `cf1c-qa` or TW-4F `df-isoqa` stacks |
-| Attestation | expires at the earlier of `maxHours` after preflight and the policy window end |
+| Claims | 4 (`maxClaims`), 60 claim calls |
+| Per item | model and budget cap in the template (USD 2 to 5), timeout 60 minutes, 2 attempts then NEEDS-REVIEW |
+| Containers | `cf1pilot-qN` only, removed by the item; never `cf1c-qa` or the TW-4F `df-isoqa` stacks |
+| Attestation | expires at the earlier of `maxHours` after preflight and the window end |
 
-## Stop conditions (the loop stops, reports once, does not retry or reroute)
-Any permission prompt or denial; any failed safety check or unexpected output; protected source unreachable or invalid (HALT); missing, expired, mismatched or settings-drifted attestation (HALT); policy `enabled:false` on the protected ref; STOP file; any limit; an item reporting a protected path (parks BLOCKED-OWNER); a usage or budget warning; an owner message in chat.
+## Stop conditions (the driver stops and reports; it never retries around them)
+Any permission denial; any timeout; STOP file; protected source unreachable or invalid; missing, expired, mismatched or drifted attestation (including code or child-configuration drift); untested `claude` version; any limit; an item reporting a protected path (parks BLOCKED-OWNER); an owner message in chat.
 
-## Recovery
-State is local (`queue.json`, `log/execution.jsonl`, `PREFLIGHT_REPORT.json`). A dead runner is requeued once, then NEEDS-REVIEW; a stale completion is refused. After a Claude Code restart nothing resumes by itself: re-run the preflight if the attestation expired, then the single `/loop`. Leftover `cf1pilot-*` containers are identifiable and removable.
-
-## Manual controls
-Stop: chat, or `node orchestrator.mjs stop --root C:/Dev/continuity-live/COMPETITION`. Inspect: `status`, `log`, `PREFLIGHT_REPORT.json`. Remote kill: `pilot.enabled=false` via an owner-approved PR.
-
-## Loop prompt (this is prompt discipline, not an enforced allowlist; the deny rules are the enforcement)
-```
-Continuity pilot, COMPETITION only, local-only. Each iteration run:
-node C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs claim --wake --root C:/Dev/continuity-live/COMPETITION --worker COMPETITION
-CLAIMED: do exactly that item's title/cmd/done, nothing broader. Run `heartbeat --id <id> --token <token>` about every 10 minutes during long work. When finished run `complete --id <id> --token <token> [--changed path1,path2] [--error "<reason>"]` with the same --root, then claim again.
-WAIT or IDLE with only owner-gated items left: report once and stop the loop. HALT or STOPPED: stop the loop and report the reason.
-Use only what the claim gave you. Never push, open a PR, merge, or touch any hosted system. On any permission prompt, denial or surprise: stop and report. If a step is not named by the claimed item, it is not authorized.
-Use the long fallback wakeup (1200 to 1800 s) only while a claimed item's work is genuinely running in the background.
-```
+## Recovery and manual controls
+State is local (`queue.json`, `log/execution.jsonl`, per-item `stream.jsonl`, `PREFLIGHT_REPORT.json`, `ISOLATION_REPORT.json`). A dead runner is requeued once, then NEEDS-REVIEW. After a restart nothing resumes by itself: re-run the preflight if the attestation expired, then the driver. Stop: chat, or `node orchestrator.mjs stop --root C:/Dev/continuity-live/COMPETITION`, or end the driver process. Inspect: `status`, `log`. Remote kill: `pilot.enabled=false` via an owner-approved PR.
 
 ## Honest limits
-- The pilot is an advisory scheduler for a cooperative agent. The orchestrator removes every route by which it would itself hand out gated work and refuses to start without the preflight, but it cannot stop a non-cooperative agent from running a command or editing local files.
-- **The attestation and the probe evidence are both self-reported local files.** The attestation proves a cooperative loop only that the exact policy and authorization bytes and the settings it was verified against are still the ones in force; a local writer can forge it. The hard gate is the protected policy's `enabled` flag and the CODEOWNERS-protected files.
-- String deny rules cannot match obfuscated spellings, indirect execution (`node -e`, scripts, language runtimes) or shell redirection onto protected files, and they only cover the tools listed. See `knownResidual` in `required-deny.json`. The static matcher approximates Claude Code's matcher; the live probe is the authority.
-- Every claim runs the GitHub App credential helper to read the protected ref; that helper can mint a write-capable token. It is run by git, not by an agent tool call, and is not restricted here. Using a read-only credential is a recommended follow-up.
-- Local counters can be reset by a local edit; the bounds that survive that are the protected policy window and per-entry expiry.
+- The isolation report is evidence produced by a cooperative coordinator on the same machine; the attestation is a local file. The hard gates are the protected policy and CODEOWNERS.
+- Allowed commands (`git`, `docker`) run as the owner's OS user, unconfined. Safety rests on the reviewed command shapes, the deny layer and the abuse probes; the isolation test is the evidence, and a new `claude` version requires a new test (the version is pinned).
+- The child bills the owner's plan. Probe runs use a cheaper model; enforcement is the harness's, independent of the model.
+- Inside a disposable container the child can run arbitrary SQL and commands; the container holds no secrets and no host mounts.
+- The credential helper used by `claim` to read `main` can mint a write-capable token; it is run by git, not by the child.

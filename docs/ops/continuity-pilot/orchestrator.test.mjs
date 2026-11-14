@@ -8,6 +8,7 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as O from './orchestrator.mjs';
 import { entries } from './owner-tool.mjs';
+import { childConfigSha } from './child-config.mjs';
 import { loadProtected } from './protected-source.mjs';
 
 // Track every temp dir created by THIS test process (including by the code under test) and remove them at the end.
@@ -34,6 +35,9 @@ const TPL = {
   badact: { class: 'A', title: 'bad action', cmd: 'echo', action: { type: 'shell', cmd: 'rm -rf /' } },
 };
 
+const ISO = { allow: ['Read(//c/Dev/df-iso-test/**)'], examples: [], addDirs: ['C:/Dev/df-iso-test'], cwd: 'w', model: 'haiku', maxBudgetUsd: 1, timeoutMs: 60000 };
+for (const t of Object.values(TPL)) if (t.class === 'A') Object.assign(t, ISO);
+
 // A world = bare "origin" (the protected remote) + a queue sandbox. publish() is what an owner merge does.
 function world(items, { templates = TPL, pilot = {}, authIds = 'all', ownerDone } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cpilot-'));
@@ -47,11 +51,11 @@ function world(items, { templates = TPL, pilot = {}, authIds = 'all', ownerDone 
   w.publish = (policy, auths, { noAttest } = {}) => {
     const pj = JSON.stringify(policy); const aj = typeof auths === 'string' ? auths : JSON.stringify(auths); const h = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
     fs.mkdirSync(path.join(clone, 'p'), { recursive: true }); fs.writeFileSync(path.join(clone, 'p/policy.json'), pj); fs.writeFileSync(path.join(clone, 'p/authorizations.json'), aj); G(clone, 'add', '-A'); G(clone, 'commit', '-q', '-m', 'owner'); G(clone, 'push', '-q', 'origin', 'main');
-    if (!noAttest) O.writeAttestation(root, { policySha: h(pj), authSha: h(aj), settingsHashes: {}, expiresAt: Date.parse('2099-12-31T00:00:00Z') }); // simulates a passing preflight for this exact content
+    if (!noAttest) O.writeAttestation(root, { policySha: h(pj), authSha: h(aj), childConfigSha: childConfigSha(policy), expiresAt: Date.parse('2099-12-31T00:00:00Z') }); // simulates a passing preflight for this exact content
   };
   const ids = authIds === 'all' ? qi.map((i) => i.id) : authIds;
   w.publish(w.policy, entries({ items: qi }, w.policy, { ids }));
-  w.opts = (o = {}) => ({ worker: 'W', source: w.source, settingsFiles: [], ...o });
+  w.opts = (o = {}) => ({ worker: 'W', source: w.source, ...o });
   w.cli = (...a) => ['--root', root, '--worker', 'W', ...a];
   w.env = { ...process.env, PILOT_TEST_SOURCE: JSON.stringify({ ...w.source, cacheMs: 0 }) };
   return w;
@@ -140,7 +144,7 @@ test('T8. P1-3: no persistent cache; git env/config/replace/insteadOf cannot red
 test('T9. policy self-check: protected cmd in class A, unanchored regex, bad dates/limits, non-array auths all HALT', async () => {
   const cases = [
     [{ templates: { ...TPL, evil: { class: 'A', title: 's', cmd: 'sb.sh prod-apply a.sql' } } }, /protected command/], [{ templates: { ...TPL, evil: { class: 'A', title: 's', cmd: 'sb.sh prod_apply a.sql' } } }, /protected command/],
-    [{ templates: { ...TPL, loose: { class: 'A', title: 's', cmd: 'echo {n}', params: { n: '[0-9]+' } } } }, /anchored/],
+    [{ templates: { ...TPL, loose: { ...ISO, class: 'A', title: 's', cmd: 'echo {n}', params: { n: '[0-9]+' } } } }, /anchored/],
     [{ pilot: { not_before: 'tomorrow', not_after: 'later' } }, /window invalid/], [{ pilot: { maxHours: undefined } }, /maxHours/], [{ pilot: { maxCalls: 0 } }, /maxCalls/], [{ pilot: { claimTtlMs: 'x' } }, /claimTtlMs/],
   ];
   for (const [c, re] of cases) { const w = world([it('E1', 'work')], c); const r = claimOf(w); assert.equal(r.status, 'HALT', JSON.stringify(c).slice(0, 80)); assert.match(r.reason, re); assert.ok(noExecs(w)); }
@@ -156,7 +160,7 @@ test('T11. params: regex enforced, unexpected/inherited names refused', async ()
 });
 test('T12. fail-closed: unreachable source, wrong worker, closed window, remote disable all HALT', async () => {
   const w = world([it('A1', 'work')]);
-  const un = O.claim(w.root, { worker: 'W', settingsFiles: [], source: { ...w.source, url: path.join(w.base, 'nope.git'), cacheMs: 0 } }); assert.equal(un.status, 'HALT'); assert.match(un.reason, /unavailable/); assert.notEqual(claimOf(w).status, 'HALT', 'control: the real source works');
+  const un = O.claim(w.root, { worker: 'W', source: { ...w.source, url: path.join(w.base, 'nope.git'), cacheMs: 0 } }); assert.equal(un.status, 'HALT'); assert.match(un.reason, /unavailable/); assert.notEqual(claimOf(w).status, 'HALT', 'control: the real source works');
   assert.match(claimOf(w, { worker: 'OTHER' }).reason, /not the authorized coordinator/); assert.match(claimOf(w, { now: Date.parse('2100-01-01') }).reason, /window/);
   w.source.cacheMs = 0; w.publish({ ...w.policy, pilot: { ...w.policy.pilot, enabled: false } }, entries({ items: q(w) }, w.policy));
   const r = claimOf(w); assert.equal(r.status, 'HALT'); assert.match(r.reason, /disabled/); assert.ok(noExecs(w));
@@ -196,7 +200,7 @@ test('T18. P2-7: failures retry up to maxAttempts then NEEDS-REVIEW and are repo
 });
 test('T19. P3: parked-by-gate items are re-evaluated when the protected policy changes', async () => {
   const w = world([it('P1', 'prod')]); claimOf(w); assert.equal(st(w, 'P1'), 'BLOCKED-OWNER');
-  w.source.cacheMs = 0; const t = { ...TPL, prod: { class: 'A', title: 'now safe', cmd: 'echo', action: { type: 'work', ms: 1 } } };
+  w.source.cacheMs = 0; const t = { ...TPL, prod: { ...ISO, class: 'A', title: 'now safe', cmd: 'echo', action: { type: 'work', ms: 1 } } };
   w.publish({ ...w.policy, templates: t }, entries({ items: q(w) }, { ...w.policy, templates: t })); assert.deepEqual((await O.run(w.root, w.opts())).ran, ['P1']);
 });
 
@@ -282,15 +286,10 @@ test('P1-1. a tag named main cannot shadow the protected branch; short refs are 
   const short = claimOf(w, { source: { ...w.source, ref: 'main' } }); assert.equal(short.status, 'HALT'); assert.match(short.reason, /fully qualified/);
   assert.equal(JSON.parse(fs.readFileSync(path.join(w.root, 'queue.json'))).items[0].state, 'PENDING');
 });
-test('AT3. permission-settings drift after the preflight halts the loop', async () => {
-  const w = world([it('A1', 'work')]); const f = path.join(w.base, 'settings.json'); fs.writeFileSync(f, JSON.stringify({ permissions: { deny: ['Bash(*prod-apply*)'] } }));
-  const { loadDenyRules } = await import('./deny-check.mjs'); const att = path.join(w.root, 'PREFLIGHT_OK.json');
-  fs.writeFileSync(att, JSON.stringify({ ...JSON.parse(fs.readFileSync(att, 'utf8')), settingsHashes: loadDenyRules([f]).hashes }));
-  assert.equal(claimOf(w, { settingsFiles: [f] }).status, 'CLAIMED'); // unchanged settings: runs
-  const w2 = world([it('A1', 'work')]); fs.writeFileSync(path.join(w2.base, 's.json'), '{}'); const f2 = path.join(w2.base, 's.json');
-  fs.writeFileSync(path.join(w2.root, 'PREFLIGHT_OK.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(w2.root, 'PREFLIGHT_OK.json'), 'utf8')), settingsHashes: loadDenyRules([f2]).hashes }));
-  fs.writeFileSync(f2, JSON.stringify({ permissions: { deny: [] }, loosened: true })); // settings edited after the preflight
-  const r = claimOf(w2, { settingsFiles: [f2] }); assert.equal(r.status, 'HALT'); assert.match(r.reason, /permission settings changed/);
+test('AT3. a changed isolated-child configuration after the preflight halts the loop', async () => {
+  const w = world([it('A1', 'work')]); w.source.cacheMs = 0; const att = path.join(w.root, 'PREFLIGHT_OK.json');
+  fs.writeFileSync(att, JSON.stringify({ ...JSON.parse(fs.readFileSync(att, 'utf8')), childConfigSha: 'stale' }));
+  const r = claimOf(w); assert.equal(r.status, 'HALT'); assert.match(r.reason, /isolated child configuration changed/);
 });
 test('P2-9. non-finite counters halt; authorizations must have unique ids and name class-A templates', async () => {
   const w = world([it('A1', 'work')]); const raw = JSON.parse(fs.readFileSync(path.join(w.root, 'queue.json'), 'utf8')); raw.meta = { wakeups: 'x', calls: 'y' };

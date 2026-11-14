@@ -14,7 +14,9 @@ import { fileURLToPath } from 'node:url';
 import * as O from './orchestrator.mjs';
 import { loadProtected, scrubbedEnv } from './protected-source.mjs';
 import { DEFAULT_SOURCE } from './config.mjs';
-import { loadDenyRules, coverage, checkProbe, posture, defaultSettingsFiles, ruleSettingsFiles, allVariantIds, allowedConflicts } from './deny-check.mjs';
+import { childConfigSha, checkExamples, CLAUDE_VERSION, loadRequired } from './child-config.mjs';
+import { checkIsolationReport } from './isolation-test.mjs';
+import { DEFAULT_CLAUDE_CMD } from './config.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REQUIRED_PATH = path.join(HERE, 'phase2', 'required-deny.json');
@@ -42,15 +44,16 @@ export function tempRemote(policy, auths, { code = false, mutateCode } = {}) {
   git(clone, aux, 'add', '-A'); git(clone, aux, 'commit', '-q', '-m', 'pf'); git(clone, aux, 'push', '-q', 'origin', 'main');
   return { base, source: { url: origin, ref: 'refs/heads/main', policyPath: 'p/policy.json', authPath: 'p/authorizations.json', allowFile: true, cacheMs: 0, ...(code ? { codeDir: 'p/code', codeFiles } : {}) }, policySha: sha256(pj), authSha: sha256(aj) };
 }
-function simRoot(items, att, settingsHashes = {}) {
+let SIM_CONFIG_SHA = '';
+function simRoot(items, att) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cpilot-pfroot-')); cleanups.push(root); O.init(root);
   fs.writeFileSync(path.join(root, 'queue.json'), JSON.stringify({ meta: {}, items: items.map((i) => ({ id: i.id, template: i.template, params: i.params || {}, deps: i.deps || [], state: 'PENDING' })) }));
-  if (att) O.writeAttestation(root, { ...att, settingsHashes, expiresAt: Date.now() + 3600000 });
+  if (att) O.writeAttestation(root, { childConfigSha: SIM_CONFIG_SHA, ...att, expiresAt: Date.now() + 3600000 });
   return root;
 }
 
 export function runPreflight(opts) {
-  const { root, source = DEFAULT_SOURCE, worker = 'COMPETITION', expectPolicySha, expectAuthSha, requiredDeny, settingsFiles, ruleFiles = settingsFiles, probe, now = Date.now(), host = true, skipSuite = false } = opts;
+  const { root, source = DEFAULT_SOURCE, worker = 'COMPETITION', expectPolicySha, expectAuthSha, requiredDeny = loadRequired(), isolationReport, claudeVersion, now = Date.now(), host = true, skipSuite = false } = opts;
   const checks = []; const add = (id, ok, detail) => checks.push({ id, ok: !!ok, detail }); const mark = cleanups.length; // only dirs created by THIS run are removed
   fs.mkdirSync(root, { recursive: true }); fs.rmSync(path.join(root, O.ATTEST), { force: true }); // a failing preflight never leaves an old attestation behind
   let prot = null;
@@ -93,19 +96,19 @@ export function runPreflight(opts) {
     try { const s = fs.statfsSync(os.tmpdir()); add('5.disk', s.bavail * s.bsize >= 20 * 1024 ** 3, `free ${(s.bavail * s.bsize / 1024 ** 3).toFixed(1)} GiB (need 20)`); } catch { add('5.disk', false, 'cannot read disk space'); }
     try { const f = path.join(root, '.w'); fs.writeFileSync(f, 'x'); fs.rmSync(f); add('5.root-writable', true, root); } catch { add('5.root-writable', false, root); }
   } else add('5.host-skipped', false, 'host checks (docker, disk, root) skipped (test-only option): this run can never attest');
-  // 6. deny rules: coverage from USER settings only, posture of all settings in force, live probe bound to settings + required list
-  const rules = loadDenyRules(ruleFiles).rules; const { hashes } = loadDenyRules(settingsFiles);
-  const cov = coverage(requiredDeny, rules);
-  add('6.deny-static', cov.ok, cov.ok ? `all ${allVariantIds(requiredDeny).length} variants covered by ${rules.length} user-level deny rules` : `uncovered: ${cov.uncovered.join(', ')}`);
-  const conf = allowedConflicts(requiredDeny, rules); add('6.pilot-work-not-denied', conf.length === 0, conf.length ? `deny rules block the pilot's own work: ${conf.map((c) => `${c.rule} blocks ${c.cmd}`).join('; ')}` : `${(requiredDeny.allowedCommands || []).length} representative pilot commands are not denied`);
-  const ps = posture(settingsFiles); add('6.posture', ps.ok, ps.ok ? 'no bypass mode, no hooks configured' : ps.problems.join('; '));
-  const pr = checkProbe(requiredDeny, probe, hashes, now, undefined, opts.requiredSha ?? sha256(fs.readFileSync(REQUIRED_PATH)));
-  add('6.deny-probe', pr.ok, pr.ok ? 'live probe: every variant denied, settings and required list unchanged since' : pr.problems.join('; '));
+  // 6. isolated child: configuration, tested version, and isolation-test evidence bound to the exact configuration
+  if (prot) {
+    const cfg = childConfigSha(prot.policy, requiredDeny); const probs = [];
+    for (const [n, t] of Object.entries(prot.policy.templates)) if (t.class === 'A') probs.push(...checkExamples(t, requiredDeny).map((p) => n + ': ' + p));
+    add('6.child-config', probs.length === 0, probs.length ? probs.join('; ') : 'child configuration ' + cfg.slice(0, 12) + ': every allowlist is inside the reviewed families, no allow rule permits a protected variant, every example command is allowed and none is denied');
+    add('6.claude-version', typeof claudeVersion === 'string' && claudeVersion.includes(CLAUDE_VERSION), 'installed claude: ' + (claudeVersion || 'unknown') + '; tested: ' + CLAUDE_VERSION);
+    const ir = checkIsolationReport(isolationReport, cfg, now); add('6.isolation-report', ir.ok, ir.ok ? 'isolation test passed for configuration ' + cfg.slice(0, 12) : ir.problems.join('; '));
+  } else add('6.isolation-report', false, 'no protected policy');
 
   const ok = checks.every((c) => c.ok);
-  const report = { at: new Date(now).toISOString(), ok, commit: prot?.commit, policySha: prot?.policySha, authSha: prot?.authSha, hashHowTo: 'git cat-file blob <commit>:<path> | sha256sum', settingsHashes: hashes, checks };
+  const report = { at: new Date(now).toISOString(), ok, commit: prot?.commit, policySha: prot?.policySha, authSha: prot?.authSha, hashHowTo: 'git cat-file blob <commit>:<path> | sha256sum', childConfigSha: prot ? childConfigSha(prot.policy, requiredDeny) : undefined, checks };
   fs.writeFileSync(path.join(root, 'PREFLIGHT_REPORT.json'), JSON.stringify(report, null, 2));
-  if (ok) O.writeAttestation(root, { at: report.at, commit: prot.commit, policySha: prot.policySha, authSha: prot.authSha, settingsHashes: hashes, expiresAt: Math.min(now + prot.policy.pilot.maxHours * 3600000, Date.parse(prot.policy.pilot.not_after)) });
+  if (ok) O.writeAttestation(root, { at: report.at, commit: prot.commit, policySha: prot.policySha, authSha: prot.authSha, childConfigSha: childConfigSha(prot.policy, requiredDeny), isolationAt: isolationReport?.at, expiresAt: Math.min(now + prot.policy.pilot.maxHours * 3600000, Date.parse(prot.policy.pilot.not_after)) });
   cleanupTo(mark);
   return report;
 }
@@ -120,7 +123,8 @@ function failClosedSuite(prot, liveItems, worker, now, add) {
   if (!hasG && gTemplate) items.push({ id: 'GSIM', template: gTemplate, params: {}, deps: [] });
   const authFor = (list, pol) => list.filter((i) => pol.templates[i.template]?.class === 'A').map((i) => ({ id: i.id, template: i.template, params: i.params, deps: i.deps, scope_sha: O.scopeSha(i, pol), by: 'owner' }));
   const r = tempRemote(simPolicy, authFor(items, simPolicy)); const att = { policySha: r.policySha, authSha: r.authSha };
-  const out = []; const claim = (root, o = {}) => O.claim(root, { worker, source: r.source, now, settingsFiles: [], ...o });
+  SIM_CONFIG_SHA = childConfigSha(simPolicy);
+  const out = []; const claim = (root, o = {}) => O.claim(root, { worker, source: r.source, now, ...o });
   const reason = (c, re) => c.status === 'HALT' && re.test(c.reason);
 
   // happy path: hand out + complete every claimable class-A item THROUGH complete() so dependencies really clear
@@ -136,7 +140,7 @@ function failClosedSuite(prot, liveItems, worker, now, add) {
   out.push(['4.forged-owner-done', claim(root).status !== 'CLAIMED', 'locally forged OWNER-DONE/class on a gated item hands out nothing']);
   // a policy whose authorizations name a class-G template is rejected as invalid
   const badAuths = [...authFor(items, simPolicy), ...(gTemplate ? [{ id: 'GAUTH', template: gTemplate, params: {}, deps: [], scope_sha: 'x', by: 'owner' }] : [])];
-  const bad = tempRemote(simPolicy, badAuths); out.push(['4.auth-of-class-G-rejected', reason(O.claim(simRoot(items, { policySha: bad.policySha, authSha: bad.authSha }), { worker, source: bad.source, now, settingsFiles: [] }), /non-class-A/), 'an authorization naming a class-G template HALTs']);
+  const bad = tempRemote(simPolicy, badAuths); out.push(['4.auth-of-class-G-rejected', reason(O.claim(simRoot(items, { policySha: bad.policySha, authSha: bad.authSha }), { worker, source: bad.source, now }), /non-class-A/), 'an authorization naming a class-G template HALTs']);
   // stop control
   root = simRoot(items, att); O.stop(root, 'preflight'); out.push(['4.stop-file', claim(root).status === 'STOPPED', 'STOP file halts claim']); O.resume(root); out.push(['4.resume', claim(root).status === 'CLAIMED', 'resume restores claims']);
   // fail closed, each with its specific reason
@@ -144,20 +148,21 @@ function failClosedSuite(prot, liveItems, worker, now, add) {
   out.push(['4.wrong-worker', reason(claim(simRoot(items, att), { worker: 'OTHER' }), /not the authorized coordinator/), 'unauthorized worker name HALTs']);
   out.push(['4.no-attestation', reason(claim(simRoot(items, null)), /attestation/), 'missing attestation HALTs']);
   out.push(['4.stale-attestation', reason(claim(simRoot(items, { policySha: 'x', authSha: 'y' })), /attestation/), 'attestation for other content HALTs']);
-  out.push(['4.settings-drift', reason(claim(simRoot(items, att, { 'C:/x': 'aaaa' })), /permission settings changed/), 'deny/settings changes after the preflight HALT']);
+  out.push(['4.child-config-drift', reason(claim(simRoot(items, { ...att, childConfigSha: 'x' })), /isolated child configuration changed/), 'a changed child configuration after the preflight HALTs']);
   out.push(['4.duplicate-ids', reason(claim(simRoot([...items, { ...items[0] }], att)), /unique/), 'duplicate queue ids HALT']);
-  const off = tempRemote({ ...simPolicy, pilot: { ...wide, enabled: false } }, authFor(items, simPolicy)); out.push(['4.remote-disable', reason(O.claim(simRoot(items, { policySha: off.policySha, authSha: off.authSha }), { worker, source: off.source, now, settingsFiles: [] }), /disabled/), 'enabled=false on the protected ref HALTs']);
+  const off = tempRemote({ ...simPolicy, pilot: { ...wide, enabled: false } }, authFor(items, simPolicy)); out.push(['4.remote-disable', reason(O.claim(simRoot(items, { policySha: off.policySha, authSha: off.authSha }), { worker, source: off.source, now }), /disabled/), 'enabled=false on the protected ref HALTs']);
   const lim = tempRemote({ ...simPolicy, pilot: { ...wide, maxClaims: 1 } }, authFor(items, simPolicy)); const lr = simRoot(items, { policySha: lim.policySha, authSha: lim.authSha });
-  const first = O.claim(lr, { worker, source: lim.source, now, settingsFiles: [] }); if (first.status === 'CLAIMED') O.complete(lr, first.item, {}, lim.source);
-  out.push(['4.limit-enforced', reason(O.claim(lr, { worker, source: lim.source, now, settingsFiles: [] }), /maxClaims/), 'maxClaims HALTs after the limit']);
+  const first = O.claim(lr, { worker, source: lim.source, now }); if (first.status === 'CLAIMED') O.complete(lr, first.item, {}, lim.source);
+  out.push(['4.limit-enforced', reason(O.claim(lr, { worker, source: lim.source, now }), /maxClaims/), 'maxClaims HALTs after the limit']);
   for (const [id, ok, d] of out) add(id, ok, d);
 }
 
 if (process.argv[1]?.endsWith('preflight.mjs')) {
   const a = process.argv.slice(2); const f = (n) => { const k = a.indexOf(`--${n}`); return k < 0 ? undefined : a[k + 1]; };
-  const root = f('root'); if (!root || !f('expect-policy-sha') || !f('expect-auth-sha')) { console.error('usage: node preflight.mjs --root DIR --expect-policy-sha SHA --expect-auth-sha SHA [--probe FILE]'); process.exit(2); }
-  const probe = f('probe') && fs.existsSync(f('probe')) ? JSON.parse(fs.readFileSync(f('probe'), 'utf8')) : null;
-  const rep = runPreflight({ root, expectPolicySha: f('expect-policy-sha'), expectAuthSha: f('expect-auth-sha'), probe, requiredDeny: JSON.parse(fs.readFileSync(REQUIRED_PATH, 'utf8')), settingsFiles: defaultSettingsFiles(), ruleFiles: ruleSettingsFiles() });
+  const root = f('root'); if (!root || !f('expect-policy-sha') || !f('expect-auth-sha')) { console.error('usage: node preflight.mjs --root DIR --expect-policy-sha SHA --expect-auth-sha SHA'); process.exit(2); }
+  const irPath = path.join(root, 'ISOLATION_REPORT.json'); const isolationReport = fs.existsSync(irPath) ? JSON.parse(fs.readFileSync(irPath, 'utf8')) : null;
+  let claudeVersion = ''; try { claudeVersion = execFileSync(DEFAULT_CLAUDE_CMD[0], [...DEFAULT_CLAUDE_CMD.slice(1), '--version'], { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* reported by 6.claude-version */ }
+  const rep = runPreflight({ root, expectPolicySha: f('expect-policy-sha'), expectAuthSha: f('expect-auth-sha'), isolationReport, claudeVersion });
   for (const c of rep.checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.id}  ${c.detail}`);
   console.log(rep.ok ? '\nPREFLIGHT PASSED: attestation written. No unattended execution before this point.' : '\nPREFLIGHT FAILED: no attestation; the loop will HALT.');
   process.exit(rep.ok ? 0 : 1);
