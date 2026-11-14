@@ -32,7 +32,7 @@ export default function ResetPasswordScreen() {
   }
 
   return (
-    <Screen scroll={false}>
+    <Screen>
       <View style={styles.wrap}>
         <View style={styles.header}>
           <AppText variant="title">Reset password</AppText>
@@ -70,7 +70,7 @@ export default function ResetPasswordScreen() {
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     wrap: {
-      flex: 1,
+      flexGrow: 1,
       justifyContent: "center",
       gap: 28
     },
