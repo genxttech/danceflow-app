@@ -1,0 +1,62 @@
+{
+ "sms_and_business": {
+  "before": {
+   "auth_users": 903,
+   "outbound_deliveries": 206,
+   "platform_admin_actions": 3,
+   "platform_admins": 1,
+   "ro": "on",
+   "sms_contact_permissions": 3,
+   "sms_message_logs": 12,
+   "studio_sms_registrations": 0,
+   "studios_last_access": "2026-10-11 10:12:36.076+00",
+   "workspace_access_logs": 2031
+  },
+  "after": {
+   "auth_users": 903,
+   "outbound_deliveries": 206,
+   "platform_admin_actions": 3,
+   "platform_admins": 1,
+   "ro": "on",
+   "sms_contact_permissions": 3,
+   "sms_message_logs": 12,
+   "studio_sms_registrations": 0,
+   "studios_last_access": "2026-10-11 10:12:36.076+00",
+   "workspace_access_logs": 2031
+  }
+ },
+ "profiles_and_auth": {
+  "before": {
+   "auth_identities": 18,
+   "auth_sessions": 18,
+   "auth_users": 903,
+   "client_account_links": 4,
+   "dancer_profiles": 17,
+   "mfa_factors": 1,
+   "mfa_verified_factors": 1,
+   "profiles": 900,
+   "recap_recipients": 1,
+   "ro": "on",
+   "user_account_status": 0,
+   "user_studio_roles": 166
+  },
+  "after": {
+   "auth_identities": 18,
+   "auth_sessions": 19,
+   "auth_users": 903,
+   "client_account_links": 4,
+   "dancer_profiles": 17,
+   "mfa_factors": 1,
+   "mfa_verified_factors": 1,
+   "profiles": 900,
+   "recap_recipients": 1,
+   "ro": "on",
+   "user_account_status": 0,
+   "user_studio_roles": 166
+  }
+ },
+ "rollupALL": {
+  "before": "3a38f6b6",
+  "after": "3a38f6b6"
+ }
+}

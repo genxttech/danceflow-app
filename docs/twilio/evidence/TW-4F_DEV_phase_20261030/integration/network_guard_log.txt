@@ -1,0 +1,7 @@
+2026-10-30T21:57:51.767Z pid=30060 loaded pp-devpf\node_modules\next\dist\bin\next
+2026-10-30T21:57:58.929Z pid=30060 ALLOW connect epdrtzcydvnoidwrepqz.supabase.co
+2026-10-30T21:57:58.950Z pid=30060 ALLOW connect epdrtzcydvnoidwrepqz.supabase.co
+2026-10-30T21:57:58.966Z pid=30060 ALLOW connect epdrtzcydvnoidwrepqz.supabase.co
+2026-10-30T21:57:58.974Z pid=30060 ALLOW connect epdrtzcydvnoidwrepqz.supabase.co
+2026-10-30T21:57:58.988Z pid=30060 ALLOW connect epdrtzcydvnoidwrepqz.supabase.co
+2026-10-30T21:58:00.424Z pid=30060 ALLOW connect epdrtzcydvnoidwrepqz.supabase.co
