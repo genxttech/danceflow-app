@@ -94,7 +94,7 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
+      <StatusBar style="auto" />
       <AuthProvider>
         <LayoutProbe name="root">
           <RootNavigator />
