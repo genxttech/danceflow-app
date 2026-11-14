@@ -5,10 +5,12 @@
 --          (303 x 'a' + '€' = 305 septets is 2 parts, the old rule said 3: overcount fixed).
 -- UCS-2 packs greedily by character cluster: a cluster breaks only before a character that always starts a new grapheme (Latin, Greek, Cyrillic, Hebrew, Arabic,
 -- Devanagari and Thai letters, CJK, kana, Hangul syllables, punctuation, symbols, emoji bases), never after a ZWJ, a prepended mark, a Devanagari virama or a
--- leading Hangul jamo; regional indicators pair into flags; every other character joins the cluster before it. For English, emoji and GSM-7 text this is exactly
--- Twilio's grapheme split (CR and LF stay separate, as in Twilio's calculator). Elsewhere a cluster can be coarser than a grapheme (up to a word in other scripts),
--- which can only add parts, never remove them. A cluster longer than 67 units (unspaced complex-script text) is sized at 34 units per part, which holds while no
--- single grapheme exceeds 34 units.
+-- leading Hangul jamo (that pending join carries through combining marks); regional indicators pair into flags, and a run held by a ZWJ or Prepend mark stays
+-- whole; every other character joins the cluster before it. For English, emoji and GSM-7 text this is exactly Twilio's grapheme split (CR and LF stay separate,
+-- as in Twilio's calculator). Elsewhere a cluster can be coarser than a grapheme under both the calculator's grapheme-splitter (Unicode 10) and current Unicode
+-- rules, which can only add parts, never remove them. A cluster longer than 67 units is sized at 34 units per part, always enough: greedy packing puts more than
+-- 67 units in any two consecutive parts. Known over-reservation: unspaced text in scripts without starter ranges (Lao, Khmer, Myanmar, Tibetan, ...) is one
+-- cluster, so a long such message can be estimated at up to about twice its parts and refused above 10.
 -- The count is exact, not capped (callers refuse more than 10). A body of 160 septets / 70 units or less is still one part. Same rule, ranges and order as
 -- src/lib/sms/segments.ts. Pure function: no table, grant or data change (create or replace keeps the 20261201090000 privileges). Settlement still charges the
 -- provider's num_segments (never this estimate); a count more than 2 above the estimate goes to review uncharged, so an estimate error can never over-charge a studio.
@@ -56,6 +58,7 @@ declare
   v_join boolean;
   v_join_next boolean := false;
   v_ri_open boolean := false;
+  v_ri_glue boolean := false;
 begin
   if p_body is null or p_body = '' then
     return 0;
@@ -83,10 +86,13 @@ begin
         if cp between v_starters[j] and v_starters[j + 1] then v_starter := true; exit; end if;
       end loop;
     end if;
-    v_join := v_cluster > 0 and (v_join_next or case when v_ri then v_ri_open else not v_starter end);
+    v_join := v_cluster > 0 and (v_join_next or case when v_ri then v_ri_open or v_ri_glue else not v_starter end);
+    -- a regional indicator held by a ZWJ / Prepend mark keeps the rest of its run (splitters disagree on how such a run pairs)
+    v_ri_glue := v_ri and (v_ri_glue or (v_join and v_join_next));
     v_ri_open := v_ri and not (v_ri_open and v_join);
-    v_join_next := false;
-    if cp >= 1536 then   -- nothing below the first table range joins the next character
+    -- a pending join (after a virama, ZWJ or Prepend mark) carries through combining marks to the next base (Indic conjuncts)
+    v_join_next := v_join_next and not v_ri and not v_starter;
+    if not v_join_next and cp >= 1536 then   -- nothing below the first table range joins the next character
       for j in 1 .. cardinality(v_joins_next) by 2 loop
         if cp between v_joins_next[j] and v_joins_next[j + 1] then v_join_next := true; exit; end if;
       end loop;

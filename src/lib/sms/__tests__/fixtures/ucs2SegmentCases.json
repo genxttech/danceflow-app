@@ -557,7 +557,8 @@
     100
    ]
   ],
-  "expect": 3
+  "expect": 3,
+  "ref": 2
  },
  {
   "name": "GSM-7: 303 a + euro = 305 septets, two parts (an extension character only ends a part early where it would split)",
@@ -626,5 +627,58 @@
    ]
   ],
   "expect": 2
+ },
+ {
+  "name": "Arabic number sign + three regional indicators after 62 a, then 65 a: the run held by the Prepend mark stays whole, three parts (grapheme-splitter 1.0.4 pairs it as [U+0600 RI][RI RI])",
+  "parts": [
+   [
+    "a",
+    62
+   ],
+   [
+    1536,
+    1
+   ],
+   [
+    127482,
+    3
+   ],
+   [
+    "a",
+    65
+   ]
+  ],
+  "expect": 3,
+  "ref": 2
+ },
+ {
+  "name": "Devanagari conjunct through a nukta (ka + virama + nukta + ssa, 4 units) after 64 a, then 66 a: three parts",
+  "parts": [
+   [
+    "a",
+    64
+   ],
+   [
+    2325,
+    1
+   ],
+   [
+    2381,
+    1
+   ],
+   [
+    2364,
+    1
+   ],
+   [
+    2359,
+    1
+   ],
+   [
+    "a",
+    66
+   ]
+  ],
+  "expect": 3
  }
 ]

@@ -10,6 +10,8 @@ const bodyOf = (parts: [string | number, number][]) => parts.map(([x, n]) => (ty
 /**
  * Independent reference: Twilio's segment calculator (TwilioDevEd/message-segment-calculator) rebuilt on Intl.Segmenter graphemes. 140-octet parts, a 6-octet header
  * when concatenated, each grapheme (and each GSM-7 extension character) indivisible, CR LF split into two characters as the calculator does.
+ * Intl.Segmenter follows current Unicode, not the calculator's grapheme-splitter 1.0.4 (Unicode 10); the estimator must be at or above both, so the shared fixture
+ * pins the cases where they differ (a case's `ref` is the value this reference gives when it is not the expected count).
  */
 const REF_GSM = new Set(Array.from("@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"));
 const REF_GSM_EXT = new Set(Array.from("^{}\\[~]|€\f"));
@@ -53,6 +55,7 @@ const EXACT_PIECES = [
 const WIDE_PIECES = [
   ...EXACT_PIECES, "नमस्ते", "क्षत्रिय", "مَرْحَبًا", cps(0x600) + "12", "สวัสดี", "ำ", cps(0x1100, 0x1161, 0x11a8), cps(0x1100), cps(0x1161), "a" + cps(0x200d) + "b",
   cps(0x200c), cps(0xfe0f), cps(0x1f3fb), cps(0x200d), "שָׁלוֹם", "ゕ" + cps(0x3099), "Z" + cps(0x301, 0x302, 0x303, 0x304, 0x305, 0x306, 0x307, 0x308, 0x309, 0x30a),
+  cps(0x600, 0x1f1fa, 0x1f1fa, 0x1f1fa), cps(0x915, 0x94d, 0x93c, 0x937), cps(0x915, 0x94d, 0x951, 0x937), "ສະບາຍດີ",
 ];
 function randomBody(next: () => number, pieces: string[], maxUnits: number): string {
   let s = "";
@@ -115,11 +118,11 @@ describe("estimateBilledSegments", () => {
     expect(tsTable("STARTERS").length).toBeGreaterThan(40);
   });
 
-  it("every shared case agrees with the Twilio reference, except the documented coarse-cluster case (one more, never fewer)", () => {
-    for (const c of cases) {
-      const body = bodyOf(c.parts as [string | number, number][]);
-      if (c.name.startsWith("unspaced complex-script run")) expect(twilioReference(body)).toBe(c.expect - 1);
-      else expect(twilioReference(body), c.name).toBe(c.expect);
+  it("every shared case agrees with the Twilio reference, or is pinned at or above it (never fewer)", () => {
+    for (const c of cases as { name: string; parts: [string | number, number][]; expect: number; ref?: number }[]) {
+      const ref = twilioReference(bodyOf(c.parts));
+      expect(ref, c.name).toBe(c.ref ?? c.expect);
+      expect(c.expect).toBeGreaterThanOrEqual(ref);
     }
   });
 
@@ -141,7 +144,7 @@ describe("estimateBilledSegments", () => {
       expect(est, JSON.stringify(body)).toBeGreaterThanOrEqual(ref);
       if (est > ref) over += 1;
     }
-    expect(over).toBeLessThan(3000 * 0.05); // 62 with this seed: WIDE_PIECES is adversarial (ZWJ between letters, lone jamo, scripts without starter ranges); one part over, never under
+    expect(over).toBeLessThan(3000 * 0.08); // 177 with this seed: WIDE_PIECES is adversarial (unspaced Lao, ZWJ between letters, lone jamo); one part over, never under
   }, 60_000);
 
   it("the SQL parity test runs exactly the shared cases, in the same order", () => {

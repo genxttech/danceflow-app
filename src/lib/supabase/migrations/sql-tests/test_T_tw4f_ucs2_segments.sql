@@ -40,7 +40,9 @@ begin
     ('GSM-7: 303 a + euro = 305 septets, two parts (an extension character only ends a part early where it would split)', repeat('a',303) || repeat(chr(8364),1), 2),
     ('GSM-7: 152 a + euro + 152 a = 306 septets: the euro cannot split at 152, three parts', repeat('a',152) || repeat(chr(8364),1) || repeat('a',152), 3),
     ('GSM-7: 153 a + euro + 151 a = 306 septets, two parts', repeat('a',153) || repeat(chr(8364),1) || repeat('a',151), 2),
-    ('GSM-7: CR LF stay GSM-7, 159 a + CR LF = 161 septets, two parts', repeat('a',159) || repeat(chr(13),1) || repeat(chr(10),1), 2)
+    ('GSM-7: CR LF stay GSM-7, 159 a + CR LF = 161 septets, two parts', repeat('a',159) || repeat(chr(13),1) || repeat(chr(10),1), 2),
+    ('Arabic number sign + three regional indicators after 62 a, then 65 a: the run held by the Prepend mark stays whole, three parts (grapheme-splitter 1.0.4 pairs it as [U+0600 RI][RI RI])', repeat('a',62) || repeat(chr(1536),1) || repeat(chr(127482),3) || repeat('a',65), 3),
+    ('Devanagari conjunct through a nukta (ka + virama + nukta + ssa, 4 units) after 64 a, then 66 a: three parts', repeat('a',64) || repeat(chr(2325),1) || repeat(chr(2381),1) || repeat(chr(2364),1) || repeat(chr(2359),1) || repeat('a',66), 3)
   ) v(name, body, expected) loop
     if public._tw4us_segments(r.body) is distinct from r.expected then
       raise exception 'segments mismatch (%): expected %, got %', r.name, r.expected, public._tw4us_segments(r.body);

@@ -6,11 +6,13 @@
  *  - Anything else is UCS-2, counted in UTF-16 code units (an emoji is two): 70 units in one part, otherwise 67 per part, packed greedily by character cluster:
  *    a cluster that does not fit what is left of a part starts the next one.
  * Clusters: a cluster breaks only before a character that always starts a new grapheme (Latin, Greek, Cyrillic, Hebrew, Arabic, Devanagari and Thai letters, CJK,
- * kana, Hangul syllables, punctuation, symbols, emoji bases), and never after a ZWJ, a prepended mark, a Devanagari virama or a leading Hangul jamo; regional
- * indicators pair into flags. Every other character joins the cluster before it. For English, emoji and GSM-7 text this is exactly Twilio's grapheme split (CR and
- * LF stay separate characters, as in Twilio's calculator). Elsewhere a cluster may be coarser than a grapheme (up to a word in other scripts), which can only add
- * parts, never remove them. A cluster longer than 67 units (unspaced complex-script text)
- * is sized at 34 units per part, which holds while no single grapheme exceeds 34 units.
+ * kana, Hangul syllables, punctuation, symbols, emoji bases), and never after a ZWJ, a prepended mark, a Devanagari virama or a leading Hangul jamo (that pending
+ * join carries through combining marks); regional indicators pair into flags, and a run held by a ZWJ or Prepend mark stays whole. Every other character joins the
+ * cluster before it. For English, emoji and GSM-7 text this is exactly Twilio's grapheme split (CR and LF stay separate characters, as in Twilio's calculator).
+ * Elsewhere a cluster may be coarser than a grapheme under both the calculator's grapheme-splitter (Unicode 10) and current Unicode rules, which can only add
+ * parts, never remove them. A cluster longer than 67 units is sized at 34 units per part, always enough: greedy packing puts more than 67 units in any two
+ * consecutive parts. Known over-reservation: unspaced text in scripts without starter ranges (Lao, Khmer, Myanmar, Tibetan, ...) is one cluster, so a long such
+ * message can be estimated at up to about twice its parts and refused above 10; English, GSM-7, emoji and the scripts listed above are unaffected.
  * The count is exact (not capped); callers refuse more than MAX_BILLED_SEGMENTS. The provider's own `num_segments` (evidence) is what is finally charged; this only
  * sizes the reservation.
  */
@@ -55,6 +57,7 @@ function ucs2Parts(body: string): number {
   let cluster = 0;
   let joinNext = false;
   let riOpen = false;
+  let riGlue = false;
   const place = () => {
     if (cluster > 67) {
       if (used > 0) parts += 1;
@@ -68,9 +71,13 @@ function ucs2Parts(body: string): number {
   for (const ch of body) {
     const cp = ch.codePointAt(0) as number;
     const ri = isRegionalIndicator(cp);
-    const join: boolean = cluster > 0 && (joinNext || (ri ? riOpen : !inRanges(cp, STARTERS)));
+    const starter = !ri && inRanges(cp, STARTERS);
+    const join: boolean = cluster > 0 && (joinNext || (ri ? riOpen || riGlue : !starter));
+    // a regional indicator held by a ZWJ / Prepend mark keeps the rest of its run (splitters disagree on how such a run pairs)
+    riGlue = ri && (riGlue || (join && joinNext));
     riOpen = ri && !(riOpen && join);
-    joinNext = inRanges(cp, JOINS_NEXT);
+    // a pending join (after a virama, ZWJ or Prepend mark) carries through combining marks to the next base (Indic conjuncts)
+    joinNext = inRanges(cp, JOINS_NEXT) || (joinNext && !ri && !starter);
     if (!join && cluster > 0) {
       place();
       cluster = 0;
