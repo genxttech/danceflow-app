@@ -13,7 +13,14 @@ export const CLAUDE_VERSION = '2.1.321';
 export const CHILD_TOOLS = 'Bash,Read,Edit,Write,Glob,Grep';
 export const CHILD_FLAGS = ['--restricted', '--strict-mcp-config', '--permission-mode', 'dontAsk', '--permission-prompts', 'none', '--no-session-persistence', '--disable-slash-commands', '--output-format', 'stream-json', '--verbose'];
 // Second layer: classes of shell syntax that smuggle a second command or a file write through an allowed prefix.
-export const EXTRA_DENY = ['Bash(*>*)', 'Bash(*>>*)', 'Bash(*$(*)', 'Bash(*`*)', 'Bash(*/../*)', 'Bash(*--output*)', 'Bash(*--exec*)', 'Bash(*--upload-pack*)', 'Bash(*--git-dir*)', 'Bash(*--work-tree*)', 'Bash(*<*)', 'Bash(*;*)', 'Bash(*&&*)', 'Bash(*||*)', 'Bash(*|*)'];
+export const EXTRA_DENY = ['Bash(*>*)', 'Bash(*>>*)', 'Bash(*$(*)', 'Bash(*`*)', 'Bash(*/../*)', 'Bash(*--output*)', 'Bash(*--exec*)', 'Bash(*--upload-pack*)', 'Bash(*--git-dir*)', 'Bash(*--work-tree*)', 'Bash(*<*)', 'Bash(*;*)', 'Bash(*&&*)', 'Bash(*||*)', 'Bash(*|*)',
+  // host-information and interpreter commands the harness would otherwise auto-approve, and sensitive-looking file names (defense in depth)
+  'Bash(ps*)', 'Bash(netstat*)', 'Bash(whoami*)', 'Bash(hostname*)', 'Bash(id)', 'Bash(id *)', 'Bash(uname*)', 'Bash(which *)', 'Bash(node *)', 'Bash(python*)', 'Bash(printenv*)', 'Bash(env)', 'Bash(env *)',
+  'Bash(*.env*)', 'Bash(*.pem*)', 'Bash(*id_rsa*)', 'Bash(*credentials*)', 'Bash(*.npmrc*)', 'Bash(*.key*)',
+  // commands the real harness auto-approves WITHOUT path confinement (found by the isolation test and census, 2026-11-14)
+  'Bash(type *)', 'Bash(tree*)', 'Bash(du *)', 'Bash(df*)', 'Bash(readlink*)', 'Bash(realpath*)', 'Bash(basename*)', 'Bash(dirname*)',
+  // read-only docker subcommands are auto-approved for ANY container (other coordinators' stacks): the child may only exec into cf1pilot-qN
+  'Bash(docker ps*)', 'Bash(docker images*)', 'Bash(docker inspect*)', 'Bash(docker logs*)', 'Bash(docker top*)', 'Bash(docker stats*)', 'Bash(docker port*)', 'Bash(docker diff*)', 'Bash(docker history*)', 'Bash(docker events*)', 'Bash(docker container *)', 'Bash(docker image *)'];
 export const CAPS = { maxBudgetUsd: 10, timeoutMs: 3600000 };
 
 // Every Bash allow rule must match one of these reviewed families (wildcard families first, then exact commands).
@@ -26,7 +33,6 @@ export const WILDCARD_FAMILIES = [
 export const EXACT_FAMILIES = [
   /^KEEP=1 SUITES=none IMG=[A-Za-z0-9:._-]+ bash C:\/Dev\/studioapp\/docs\/ops\/continuity-pilot\/phase2\/scripts\/run_u18s2\.sh cf1pilot-q[0-9]+ (none|u18|u18s|both) C:\/Dev\/cpilot-iso\/work\/[a-z0-9-]+\/[A-Za-z0-9._-]+$/,
   /^docker rm -f -v cf1pilot-q[0-9]+$/,
-  /^docker ps -a --format \{\{\.Names\}\}$/,
   /^bash -n C:\/Dev\/df-pilot-runner\/scripts\/qa\/[A-Za-z0-9._-]+\.sh$/,
   /^git -C C:\/Dev\/[A-Za-z0-9._-]+ (status|rev-parse HEAD|log --oneline -[0-9]+|branch --show-current|worktree list)$/,
 ];

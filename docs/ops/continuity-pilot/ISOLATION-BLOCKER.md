@@ -11,15 +11,11 @@ Owner requirements: deny rules apply to the Competition pilot only, never to glo
 - The attestation and `claim` bind to that configuration hash and to the reviewed local code, not to anyone's user settings.
 - Scope tightened where isolation demands it: Q4 may write the runner script but the isolated environment never executes model-written code; host SQL files are applied only through a small reviewed helper.
 
-## What is NOT yet demonstrated
-The standalone `claude` CLI on this machine is not logged in (`claude auth status`: `loggedIn: false`; even a plain `-p` call returns `Not logged in`). The desktop app authenticates its own sessions internally. Until the owner signs the CLI in, the isolation test cannot run, so enforcement has not been shown against the real harness. Per the owner's rule, **Phase 2 is not activated and must not be activated until `isolation-test.mjs` passes and the preflight accepts its report.**
+## Status: isolation DEMONSTRATED by test (2026-11-14); Phase 2 still NOT activated
+The owner signed the CLI in; `isolation-test.mjs` then PASSED on the real binary for all four templates (901 probes, 885 denied, 16 allowed controls, no canary, no worktree change, global settings untouched). The test also found and fixed real leaks (`type`, `tree`, `du`, `df`, `readlink`, `realpath`, `basename`, `dirname` unconfined; read-only `docker images/inspect/logs` on any container) and a negative control proved it can fail. Details, numbers and limits: [ISOLATION-EVIDENCE.md](ISOLATION-EVIDENCE.md). Remaining before activation: independent review of the isolated-child layer, PR 512 review and merge, the owner's separate activation approval naming the policy and authorization hashes, the activation PR, and the preflight.
 
-Verified so far (real binary, 2.1.321): the child starts with exactly the intended tool surface (`tools` = the six named tools, `mcp_servers` empty, `permissionMode` = `dontAsk`) and without the owner's global settings.
-
-## Owner step
-Run once in a terminal (opens the standard browser sign-in; credentials are never visible to the pilot):
-`"C:/Users/mcurt/AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/claude-code/2.1.321/d0e23af87588/claude.exe" auth login`
-This creates a separate CLI login that bills the owner's plan for the pilot's child runs and probe runs. It does not change desktop-app sessions or any global setting.
+## Owner step (done)
+The owner signed the standalone CLI in (`claude auth login`); it bills the owner's plan for probe and pilot runs and changes no desktop-app session or global setting.
 
 ## If the test fails or cannot reach full evidence
 Report the failing probes, tighten the allowlist (or drop the offending item), re-run. If a class of abuse cannot be denied reliably (for example an allowed prefix that the harness lets chain a second command), the fallback is option C (a no-model scripted executor with a code-level command allowlist), which needs no deny-rule isolation.

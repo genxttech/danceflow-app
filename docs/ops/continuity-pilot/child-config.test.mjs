@@ -38,8 +38,8 @@ test('C3. limits and shape: budget, timeout, addDirs, cwd, model, missing fields
 test('C4. wildcard families accept exactly the reviewed shapes', () => {
   const ok = (rule) => { const t = base(); t.allow.push(rule); assert.doesNotThrow(() => validateTemplateIsolation('x', t, required), rule); };
   ok('Bash(git -C C:/Dev/df-u18pkg ls-tree *)'); ok('Bash(docker exec -i -e PGPASSWORD=postgres cf1pilot-q9 psql -U postgres -h localhost -d postgres *)'); ok('Bash(docker rm -f -v cf1pilot-q9)');
-  ok('Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18/*)'); ok('Bash(docker ps -a --format {{.Names}})');
-  for (const rule of ['Bash(docker exec cf1pilot-q1 sh -c *)', 'Bash(docker exec cf1pilot-q1 bash *)', 'Bash(docker exec -i -e PGPASSWORD=a b cf1pilot-q1 psql *)', 'Bash(docker rm -f cf1pilot-q1)', 'Bash(docker rm -f -v cf1c-qa)'])
+  ok('Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18/*)');
+  for (const rule of ['Bash(docker exec cf1pilot-q1 sh -c *)', 'Bash(docker exec cf1pilot-q1 bash *)', 'Bash(docker exec -i -e PGPASSWORD=a b cf1pilot-q1 psql *)', 'Bash(docker rm -f cf1pilot-q1)', 'Bash(docker rm -f -v cf1c-qa)', 'Bash(docker ps -a --format {{.Names}})', 'Bash(docker inspect cf1c-qa-db)', 'Bash(docker logs *)'])
     assert.throws(() => { const t = base(); t.allow.push(rule); validateTemplateIsolation('x', t, required); }, /reviewed families/, rule);
 });
 
