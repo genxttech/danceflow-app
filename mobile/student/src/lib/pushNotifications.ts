@@ -40,22 +40,32 @@ let notificationHandlerConfigured = false;
 const PUSH_TOKEN_STORAGE_KEY = "danceflow-expo-push-token";
 const UNBIND_TIMEOUT_MS = 4000;
 
-function routeFromNotificationData(
+// Ids from a notification payload become route params; accept only id-shaped values.
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+function safeId(value: unknown) {
+  return typeof value === "string" && SAFE_ID.test(value) ? value : "";
+}
+
+// A tap is routed once. getLastNotificationResponseAsync keeps returning the same response, so a
+// later sign-in (or the bootstrap running again) would otherwise reopen a screen the dancer left.
+const routedNotificationIds = new Set<string>();
+
+/** Test hook: forget which taps were already routed. */
+export function resetRoutedNotificationsForTests() {
+  routedNotificationIds.clear();
+}
+
+export function routeFromNotificationData(
   data: Record<string, unknown> | null | undefined,
 ) {
   if (!data) return;
 
   const screen = typeof data.screen === "string" ? data.screen : "";
-  const appointmentId =
-    typeof data.appointmentId === "string" ? data.appointmentId : "";
-  const documentId =
-    typeof data.documentId === "string" ? data.documentId : "";
-  const assignmentId =
-    typeof data.assignmentId === "string" ? data.assignmentId : documentId;
-  const eventId =
-    typeof data.eventId === "string" ? data.eventId : "";
-  const orderId =
-    typeof data.orderId === "string" ? data.orderId : "";
+  const appointmentId = safeId(data.appointmentId);
+  const documentId = safeId(data.documentId);
+  const assignmentId = safeId(data.assignmentId) || documentId;
+  const eventId = safeId(data.eventId);
+  const orderId = safeId(data.orderId);
 
   if (screen === "appointment" && appointmentId) {
     router.push({
@@ -317,6 +327,19 @@ export async function saveNotificationPreferences(userId: string, preferences: N
   return preferences;
 }
 
+/** Routes a tapped notification once; the same response is ignored if it arrives again. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function routeNotificationResponse(response: any) {
+  const identifier = response?.notification?.request?.identifier;
+  if (typeof identifier === "string") {
+    if (routedNotificationIds.has(identifier)) return false;
+    routedNotificationIds.add(identifier);
+  }
+
+  routeFromNotificationData((response?.notification?.request?.content?.data ?? {}) as Record<string, unknown>);
+  return true;
+}
+
 export function usePushNotificationBootstrap(userId: string | null | undefined) {
   useEffect(() => {
     if (!userId) return;
@@ -346,18 +369,14 @@ export function usePushNotificationBootstrap(userId: string | null | undefined) 
         responseSubscription =
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           Notifications.addNotificationResponseReceivedListener((response: any) => {
-            routeFromNotificationData(
-              (response.notification.request.content.data ?? {}) as Record<string, unknown>,
-            );
+            routeNotificationResponse(response);
           });
 
         return Notifications.getLastNotificationResponseAsync();
       })
       .then((lastResponse) => {
         if (!lastResponse || cancelled) return;
-        routeFromNotificationData(
-          (lastResponse.notification.request.content.data ?? {}) as Record<string, unknown>,
-        );
+        routeNotificationResponse(lastResponse);
       })
       .catch(() => {
         // Notification routing remains optional when the native module is unavailable.
@@ -445,7 +464,14 @@ export function useNotificationPreferences(userId: string | null | undefined) {
           return;
         }
 
-        const token = await registerPushToken(userId, true);
+        let token: string | null = null;
+        try {
+          token = await registerPushToken(userId, true);
+        } catch {
+          // No push credentials for this build or the claim was refused: the app keeps working.
+          setMessage("Push notifications could not be set up on this device yet. Your updates still appear in the app.");
+          return;
+        }
         const status = await getNotificationPermissionStatus();
         setPermissionStatus(status);
 
