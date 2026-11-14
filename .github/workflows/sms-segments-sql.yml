@@ -1,0 +1,88 @@
+name: SMS segments SQL parity
+
+# Runs the self-contained SQL parity test for public._tw4us_segments (migration 20270217090000) on a disposable
+# Postgres 17 service container. The function is pure (no table, no data), so it needs no base schema: the job creates
+# main's previous definition from the rollback file (byte-identical to 20261201090000's body), applies 20270217090000,
+# runs the parity test, then rolls back and re-applies to prove both directions. No secrets, no hosted database.
+# Not a required check; it runs only when one of the files it covers changes.
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/supabase/migrations/20270217090000_twilio_ucs2_surrogate_segments.sql"
+      - "src/lib/supabase/migrations/rollback/20270217090000_twilio_ucs2_surrogate_segments_rollback.sql"
+      - "src/lib/supabase/migrations/sql-tests/test_T_tw4f_ucs2_segments.sql"
+      - "src/lib/sms/segments.ts"
+      - ".github/workflows/sms-segments-sql.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/supabase/migrations/20270217090000_twilio_ucs2_surrogate_segments.sql"
+      - "src/lib/supabase/migrations/rollback/20270217090000_twilio_ucs2_surrogate_segments_rollback.sql"
+      - "src/lib/supabase/migrations/sql-tests/test_T_tw4f_ucs2_segments.sql"
+      - "src/lib/sms/segments.ts"
+      - ".github/workflows/sms-segments-sql.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  segments-sql:
+    name: SMS segments SQL parity (disposable Postgres 17)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres@sha256:5b96f1a16bd9768b060dd2ffe55cb6225c4d9ef4d214a8b21eb08134869a97e4 # postgres:17
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_INITDB_ARGS: --encoding=UTF8
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: ci
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Guard, apply, parity, rollback and re-apply
+        run: |
+          set -euo pipefail
+          M=src/lib/supabase/migrations
+          FWD=$M/20270217090000_twilio_ucs2_surrogate_segments.sql
+          RB=$M/rollback/20270217090000_twilio_ucs2_surrogate_segments_rollback.sql
+          T=$M/sql-tests/test_T_tw4f_ucs2_segments.sql
+          q() { psql -v ON_ERROR_STOP=1 -qAt "$@"; }
+          q -c "select version()"
+          echo "::group::guard: the migration refuses without 20261201090000"
+          if q -f "$FWD" 2>guard.err; then echo "::error::guard did not refuse"; exit 1; fi
+          grep -q 'requires 20261201090000' guard.err
+          test "$(q -c "select to_regprocedure('public._tw4us_segments(text)') is null")" = t
+          echo "::endgroup::"
+          echo "::group::pre-state: previous definition (rollback body), with a non-default grant"
+          q -f "$RB"
+          q -c "create role ci_exec; revoke all on function public._tw4us_segments(text) from public; grant execute on function public._tw4us_segments(text) to ci_exec"
+          acl_before=$(q -c "select proacl::text from pg_proc where oid = 'public._tw4us_segments(text)'::regprocedure")
+          echo "::endgroup::"
+          echo "::group::apply and parity"
+          q -f "$FWD"
+          acl_after=$(q -c "select proacl::text from pg_proc where oid = 'public._tw4us_segments(text)'::regprocedure")
+          test "$acl_before" = "$acl_after" || { echo "::error::ACL changed: $acl_before -> $acl_after"; exit 1; }
+          q -f "$T"
+          echo "::endgroup::"
+          echo "::group::rollback restores the previous behavior (66 a + emoji + 66 a: old 2, new 3)"
+          q -f "$RB"
+          test "$(q -c "select public._tw4us_segments(repeat('a',66) || chr(128512) || repeat('a',66))")" = 2
+          echo "::endgroup::"
+          echo "::group::re-apply and second apply are idempotent"
+          q -f "$FWD"
+          q -f "$FWD"
+          q -f "$T"
+          test "$(q -c "select public._tw4us_segments(repeat('a',66) || chr(128512) || repeat('a',66))")" = 3
+          echo "::endgroup::"
