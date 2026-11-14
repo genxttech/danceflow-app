@@ -2,15 +2,17 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
-import { render, screen, waitFor } from "@testing-library/react-native";
+import { act, render, screen, waitFor } from "@testing-library/react-native";
 import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
 
 let mockParams: Record<string, string> = {};
 let mockAuth: Record<string, unknown> = {};
+let mockNavKey: string | undefined = "root";
 
 jest.mock("expo-router", () => ({
   router: { replace: jest.fn(), push: jest.fn(), setParams: jest.fn() },
   useLocalSearchParams: () => mockParams,
+  useRootNavigationState: () => ({ key: mockNavKey }),
 }));
 jest.mock("@/lib/auth", () => ({ useAuth: () => mockAuth }));
 jest.mock("@/lib/afterSignIn", () => ({ continueAfterSignIn: jest.fn(async () => "/(tabs)/home") }));
@@ -24,6 +26,7 @@ beforeAll(warmUpRenderer, WARM_UP_TIMEOUT_MS);
 beforeEach(() => {
   jest.clearAllMocks();
   mockParams = {};
+  mockNavKey = "root";
   mockAuth = {
     session: null,
     loading: false,
@@ -59,6 +62,25 @@ describe("auth callback screen", () => {
     await waitFor(() =>
       expect(mockRouter.setParams).toHaveBeenCalledWith({ token_hash: undefined, code: undefined, type: undefined }),
     );
+  });
+
+  it("does not touch the route before the root navigator exists (cold-start crash on device)", async () => {
+    mockNavKey = undefined;
+    mockParams = { token_hash: "secret-hash", type: "magiclink" };
+    render(<AuthCallbackScreen />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockRouter.setParams).not.toHaveBeenCalled();
+  });
+
+  it("survives a navigation error while tidying the route", async () => {
+    (mockRouter.setParams as jest.Mock).mockImplementationOnce(() => {
+      throw new Error("Attempted to navigate before mounting the Root Layout component");
+    });
+    mockParams = { token_hash: "secret-hash", type: "magiclink" };
+    render(<AuthCallbackScreen />);
+    await waitFor(() => expect(mockRouter.setParams).toHaveBeenCalled());
   });
 
   it("continues to the remembered destination once the session exists, exactly once", async () => {
