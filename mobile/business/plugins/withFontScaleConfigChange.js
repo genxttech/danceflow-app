@@ -6,6 +6,8 @@
   their old heights, so labels and buttons are clipped (seen on the emulator at 2.0, release build). With fontScale handled
   by the app nothing is recreated: the layout stays consistent and the new size applies at the next launch.
 */
+// Expo config plugins are CommonJS.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { withAndroidManifest } = require("expo/config-plugins");
 
 function addFontScale(manifest) {
