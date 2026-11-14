@@ -95,7 +95,7 @@ Both apps require sign-in. Play requires working credentials or a way to obtain 
 | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | DanceFlow | Optional "near me" search for studios and events; requested at the moment the user taps it; foreground only. | Normal runtime permission, covered by the Data safety form. No background location. |
 | `POST_NOTIFICATIONS` | DanceFlow | Reminders for lessons, tickets, events and studio updates the user opts into. | No |
 | `VIBRATE` | DanceFlow | Haptic/notification vibration from libraries. | No |
-| Removed in this release prep: `RECORD_AUDIO`, `SYSTEM_ALERT_WINDOW`, `READ/WRITE_EXTERNAL_STORAGE` | | Not used by either app; removed so they are not declared. | n/a |
+| Removed in this release prep: `CAMERA` (library-added; the app only uses the photo picker), `RECORD_AUDIO`, `SYSTEM_ALERT_WINDOW`, `READ/WRITE_EXTERNAL_STORAGE` | | Not used by either app; removed so they are not declared. | n/a |
 
 ## 10. Store listing items still needed (OWNER INPUT)
 
