@@ -90,7 +90,20 @@ Rollback evidence in Git:
 | Postflight | 23:21Z | `segments_md5 f973d4ab…`, `recover_md5 87d6df18…` (both ACLs unchanged). Signal table present, RLS on, owner-only ACL, 0 rows, 4 indexes, no API-role privilege. Both new functions ACL `{postgres=X/postgres,service_role=X/postgres}`. 0 billed senders / usage attempts. QA marker absent. |
 | Smoke | 23:21Z | `ucs2_emoji 3`, `gsm_extension 2`, `plain_160 1`, `ucs2_70 1` |
 
-A first postflight read showed `start_signals_rows: 1`. That was a probe defect: the expression counted the table's catalog entry. It is replaced by `start_signals_rls` / `start_signals_acl`, and the real row count is in `postflight_signals.sql` (0). PROD is not applied.
+A first postflight read showed `start_signals_rows: 1`. That was a probe defect: the expression counted the table's catalog entry. It is replaced by `start_signals_rls` / `start_signals_acl`, and the real row count is in `postflight_signals.sql` (0).
+
+## 4b. PROD apply record (owner-approved 2026-11-14)
+
+| Step | Time (UTC) | Result |
+|---|---|---|
+| Preflight | 23:24Z | Matches §2 exactly. Both files equal main. |
+| `prod-apply` 20270217 | 23:24:46Z | exit 0. `_tw4us_segments` = `f973d4ab…`, ACL unchanged. Smoke 3 / 2 / 1 / 1. |
+| `prod-apply` 20270218 | 23:25:19Z | exit 0 |
+| Postflight | 23:26Z | Identical to DEV §4a: `f973d4ab…` / `87d6df18…`, ACLs unchanged. Signal table RLS on, owner-only ACL, 0 rows, 4 indexes, no API-role privilege. New functions service_role only. 0 billed senders / usage attempts. QA marker absent. |
+| Smoke | 23:26Z | 3 / 2 / 1 / 1 |
+| Live routes | 23:27Z | `www…/api/sms/twilio/inbound` 405 and `/status` 405 to GET, `/api/cron/sms-usage-reconcile` 401 without its secret, `/` 200: unchanged. |
+
+The live app (`c0172455`) is unchanged. Rollback, if ever needed: §4 (app first if a release containing #517 is live, then 0218, then 0217).
 
 ## 5. What stays off
 
