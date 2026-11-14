@@ -1,6 +1,6 @@
 {
   "pilot": {
-    "enabled": true,
+    "enabled": false,
     "coordinator": "COMPETITION",
     "not_before": "2026-11-14T12:00:00Z",
     "not_after": "2026-11-17T00:00:00Z",
@@ -15,8 +15,8 @@
     "u18-rollback-rehearsal": {
       "class": "A",
       "title": "Rehearse U18-S then U18 rollback on a disposable chain; prove clean removal and clean re-apply",
-      "cmd": "local disposable Postgres (container prefix cf1pilot-) via /tmp/run_u18s2.sh; apply P1+P2, run rollback P2 then P1, assert objects/privileges restored, re-apply forward",
-      "done": "Evidence note in the df-u18pkg worktree (docs/qa/cf1-u18-package/rollback-rehearsal.md) with before/after catalog checks; container removed; no hosted system touched",
+      "cmd": "Local disposable Postgres only (container name must start cf1pilot-, removed at the end). Run the reviewed script phase2/scripts/run_u18s2.sh fetched from refs/heads/main (verify its sha256 equals 410b1ee68a0ab6a1949571f9932af4fedf499250cd7f9eb9246f8e6b8acb6bb8 before running; do not run any other copy) as: KEEP=1 SUITES=none IMG=ns1-base:snap bash <script> cf1pilot-q1 both <outfile>; then apply the U18-S rollback and the U18 rollback from the df-u18pkg release package, assert the objects, trigger privileges and functions are restored, then re-apply forward cleanly.",
+      "done": "Evidence note in the df-u18pkg worktree (docs/qa/cf1-u18-package/rollback-rehearsal.md) with before/after catalog checks; container removed; no hosted system touched; the evidence note records `git rev-parse HEAD` of the df-u18s and df-u18 worktrees whose SQL was applied, and the container is removed with docker rm -f -v",
       "dbslot": "cf1pilot-pg",
       "touches": [
         "docs/qa/cf1-u18-package/"
@@ -26,8 +26,8 @@
     "u18-tooling-residual-check": {
       "class": "A",
       "title": "Verify pg_dump/pg_restore, COPY and MERGE behaviour with client TRIGGER privilege revoked (documented U18 residual)",
-      "cmd": "local disposable Postgres (container prefix cf1pilot-) with the U18/U18-S chain applied; exercise pg_dump --data-only/restore, COPY FROM, MERGE against event_competition_heat_entries as owner and as client roles",
-      "done": "Evidence appended to docs/qa/cf1-u18-package/tooling-residual-check.md: which paths the guards cover, which they do not; container removed; no hosted system touched",
+      "cmd": "Local disposable Postgres only (container name must start cf1pilot-, removed at the end). Build the chain with the reviewed script phase2/scripts/run_u18s2.sh fetched from refs/heads/main (verify its sha256 equals 410b1ee68a0ab6a1949571f9932af4fedf499250cd7f9eb9246f8e6b8acb6bb8 before running; do not run any other copy) as: KEEP=1 SUITES=none IMG=ns1-base:snap bash <script> cf1pilot-q2 both <outfile>; then exercise pg_dump --data-only/restore, COPY FROM and MERGE against event_competition_heat_entries as the owner and as client roles.",
+      "done": "Evidence appended to docs/qa/cf1-u18-package/tooling-residual-check.md: which paths the guards cover, which they do not; container removed; no hosted system touched; the evidence note records `git rev-parse HEAD` of the df-u18s and df-u18 worktrees whose SQL was applied, and the container is removed with docker rm -f -v",
       "dbslot": "cf1pilot-pg",
       "touches": [
         "docs/qa/cf1-u18-package/"
@@ -36,9 +36,9 @@
     },
     "release-migration-inventory": {
       "class": "A",
-      "title": "Read-only: Competition migrations on the release branch not yet applied on PROD, with dependency order and per-migration pins",
-      "cmd": "git on release/competition-cf1-app-candidate (read) + sb.sh prod-read and sb.sh dev-read catalog/migration-history queries only",
-      "done": "Inventory doc docs/qa/cf1-competition-migration-inventory-2026-11-14.md: list, sha256 pins, required order, owner-gate checklist; no apply, no hosted write",
+      "title": "Git-only: Competition migrations on the release branch with sha256 pins and dependency order (no hosted queries)",
+      "cmd": "git read-only commands (ls-tree, show, cat-file, log, rev-parse) on origin/release/competition-cf1-app-candidate and origin/main; compute sha256 per migration file; derive apply order from the file names and the existing release docs. No database access of any kind: the comparison with PROD migration history is done by the coordinator outside the loop.",
+      "done": "Inventory doc docs/qa/cf1-competition-migration-inventory-2026-11-14.md in the df-u18pkg worktree (local commit only): list, sha256 pins, required order, owner-gate checklist with a \"PROD history comparison pending\" column; no hosted access",
       "touches": [
         "docs/qa/"
       ],
@@ -47,7 +47,7 @@
     "sql-suite-runner-script": {
       "class": "A",
       "title": "Portable local runner for the rollback-only SQL suites (release-branch CI gap), as a draft proposal in a worktree",
-      "cmd": "write scripts/qa/run-sql-suites.sh in worktree df-pilot-runner; run it locally against a disposable chain; do NOT edit .github, package.json or any workflow",
+      "cmd": "write scripts/qa/run-sql-suites.sh in a new local worktree df-pilot-runner (git worktree add); test it against a disposable cf1pilot- container built with the reviewed script phase2/scripts/run_u18s2.sh fetched from refs/heads/main (verify its sha256 equals 410b1ee68a0ab6a1949571f9932af4fedf499250cd7f9eb9246f8e6b8acb6bb8 before running; do not run any other copy); do NOT edit .github, package.json or any workflow",
       "done": "Script + short README in the worktree, local commit only, passing against the U18/U18-S suites; no push, no PR, no workflow change",
       "dbslot": "cf1pilot-pg",
       "touches": [

@@ -8,7 +8,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { loadProtected } from './protected-source.mjs';
+import { fileURLToPath } from 'node:url';
 import { DEFAULT_SOURCE } from './config.mjs';
+import { loadDenyRules, defaultSettingsFiles } from './deny-check.mjs';
 
 export const PROTECTED_CMD = [
   /prod[-_ ]?apply/i, /dev[-_ ]?apply/i, /\bpr\s+merge\b/i, /\bapi\b.*\/merge\b/i, /\b(deploy|promote|vercel)\b/i,
@@ -53,6 +55,10 @@ export function validatePolicy(policy, auths) {
       for (const [k, re] of Object.entries(t.params || {})) if (typeof re !== 'string' || !re.startsWith('^') || !re.endsWith('$')) throw new Error(`template ${name}: param ${k} regex must be anchored`);
     }
   }
+  if (Array.isArray(auths)) {
+    if (new Set(auths.map((a) => a?.id)).size !== auths.length) throw new Error('authorizations: duplicate ids');
+    for (const a of auths) if (a && !(Object.hasOwn(policy.templates, a.template) && policy.templates[a.template].class === 'A')) throw new Error(`authorizations: ${a.id} names a non-class-A or unknown template`);
+  }
   if (!Array.isArray(auths) || !auths.every((a) => a && typeof a.id === 'string' && typeof a.scope_sha === 'string' && a.by === 'owner' && typeof a.template === 'string' && Array.isArray(a.deps) && a.params && typeof a.params === 'object')) throw new Error('authorizations malformed');
 }
 
@@ -94,6 +100,22 @@ export const readLog = (root) => fs.existsSync(P(root, 'log', 'execution.jsonl')
 const isStopped = (root) => fs.existsSync(P(root, 'STOP'));
 const touchesProtected = (paths) => (paths || []).some((t) => PROTECTED_PATHS.some((p) => String(t).replaceAll('\\', '/').includes(p)));
 const runnerLive = (i, ttl) => i.runner && (i.runner.external || alive(i.runner.pid)) && Date.now() - i.runner.hb < ttl;
+export const ATTEST = 'PREFLIGHT_OK.json';
+export function readAttestation(root) { try { return JSON.parse(fs.readFileSync(P(root, ATTEST), 'utf8')); } catch { return null; } }
+// Written ONLY by preflight.mjs after every activation check passes. Local and therefore cooperative: the hard gate is
+// the protected policy's enabled flag; this makes "no unattended execution until all checks pass" mechanical for a
+// cooperative loop, and ties the run to the exact policy+authorization content the preflight verified.
+export function writeAttestation(root, a) { fs.writeFileSync(P(root, ATTEST), JSON.stringify(a, null, 2)); }
+const CODE_DIR = path.dirname(fileURLToPath(import.meta.url));
+// Names of pinned code files whose local bytes (CRLF-normalized) differ from the reviewed copy on the protected ref.
+export function codeMismatches(codeShas) {
+  const bad = [];
+  for (const [f, want] of Object.entries(codeShas || {})) {
+    let have = null; try { have = crypto.createHash('sha256').update(fs.readFileSync(path.join(CODE_DIR, f), 'utf8').replaceAll('\r\n', '\n')).digest('hex'); } catch { /* missing locally */ }
+    if (want === null || have !== want) bad.push(f);
+  }
+  return bad;
+}
 const halt = (root, reason) => { log(root, { ev: 'HALT', reason }); return { status: 'HALT', reason }; };
 
 // An item satisfies a dependency only if it is class A + DONE with a matching DONE record in the log, or listed in
@@ -107,7 +129,7 @@ function satisfiedFn(q, policy, doneLog) {
   };
 }
 
-export function claim(root, { worker = 'W', external = false, source = DEFAULT_SOURCE, wake = false, now = Date.now() } = {}) {
+export function claim(root, { worker = 'W', external = false, source = DEFAULT_SOURCE, wake = false, now = Date.now(), settingsFiles = defaultSettingsFiles() } = {}) {
   if (isStopped(root)) return { status: 'STOPPED' };
   let prot;
   try { prot = loadProtected(source); validatePolicy(prot.policy, prot.auths); }
@@ -116,11 +138,18 @@ export function claim(root, { worker = 'W', external = false, source = DEFAULT_S
   if (pl.enabled !== true) return halt(root, 'pilot disabled in protected policy');
   if (pl.coordinator !== worker) return halt(root, `worker ${worker} is not the authorized coordinator`);
   if (now < Date.parse(pl.not_before) || now > Date.parse(pl.not_after)) return halt(root, 'outside protected authorization window');
+  const cm = codeMismatches(prot.codeShas);
+  if (cm.length) return halt(root, `local code differs from the reviewed code on the protected ref: ${cm.join(', ')}`);
+  const att = readAttestation(root);
+  if (!att || att.policySha !== prot.policySha || att.authSha !== prot.authSha || !(now < att.expiresAt)) return halt(root, 'activation preflight attestation missing, stale, expired or for different policy content');
+  if (JSON.stringify(att.settingsHashes ?? null) !== JSON.stringify(loadDenyRules(settingsFiles).hashes)) return halt(root, 'permission settings changed since the activation preflight (deny rules must be re-verified)');
   try {
     return withMutex(root, () => {
       const q = loadQ(root); const m = q.meta; let dirty = true;
       if (!Array.isArray(q.items) || q.items.some((i) => !i || typeof i.id !== 'string') || new Set(q.items.map((i) => i.id)).size !== q.items.length) { return halt(root, 'queue invalid: ids must be unique strings'); }
-      m.startedAt ||= now; m.wakeups ||= 0; m.claims ||= 0; m.calls ||= 0; m.calls++;
+      m.startedAt ||= now; m.wakeups ||= 0; m.claims ||= 0; m.calls ||= 0;
+      if (![m.startedAt, m.wakeups, m.claims, m.calls].every(Number.isFinite)) return halt(root, 'queue meta counters invalid');
+      m.calls++;
       if (wake) m.wakeups++;
       const save = () => { if (dirty) saveQ(root, q); };
       if (now - m.startedAt > pl.maxHours * 3600000) { save(); return halt(root, 'maxHours elapsed'); }
@@ -252,12 +281,12 @@ export function status(root) {
 
 // CLI entry. `source` is injected by the caller; the production entry below passes the constant DEFAULT_SOURCE and
 // there is deliberately no flag/env to change source, ttl, limits or authorization.
-export async function main(argv, source = DEFAULT_SOURCE) {
+export async function main(argv, source = DEFAULT_SOURCE, extra = {}) {
   const [cmd, ...rest] = argv;
   const flag = (n, d) => { const k = rest.indexOf(`--${n}`); return k < 0 ? d : (rest[k + 1] && !rest[k + 1].startsWith('--') ? rest[k + 1] : true); };
   const root = flag('root'); if (!root) { console.error('--root required'); return 2; }
   init(root);
-  const opts = { worker: flag('worker', 'W'), wait: flag('wait', false) === true, max: Number(flag('max', 1000)), wake: flag('wake', false) === true, source };
+  const opts = { worker: flag('worker', 'W'), wait: flag('wait', false) === true, max: Number(flag('max', 1000)), wake: flag('wake', false) === true, source, ...extra };
   if (cmd === 'status') console.log(status(root));
   else if (cmd === 'log') console.log(readLog(root).map((e) => `${e.at} ${e.ev} ${e.id || ''} ${e.reason || ''}`).join('\n'));
   else if (cmd === 'stop') stop(root, String(flag('reason', 'manual')));

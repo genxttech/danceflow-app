@@ -1,6 +1,7 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
@@ -8,6 +9,11 @@ import { fileURLToPath } from 'node:url';
 import * as O from './orchestrator.mjs';
 import { entries } from './owner-tool.mjs';
 import { loadProtected } from './protected-source.mjs';
+
+// Track every temp dir created by THIS test process (including by the code under test) and remove them at the end.
+const __created = new Set(); const __orig = fs.mkdtempSync;
+fs.mkdtempSync = (...a) => { const d = __orig(...a); __created.add(d); return d; };
+after(() => { for (const d of __created) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORCH = path.join(HERE, 'orchestrator.mjs');
@@ -36,12 +42,16 @@ function world(items, { templates = TPL, pilot = {}, authIds = 'all', ownerDone 
   O.init(root);
   const qi = items.map((i) => ({ state: 'PENDING', ...i }));
   fs.writeFileSync(path.join(root, 'queue.json'), JSON.stringify({ meta: {}, items: qi }));
-  const w = { base, origin, clone, root, source: { url: origin, ref: 'main', policyPath: 'p/policy.json', authPath: 'p/authorizations.json', allowFile: true, cacheMs: 20000 } };
+  const w = { base, origin, clone, root, source: { url: origin, ref: 'refs/heads/main', policyPath: 'p/policy.json', authPath: 'p/authorizations.json', allowFile: true, cacheMs: 20000 } };
   w.policy = { pilot: { ...PILOT, ...pilot }, templates, ...(ownerDone ? { owner_done: ownerDone } : {}) };
-  w.publish = (policy, auths) => { fs.mkdirSync(path.join(clone, 'p'), { recursive: true }); fs.writeFileSync(path.join(clone, 'p/policy.json'), JSON.stringify(policy)); fs.writeFileSync(path.join(clone, 'p/authorizations.json'), typeof auths === 'string' ? auths : JSON.stringify(auths)); G(clone, 'add', '-A'); G(clone, 'commit', '-q', '-m', 'owner'); G(clone, 'push', '-q', 'origin', 'main'); };
+  w.publish = (policy, auths, { noAttest } = {}) => {
+    const pj = JSON.stringify(policy); const aj = typeof auths === 'string' ? auths : JSON.stringify(auths); const h = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+    fs.mkdirSync(path.join(clone, 'p'), { recursive: true }); fs.writeFileSync(path.join(clone, 'p/policy.json'), pj); fs.writeFileSync(path.join(clone, 'p/authorizations.json'), aj); G(clone, 'add', '-A'); G(clone, 'commit', '-q', '-m', 'owner'); G(clone, 'push', '-q', 'origin', 'main');
+    if (!noAttest) O.writeAttestation(root, { policySha: h(pj), authSha: h(aj), settingsHashes: {}, expiresAt: Date.parse('2099-12-31T00:00:00Z') }); // simulates a passing preflight for this exact content
+  };
   const ids = authIds === 'all' ? qi.map((i) => i.id) : authIds;
   w.publish(w.policy, entries({ items: qi }, w.policy, { ids }));
-  w.opts = (o = {}) => ({ worker: 'W', source: w.source, ...o });
+  w.opts = (o = {}) => ({ worker: 'W', source: w.source, settingsFiles: [], ...o });
   w.cli = (...a) => ['--root', root, '--worker', 'W', ...a];
   w.env = { ...process.env, PILOT_TEST_SOURCE: JSON.stringify({ ...w.source, cacheMs: 0 }) };
   return w;
@@ -93,10 +103,12 @@ test('T4. unpushed local commits in a working clone do not count', async () => {
   fs.writeFileSync(path.join(w.clone, 'p/authorizations.json'), JSON.stringify(entries({ items: q(w) }, w.policy))); G(w.clone, 'add', '-A'); G(w.clone, 'commit', '-q', '-m', 'forged, not pushed');
   const o4 = await O.run(w.root, w.opts()); assert.deepEqual(o4.ran, []); assert.equal(o4.final.status, 'IDLE');
 });
-test('T5. class-G (PROD SQL) never claimable, even if the protected auth lists it with a hash for a lying policy', async () => {
+test('T5. class-G (PROD SQL) never claimable: an authorization naming it makes the policy invalid (HALT), and unauthorized it parks', async () => {
   const w = world([it('SQL', 'prod')]);
-  w.publish(w.policy, entries({ items: q(w) }, { ...w.policy, templates: { prod: { ...TPL.prod, class: 'A' } } }));
-  assert.deepEqual((await O.run(w.root, w.opts())).ran, []); assert.equal(st(w, 'SQL'), 'BLOCKED-OWNER'); assert.notEqual(claimOf(w).status, 'CLAIMED'); assert.ok(noExecs(w));
+  assert.deepEqual((await O.run(w.root, w.opts())).ran, []); assert.equal(st(w, 'SQL'), 'BLOCKED-OWNER'); assert.ok(noExecs(w));   // no authorization: parked by the class gate
+  const w2 = world([it('SQL', 'prod')]); w2.source.cacheMs = 0;
+  w2.publish(w2.policy, entries({ items: q(w2) }, { ...w2.policy, templates: { prod: { ...TPL.prod, class: 'A' } } }));          // hash from a lying policy
+  const r = claimOf(w2); assert.equal(r.status, 'HALT'); assert.match(r.reason, /non-class-A/); assert.ok(noExecs(w2));
 });
 test('T6. P1-2: duplicate ids HALT (cannot smuggle a gated command under an authorized id)', async () => {
   const w = world([it('X', 'work')]); setQ(w, [...q(w), { id: 'X', template: 'prod', params: {}, state: 'DONE' }]);
@@ -144,7 +156,7 @@ test('T11. params: regex enforced, unexpected/inherited names refused', async ()
 });
 test('T12. fail-closed: unreachable source, wrong worker, closed window, remote disable all HALT', async () => {
   const w = world([it('A1', 'work')]);
-  const un = O.claim(w.root, { worker: 'W', source: { ...w.source, url: path.join(w.base, 'nope.git'), cacheMs: 0 } }); assert.equal(un.status, 'HALT'); assert.match(un.reason, /unavailable/); assert.notEqual(claimOf(w).status, 'HALT', 'control: the real source works');
+  const un = O.claim(w.root, { worker: 'W', settingsFiles: [], source: { ...w.source, url: path.join(w.base, 'nope.git'), cacheMs: 0 } }); assert.equal(un.status, 'HALT'); assert.match(un.reason, /unavailable/); assert.notEqual(claimOf(w).status, 'HALT', 'control: the real source works');
   assert.match(claimOf(w, { worker: 'OTHER' }).reason, /not the authorized coordinator/); assert.match(claimOf(w, { now: Date.parse('2100-01-01') }).reason, /window/);
   w.source.cacheMs = 0; w.publish({ ...w.policy, pilot: { ...w.policy.pilot, enabled: false } }, entries({ items: q(w) }, w.policy));
   const r = claimOf(w); assert.equal(r.status, 'HALT'); assert.match(r.reason, /disabled/); assert.ok(noExecs(w));
@@ -246,4 +258,44 @@ test('L2. unknown fictional action refused; no shell/session spawning outside pr
   const src = fs.readFileSync(ORCH, 'utf8'); for (const bad of ['child_process', 'exec(', 'spawn(', 'fetch(', 'claude ', 'https://']) assert.equal(src.includes(bad), false, bad);
   const ps = fs.readFileSync(path.join(HERE, 'protected-source.mjs'), 'utf8');
   assert.deepEqual([...ps.matchAll(/execFileSync\(([^,]+),/g)].map((m) => m[1].trim()), ["'git'"]); for (const bad of ['spawn(', 'exec(', 'fetch(', 'claude ']) assert.equal(ps.includes(bad), false, bad);
+});
+
+test('AT1. activation gate: no attestation, attestation for other content, or an expired one all HALT; matching one runs', async () => {
+  const w = world([it('A1', 'work')]); const att = path.join(w.root, 'PREFLIGHT_OK.json'); const good = fs.readFileSync(att, 'utf8');
+  fs.rmSync(att); let r = claimOf(w); assert.equal(r.status, 'HALT'); assert.match(r.reason, /attestation/); assert.ok(noExecs(w));
+  fs.writeFileSync(att, JSON.stringify({ ...JSON.parse(good), policySha: 'deadbeef' })); assert.match(claimOf(w).reason, /attestation/);
+  fs.writeFileSync(att, JSON.stringify({ ...JSON.parse(good), expiresAt: 1 })); assert.match(claimOf(w).reason, /attestation/);
+  fs.writeFileSync(att, good); assert.equal(claimOf(w).status, 'CLAIMED');
+});
+test('AT2. a policy change merged AFTER the preflight halts the loop until a new preflight', async () => {
+  const w = world([it('A1', 'work')]); w.source.cacheMs = 0;
+  w.publish({ ...w.policy, pilot: { ...w.policy.pilot, maxHours: 3 } }, entries({ items: q(w) }, w.policy), { noAttest: true });
+  const r = claimOf(w); assert.equal(r.status, 'HALT'); assert.match(r.reason, /attestation/);
+});
+
+test('P1-1. a tag named main cannot shadow the protected branch; short refs are refused', async () => {
+  const w = world([it('A1', 'work')], { authIds: [] });
+  // an attacker-controlled commit that authorizes A1 and enables everything, published as a TAG called "main"
+  G(w.clone, 'checkout', '-q', '-b', 'evil'); fs.writeFileSync(path.join(w.clone, 'p/authorizations.json'), JSON.stringify(entries({ items: q(w) }, w.policy)));
+  G(w.clone, 'add', '-A'); G(w.clone, 'commit', '-q', '-m', 'forged'); G(w.clone, 'tag', 'main'); G(w.clone, 'push', '-q', 'origin', 'refs/tags/main');
+  w.source.cacheMs = 0; const r = claimOf(w); assert.equal(r.status, 'IDLE', JSON.stringify(r)); assert.ok(noExecs(w));
+  const short = claimOf(w, { source: { ...w.source, ref: 'main' } }); assert.equal(short.status, 'HALT'); assert.match(short.reason, /fully qualified/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(w.root, 'queue.json'))).items[0].state, 'PENDING');
+});
+test('AT3. permission-settings drift after the preflight halts the loop', async () => {
+  const w = world([it('A1', 'work')]); const f = path.join(w.base, 'settings.json'); fs.writeFileSync(f, JSON.stringify({ permissions: { deny: ['Bash(*prod-apply*)'] } }));
+  const { loadDenyRules } = await import('./deny-check.mjs'); const att = path.join(w.root, 'PREFLIGHT_OK.json');
+  fs.writeFileSync(att, JSON.stringify({ ...JSON.parse(fs.readFileSync(att, 'utf8')), settingsHashes: loadDenyRules([f]).hashes }));
+  assert.equal(claimOf(w, { settingsFiles: [f] }).status, 'CLAIMED'); // unchanged settings: runs
+  const w2 = world([it('A1', 'work')]); fs.writeFileSync(path.join(w2.base, 's.json'), '{}'); const f2 = path.join(w2.base, 's.json');
+  fs.writeFileSync(path.join(w2.root, 'PREFLIGHT_OK.json'), JSON.stringify({ ...JSON.parse(fs.readFileSync(path.join(w2.root, 'PREFLIGHT_OK.json'), 'utf8')), settingsHashes: loadDenyRules([f2]).hashes }));
+  fs.writeFileSync(f2, JSON.stringify({ permissions: { deny: [] }, loosened: true })); // settings edited after the preflight
+  const r = claimOf(w2, { settingsFiles: [f2] }); assert.equal(r.status, 'HALT'); assert.match(r.reason, /permission settings changed/);
+});
+test('P2-9. non-finite counters halt; authorizations must have unique ids and name class-A templates', async () => {
+  const w = world([it('A1', 'work')]); const raw = JSON.parse(fs.readFileSync(path.join(w.root, 'queue.json'), 'utf8')); raw.meta = { wakeups: 'x', calls: 'y' };
+  fs.writeFileSync(path.join(w.root, 'queue.json'), JSON.stringify(raw)); const r = claimOf(w); assert.equal(r.status, 'HALT'); assert.match(r.reason, /counters invalid/);
+  const w2 = world([it('A1', 'work')]); const a = entries({ items: q(w2) }, w2.policy); w2.source.cacheMs = 0;
+  w2.publish(w2.policy, [...a, { ...a[0] }]); assert.match(claimOf(w2).reason, /duplicate ids/);
+  w2.publish(w2.policy, [{ ...a[0], template: 'prod' }]); assert.match(claimOf(w2).reason, /non-class-A/);
 });

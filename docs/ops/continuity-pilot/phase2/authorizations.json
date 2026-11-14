@@ -4,7 +4,7 @@
     "template": "u18-rollback-rehearsal",
     "params": {},
     "deps": [],
-    "scope_sha": "31cf6e6f172e6884cf4e7e93101ece61bab9af4492f93b0679edafd791c18ecd",
+    "scope_sha": "2193d3298fa4bacef47884b46693354a5769d36ae39e6de9725e84b8737bb2f6",
     "by": "owner",
     "not_after": "2026-11-17T00:00:00Z"
   },
@@ -15,7 +15,7 @@
     "deps": [
       "Q1"
     ],
-    "scope_sha": "434888330a1abfb35ee2ac7889d1785784a4df21911f88b62d7a99fbb93d1e43",
+    "scope_sha": "daa7371cd29bcfe8e1ce6cb46beade4ccff09b42b992cb649fde36c627701986",
     "by": "owner",
     "not_after": "2026-11-17T00:00:00Z"
   },
@@ -24,7 +24,7 @@
     "template": "release-migration-inventory",
     "params": {},
     "deps": [],
-    "scope_sha": "e38024d5ef6110783e781941875580e5fa92f2a11cf996699b20feeb1f886667",
+    "scope_sha": "1f64ec11fa0c1d886da703b7dd7ff33fbaf08bcfbd4c1a6aaee8cc418dd4336b",
     "by": "owner",
     "not_after": "2026-11-17T00:00:00Z"
   },
@@ -35,7 +35,7 @@
     "deps": [
       "Q2"
     ],
-    "scope_sha": "fb5e182f823971164132ea94375769dbb3be7bfcf01286a95cddc7ce3044bfb5",
+    "scope_sha": "4c16a1f4ab6e2f8040758f2ad80ac65b3e0ff04794e8dd504ee399e50485dff1",
     "by": "owner",
     "not_after": "2026-11-17T00:00:00Z"
   }
