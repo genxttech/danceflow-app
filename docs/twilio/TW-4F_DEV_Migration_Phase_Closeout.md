@@ -1,5 +1,7 @@
 # TW-4F DEV migration and authenticated integration: phase closeout
 
+> **Point-in-time record (2026-10-30).** DEV has changed since then: later migrations were applied there (for example Website Embeds `20270216090000` on 2026-11-14). Use this record as evidence for the phase it describes, never as the current DEV state; re-probe before relying on any DEV fact.
+
 Status: **closed as PASS on 2026-10-30** (DEV project `epdrtzcydvnoidwrepqz` only). Application baseline: `main` at `e749427ce5eaea3316752729f565e11254ac45af` (merged manifest, PR #361). PROD untouched and on hold. This document is the summary; the detail is in `evidence/TW-4F_DEV_phase_20261030/` (index in its `README.md`). Follow-up test work is in `TW-4F_DEV_Docker_Acceptance_Work_Packages.md`.
 
 ## 1. What was done

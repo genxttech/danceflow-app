@@ -14,7 +14,7 @@ Curated, sanitized evidence for `TW-4F_DEV_Migration_Phase_Closeout.md`. DEV pro
 | `authwalk/` | Authenticated phase: proxy request log (method, path without query, status, redirect path only), guard log, before/after counts |
 | `rollback/TW-4F_DEV_Rollback_Exceptions_Evidence.json` | Per-step results of the Docker 41-file round trip (the documented DEV-only rollback exceptions) |
 | `reference/TW-4F_Docker_Chain_Top_Fingerprint_e749427c.txt.gz` | Harness fingerprint of the full chain, the reference for AT-7 |
-| `tools/` | Reference copies of the scripts used (not maintained; local temp paths replaced by `<TEMP>`) |
+| `tools/` | Reference copies of the scripts used (not maintained; local temp paths replaced by `<TEMP>`). Each is stored with an added `.txt` suffix, so the repository linter does not treat it as source; the bytes are unchanged. Remove the suffix to run one. |
 | `working_record/` | The two long working documents (readiness review and execution package) as they stood at closeout |
 | `raw_artifact_manifest.json` | sha256 and size of **all 209 raw artifacts** produced (probe dumps, per-step before/after fingerprints and inventories, logs). The raw set is kept outside Git. |
 
