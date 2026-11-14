@@ -48,3 +48,18 @@ runs read modes in a read-only transaction, and logs every run to `danceflow-ops
 ## Tested locally (disposable database)
 
 Migration, fixtures (twice), behavior check, postflight (`all_ok`), cleanup (twice), rollback and re-apply: all passed; the behavior check leaves nothing behind.
+
+## Applied record (DEV)
+
+Applied manually to DEV (`epdrtzcydvnoidwrepqz`) on 2026-11-14 from main `44fc834c` via `sb.sh`, with owner approval. DEV migration history is stale (latest
+`20261014090519`) and was deliberately not repaired, so `20270216090000` does **not** appear in it: do not re-apply it because of that. Check the objects (postflight), not the history table.
+
+| Step | Result |
+|---|---|
+| Drift check | table and five functions absent, dependencies present, no fixture studios |
+| Migration `2ddcb78b…` | exit 0 |
+| Postflight `9b07e74d…` | `all_ok: true` (all 11 checks true) |
+| Fixtures `3b1e446c…` | exit 0: 2 studios, 1 series, 5 appointments, 5 policies, 5 events |
+| Behavior check `4bd02174…` | exit 0 (script raises on failure); afterwards 0 settings rows and studio A still public, so the rollback left nothing behind |
+
+The run is also logged in `danceflow-ops/log/ops.log`. Not done: any app deployment, PROD SQL, activation.
