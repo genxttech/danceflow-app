@@ -152,3 +152,21 @@ R3-3 detail. The Android dev build needs `expo_system_ui_user_interface_style` s
 Other observations:
 - **Web tab bar:** in the web render the tab labels are cut off at the bottom edge (dark and light). The Android emulator tab bar was verified in R1 (E3); this looks web-only (the explicit height assumes a native bottom inset) and is not fixed here.
 - **Mid-session appearance change:** styles are built at launch, so switching system dark mode with the app open applies on next launch.
+
+## R4: release build on the emulator, 2026-11-14
+
+Setup: a **release** APK (x86_64, QA-only signing key, not debuggable) built in a throwaway worktree from main plus PR 509 (dark mode), PR 513's branch (app wiring) and PR 526 (push adapter), baked with a local **mock backend** (`r4-mock-backend.mjs`: fixed JSON for `/api/staff/*` and a fake Supabase token endpoint; so this run proves the app's rendering, not the server). Emulator `df-api35`, Android 15; `font_scale` and night mode were set before launch unless stated; settings restored to font 1.0, night off, app uninstalled and emulator shut down afterwards. Cleartext HTTP was enabled in this QA manifest only.
+
+| # | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| R4-1 | Dark mode on the device (system dark): sign-in, Today, private lesson, class roster, Clients, More | **PASS**: dark surfaces, legible text, plum accents, status badges readable. The disabled "Sign in" button text is low-contrast (disabled state). | `r4-01` to `r4-06` |
+| R4-2 | Font 2.0, cold start (set before launch): sign-in, Today, class roster, tab bar | **PASS**: nothing clipped, tab labels fully visible, roster controls wrap and stay at least 44 dp | `r4-07`, `r4-08`, `r4-09` |
+| R4-3 | Font changed **while the app is running** (R-3b) with PR 520 only | **FAIL**: labels and buttons clipped (`r4-10`); after going home and returning the stale box heights remain (`r4-11`). PR 520's JS remount does not help | `r4-10`, `r4-11` |
+| R4-4 | Same, with `fontScale` added to MainActivity's `configChanges` (PR 531) | **PASS** in this build: layout stays consistent, nothing clipped; the new size applies at the next launch (`r4-12`) | `r4-12` |
+| R4-5 | Branded splash and launcher icon (PR 513 wiring) | **PASS**: dark splash with the DanceFlow mark; launcher shows the brand icon. The first build lacked the wiring (older tree) and showed the Android placeholder; the rebuild fixed it. Adaptive and monochrome (themed) icons not exercised | `r4-13`, `r4-14` |
+| R4-6 | Notification permission (PR 526) | **FAIL, then PASS with the fix**: the first build showed "Notifications are off" with no button, because Android reports `denied` for a permission never asked. With the fix: button shown, the OS prompt appears, "Don't allow" leaves the button available, "Allow" grants `POST_NOTIFICATIONS` and the card says notifications are not available on this build (no Firebase file in this QA build, so no token). Real token and delivery: **BLOCKED** (needs FCM credentials and the registration endpoint) | `r4-15` to `r4-17` |
+| R4-7 | Attendance write at font 2.0 (Present on Ana Rivera) | **PASS** at the request level: the mock received `PUT .../attendance/<client>`. The post-tap UI was not re-reviewed | mock log |
+
+Not run (**BLOCKED / not done**): client detail and the appointment screens in dark; dark combined with font 2.0; changing dark mode while the app is open (styles are chosen at launch, known); a 401 or expired-session state on the device; the second "Don't allow" (permanent denial) path on the device; talkback walkthrough; iOS (no macOS).
+
+Root cause of R4-3 (from the generated manifest): Expo's `MainActivity` declares `configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"` without `fontScale`, so a text-size change recreates the activity and React Native keeps its old shadow tree. PR 531 adds `fontScale` with a small config plugin (it touches `app.json`, a protected path).
