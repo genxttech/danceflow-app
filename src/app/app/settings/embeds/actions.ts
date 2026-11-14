@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext, requireStudioRole } from "@/lib/auth/studio";
-import { parseSettingsForm } from "@/lib/public/embedSettings";
+import { parseSettingsForm, websiteEmbedsAvailable } from "@/lib/public/embedSettings";
 
 export type EmbedSettingsActionState = { ok: boolean; message: string } | null;
 
@@ -12,6 +12,7 @@ export type EmbedSettingsActionState = { ok: boolean; message: string } | null;
  * form, and the database function re-checks that the caller is an active owner or admin of that studio.
  */
 export async function saveEmbedSettingsAction(_prev: EmbedSettingsActionState, form: FormData): Promise<EmbedSettingsActionState> {
+  if (!websiteEmbedsAvailable()) return { ok: false, message: "Website embeds are not available yet." };
   await requireStudioRole(["studio_owner", "studio_admin"]);
   const context = await getCurrentStudioContext();
   const parsed = parseSettingsForm(form);

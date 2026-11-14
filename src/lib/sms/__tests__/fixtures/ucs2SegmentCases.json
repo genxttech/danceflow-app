@@ -1,0 +1,684 @@
+[
+ {
+  "name": "66 a + emoji + 66 a: the pair cannot split, three parts",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    66
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "emoji + 131 a (133 units) still fits two parts",
+  "parts": [
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    131
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji at the start: 71 units",
+  "parts": [
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    69
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji in the middle: 66 a + emoji + 65 a",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    128512,
+    1
+   ],
+   [
+    "a",
+    65
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji at the end: 69 a + emoji",
+  "parts": [
+   [
+    "a",
+    69
+   ],
+   [
+    128512,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "emoji at the end, still one part: 68 a + emoji = 70 units",
+  "parts": [
+   [
+    "a",
+    68
+   ],
+   [
+    128512,
+    1
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "35 emoji = 70 units, one part",
+  "parts": [
+   [
+    128512,
+    35
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "36 emoji = 72 units, two parts",
+  "parts": [
+   [
+    128512,
+    36
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "66 emoji = 132 units, 33 per part, two parts",
+  "parts": [
+   [
+    128512,
+    66
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "67 emoji = 134 units, three parts",
+  "parts": [
+   [
+    128512,
+    67
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "BMP non-GSM, exactly 70 units",
+  "parts": [
+   [
+    "a",
+    69
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "BMP non-GSM, 71 units",
+  "parts": [
+   [
+    "a",
+    70
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "BMP non-GSM, 134 units = 2 x 67",
+  "parts": [
+   [
+    "a",
+    133
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "BMP non-GSM, 135 units",
+  "parts": [
+   [
+    "a",
+    134
+   ],
+   [
+    10003,
+    1
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "BMP non-GSM then emoji, 66 a + check + 66 a + emoji",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    10003,
+    1
+   ],
+   [
+    "a",
+    66
+   ],
+   [
+    128512,
+    1
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "ZWJ family (8 units) + 62 a = 70 units, one part",
+  "parts": [
+   [
+    128104,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128105,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128103,
+    1
+   ],
+   [
+    "a",
+    62
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "ZWJ family after 63 a = 71 units: the cluster moves whole to part two",
+  "parts": [
+   [
+    "a",
+    63
+   ],
+   [
+    128104,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128105,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128103,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "60 a + family + 60 a: 128 units but the cluster costs a part, three parts",
+  "parts": [
+   [
+    "a",
+    60
+   ],
+   [
+    128104,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128105,
+    1
+   ],
+   [
+    8205,
+    1
+   ],
+   [
+    128103,
+    1
+   ],
+   [
+    "a",
+    60
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "flag (two regional indicators, 4 units) after 66 a + b",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    127482,
+    1
+   ],
+   [
+    127480,
+    1
+   ],
+   [
+    "b",
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "keycap 1 + VS16 + keycap (3 units) after 68 a",
+  "parts": [
+   [
+    "a",
+    68
+   ],
+   [
+    49,
+    1
+   ],
+   [
+    65039,
+    1
+   ],
+   [
+    8419,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "skin-tone thumbs up (4 units) after 67 a",
+  "parts": [
+   [
+    "a",
+    67
+   ],
+   [
+    128077,
+    1
+   ],
+   [
+    127997,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "400 emoji: 33 per part (66 units), exact count 13 (callers refuse more than 10)",
+  "parts": [
+   [
+    128512,
+    400
+   ]
+  ],
+  "expect": 13
+ },
+ {
+  "name": "GSM-7 with a backslash stays GSM-7: 100 a + backslash is one part",
+  "parts": [
+   [
+    "a",
+    100
+   ],
+   [
+    92,
+    1
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "GSM-7 with a backslash: 160 a + backslash = 162 septets, two parts",
+  "parts": [
+   [
+    "a",
+    160
+   ],
+   [
+    92,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "GSM-7 extension characters count two septets: 151 a + 5 braces = 161 septets, two parts",
+  "parts": [
+   [
+    "a",
+    151
+   ],
+   [
+    123,
+    5
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "combining acute (e + U+0301, 2 units) after 66 a, then 66 a: the cluster cannot split, three parts",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    "e",
+    1
+   ],
+   [
+    769,
+    1
+   ],
+   [
+    "a",
+    66
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "red heart + VS16 (2 BMP units) after 66 a, then 66 a: three parts",
+  "parts": [
+   [
+    "a",
+    66
+   ],
+   [
+    10084,
+    1
+   ],
+   [
+    65039,
+    1
+   ],
+   [
+    "a",
+    66
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "Scotland tag flag (14 units) after 60 a: 74 units, two parts",
+  "parts": [
+   [
+    "a",
+    60
+   ],
+   [
+    127988,
+    1
+   ],
+   [
+    917607,
+    1
+   ],
+   [
+    917602,
+    1
+   ],
+   [
+    917619,
+    1
+   ],
+   [
+    917603,
+    1
+   ],
+   [
+    917620,
+    1
+   ],
+   [
+    917631,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "three regional indicators after 64 a: the flag pair stays whole, the third starts its own cluster",
+  "parts": [
+   [
+    "a",
+    64
+   ],
+   [
+    127482,
+    1
+   ],
+   [
+    127480,
+    1
+   ],
+   [
+    127482,
+    1
+   ],
+   [
+    "a",
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "Hangul syllables are whole characters: 80 units, two parts",
+  "parts": [
+   [
+    50504,
+    40
+   ],
+   [
+    45397,
+    40
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "Devanagari letters are whole characters: 100 x U+0915 = 100 units, two parts",
+  "parts": [
+   [
+    2325,
+    100
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "unspaced complex-script run (100 x U+0995 Bengali) is one coarse cluster, sized at 34 per part: three parts (Twilio sends two; never fewer)",
+  "parts": [
+   [
+    2453,
+    100
+   ]
+  ],
+  "expect": 3,
+  "ref": 2
+ },
+ {
+  "name": "GSM-7: 303 a + euro = 305 septets, two parts (an extension character only ends a part early where it would split)",
+  "parts": [
+   [
+    "a",
+    303
+   ],
+   [
+    8364,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "GSM-7: 152 a + euro + 152 a = 306 septets: the euro cannot split at 152, three parts",
+  "parts": [
+   [
+    "a",
+    152
+   ],
+   [
+    8364,
+    1
+   ],
+   [
+    "a",
+    152
+   ]
+  ],
+  "expect": 3
+ },
+ {
+  "name": "GSM-7: 153 a + euro + 151 a = 306 septets, two parts",
+  "parts": [
+   [
+    "a",
+    153
+   ],
+   [
+    8364,
+    1
+   ],
+   [
+    "a",
+    151
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "GSM-7: CR LF stay GSM-7, 159 a + CR LF = 161 septets, two parts",
+  "parts": [
+   [
+    "a",
+    159
+   ],
+   [
+    13,
+    1
+   ],
+   [
+    10,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "Arabic number sign + three regional indicators after 62 a, then 65 a: the run held by the Prepend mark stays whole, three parts (grapheme-splitter 1.0.4 pairs it as [U+0600 RI][RI RI])",
+  "parts": [
+   [
+    "a",
+    62
+   ],
+   [
+    1536,
+    1
+   ],
+   [
+    127482,
+    3
+   ],
+   [
+    "a",
+    65
+   ]
+  ],
+  "expect": 3,
+  "ref": 2
+ },
+ {
+  "name": "Devanagari conjunct through a nukta (ka + virama + nukta + ssa, 4 units) after 64 a, then 66 a: three parts",
+  "parts": [
+   [
+    "a",
+    64
+   ],
+   [
+    2325,
+    1
+   ],
+   [
+    2381,
+    1
+   ],
+   [
+    2364,
+    1
+   ],
+   [
+    2359,
+    1
+   ],
+   [
+    "a",
+    66
+   ]
+  ],
+  "expect": 3
+ }
+]
