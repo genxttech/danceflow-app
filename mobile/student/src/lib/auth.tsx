@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from "react";
 import { router } from "expo-router";
@@ -12,7 +13,12 @@ import * as Linking from "expo-linking";
 import type { Session } from "@supabase/supabase-js";
 import { clearPersistedSupabaseSessions, supabase } from "@/lib/supabase";
 import { reactivateDanceFlowAccount } from "@/lib/accountControls";
-import { parseAuthLink, resolveEmailOtpType } from "@/lib/authLink";
+import {
+  friendlyAuthLinkError,
+  parseAuthLink,
+  parseAuthLinkError,
+  resolveEmailOtpType
+} from "@/lib/authLink";
 import { recordMobileEmailProof } from "@/lib/emailVerification";
 import { unbindPushTokenForSignOut } from "@/lib/pushNotifications";
 
@@ -21,6 +27,9 @@ type AuthContextValue = {
   loading: boolean;
   identityCheckPending: boolean;
   emailBindingRequired: boolean;
+  /** Plain-language reason the last emailed link could not sign the dancer in (expired, used, refused). */
+  authLinkError: string | null;
+  clearAuthLinkError: () => void;
   clearEmailBindingRequired: () => void;
   continueWithEmail: (email: string) => Promise<void>;
   handleAuthUrl: (url: string) => Promise<boolean>;
@@ -43,8 +52,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [identityCheckPending, setIdentityCheckPending] = useState(false);
   const [emailBindingRequired, setEmailBindingRequired] = useState(false);
+  const [authLinkError, setAuthLinkError] = useState<string | null>(null);
+  // A link can reach the app twice (the initial URL and the url event on a cold start); a token is
+  // single use, so the second verification would fail and show an error for a sign-in that worked.
+  const handledUrls = useRef(new Map<string, Promise<boolean>>());
 
-  const handleAuthUrl = useCallback(async (url: string) => {
+  async function processAuthUrl(url: string) {
+    const linkError = parseAuthLinkError(url);
+    if (linkError) {
+      setAuthLinkError(linkError.message);
+      return true;
+    }
+
     const { code, tokenHash, type } = parseAuthLink(url);
 
     if (tokenHash) {
@@ -59,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           type: otpType
         });
         if (error) throw error;
+        setAuthLinkError(null);
 
         // LAUNCH-SEC-1C-A: only this app-performed email-link verification may
         // record proof; the database decides. A first proof requires binding.
@@ -76,22 +96,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) throw error;
+      setAuthLinkError(null);
       return true;
     }
 
     return false;
+  }
+
+  const handleAuthUrl = useCallback((url: string) => {
+    const existing = handledUrls.current.get(url);
+    if (existing) return existing;
+
+    const run = processAuthUrl(url);
+    handledUrls.current.set(url, run);
+    return run;
   }, []);
+
+  /** Runs a link and records why it failed, for the callback screen. Never throws. */
+  const handleAuthUrlReportingErrors = useCallback(
+    async (url: string) => {
+      try {
+        await handleAuthUrl(url);
+      } catch (error: unknown) {
+        const code = (error as { code?: string } | null)?.code;
+        setAuthLinkError(friendlyAuthLinkError(code, error instanceof Error ? error.message : null));
+        console.warn(
+          "DanceFlow could not process the incoming authentication link:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    },
+    [handleAuthUrl],
+  );
 
   useEffect(() => {
     let mounted = true;
 
     const linkingSubscription = Linking.addEventListener("url", ({ url }) => {
-      void handleAuthUrl(url).catch((error: unknown) => {
-        console.warn(
-          "DanceFlow could not process the incoming authentication link:",
-          error instanceof Error ? error.message : error,
-        );
-      });
+      void handleAuthUrlReportingErrors(url);
     });
 
     async function bootstrap() {
@@ -99,12 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const initialUrl = await Linking.getInitialURL();
 
         if (initialUrl) {
-          await handleAuthUrl(initialUrl).catch((error: unknown) => {
-            console.warn(
-              "DanceFlow could not process the initial authentication link:",
-              error instanceof Error ? error.message : error,
-            );
-          });
+          await handleAuthUrlReportingErrors(initialUrl);
         }
 
         const { data } = await supabase.auth.getSession();
@@ -187,7 +224,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       linkingSubscription.remove();
       authSubscription.unsubscribe();
     };
-  }, [handleAuthUrl]);
+  }, [handleAuthUrlReportingErrors]);
 
   const continueWithEmail = useCallback(async (email: string) => {
     const { error } = await supabase.auth.signInWithOtp({
@@ -228,6 +265,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const clearAuthLinkError = useCallback(() => setAuthLinkError(null), []);
   const clearEmailBindingRequired = useCallback(() => setEmailBindingRequired(false), []);
 
   const value = useMemo(
@@ -236,6 +274,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loading,
       identityCheckPending,
       emailBindingRequired,
+      authLinkError,
+      clearAuthLinkError,
       clearEmailBindingRequired,
       continueWithEmail,
       handleAuthUrl,
@@ -243,6 +283,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut
     }),
     [
+      authLinkError,
+      clearAuthLinkError,
       clearEmailBindingRequired,
       continueWithEmail,
       emailBindingRequired,
