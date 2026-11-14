@@ -52,7 +52,9 @@ gradle.taskGraph.whenReady { graph ->
     def releaseTask = graph.allTasks.find {
         it.project == project && it.name ==~ /^(assemble|bundle|package|sign|install)(.*)Release.*/
     }
-    if (releaseTask && !dfHasReleaseSigning) {
+    // EAS cloud builds inject their own signing credentials and do not set DANCEFLOW_UPLOAD_*;
+    // EAS itself fails when it has no credentials, so the guard stands down only there.
+    if (releaseTask && !dfHasReleaseSigning && System.getenv('EAS_BUILD') != 'true') {
         throw new GradleException(
             "Release signing is not configured (task \${releaseTask.path}). Set DANCEFLOW_UPLOAD_STORE_FILE, " +
             "DANCEFLOW_UPLOAD_STORE_PASSWORD, DANCEFLOW_UPLOAD_KEY_ALIAS and DANCEFLOW_UPLOAD_KEY_PASSWORD " +
