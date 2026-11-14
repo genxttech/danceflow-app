@@ -30,6 +30,7 @@ const k = devKeys();
 const env = Object.fromEntries(keep.filter((n) => process.env[n] !== undefined).map((n) => [n, process.env[n]]));
 Object.assign(env, {
   NODE_ENV: "production",
+  WEBSITE_EMBEDS: "on", // the release gate: this local build is the only place the feature is switched on
   NEXT_TELEMETRY_DISABLED: "1",
   NODE_OPTIONS: "--max-old-space-size=6144",
   NEXT_PUBLIC_SUPABASE_URL: k.url,

@@ -116,6 +116,8 @@ Any website may frame the two embed routes; there is no allowed-origins list in 
 1. Owner-authorized: apply `20270216090000_website_embed_settings.sql` to DEV, verify, then PROD. (`sql-tests/test_T_website_embed_settings.sql` is for disposable databases only: it refuses to run unless `embedtest.local='on'`.)
 2. Only then deploy the app. The app deployed first (or the SQL rolled back) fails closed: every embed is 404; public pages and the rest of the app are unaffected; the builder says settings are unavailable.
 3. Rollback: roll the app back first, then run `rollback/20270216090000_website_embed_settings_rollback.sql`. Rollback deletes stored settings; a later re-apply starts every studio at the defaults (embeds on, no description/price, events on).
+4. **Release gate (dark by default).** The feature is off in every deployment until the server environment says `WEBSITE_EMBEDS=on`. Off means: no "Website Embeds" menu item, the builder page is not found, saving is refused, and both embed routes answer 404 without touching the database. Turning it on is a separate owner decision from applying the migration and from deploying, so a deployment or promotion alone can never make embeds public. (`WEBSITE_EMBEDS` is read on the server at request time from the deployment's environment; an environment change needs a new deployment, so the global off switch is a rollback to the previous deployment, while each studio also has its own immediate off switch.)
+5. Full release plan, hashes and acceptance matrix: `Release_Readiness.md`.
 
 ### DEV release preflight (2026-11-13, read-only; nothing applied)
 
