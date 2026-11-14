@@ -14,6 +14,8 @@ const MAX_AGE_MS = 60 * 60 * 1000;
 // Event pages, plus the places a signed-out visitor to Discover is sent to sign in from.
 const ALLOWED = [
   /^\/events\/[A-Za-z0-9_-]{1,64}$/,
+  /^\/events\/[A-Za-z0-9_-]{1,64}\/register$/,
+  /^\/events\/orders\/[A-Za-z0-9_-]{1,64}$/,
   /^\/\(tabs\)\/discover$/,
   /^\/(partners|jobs|discover\/marketplace)$/,
 ];

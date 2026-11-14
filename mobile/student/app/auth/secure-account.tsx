@@ -1,4 +1,4 @@
-import { router, type Href } from "expo-router";
+import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
@@ -6,7 +6,7 @@ import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
-import { takePostSignInRoute } from "@/lib/postSignInRoute";
+import { continueAfterSignIn } from "@/lib/afterSignIn";
 import { bindAccountPassword } from "@/lib/emailVerification";
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -57,8 +57,7 @@ export default function SecureAccountScreen() {
   // enforcement belongs at the database/server claim boundaries.
   async function handleLater() {
     clearEmailBindingRequired();
-    const route = await takePostSignInRoute();
-    router.replace((route ?? "/(tabs)/home") as Href);
+    await continueAfterSignIn(router);
   }
 
   return (

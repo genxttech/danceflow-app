@@ -1,10 +1,11 @@
 import { useEffect } from "react";
 import { useColorScheme } from "react-native";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { StripeProvider } from "@stripe/stripe-react-native";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { guestMayView } from "@/lib/guestAccess";
+import { rememberPostSignInRoute } from "@/lib/postSignInRoute";
 import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
 import { colorsForScheme, hydrateAppearanceMode } from "@/constants/theme";
 
@@ -14,6 +15,7 @@ function AppStack() {
   const { loading, session } = useAuth();
   const router = useRouter();
   const segments = useSegments();
+  const pathname = usePathname();
   const scheme = useColorScheme();
   const colors = colorsForScheme(scheme);
 
@@ -27,8 +29,11 @@ function AppStack() {
   // else, including a deep link to Wallet or a ticket, goes to sign-in.
   const blockedForGuest = !loading && !session && !guestMayView(segments);
   useEffect(() => {
-    if (blockedForGuest) router.replace("/(auth)/sign-in");
-  }, [blockedForGuest, router]);
+    if (!blockedForGuest) return;
+    // A deep link to a gated screen (a registration, an order) returns there after sign-in; routes
+    // outside postSignInRoute's allow-list are dropped there and fall back to Today.
+    void rememberPostSignInRoute(pathname).then(() => router.replace("/(auth)/sign-in"));
+  }, [blockedForGuest, pathname, router]);
 
   return (
     <>
