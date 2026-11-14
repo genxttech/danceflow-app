@@ -87,8 +87,8 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
                     : "Turn on Push Notifications to allow alerts from DanceFlow."}
           </AppText>
         </View>
-        {message ? <AppText style={styles.saved}>{message}</AppText> : null}
       </View>
+      {message ? <AppText style={styles.saved}>{message}</AppText> : null}
 
       <Pressable
         accessibilityRole="button"
@@ -197,10 +197,8 @@ function createStyles(colors: ThemeColors) {
     },
     saved: {
       color: colors.success,
-      flexShrink: 1,
-      fontSize: 12,
-      fontWeight: "900",
-      textAlign: "right"
+      fontSize: 13,
+      fontWeight: "900"
     }
   });
 }
