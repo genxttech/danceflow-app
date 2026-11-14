@@ -161,18 +161,22 @@ describe("emailed link failures", () => {
       error: Object.assign(new Error("Email link is invalid or has expired"), { code: "otp_expired" }),
     } as never);
 
-    let latest: ReturnType<typeof useAuth> | undefined;
-    function Capture() {
-      latest = useAuth();
+    const seen: { latest?: ReturnType<typeof useAuth> } = {};
+    function Capture({ onValue }: { onValue: (next: ReturnType<typeof useAuth>) => void }) {
+      onValue(useAuth());
       return <Text>ready</Text>;
     }
     render(
       <AuthProvider>
-        <Capture />
+        <Capture
+          onValue={(next) => {
+            seen.latest = next;
+          }}
+        />
       </AuthProvider>,
     );
 
-    await waitFor(() => expect(latest?.authLinkError).toMatch(/expired or was already used/));
+    await waitFor(() => expect(seen.latest?.authLinkError).toMatch(/expired or was already used/));
   });
 
   it("reads an error the auth server redirected back with", async () => {
@@ -180,18 +184,22 @@ describe("emailed link failures", () => {
     Linking.getInitialURL.mockResolvedValueOnce(
       "danceflow://auth/callback#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired",
     );
-    let latest: ReturnType<typeof useAuth> | undefined;
-    function Capture() {
-      latest = useAuth();
+    const seen: { latest?: ReturnType<typeof useAuth> } = {};
+    function Capture({ onValue }: { onValue: (next: ReturnType<typeof useAuth>) => void }) {
+      onValue(useAuth());
       return <Text>ready</Text>;
     }
     render(
       <AuthProvider>
-        <Capture />
+        <Capture
+          onValue={(next) => {
+            seen.latest = next;
+          }}
+        />
       </AuthProvider>,
     );
 
-    await waitFor(() => expect(latest?.authLinkError).toMatch(/expired or was already used/));
+    await waitFor(() => expect(seen.latest?.authLinkError).toMatch(/expired or was already used/));
     expect(auth.verifyOtp).not.toHaveBeenCalled();
   });
 });
