@@ -13,6 +13,13 @@ function fake(over: Partial<NotificationsModule> = {}): NotificationsModule {
 }
 
 describe("expo push adapter", () => {
+  it("denied-but-askable (Android never asked) is not asked yet, so the button can show; denied with no re-ask is denied", async () => {
+    const askable = createExpoPushAdapter(fake({ getPermissionsAsync: async () => ({ status: "denied", canAskAgain: true }) }));
+    expect(await readPushStatus(askable)).toEqual({ kind: "not_asked" });
+    const blocked = createExpoPushAdapter(fake({ getPermissionsAsync: async () => ({ status: "denied", canAskAgain: false }) }));
+    expect(await readPushStatus(blocked)).toEqual({ kind: "denied" });
+  });
+
   it("does not prompt when only reading status", async () => {
     const request = jest.fn();
     const status = await readPushStatus(createExpoPushAdapter(fake({ requestPermissionsAsync: request })));

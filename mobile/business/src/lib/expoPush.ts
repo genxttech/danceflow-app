@@ -9,9 +9,11 @@
 import type { PermissionState, PushAdapter } from "@/lib/pushSetup";
 import type { TapSource } from "@/lib/push";
 
+type PermissionResult = { status: string; granted?: boolean; canAskAgain?: boolean };
+
 export type NotificationsModule = {
-  getPermissionsAsync: () => Promise<{ status: string; granted?: boolean }>;
-  requestPermissionsAsync: () => Promise<{ status: string; granted?: boolean }>;
+  getPermissionsAsync: () => Promise<PermissionResult>;
+  requestPermissionsAsync: () => Promise<PermissionResult>;
   getDevicePushTokenAsync: () => Promise<{ data: unknown }>;
   addNotificationResponseReceivedListener: (
     handler: (response: { notification: { request: { content: { data: unknown } } } }) => void,
@@ -19,9 +21,11 @@ export type NotificationsModule = {
   getLastNotificationResponseAsync: () => Promise<{ notification: { request: { content: { data: unknown } } } } | null>;
 };
 
-function toPermission(result: { status: string; granted?: boolean }): PermissionState {
+function toPermission(result: PermissionResult): PermissionState {
   if (result.granted === true || result.status === "granted") return "granted";
-  if (result.status === "denied") return "denied";
+  // Android 13+ reports "denied" for a permission never asked (found on the emulator: the card said "turned off" with no
+  // way to turn it on). Denied but still askable means the prompt can be shown, so it is not a refusal yet.
+  if (result.status === "denied") return result.canAskAgain === true ? "undetermined" : "denied";
   return "undetermined";
 }
 
