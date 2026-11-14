@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams, type Href } from "expo-router";
+import { router, useLocalSearchParams, useRootNavigationState, type Href } from "expo-router";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { ActivityIndicator, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
@@ -45,11 +45,17 @@ export default function AuthCallbackScreen() {
   const hasRawCredential = Boolean(
     cleanParam(routeParams.token_hash) || cleanParam(routeParams.code) || cleanParam(routeParams.type),
   );
+  // A cold start opens this screen before the root navigator has mounted; navigating then throws
+  // ("Attempted to navigate before mounting the Root Layout") and crashes the app on a magic link.
+  const navigationReady = Boolean(useRootNavigationState()?.key);
   useEffect(() => {
-    if (hasRawCredential) {
+    if (!hasRawCredential || !navigationReady) return;
+    try {
       router.setParams({ token_hash: undefined, code: undefined, type: undefined } as never);
+    } catch {
+      // Tidying the route is optional; never let it take the screen down.
     }
-  }, [hasRawCredential]);
+  }, [hasRawCredential, navigationReady]);
 
   useEffect(() => {
     // The provider's reason first: it is already plain language. A raw provider description is
