@@ -40,6 +40,33 @@ const securityHeaders = [
   },
 ];
 
+// Website Embeds: only these two route families may be framed by a studio's own website. They get their own header set (below)
+// instead of the global one, so every other page keeps X-Frame-Options SAMEORIGIN and frame-ancestors 'self'.
+const EMBED_FRAMEABLE = "embed/class/|embed/calendar/";
+
+const embedFrameableHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()" },
+  {
+    key: "Content-Security-Policy",
+    value: [
+      "default-src 'self'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      "frame-ancestors *",
+      "form-action 'none'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: https:",
+      "font-src 'self' data:",
+      "connect-src 'self'",
+      "frame-src 'none'",
+      "upgrade-insecure-requests",
+    ].join("; "),
+  },
+];
+
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
@@ -49,8 +76,16 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/:path*",
+        source: `/((?!${EMBED_FRAMEABLE}).*)`,
         headers: securityHeaders,
+      },
+      {
+        source: "/embed/class/:path*",
+        headers: embedFrameableHeaders,
+      },
+      {
+        source: "/embed/calendar/:path*",
+        headers: embedFrameableHeaders,
       },
       {
         source: "/api/embed/:path*",
