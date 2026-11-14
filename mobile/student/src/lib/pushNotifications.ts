@@ -113,6 +113,35 @@ function isExpoGo() {
   return Constants.appOwnership === "expo";
 }
 
+export const ANDROID_CHANNEL_ID = "default";
+let androidChannelReady: Promise<void> | null = null;
+
+/**
+ * Android 8+ drops notifications without a channel, and Android 13+ will not ask for permission
+ * until one exists. Created once, before the first permission request or token claim.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ensureAndroidChannel(Notifications: any): Promise<void> {
+  if (Platform.OS !== "android") return Promise.resolve();
+  if (!androidChannelReady) {
+    androidChannelReady = Promise.resolve(
+      Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+        name: "DanceFlow",
+        importance: Notifications.AndroidImportance?.DEFAULT ?? 3,
+      }),
+    )
+      .then(() => undefined)
+      .catch(() => {
+        androidChannelReady = null; // retry on the next call; never block push setup on it
+      });
+  }
+  return androidChannelReady;
+}
+
+export function resetAndroidChannelForTests() {
+  androidChannelReady = null;
+}
+
 // expo-notifications' published types lag the runtime API used below, so the module is untyped here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getNotificationsModule(): Promise<any | null> {
@@ -134,6 +163,8 @@ async function getNotificationsModule(): Promise<any | null> {
 
     notificationHandlerConfigured = true;
   }
+
+  await ensureAndroidChannel(Notifications);
 
   return Notifications;
 }

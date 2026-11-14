@@ -61,7 +61,7 @@ export default function SecureAccountScreen() {
   }
 
   return (
-    <Screen scroll={false}>
+    <Screen>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.wrap}
@@ -125,7 +125,7 @@ export default function SecureAccountScreen() {
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     wrap: {
-      flex: 1,
+      flexGrow: 1,
       justifyContent: "center"
     },
     form: {
