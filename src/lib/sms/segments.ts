@@ -2,7 +2,7 @@
  * SMS segment estimation for billing reservations. Conservative on purpose: the reservation must cover what the provider will count, so
  *  - a body is GSM-7 only if EVERY character is in the GSM 03.38 basic set or its extension table (extension characters take two septets);
  *  - anything else is UCS-2, counted in UTF-16 code units (an emoji is two);
- *  - concatenated messages use the reduced per-part capacity (153 septets / 67 code units).
+ *  - concatenated messages use the reduced per-part capacity (153 septets / 67 code units; 66 when the body holds an emoji, since a pair is never split across parts).
  * The provider's own `num_segments` (evidence) is what is finally charged; this only sizes the reservation.
  */
 
@@ -38,6 +38,16 @@ export function estimateBilledSegments(body: string): SegmentEstimate {
     return { encoding: "gsm7", units: septets, segments };
   }
   const units = body.length; // UTF-16 code units
-  const segments = units === 0 ? 0 : units <= 70 ? 1 : Math.ceil(units / 67);
+  // a surrogate pair is never split across parts, so a part that would end mid-pair carries 66 units: with any pair present the capacity is the conservative 66
+  let hasPair = false;
+  for (let k = 0; k + 1 < body.length; k++) {
+    const hi = body.charCodeAt(k);
+    const lo = body.charCodeAt(k + 1);
+    if (hi >= 0xd800 && hi <= 0xdbff && lo >= 0xdc00 && lo <= 0xdfff) {
+      hasPair = true;
+      break;
+    }
+  }
+  const segments = units === 0 ? 0 : units <= 70 ? 1 : Math.ceil(units / (hasPair ? 66 : 67));
   return { encoding: "ucs2", units, segments };
 }
