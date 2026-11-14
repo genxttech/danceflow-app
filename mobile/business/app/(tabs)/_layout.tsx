@@ -1,11 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { Screen } from "@/components/Screen";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StateMessage } from "@/components/StateMessage";
+import { useFontScale } from "@/lib/fontScale";
 import { initialTab, tabsForWorkspace, type TabKey } from "@/lib/navigation";
 import { useStaffSession } from "@/lib/staff";
 import { colors } from "@/theme";
@@ -32,7 +32,8 @@ const TAB_ORDER: TabKey[] = ["pulse", "today", "clients", "more"];
 
 export default function TabsLayout() {
   const { me, loading, error, workspace, reload, signOut } = useStaffSession();
-  const { fontScale } = useWindowDimensions();
+  // PixelRatio-backed and re-read after layout: the window metrics can still hold the first-frame scale on Android.
+  const fontScale = useFontScale();
   const insets = useSafeAreaInsets();
 
   if (loading && !me) {
