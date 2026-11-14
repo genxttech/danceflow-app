@@ -84,3 +84,11 @@ operation. Stop immediately on any non-zero exit, an isolation-scan failure, a r
 - Anyone with the DEV service key could create the same accounts; the accounts have a random password and a documented cleanup.
 - The app talks to a real hosted DEV project: a bug could write unexpected rows to fictional studio A. Impact is limited to DEV data, covered by the cleanup scripts.
 - Browser tests run Chrome via Playwright on this machine; a different browser or a real third-party site embedding the iframe is not part of this run.
+
+## Run record (DEV, 2026-11-14, main `62bc2fc4`)
+
+Owner-authorized and executed exactly as above. Local build `ISOLATION SCAN PASS` (132 files mention DEV, 0 mention PROD, service key in 0 files); marker matched the commit.
+Three fictional Auth users created, `accounts.sql` (`03dc7d3e…`) applied, local server on 127.0.0.1:3100, `dev-validate.mjs`: **44/44 passed**, no request outside localhost/DEV Supabase.
+Settings were restored to factory defaults by the run. Cleanup applied `accounts-cleanup.sql` (`fec42eb1…`) and `fixtures-cleanup.sql` (`bfa3bad4…`); read-only verification afterwards: 0 `embed-qa-*` Auth users, identities, sessions, profiles,
+roles, fictional studios, series, appointments, policies, events or settings rows; the 885 pre-existing `@example.test` users untouched; migration objects still present and `postflight.sql` `all_ok: true`.
+The credentials file and `.next` were deleted. No PROD, Vercel, Stripe, email or SMS operation occurred.
