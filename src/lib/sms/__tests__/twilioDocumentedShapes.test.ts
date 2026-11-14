@@ -144,6 +144,25 @@ describe.each(sources)("Message list (%s shapes): inbound recovery reads documen
   });
 });
 
+describe("date forms agree with Twilio's own helper library (twilio-node)", () => {
+  it("the list filter is sent exactly as twilio-node serializes DateSent> / DateSent<, and every documented date parses as twilio-node parses it", async () => {
+    const { iso8601DateTime } = await import("twilio/lib/base/serialize");
+    const { rfc2822DateTime } = await import("twilio/lib/base/deserialize");
+    const since = new Date("2026-11-14T14:00:00.250Z");
+    const until = new Date("2026-11-14T16:00:00.900Z");
+    const { real, urls } = provider(() => ({ messages: [], next_page_uri: null }));
+    await real.listInbound(documented.account, { since, until, maxPages: 1 });
+    const query = new URL(urls[0]).searchParams;
+    // one second of margin each side, then twilio-node's exact form (whole seconds, UTC, trailing Z)
+    expect(query.get("DateSent>")).toBe(iso8601DateTime(new Date(Math.floor((since.getTime() - 1000) / 1000) * 1000)));
+    expect(query.get("DateSent<")).toBe(iso8601DateTime(new Date(Math.floor((until.getTime() + 1000) / 1000) * 1000)));
+    const text = readFileSync(path.join(dir, "documentedShapes.json"), "utf8");
+    const dates = text.match(/"(?:date_created|date_sent|date_updated)": "([^"]+)"/g)!.map((m) => m.split(": ")[1].slice(1, -1));
+    expect(dates.length).toBeGreaterThan(10);
+    for (const d of dates) expect(new Date(Date.parse(d)).toISOString()).toBe((rfc2822DateTime(d) as Date).toISOString());
+  });
+});
+
 describe("every documented Message status has a defined outcome", () => {
   const settle = (() => {
     const sql = readFileSync(path.join(process.cwd(), "src/lib/supabase/migrations/20261205090000_twilio_usage_reconciliation.sql"), "utf8");
@@ -157,6 +176,12 @@ describe("every documented Message status has a defined outcome", () => {
   })();
   // inbound-only statuses (an outbound text never reports them) and the deprecated partially_delivered: settle sends them to a person (review)
   const reviewed = new Set(["receiving", "received", "partially_delivered"]);
+
+  it("the settle status lists were read from the migration (a parse failure is loud)", () => {
+    expect(settle.pending).toEqual(expect.arrayContaining(["accepted", "queued", "sent"]));
+    expect(settle.release).toEqual(["failed", "canceled"]);
+    expect(settle.charge).toEqual(expect.arrayContaining(["delivered", "undelivered"]));
+  });
 
   it.each(documented.documented_statuses)("%s: the database settles, releases, waits or sends it to review — never guesses", (status) => {
     const buckets = [settle.pending.includes(status), settle.release.includes(status), settle.charge.includes(status)].filter(Boolean).length;
@@ -172,7 +197,8 @@ describe("every documented Message status has a defined outcome", () => {
   });
 
   it("callbacks in any order never move the log backwards (Twilio does not guarantee callback order)", () => {
-    const rank: Record<string, number> = { draft: 0, queued: 0, sent: 1, delivered: 2, failed: 2 };
+    // queued < sent < failed < delivered (delivered is final; a failed log may still be delivered)
+    const rank: Record<string, number> = { draft: 0, queued: 0, sent: 1, failed: 2, delivered: 3 };
     const outbound = documented.documented_statuses.filter((s) => !reviewed.has(s));
     for (const first of outbound) {
       for (const second of outbound) {
@@ -180,6 +206,7 @@ describe("every documented Message status has a defined outcome", () => {
         const next = mapTwilioStatusToSmsLogStatus(second);
         const after = smsLogStatusesReplaceableBy(next).includes(before) ? next : before;
         expect(rank[after]).toBeGreaterThanOrEqual(rank[before]);
+        if (before === "delivered") expect(after).toBe("delivered");
       }
     }
     // suppressed and inbound logs are never changed by a callback

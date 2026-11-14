@@ -179,11 +179,14 @@ export function mapTwilioStatusToSmsLogStatus(status: string | null | undefined)
 
 /**
  * TW-4F: the message-log statuses a status callback (already mapped by `mapTwilioStatusToSmsLogStatus`) may replace. Twilio does not guarantee that
- * callbacks arrive in order, so a late `sent` or `sending` after `delivered` must not move the log back: a final status (delivered / failed) is only
- * ever replaced by another final one, `sent` never by `queued`. Logs in any other state (suppressed, received) are never changed by a callback.
+ * callbacks arrive in order, so a late `sent` or `sending` after `delivered` must not move the log back: `queued` < `sent` < failed < delivered.
+ * Delivered is final (a handset receipt is the strongest evidence, and Twilio's `failed` means never sent, so it cannot validly follow); a failed log
+ * may still become delivered. Logs in any other state (suppressed, received) are never changed by a callback. (The status route also lets `sent`
+ * replace a log the reconciler released as never sent, failed / not_sent.)
  */
 export function smsLogStatusesReplaceableBy(mapped: string): string[] {
-  if (mapped === "delivered" || mapped === "failed") return ["draft", "queued", "sent", "delivered", "failed"];
+  if (mapped === "delivered") return ["draft", "queued", "sent", "failed", "delivered"];
+  if (mapped === "failed") return ["draft", "queued", "sent", "failed"];
   if (mapped === "sent") return ["draft", "queued", "sent"];
   if (mapped === "received") return ["received"];
   return ["draft", "queued"];

@@ -27,13 +27,16 @@ When `fixtures/twilio/capturedShapes.json` exists (same keys), the adapter and l
 
 Twilio documents that status callbacks are not guaranteed to arrive in order. Before this change, the status route applied any callback, so a late `sent`, `sending` or `accepted` after `delivered` moved the message log back to `sent` or `queued`, and `delivered_at` stayed set. Billing was not affected: `tw4_usage_record_callback` already ranks statuses, and settlement reads the Message resource. Nothing re-sends from `sms_message_logs`: the dispatcher's `queued` queries are on `outbound_deliveries`.
 
-The route now refuses to move a log backwards (`smsLogStatusesReplaceableBy`), and the same condition is repeated in the update to cover races:
+The route now refuses to move a log backwards (`smsLogStatusesReplaceableBy`), and the same condition is repeated in the update to cover races. The order is queued < sent < failed < delivered:
 
-- a final status (delivered or failed) is replaced only by another final status;
-- `sent` is never replaced by `queued`;
-- suppressed and inbound logs are never changed by a callback.
+- **delivered is final.** A handset receipt is the strongest evidence, and Twilio's `failed` means never sent, so it cannot validly follow. A failed log may still become delivered, and its `failed_at` is then cleared.
+- **The first delivery time is kept.** A later `read` does not move it.
+- **`sent` never moves back to `queued`.** The one exception to the order: `sent` may replace a log the reconciler released as never sent (`failed` / `not_sent`), because Twilio says it went out.
+- **Suppressed and inbound logs are never changed by a callback.**
 
-`canceled` now maps to `failed`, and `read` to `delivered`, matching the database table. App-only, no SQL.
+`canceled` now maps to `failed`, and `read` to `delivered`, matching the database table.
+
+Found in review (existing before this change): the replay receipt was claimed before the log update, so a failed update (500) made Twilio's retry a "duplicate" and the status was lost. The receipt is now checked first (`sms_webhook_receipt_seen`) and claimed only after the update succeeds or the callback is found stale. App-only, no SQL.
 
 ## 3. What documented shapes cannot prove (still open before activation)
 
@@ -42,6 +45,9 @@ The route now refuses to move a log backwards (`smsLogStatusesReplaceableBy`), a
 3. **Price posting delay.** How long `price` stays `null` after `delivered`. Settlement charges by segments, not price, so this affects only the price sanity check.
 4. **Advanced Opt-Out custom keywords:** that a custom opt-in keyword really arrives with `OptOutType=START` (the START signal from 20270218 depends on it).
 5. **Production signature URL.** That the URL Twilio signs for a subaccount webhook equals `resolveTwilioSignedUrl` behind Vercel (www host, no redirect).
+   - Checked 2026-11-14 with read-only GETs: `https://idanceflow.com/api/sms/twilio/inbound` answers **307 → www**; `https://www.idanceflow.com/api/sms/twilio/inbound` answers 405 to GET (route present, POST only).
+   - Provisioning gives Twilio `expectedInboundUrl()` = `NEXT_PUBLIC_APP_URL` (or `NEXT_PUBLIC_SITE_URL`) + `/api/sms/twilio/inbound`. If that origin were the apex, every inbound webhook would go through the redirect, and a STOP could be refused (signature computed on another URL) or never arrive.
+   - **Activation check:** the production `NEXT_PUBLIC_APP_URL` is exactly `https://www.idanceflow.com`, before the first provisioning run. After it, the Messaging Service's `inbound_request_url` (shown by sender verification) starts with `https://www.`.
 
 ## 4. Capture procedure (only inside an authorized live validation)
 

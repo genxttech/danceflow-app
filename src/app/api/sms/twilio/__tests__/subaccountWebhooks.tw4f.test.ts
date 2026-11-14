@@ -86,6 +86,7 @@ function seed() {
     receipts.add(key);
     return { data: true, error: null };
   });
+  fake.current.overrideRpc("sms_webhook_receipt_seen", (args) => ({ data: receipts.has(`${args.p_kind}|${args.p_event_key}`), error: null }));
   return fake.current;
 }
 
@@ -369,14 +370,58 @@ describe("documented Twilio webhook requests (fixtures/twilio/documentedShapes.j
     }
   });
 
-  it("in order, the documented sequence sent -> delivered moves the log forward; a later final status still replaces a final one", async () => {
+  it("in order, sent -> undelivered -> delivered moves the log forward; delivered is final (a late undelivered / failed never replaces it)", async () => {
     seed();
     expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_sent")))).status).toBe(200);
     expect(logs()["log-a"]).toMatchObject({ status: "sent" });
-    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")))).status).toBe(200);
-    expect(logs()["log-a"]).toMatchObject({ status: "delivered" });
     expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_undelivered_30034")))).status).toBe(200);
     expect(logs()["log-a"]).toMatchObject({ status: "failed", provider_error_code: "30034" });
+    expect(logs()["log-a"].failed_at).toBeTruthy();
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")))).status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "delivered", failed_at: null, provider_error_code: null });
+    const deliveredAt = logs()["log-a"].delivered_at;
+    // (the same undelivered again is a replay: duplicate)
+    for (const late of ["failed", "canceled"]) {
+      const response = await status(post(STATUS_URL, tokenA(), statusAsA("status_undelivered_30034", { MessageStatus: late, SmsStatus: late })));
+      expect(await response.json()).toMatchObject({ ok: true, stale: true });
+      expect(logs()["log-a"]).toMatchObject({ status: "delivered", delivered_at: deliveredAt });
+    }
+    // a later read receipt is still delivered and keeps the first delivery time
+    await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered", { MessageStatus: "read", SmsStatus: "read" })));
+    expect(logs()["log-a"]).toMatchObject({ status: "delivered", delivered_at: deliveredAt, failed_at: null });
+  });
+
+  it("a text the reconciler released as never sent (failed / not_sent) that Twilio reports as sent becomes sent; any other failed log stays failed", async () => {
+    seed();
+    const row = fake.current!.rows("sms_message_logs").find((r) => r.id === "log-a")!;
+    Object.assign(row, { status: "failed", provider_error_code: "not_sent", failed_at: "2026-11-14T15:00:00.000Z" });
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_sent")))).status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "sent", provider_error_code: null, failed_at: null });
+    seed();
+    Object.assign(fake.current!.rows("sms_message_logs").find((r) => r.id === "log-a")!, { status: "failed", provider_error_code: "30007" });
+    expect(await (await status(post(STATUS_URL, tokenA(), statusAsA("status_sent")))).json()).toMatchObject({ stale: true });
+    expect(logs()["log-a"]).toMatchObject({ status: "failed", provider_error_code: "30007" });
+  });
+
+  it("a race: the log turns delivered between this callback's read and its update; the conditional update leaves it delivered", async () => {
+    seed();
+    fake.current!.failUpdates("sms_message_logs", () => {
+      Object.assign(fake.current!.rows("sms_message_logs").find((r) => r.id === "log-a")!, { status: "delivered", delivered_at: "2026-11-14T15:00:09.000Z" });
+      return false;   // not a failure: only the concurrent change
+    });
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_sent")))).status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "delivered", delivered_at: "2026-11-14T15:00:09.000Z" });
+  });
+
+  it("a failed update claims no receipt: Twilio's retry of the same callback is applied, then a replay is a duplicate", async () => {
+    seed();
+    fake.current!.failUpdates("sms_message_logs", (values) => values.status === "delivered");
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")))).status).toBe(500);
+    expect(receipts.size).toBe(0);
+    expect(logs()["log-a"]).toMatchObject({ status: "queued" });
+    expect((await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")))).status).toBe(200);
+    expect(logs()["log-a"]).toMatchObject({ status: "delivered" });
+    expect(await (await status(post(STATUS_URL, tokenA(), statusAsA("status_delivered")))).json()).toMatchObject({ duplicate: true });
   });
 
   it("undelivered with ErrorCode 30034 (sender not registered) reaches the billing recorder with its code", async () => {
