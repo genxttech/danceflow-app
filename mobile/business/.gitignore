@@ -11,3 +11,8 @@ ios/
 
 expo-env.d.ts
 # @end expo-cli
+# Android release signing: upload keystores and credentials never belong in the repo
+*.keystore
+keystore.properties
+*.aab
+google-services.json

@@ -10,4 +10,4 @@ Copied unchanged from `mobile/student/assets` (the approved DanceFlow brand set,
 | `danceflow-logo-primary.png` | `expo.splash.image`, `resizeMode` `contain`, `backgroundColor` `#180C1B` |
 | `danceflow-notification-symbol.png` | `expo.notification.icon`, `color` `#5B145E` (Android push) |
 
-Not wired: `mobile/business/app.json` is owned by the release session (PR 513). The exact keys to add are the table above, mirroring `mobile/student/app.json`.
+Wired in `mobile/business/app.json` (icon, splash, adaptive icon, notification) as of the Android release candidate.

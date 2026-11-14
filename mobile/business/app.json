@@ -17,7 +17,20 @@
     },
     "android": {
       "package": "com.idanceflow.business",
-      "versionCode": 1
+      "versionCode": 1,
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#0E1028",
+        "foregroundImage": "./assets/danceflow-adaptive-foreground-symbol.png",
+        "monochromeImage": "./assets/danceflow-adaptive-monochrome-symbol.png"
+      }
     },
     "web": {
       "output": "single",
@@ -26,11 +39,28 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-dev-client"
+      "expo-dev-client",
+      [
+        "expo-notifications",
+        {
+          "color": "#5B145E"
+        }
+      ],
+      "./plugins/withAndroidReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true
     },
-    "description": "DanceFlow Business is the studio staff companion to DanceFlow: your teaching day, lesson details and studio pulse."
+    "description": "DanceFlow Business is the studio staff companion to DanceFlow: your teaching day, lesson details and studio pulse.",
+    "icon": "./assets/danceflow-app-icon-1024.png",
+    "splash": {
+      "image": "./assets/danceflow-logo-primary.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#180C1B"
+    },
+    "notification": {
+      "icon": "./assets/danceflow-notification-symbol.png",
+      "color": "#5B145E"
+    }
   }
 }
