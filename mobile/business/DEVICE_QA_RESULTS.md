@@ -121,3 +121,20 @@ The check uses DEV GoTrue's email-link endpoint with a deliberately **invalid** 
 | `https://not-allowed.example/cb` | `303` → `http://localhost:3000#error=…` | Refused (negative control) |
 
 Side note: DEV's site URL is `http://localhost:3000`.
+
+## R2 re-walk (2026-11-14, main + PR 497): production web build, new roster states
+
+| # | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| R2-1 | Today, class roster, Present / No-show writes, Clients, client detail at font 1.0 on the emulator (Ida, instructor) | **PASS** | `r2-05-today-1.0`, `r2-06-class-1.0`, `r2-07-class-marked-1.0`, `r2-12-clients-1.0`, `r2-13-client-detail-1.0` |
+| R2-2 | Same screens at font 2.0, cold start | **PASS**: no clipped text, tab bar intact | `r2-08-today-2.0b`, `r2-10-class-2.0-scrolled` (new "1 marked no-show" line), `r2-11-clients-2.0` |
+| R2-3 | Attendance writes reach the database | **PASS**: after tapping, `attendance_records` held Ana = attended, Colin = no_show | psql on the local stack |
+| R2-4 | API refusals against `next build && next start` (no tokens printed) | **PASS** 12/12 expected statuses | `../r2-api-refusal-matrix.txt` |
+| R2-5 | Dark mode | **BLOCKED**: the app is light-only (`userInterfaceStyle: light`, static colour tokens); dark tokens need owner approval (Mobile_Design_Direction) | — |
+
+Setup: iso-qa `--auth` stack `biz`, seeded with `seed-staff.mjs`; `next build --webpack` then `next start -p 3100`; Metro `--clear` on 8083 with the served bundle loaded into the existing debug dev build (`C:\dfb` APK); emulator `df-api35`. Font scale was reset to 1.0 afterwards.
+
+Findings:
+- **Roster names need migration `20270214120000` on the database**, as the contract says: before applying it to the local stack, class detail showed "Temporarily unavailable" (503). Applied to the disposable local stack only.
+- **Changing the system text size while the app is open leaves a stale layout** (`r2-liveswitch-stale-layout-2.0`: glyphs scale, boxes keep the 1.0 heights, so text is clipped, and the tab bar is partly covered) until the app is relaunched. A cold start at 2.0 is correct. Same activity-recreation family as the dev linking warning; Android recreates the activity on a font change and the React root keeps the old layout. Not fixed here; users rarely change text size with the app open, but it is worth a follow-up.
+- **Local workaround, not committed:** `next build` on this checkout fails type-checking `src/app/(auth)/callback/route.ts` (a non-route export, `sortByCreatedAtAscending`), and the build ran out of heap until `--max-old-space-size=8192`. `typescript.ignoreBuildErrors` was set locally for the QA build only. This is outside the Business app; CI on main passes, so check the Next version difference.
