@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { NotificationsCard } from "@/components/NotificationsCard";
 import { Screen } from "@/components/Screen";
 import { StateMessage } from "@/components/StateMessage";
 import { isServedRole, roleLabel } from "@/lib/navigation";
@@ -114,6 +115,8 @@ export function MoreScreen() {
           <AppText tone="muted">{studioStatus(workspace)}</AppText>
         </View>
       ) : null}
+
+      <NotificationsCard />
 
       <View style={styles.section}>
         <AppButton label="Refresh studios" variant="secondary" onPress={() => void reload()} />
