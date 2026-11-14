@@ -1,8 +1,8 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { sanitizedSmsProviderError } from "@/lib/sms/compliance";
-import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
-import { buildWebhookAccountDeps, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
+import { mapTwilioStatusToSmsLogStatus, smsLogStatusesReplaceableBy } from "@/lib/sms/twilio";
+import { buildWebhookAccountDeps, receiptSeen, recordWebhookReceipt } from "@/lib/sms/twilioIsv/webhookRuntime";
 import { twilioFormHasDuplicateKeys, twilioFormParams } from "@/lib/sms/twilioWebhook";
 import { verifyTwilioWebhookAccount, webhookMayActForStudio, webhookReceiptKey } from "@/lib/sms/twilioWebhookAccount";
 import { cleanTextValue } from "@/lib/validation/forms";
@@ -161,24 +161,17 @@ export async function POST(request: Request) {
     updated_at: timestamp,
   };
 
-  if (mappedStatus === "delivered") {
-    updatePayload.delivered_at = timestamp;
-  }
-
-  if (mappedStatus === "failed") {
-    updatePayload.failed_at = timestamp;
-  }
 
   // SMS-A2P-2: scope the callback to the studio that owns the logged message. When that
   // studio has a registration, the callback must come from its own Messaging Service,
   // so one studio's sender can never update another studio's log.
   const { data: logRow, error: lookupError } = await supabase
     .from("sms_message_logs")
-    .select("id, studio_id")
+    .select("id, studio_id, status, provider_error_code, delivered_at")
     .eq("provider", "twilio")
     .eq("provider_message_id", messageSid)
     .limit(1)
-    .maybeSingle<{ id: string; studio_id: string | null }>();
+    .maybeSingle<{ id: string; studio_id: string | null; status: string | null; provider_error_code: string | null; delivered_at: string | null }>();
 
   if (lookupError) {
     console.error("Twilio status callback lookup failed", lookupError.message);
@@ -216,17 +209,40 @@ export async function POST(request: Request) {
     }
   }
 
-  // TW-4F replay protection: each (MessageSid, MessageStatus) is applied once, so an exact replay of an earlier callback changes nothing.
-  // (A genuine out-of-order callback, e.g. sent after delivered, still applies: there is no status ranking yet.)
+  // TW-4F replay protection: each (MessageSid, MessageStatus) is applied once, so an exact replay of an earlier callback changes nothing. The receipt is
+  // claimed only AFTER the callback was applied (or found stale): a failed update answers 500 with nothing claimed, so Twilio's retry is applied.
   // If the ledger is unreachable the callback is applied anyway (status updates are idempotent; the signature is already verified).
   const receiptKey = webhookReceiptKey("status", params);
-  if (receiptKey) {
+  if (receiptKey && (await receiptSeen(supabase, "status", receiptKey)) === "seen") return NextResponse.json({ ok: true, duplicate: true });
+  const claimReceipt = async () => {
+    if (!receiptKey) return;
     const receipt = await recordWebhookReceipt(supabase, "status", receiptKey, signer.kind === "subaccount" ? signer.accountSid : null);
-    if (receipt === "duplicate") return NextResponse.json({ ok: true, duplicate: true });
     if (receipt === "unavailable") console.warn("sms_status_receipt_unavailable");
+  };
+
+  // TW-4F: Twilio does not guarantee callback order. A callback that would move the log backwards (a late `sent` after `delivered`) is acknowledged
+  // and changes nothing; the condition is repeated in the update so a callback racing another one cannot move it back either.
+  const current = String(logRow.status ?? "");
+  // a text the reconciler released as never sent (failed / not_sent) that Twilio then reports as sent did go out: only that failed log may become sent
+  const releasedButSent = mappedStatus === "sent" && current === "failed" && logRow.provider_error_code === "not_sent";
+  const replaceable = smsLogStatusesReplaceableBy(mappedStatus);
+  if (!releasedButSent && !replaceable.includes(current)) {
+    await claimReceipt();
+    return NextResponse.json({ ok: true, stale: true });
+  }
+
+  // one timestamp per outcome: the first delivery time is kept (a later `read` does not move it); a log that turns delivered or sent is no longer failed
+  if (mappedStatus === "delivered") {
+    updatePayload.delivered_at = logRow.delivered_at ?? timestamp;
+    updatePayload.failed_at = null;
+  } else if (mappedStatus === "failed") {
+    updatePayload.failed_at = timestamp;
+  } else if (releasedButSent) {
+    updatePayload.failed_at = null;
   }
 
   let update = supabase.from("sms_message_logs").update(updatePayload).eq("id", logRow.id);
+  update = releasedButSent ? update.eq("status", "failed").eq("provider_error_code", "not_sent") : update.in("status", replaceable);
   if (logRow.studio_id) update = update.eq("studio_id", logRow.studio_id);
   const { error } = await update;
 
@@ -235,5 +251,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Status callback could not be processed." }, { status: 500 });
   }
 
+  await claimReceipt();
   return NextResponse.json({ ok: true });
 }
