@@ -15,7 +15,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 declare
   v_basic text := '@£$¥èéùìòÇ' || chr(10) || 'Øø' || chr(13) || 'ÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&''()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà';
-  v_ext text := '^{}[~]|€' || chr(12);
+  v_ext text := '^{}\[~]|€' || chr(12);
   v_len int := char_length(coalesce(p_body, ''));
   v_ext_count int;
   v_units int;

@@ -1,4 +1,4 @@
--- Parity cases for public._tw4us_segments (migration 20270217090000); the same cases, in the same order, as
+-- Parity cases (UCS-2 clusters and GSM-7) for public._tw4us_segments (migration 20270217090000); the same cases, in the same order, as
 -- src/lib/sms/__tests__/fixtures/ucs2SegmentCases.json run by segments.test.ts against src/lib/sms/segments.ts.
 -- Run on a disposable database only (it creates nothing, but it is a QA script): psql -v ON_ERROR_STOP=1 -f <this file>
 do $$
@@ -26,7 +26,10 @@ begin
     ('flag (two regional indicators, 4 units) after 66 a + b', repeat('a',66) || repeat(chr(127482),1) || repeat(chr(127480),1) || repeat('b',1), 2),
     ('keycap 1 + VS16 + keycap (3 units) after 68 a', repeat('a',68) || repeat(chr(49),1) || repeat(chr(65039),1) || repeat(chr(8419),1), 2),
     ('skin-tone thumbs up (4 units) after 67 a', repeat('a',67) || repeat(chr(128077),1) || repeat(chr(127997),1), 2),
-    ('more than ten parts reports eleven', repeat(chr(128512),400), 11)
+    ('more than ten parts reports eleven', repeat(chr(128512),400), 11),
+    ('GSM-7 with a backslash stays GSM-7: 100 a + backslash is one part', repeat('a',100) || repeat(chr(92),1), 1),
+    ('GSM-7 with a backslash: 160 a + backslash = 162 septets, two parts', repeat('a',160) || repeat(chr(92),1), 2),
+    ('GSM-7 extension characters count two septets: 151 a + 5 braces = 161 septets, two parts', repeat('a',151) || repeat(chr(123),5), 2)
   ) v(name, body, expected) loop
     if public._tw4us_segments(r.body) is distinct from r.expected then
       raise exception 'segments mismatch (%): expected %, got %', r.name, r.expected, public._tw4us_segments(r.body);

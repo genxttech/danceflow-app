@@ -374,5 +374,47 @@
    ]
   ],
   "expect": 11
+ },
+ {
+  "name": "GSM-7 with a backslash stays GSM-7: 100 a + backslash is one part",
+  "parts": [
+   [
+    "a",
+    100
+   ],
+   [
+    92,
+    1
+   ]
+  ],
+  "expect": 1
+ },
+ {
+  "name": "GSM-7 with a backslash: 160 a + backslash = 162 septets, two parts",
+  "parts": [
+   [
+    "a",
+    160
+   ],
+   [
+    92,
+    1
+   ]
+  ],
+  "expect": 2
+ },
+ {
+  "name": "GSM-7 extension characters count two septets: 151 a + 5 braces = 161 septets, two parts",
+  "parts": [
+   [
+    "a",
+    151
+   ],
+   [
+    123,
+    5
+   ]
+  ],
+  "expect": 2
  }
 ]
