@@ -66,12 +66,18 @@ export function RosterAttendance({
   }
 
   const recorded = Object.values(rows).filter((r) => r.status === "attended").length;
+  const absent = Object.values(rows).filter((r) => r.status === "no_show").length;
 
   return (
     <View style={styles.list}>
       {canMark ? (
         <AppText tone="muted" accessibilityLiveRegion="polite" testID="attendance-summary">
           {recorded} of {attendees.length} marked present
+        </AppText>
+      ) : null}
+      {canMark && absent > 0 ? (
+        <AppText tone="muted" accessibilityLiveRegion="polite" testID="attendance-absent-summary">
+          {absent} marked no-show
         </AppText>
       ) : null}
       {attendees.length === 0 ? <AppText tone="muted">No one is enrolled yet.</AppText> : null}
@@ -82,8 +88,9 @@ export function RosterAttendance({
           <View key={attendee.clientId} style={styles.attendee} testID={`attendee-${attendee.clientId}`}>
             <View style={styles.attendeeHead}>
               <AppText style={styles.attendeeName}>{name}</AppText>
-              {!canMark ? (
-                <AppText variant="caption" tone="muted">
+              {!canMark || (row.status !== null && !MARKS.some((m) => m.value === row.status)) ? (
+                // A status the app cannot set (registered, checked in, cancelled) must still be visible to the person marking.
+                <AppText variant="caption" tone="muted" testID={`attendance-status-${attendee.clientId}`}>
                   {attendanceLabel(row.status)}
                 </AppText>
               ) : null}

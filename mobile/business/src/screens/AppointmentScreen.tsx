@@ -27,6 +27,12 @@ function localDate(iso: string, timeZone: string | undefined) {
   }
 }
 
+/** "6 of 10 booked", "10 of 10 booked · Full" at or over capacity, "6 booked" with no limit. The API has no waitlist yet (proposed). */
+export function rosterCapacityLabel(booked: number, capacity: number | null) {
+  if (capacity === null) return `${booked} booked`;
+  return booked >= capacity ? `${booked} of ${capacity} booked · Full` : `${booked} of ${capacity} booked`;
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
@@ -153,8 +159,8 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
 
       {roster ? (
         <Section title={canMarkAttendance ? "Roster and attendance" : "Roster"}>
-          <AppText tone="muted" style={tabularNums}>
-            {roster.capacity === null ? `${roster.bookedCount} booked` : `${roster.bookedCount} of ${roster.capacity} booked`}
+          <AppText tone="muted" style={tabularNums} testID="roster-capacity">
+            {rosterCapacityLabel(roster.bookedCount, roster.capacity)}
           </AppText>
           <RosterAttendance
             studioId={studioId}
