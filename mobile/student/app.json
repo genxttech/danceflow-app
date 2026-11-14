@@ -24,6 +24,13 @@
         "ACCESS_FINE_LOCATION",
         "POST_NOTIFICATIONS"
       ],
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#0E1028",
         "foregroundImage": "./assets/danceflow-adaptive-foreground-symbol.png",
@@ -36,6 +43,7 @@
       "expo-secure-store",
       "expo-notifications",
       "expo-dev-client",
+      "./plugins/withAndroidReleaseSigning",
       [
         "@stripe/stripe-react-native",
         {
