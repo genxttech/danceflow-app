@@ -423,7 +423,7 @@ describe("a custom opt-in keyword is ordered by Twilio's message time, never by 
     expect(await run([msg(2, "REJOINDRE", "2026-10-20T11:00:00Z")], handled())).toBe("none");
   });
 
-  it("defect (2): a START SENT BEFORE the STOP never suppresses it, however late DanceFlow processed it", async () => {
+  it("a handled START that Twilio's time puts BEFORE the STOP is never asked about (the database side of defect 2 is proven by local-stack R8/R9)", async () => {
     // Twilio's time puts the custom START an hour before the STOP: it is not even asked about, and the STOP stands
     const lookup = handled(sidOf(2));
     expect(await run([msg(2, "REJOINDRE", "2026-10-20T09:00:00Z")], lookup)).toBe("none");
@@ -453,6 +453,9 @@ describe("a custom opt-in keyword is ordered by Twilio's message time, never by 
     expect(await startSidLookup(fakeRpc({ tw4_inbound_start_sids: () => ({ error: { code: "57014" } }) }).admin, ACCOUNT, texter)([sids[0]])).toBeNull();
     expect(await startSidLookup(fakeRpc({ tw4_inbound_start_sids: () => ({ data: { not: "an array" } }) }).admin, ACCOUNT, texter)([sids[0]])).toBeNull();
     expect(await startSidLookup(fakeRpc({}).admin, ACCOUNT, texter)([sids[0]])).toBeNull();   // a thrown call
+    const late = fakeRpc({ tw4_inbound_start_sids: () => ({ data: [] }) });
+    expect(await startSidLookup(late.admin, ACCOUNT, texter, Date.now() - 1)([sids[0]])).toBeNull();   // past the run budget: unknown, nothing asked
+    expect(late.calls).toHaveLength(0);
   });
 
   it("recovery asks the database about the texter's custom later messages and passes 'start' for one the webhook handled", async () => {

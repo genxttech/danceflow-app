@@ -129,7 +129,7 @@ end $$;
 
 drop function if exists public.tw4_inbound_start_sids(text, text, text[]);
 drop function if exists public.sms_inbound_start_signal_record(uuid, text, text);
-drop table if exists public.studio_sms_inbound_start_signals;
+drop table if exists public.studio_sms_inbound_start_signals;   -- its indexes go with it
 
 notify pgrst, 'reload schema';
 

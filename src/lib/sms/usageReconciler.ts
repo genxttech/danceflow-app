@@ -241,10 +241,11 @@ const PERMANENT = new Set(["22023", "42501"]);
  */
 export type StartSidLookup = (sids: string[]) => Promise<ReadonlySet<string> | null>;
 
-export function startSidLookup(admin: Client, accountSid: string, from: string): StartSidLookup {
+export function startSidLookup(admin: Client, accountSid: string, from: string, deadline?: number): StartSidLookup {
   return async (sids) => {
     const found = new Set<string>();
     for (let i = 0; i < sids.length; i += 500) {
+      if (deadline !== undefined && Date.now() > deadline) return null;   // out of time: unknown (the STOP is applied and listed)
       try {
         const { data, error } = await admin.rpc("tw4_inbound_start_sids", { p_account_sid: accountSid, p_from: from, p_sids: sids.slice(i, i + 500) });
         if (error) return missingFunction(error) ? new Set<string>() : null;
@@ -420,7 +421,7 @@ export async function recoverInboundUsage(
       const { classification, keyword, keywordKind, possibleOptOut } = classifyRecoveredBody(m.body, sender !== null);
       // a recovered STOP is ordered against the texter's later keywords by Twilio's own times (a START that changed nothing leaves no history in DanceFlow)
       const laterKeyword = keywordKind === "stop" && sender && Number.isFinite(messageTime(m))
-        ? await laterKeywordFor(lister, { accountSid: target.account_sid, to: m.to, from: sender, sid: m.sid, at: messageTime(m), until: new Date(), deadline, startSids: startSidLookup(admin, target.account_sid, sender) })
+        ? await laterKeywordFor(lister, { accountSid: target.account_sid, to: m.to, from: sender, sid: m.sid, at: messageTime(m), until: new Date(), deadline, startSids: startSidLookup(admin, target.account_sid, sender, deadline) })
         : undefined;
       const { data, error } = await admin.rpc("tw4_inbound_recover", {
         p_run_id: options.runId,

@@ -34,6 +34,8 @@ create table if not exists public.studio_sms_inbound_start_signals (
   primary key (studio_id, message_sid)
 );
 create index if not exists ix_studio_sms_inbound_start_signals_phone on public.studio_sms_inbound_start_signals (studio_id, phone_e164, processed_at);
+create index if not exists ix_studio_sms_inbound_start_signals_sid on public.studio_sms_inbound_start_signals (message_sid);
+create index if not exists ix_studio_sms_inbound_start_signals_age on public.studio_sms_inbound_start_signals (processed_at);
 
 alter table public.studio_sms_inbound_start_signals enable row level security;
 revoke all on public.studio_sms_inbound_start_signals from public, anon, authenticated, service_role;
@@ -182,7 +184,8 @@ begin
   -- DanceFlow's own record of a CONTACT-originated opt-in (an inbound START in the consent history, an inbound 'start' message log, or a START signal, for
   -- this studio and number) carries the time the webhook PROCESSED it, never the time the texter sent it: a START sent before the STOP can be delivered
   -- after it. Such a record therefore never suppresses a STOP on its own (20270218090000); when one exists from 2 minutes before the STOP's time onward
-  -- and the provider lookup did not prove a later START, the STOP is applied (fail closed) and listed for a person.
+  -- and the provider lookup did not prove a later START, the STOP is applied (fail closed) and listed for a person. The window now only decides whether
+  -- an applied STOP is listed; it never decides whether it is applied.
   -- Staff and public opt-ins never override a texted STOP (TW-2: only the contact can resubscribe; a web form never reverses an opt-out), so they are
   -- not consulted. A recovered START is never applied. Without a usable sender number nothing can be applied (listed).
   if v_kind = 'stop' then

@@ -1087,6 +1087,18 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
         expect(psql(`select has_table_privilege('${role}', 'public.studio_sms_inbound_start_signals', 'select') or has_table_privilege('${role}', 'public.studio_sms_inbound_start_signals', 'insert')`), role).toBe("f");
       }
       expect(psql("select has_function_privilege('service_role', 'public.tw4_inbound_recover(uuid, text, jsonb)', 'execute')")).toBe("t");
+      // rollback round trip inside a transaction that is rolled back: the rollback restores 20261205's recover function exactly and drops only what 0218 made
+      const file = (f: string) => readFileSync(join(process.cwd(), "src/lib/supabase/migrations", f), "utf8").replace(/\r/g, "");
+      const rollback0218 = file("rollback/20270218090000_twilio_inbound_start_order_rollback.sql").replace(/^begin;$/m, "").replace(/^commit;$/m, "").replace(/^notify pgrst.*$/m, "");
+      const orig = file("20261205090000_twilio_usage_reconciliation.sql");
+      const start = orig.indexOf("create or replace function public.tw4_inbound_recover(");
+      const recover1205 = orig.slice(start, orig.indexOf("\nend $;", start) + "\nend $;".length);
+      const md5 = "select md5(prosrc) from pg_proc where oid = 'public.tw4_inbound_recover(uuid, text, jsonb)'::regprocedure;";
+      const round = psqlFile(`begin;\n${rollback0218}\n${md5}\nselect coalesce(to_regclass('public.studio_sms_inbound_start_signals')::text, 'none') || ',' || coalesce(to_regprocedure('public.tw4_inbound_start_sids(text, text, text[])')::text, 'none') || ',' || coalesce(to_regprocedure('public.sms_inbound_start_signal_record(uuid, text, text)')::text, 'none') || ',' || has_function_privilege('service_role', 'public.tw4_inbound_recover(uuid, text, jsonb)', 'execute');\n${recover1205}\n${md5}\nrollback;`).trim().split("\n");
+      expect(round[1]).toBe("none,none,none,true");
+      expect(round[0]).toMatch(/^[0-9a-f]{32}$/);
+      expect(round[2]).toBe(round[0]);   // the restored body IS 20261205's
+      expect(psql("select to_regclass('public.studio_sms_inbound_start_signals') is not null")).toBe("t");   // rolled back: still installed
       reset();
     });
 

@@ -291,11 +291,6 @@ export async function POST(request: Request) {
     if (keyword === "start" && !(await supersedePendingOptOuts(supabase, { studioId, phone: from })) && !(await supersedePendingOptOuts(supabase, { studioId, phone: from }))) {
       console.warn("sms_pending_opt_out_supersede_failed"); // safe direction: a waiting STOP may still be applied (the texter can START again)
     }
-    // TW-4F: every START is recorded by MessageSid (also a custom opt-in keyword from a texter with no client/contact row), so the reconciler can order a
-    // recovered STOP against it by Twilio's own message times. Not recorded: safe direction (recovery then applies an older STOP: fail closed).
-    if (keyword === "start" && !(await recordInboundStartSignal(supabase, { studioId, phone: from, messageSid }))) {
-      console.warn("sms_inbound_start_signal_failed");
-    }
     const applyConsent = () => supabase.rpc("record_sms_inbound_opt_event", { p_studio_id: studioId, p_phone_e164: from, p_event: keyword });
     let consent = await applyConsent();
     // one inline retry: a transient failure must not leave a STOP unrecorded (the START direction is fail-safe and is not retried)
@@ -317,6 +312,13 @@ export async function POST(request: Request) {
     if (keyword === "stop") {
       const stopReply = buildSmsStopReply(studioName);
       return finish(reply(stopReply), stopReply);
+    }
+
+    // TW-4F: every START DanceFlow applied is recorded by MessageSid (also a custom opt-in keyword from a texter with no client/contact row), so the
+    // reconciler can order a recovered STOP against it by Twilio's own message times. Only after the consent change succeeded: a START DanceFlow never
+    // acted on is no reason to leave an older STOP unapplied. Not recorded: safe direction (recovery then applies an older STOP: fail closed).
+    if (!consentError && !(await recordInboundStartSignal(supabase, { studioId, phone: from, messageSid }))) {
+      console.warn("sms_inbound_start_signal_failed");
     }
 
     const restored = Number((outcome as { rows_changed?: unknown } | null)?.rows_changed ?? 0) > 0;

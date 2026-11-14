@@ -327,6 +327,14 @@ describe("every START is recorded by MessageSid so recovery can order a STOP aga
     }
   });
 
+  it("a START whose consent change failed records no signal (DanceFlow never acted on it, so it must not hold back an older STOP)", async () => {
+    fake.current = createFakeSupabase();
+    fake.current.overrideRpc("sms_inbound_start_signal_record", recordsTrue);
+    fake.current.overrideRpc("record_sms_inbound_opt_event", dbError);
+    expect((await POST(req("START"))).status).toBe(200);
+    expect(signal()).toHaveLength(0);
+  });
+
   it("a START without a valid MessageSid is not sent to the database", async () => {
     fake.current = createFakeSupabase();
     fake.current.overrideRpc("sms_inbound_start_signal_record", recordsTrue);
