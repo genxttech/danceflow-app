@@ -21,7 +21,7 @@ export function NotificationsCard() {
         </>
       ) : null}
       {status.kind === "denied" ? (
-        <AppText testID="notifications-denied">Notifications are off. Turn them on for DanceFlow Business in your phone's settings.</AppText>
+        <AppText testID="notifications-denied">Notifications are off. Turn them on for DanceFlow Business in your phone&apos;s settings.</AppText>
       ) : null}
       {status.kind === "unavailable" ? (
         <AppText tone="muted" testID="notifications-unavailable">
