@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { ensurePhotoLibraryAccess } from "@/lib/photoLibraryAccess";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
@@ -658,8 +659,7 @@ export default function PartnerSearchScreen() {
     setErrorMessage(null);
 
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
+      if (!(await ensurePhotoLibraryAccess())) {
         setMessage("Allow photo access to add a partner profile photo.");
         return;
       }
