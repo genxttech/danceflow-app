@@ -6,6 +6,8 @@ import { StaffApiError, type AppointmentDetail, type StaffToday } from "@/lib/st
 import { AppointmentScreen } from "@/screens/AppointmentScreen";
 import { ClientDetailScreen } from "@/screens/ClientDetailScreen";
 import { ClientsScreen, SEARCH_DEBOUNCE_MS } from "@/screens/ClientsScreen";
+import { PushProvider } from "@/lib/push";
+import type { PermissionState, PushAdapter } from "@/lib/pushSetup";
 import { MoreScreen } from "@/screens/MoreScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
 import SignInScreen from "../../app/sign-in";
@@ -209,6 +211,29 @@ describe("every screen passes the audit", () => {
     withProviders(<MoreScreen />, fakeApi(), { workspaces: [workspace(), second] });
     expectClean();
     fireEvent.press(screen.getByRole("button", { name: "Sign out of all devices" }));
+    expectClean();
+  });
+
+  it.each<[PermissionState, string]>([
+    ["undetermined", "Turn on notifications"],
+    ["denied", "notifications-denied"],
+    ["granted", "notifications-ready"],
+  ])("More with the notifications card (%s)", async (permission, expected) => {
+    const adapter: PushAdapter = {
+      getPermission: async () => permission,
+      requestPermission: async () => permission,
+      getDeviceToken: async () => "tok",
+    };
+    render(
+      <PushProvider value={{ adapter }}>
+        <StaffTestProviders api={fakeApi()}>
+          <MoreScreen />
+        </StaffTestProviders>
+      </PushProvider>,
+    );
+    await flush();
+    expect(screen.getByTestId("notifications")).toBeTruthy();
+    expect(screen.queryByText(expected) ?? screen.queryByTestId(expected) ?? screen.queryByRole("button", { name: expected })).toBeTruthy();
     expectClean();
   });
 
