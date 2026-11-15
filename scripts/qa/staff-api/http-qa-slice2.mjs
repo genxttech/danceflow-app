@@ -38,7 +38,7 @@ async function gotrue(method, path, body, token = SERVICE) {
 
 const RUN = randomBytes(3).toString("hex");
 const PASSWORD = randomBytes(18).toString("base64url"); // throwaway, this process only, never logged
-const labels = ["frontDesk", "instructor", "colleague", "independent"];
+const labels = ["frontDesk", "owner", "instructor", "colleague", "independent"];
 const users = {};
 for (const label of labels) {
   const email = `staffs2-${label.toLowerCase()}-${RUN}@example.test`;
@@ -60,7 +60,7 @@ set local session_replication_role = replica;
 ${labels.map((l) => `insert into public.profiles (id, email, full_name) values ('${uid(l)}', '${users[l].email}', 'QA ${l}') on conflict (id) do nothing;`).join("\n")}
 insert into public.studios (id, name, slug, subscription_status, timezone) values ('${STUDIO}', 'HTTP Slice2 Studio', 'http-s2-${RUN}', 'active', 'America/Denver');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
-  ('${uid("frontDesk")}', '${STUDIO}', 'front_desk', true), ('${uid("instructor")}', '${STUDIO}', 'instructor', true),
+  ('${uid("frontDesk")}', '${STUDIO}', 'front_desk', true), ('${uid("owner")}', '${STUDIO}', 'studio_owner', true), ('${uid("instructor")}', '${STUDIO}', 'instructor', true),
   ('${uid("colleague")}', '${STUDIO}', 'instructor', true), ('${uid("independent")}', '${STUDIO}', 'independent_instructor', true);
 insert into public.instructors (id, studio_id, user_id, first_name, last_name, active, can_instruct) values
   ('${INS}', '${STUDIO}', '${uid("instructor")}', 'Ida', 'Teacher', true, true), ('${INS_COL}', '${STUDIO}', '${uid("colleague")}', 'Cole', 'Teacher', true, true);
@@ -183,6 +183,32 @@ await put("attendance: missing Idempotency-Key", CLASS, ANA, tokens.instructor, 
 await put("attendance: status outside attended/no_show", CLASS, ANA, tokens.instructor, { status: "checked_in" }, { status: 400, code: "invalid_request" });
 await put("attendance: body not JSON", CLASS, ANA, tokens.instructor, "{oops", { status: 400, code: "invalid_request" });
 await put("attendance: no token", CLASS, ANA, null, { status: "attended" }, { status: 401, code: "unauthenticated" });
+
+// studio-wide schedule (slice 3)
+const dateOf = (n) => day(n, "12:00").slice(0, 10);
+for (const who of ["frontDesk", "owner"]) {
+  await call(`schedule: ${who} sees the studio's day with the instructor`, `${ws}/schedule?date=${dateOf(2)}`, {
+    token: tokens[who],
+    expect: {
+      status: 200,
+      check: (b) =>
+        JSON.stringify(b?.appointments?.map((a) => a.id)) === JSON.stringify([CLASS]) && b.truncated === false && b.timeZone === "America/Denver" &&
+        b.appointments[0].instructor?.firstName === "Ida" && iso.test(b.appointments[0].startsAt)
+          ? null
+          : JSON.stringify(b),
+    },
+  });
+}
+await call("schedule: client name for a private lesson", `${ws}/schedule?date=${dateOf(3)}`, {
+  token: tokens.frontDesk,
+  expect: { status: 200, check: (b) => (b?.appointments?.length === 1 && b.appointments[0].id === LESSON && b.appointments[0].client?.lastName === "Alvarez" ? null : JSON.stringify(b)) },
+});
+await call("schedule: an empty day is 200 with no rows", `${ws}/schedule?date=${dateOf(9)}`, { token: tokens.owner, expect: { status: 200, check: (b) => (b?.appointments?.length === 0 ? null : JSON.stringify(b)) } });
+for (const who of ["instructor", "colleague", "independent"]) {
+  await call(`schedule: ${who} refused`, `${ws}/schedule?date=${dateOf(2)}`, { token: tokens[who], expect: { status: 403, code: "role_not_permitted" } });
+}
+await call("schedule: no token", `${ws}/schedule?date=${dateOf(2)}`, { expect: { status: 401, code: "unauthenticated" } });
+await call("schedule: impossible date", `${ws}/schedule?date=2026-02-30`, { token: tokens.owner, expect: { status: 400, code: "invalid_request" } });
 
 writeFileSync(OUT, JSON.stringify({ gotrue: "v2.188.1", results }, null, 2));
 const failed = results.filter((r) => r.result !== "PASS");

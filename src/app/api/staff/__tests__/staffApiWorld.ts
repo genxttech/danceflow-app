@@ -232,6 +232,10 @@ class FakeQuery {
     this.rows = this.rows.filter((row) => String(row[column]) < value);
     return this;
   }
+  limit(count: number) {
+    this.rows = this.rows.slice(0, count);
+    return this;
+  }
   async maybeSingle() {
     if (this.failure) return { data: null, error: this.failure };
     return { data: this.rows[0] ?? null, error: null };

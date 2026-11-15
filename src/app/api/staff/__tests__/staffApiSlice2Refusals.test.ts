@@ -47,6 +47,7 @@ vi.mock("next/headers", () => ({
 }));
 
 const { GET: listClients } = await import("../workspaces/[studioId]/clients/route");
+const { GET: getSchedule } = await import("../workspaces/[studioId]/schedule/route");
 const { GET: getClient } = await import("../workspaces/[studioId]/clients/[clientId]/route");
 const { PUT: putAttendance } = await import("../workspaces/[studioId]/appointments/[appointmentId]/attendance/[clientId]/route");
 
@@ -67,6 +68,7 @@ function req(path: string, token?: string, init: RequestInit = {}) {
 type Call = (token: string | undefined, studioId: string) => Promise<Response>;
 
 const CALLS: [string, Call][] = [
+  ["GET studio schedule", (t, s) => getSchedule(req(`/api/staff/workspaces/${s}/schedule?date=2026-11-09`, t), { params: Promise.resolve({ studioId: s }) })],
   ["GET clients", (t, s) => listClients(req(`/api/staff/workspaces/${s}/clients`, t), { params: Promise.resolve({ studioId: s }) })],
   [
     "GET client summary",
