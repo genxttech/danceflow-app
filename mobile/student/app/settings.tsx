@@ -4,7 +4,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { ErrorState } from "@/components/ErrorState";
-import { AccountDeletionLink, LegalLinks } from "@/components/LegalLinks";
+import { AccountDeletionLink, HelpLinks, LegalLinks } from "@/components/LegalLinks";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
@@ -263,6 +263,7 @@ export default function SettingsScreen() {
         />
         <AppText variant="eyebrow">Legal</AppText>
         <LegalLinks prefix="Read the DanceFlow" />
+        <HelpLinks />
         </View>
       </View>
 
