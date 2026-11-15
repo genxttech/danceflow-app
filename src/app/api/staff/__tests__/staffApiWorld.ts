@@ -114,11 +114,11 @@ const instructors: Row[] = [
 ];
 
 const clients: Row[] = [
-  { id: "cli-a1", studio_id: STUDIO_A, first_name: "Ana", last_name: "Own", referral_source: "secret-referral", phone: "555-0100" },
-  { id: "cli-a2", studio_id: STUDIO_A, first_name: "Colin", last_name: "Colleague", referral_source: "secret-referral", phone: "555-0101" },
-  { id: "cli-a3", studio_id: STUDIO_A, first_name: "Pat", last_name: "Partner", referral_source: null, phone: "555-0102" },
-  { id: "cli-b1", studio_id: STUDIO_B, first_name: "Bea", last_name: "Bstudio", referral_source: null, phone: "555-0200" },
-  { id: "cli-rental", studio_id: STUDIO_A, first_name: "Rene", last_name: "Renter", referral_source: null, phone: "555-0103" },
+  { id: "cli-a1", studio_id: STUDIO_A, first_name: "Ana", last_name: "Own", referral_source: "secret-referral", phone: "555-0100", created_at: "2026-11-05T00:00:00Z" },
+  { id: "cli-a2", studio_id: STUDIO_A, first_name: "Colin", last_name: "Colleague", referral_source: "secret-referral", phone: "555-0101", created_at: "2026-10-01T00:00:00Z" },
+  { id: "cli-a3", studio_id: STUDIO_A, first_name: "Pat", last_name: "Partner", referral_source: null, phone: "555-0102", created_at: "2026-11-08T12:00:00Z" },
+  { id: "cli-b1", studio_id: STUDIO_B, first_name: "Bea", last_name: "Bstudio", referral_source: null, phone: "555-0200", created_at: "2026-11-08T12:00:00Z" },
+  { id: "cli-rental", studio_id: STUDIO_A, first_name: "Rene", last_name: "Renter", referral_source: null, phone: "555-0103", created_at: "2026-11-09T01:00:00Z" },
 ];
 
 const clientName = (id: string) => {
@@ -210,10 +210,16 @@ class FakeQuery {
     this.failure = failure;
   }
 
-  select() {
+  private head = false;
+  private counted = false;
+  select(_columns?: string, options?: { count?: string; head?: boolean }) {
+    this.counted = options?.count === "exact";
+    this.head = options?.head === true;
     return this;
   }
-  order() {
+  order(column: string, options?: { ascending?: boolean }) {
+    const direction = options?.ascending === false ? -1 : 1;
+    this.rows = [...this.rows].sort((a, b) => (String(a[column]) < String(b[column]) ? -direction : String(a[column]) > String(b[column]) ? direction : 0));
     return this;
   }
   eq(column: string, value: unknown) {
@@ -244,9 +250,11 @@ class FakeQuery {
     if (this.failure) return { data: null, error: this.failure };
     return this.rows[0] ? { data: this.rows[0], error: null } : { data: null, error: { message: "no rows" } };
   }
-  then<T>(resolve: (value: { data: Row[] | null; error: { message: string } | null }) => T) {
+  then<T>(resolve: (value: { data: Row[] | null; count?: number | null; error: { message: string } | null }) => T) {
     return Promise.resolve(
-      this.failure ? { data: null, error: this.failure } : { data: this.rows, error: null },
+      this.failure
+        ? { data: null, error: this.failure }
+        : { data: this.head ? null : this.rows, ...(this.counted ? { count: this.rows.length } : {}), error: null },
     ).then(resolve);
   }
 }

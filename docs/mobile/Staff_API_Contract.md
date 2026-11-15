@@ -144,6 +144,37 @@ The whole studio's appointments for one local day, for **owners, admins and fron
 - At most 500 rows; a day with more is cut and `truncated` is `true`. There is no paging.
 - Open the row with `GET .../appointments/{appointmentId}`: broad staff already have access there.
 
+## `GET /api/staff/workspaces/{studioId}/pulse` (slice 3)
+
+The Business home summary: counts for today and the next appointment. Requires `capabilities.viewStudioSchedule` (owner, admin, front desk, instructor; independent instructors and organizer roles get `403 role_not_permitted`).
+
+```json
+{
+  "studioId": "uuid",
+  "timeZone": "America/New_York",
+  "date": "2026-11-09",
+  "asOf": "2026-11-09T15:30:00.000Z",
+  "scope": "studio",
+  "instructorId": null,
+  "today": { "total": 5, "upcoming": 4, "cancelled": 1, "truncated": false },
+  "next": {
+    "id": "uuid",
+    "appointmentType": "private_lesson",
+    "title": null,
+    "status": "scheduled",
+    "startsAt": "2026-11-09T16:00:00.000Z",
+    "endsAt": "2026-11-09T16:45:00.000Z"
+  },
+  "newClientsLast7Days": 3
+}
+```
+
+- `scope` is `studio` for owner, admin and front desk, and `own` for an instructor, whose numbers are their own teaching day (the same boundary as `today`). An instructor with no instructor record gets `instructorId: null`, zero counts and `next: null`, never the studio's numbers.
+- `today` is the studio's local day. `total` excludes cancelled appointments, `cancelled` counts them, `upcoming` is the part of `total` that has not started yet at `asOf`. `truncated` is `true` when the day has more than 500 appointments and the counts are for the first 500.
+- `next` is the earliest appointment from now on whose status is `scheduled`, `confirmed` or `rescheduled` (any day), or `null`. It carries no client names; open it with the appointment detail route.
+- `newClientsLast7Days` counts clients created in the last 7 days. It is `null` for an instructor, who has no studio-wide client view.
+- No names, prices, payment state, contact details or referral source appear anywhere in this response.
+
 ## `GET /api/staff/workspaces/{studioId}/appointments/{appointmentId}`
 
 Requires `capabilities.viewStudioSchedule`. Instructors can read their own appointments. Owners, admins and front desk can read any appointment in the studio. `accessScope` reports which rule applied (`own-instructor` or `broad`).
@@ -263,7 +294,6 @@ A client summary with no money and no contact details. Same role rules as the se
 
 ## Planned, not in slice 2
 
-- **Pulse:** the studio summary for the Business home screen.
 - **Session recap writes.**
 - **Event door check-in:** the web logic lives inside the events registration server actions, together with Organizer Suite entitlement checks. It needs extracting into a shared module before an API can reuse it, so it is not exposed yet.
 - **Not in v1 for any role:** prices, payment state, contact details, referral source and lesson recap video. Package remaining counts are the only balance information, in client detail, for owners, admins and front desk.

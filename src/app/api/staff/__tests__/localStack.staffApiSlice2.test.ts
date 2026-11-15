@@ -100,7 +100,7 @@ const PKG_ARCHIVED = id();
 const DAY_OFFSET = (days: number, time: string) => `${new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)}T${time}:00Z`;
 
 type Handler = (request: Request, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
-let routes: { me: (r: Request) => Promise<Response>; schedule: Handler; detail: Handler; clients: Handler; client: Handler; attendance: Handler };
+let routes: { me: (r: Request) => Promise<Response>; pulse: Handler; schedule: Handler; detail: Handler; clients: Handler; client: Handler; attendance: Handler };
 
 const authed = (path: string, user: string, init: RequestInit = {}) =>
   new Request(`https://app.test${path}`, { ...init, headers: { Authorization: `Bearer ${tokenFor(user)}`, ...(init.headers ?? {}) } });
@@ -180,6 +180,7 @@ describe.skipIf(!enabled)("staff API slice 2 against real RLS", () => {
 
     routes = {
       me: (await import("../me/route")).GET,
+      pulse: (await import("../workspaces/[studioId]/pulse/route")).GET as unknown as Handler,
       schedule: (await import("../workspaces/[studioId]/schedule/route")).GET as unknown as Handler,
       detail: (await import("../workspaces/[studioId]/appointments/[appointmentId]/route")).GET as unknown as Handler,
       clients: (await import("../workspaces/[studioId]/clients/route")).GET as unknown as Handler,
@@ -221,6 +222,37 @@ describe.skipIf(!enabled)("staff API slice 2 against real RLS", () => {
 
     it("rejects an impossible date", async () => {
       await expectCode(await schedule(USERS.owner, "2026-02-30"), 400, "invalid_request");
+    });
+  });
+
+  describe("pulse", () => {
+    const pulse = (user: string, studioId = STUDIO_A) =>
+      routes.pulse(authed(`/api/staff/workspaces/${studioId}/pulse`, user), { params: Promise.resolve({ studioId }) });
+
+    it("gives owner and front desk studio-wide counts and a next appointment, with no names or money", async () => {
+      for (const user of [USERS.owner, USERS.frontDesk]) {
+        const body = await (await pulse(user)).json();
+        expect(body).toMatchObject({ studioId: STUDIO_A, scope: "studio", instructorId: null, timeZone: "America/Chicago" });
+        expect(body.today.total).toBeGreaterThanOrEqual(0);
+        expect(body.next === null || typeof body.next.id === "string").toBe(true);
+        expect(body.newClientsLast7Days).toBe(PAGE_CLIENTS.length + 6); // every client seeded just now in studio A: Ana, Colin, Dee, Lee (a lead counts), Pat_100%, Rene, and the paging clients
+        expect(JSON.stringify(body)).not.toMatch(/Ana|Colin|Rene|example.test|555-|referral|price|payment|sold/);
+      }
+    });
+
+    it("scopes an instructor to their own teaching day and shows no client count", async () => {
+      const mine = await (await pulse(USERS.instructor)).json();
+      expect(mine).toMatchObject({ scope: "own", instructorId: INS, newClientsLast7Days: null });
+      expect([CLASS, LESSON, CANCELLED_CLASS]).toContain(mine.next.id); // never a colleague's appointment
+      const colleague = await (await pulse(USERS.colleague)).json();
+      expect(colleague.instructorId).toBe(INS_COL);
+      expect([COLLEAGUE_CLASS, COLLEAGUE_LESSON]).toContain(colleague.next.id);
+    });
+
+    it("refuses independent instructors and other studios' users", async () => {
+      await expectCode(await pulse(USERS.independent), 403, "role_not_permitted");
+      await expectCode(await pulse(USERS.instructorB), 403, "not_a_member");
+      await expectCode(await pulse(USERS.owner, STUDIO_B), 403, "not_a_member");
     });
   });
 
