@@ -122,6 +122,8 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
   const partner = personName(appointment.partner);
   const roster = appointment.roster;
   const recap = appointment.recap;
+  // one rule for the heading and the controls: a cancelled class is read-only
+  const markNow = canMarkAttendance && appointment.status !== "cancelled";
 
   return (
     <Screen edges={[]}>
@@ -158,7 +160,7 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
       ) : null}
 
       {roster ? (
-        <Section title={canMarkAttendance ? "Roster and attendance" : "Roster"}>
+        <Section title={markNow ? "Roster and attendance" : "Roster"}>
           <AppText tone="muted" style={tabularNums} testID="roster-capacity">
             {rosterCapacityLabel(roster.bookedCount, roster.capacity)}
           </AppText>
@@ -166,7 +168,7 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
             studioId={studioId}
             appointmentId={appointment.id}
             attendees={roster.attendees}
-            canMark={canMarkAttendance && appointment.status !== "cancelled"}
+            canMark={markNow}
           />
         </Section>
       ) : null}
