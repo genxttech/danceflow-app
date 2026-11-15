@@ -17,6 +17,7 @@ import {
   type StudentScheduleOverview
 } from "@/lib/studentSchedule";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../assets/lumi-avatar.png");
 
 const emptyOverview: StudentLearnOverview = {
