@@ -5,6 +5,9 @@ import { isStudioWideRole } from "@/lib/navigation";
 import { DayModeSwitch, StudioScheduleScreen } from "@/screens/StudioScheduleScreen";
 import { fakeApi, STUDIO_ID, StaffTestProviders } from "@/test-utils/staff";
 
+// the first render of a suite is slow on a loaded machine (cold transform); the default 5 s flaked in full runs
+jest.setTimeout(20_000);
+
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");

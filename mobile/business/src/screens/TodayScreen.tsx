@@ -18,14 +18,17 @@ import {
   shiftDate,
   statusLabel,
 } from "@/lib/format";
+import { isStaffFeatureEnabled } from "@/lib/features";
+import { shouldKeepStale } from "@/lib/stale";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
+import { StaleBanner } from "@/components/StaleBanner";
 import type { StaffToday, TodayAppointment } from "@/lib/staffApi";
 import { colors, radius, space, tabularNums } from "@/theme";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
-  | { status: "ready"; today: StaffToday };
+  | { status: "ready"; today: StaffToday; loadedAt: number; stale?: boolean };
 
 /** Who the row is with. A null client is the teaching-relationship rule at work, not an error (contract). */
 export function appointmentHeadline(appointment: TodayAppointment) {
@@ -112,9 +115,15 @@ export function TodayScreen({ modeSwitch }: { modeSwitch?: React.ReactNode } = {
 
       try {
         const today = await api.today(studioId, date ?? undefined);
-        if (id === requestId.current) setState({ status: "ready", today });
+        if (id === requestId.current) setState({ status: "ready", today, loadedAt: Date.now() });
       } catch (error) {
-        if (id === requestId.current) setState({ status: "error", error });
+        if (id === requestId.current) {
+          setState((prev) =>
+            shouldKeepStale({ enabled: isStaffFeatureEnabled("keepStale"), mode, hadData: prev.status === "ready", error }) && prev.status === "ready"
+              ? { ...prev, stale: true }
+              : { status: "error", error },
+          );
+        }
       } finally {
         if (id === requestId.current) setRefreshing(false);
       }
@@ -166,6 +175,8 @@ export function TodayScreen({ modeSwitch }: { modeSwitch?: React.ReactNode } = {
         {date !== null ? <AppButton label="Today" variant="quiet" onPress={() => setDate(null)} /> : null}
         <AppButton label="Next day" variant="secondary" onPress={() => goToDay(1)} disabled={!shownDate} />
       </View>
+
+      {state.status === "ready" && state.stale ? <StaleBanner loadedAt={state.loadedAt} timeZone={state.today.timeZone} onRetry={() => void load("refresh")} /> : null}
 
       {state.status === "loading" ? <ScheduleSkeleton label="Loading your schedule" /> : null}
 

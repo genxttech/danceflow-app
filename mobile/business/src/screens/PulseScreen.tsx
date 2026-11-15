@@ -8,14 +8,17 @@ import { StaffErrorState } from "@/components/StaffErrorState";
 import { StateMessage } from "@/components/StateMessage";
 import { StatusBadge } from "@/components/StatusBadge";
 import { appointmentTypeLabel, formatDayHeading, formatTimeRange } from "@/lib/format";
+import { isStaffFeatureEnabled } from "@/lib/features";
+import { shouldKeepStale } from "@/lib/stale";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
+import { StaleBanner } from "@/components/StaleBanner";
 import type { StaffPulse } from "@/lib/staffApi";
 import { colors, radius, space, tabularNums } from "@/theme";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
-  | { status: "ready"; pulse: StaffPulse };
+  | { status: "ready"; pulse: StaffPulse; loadedAt: number; stale?: boolean };
 
 function Stat({ label, value, testID }: { label: string; value: number; testID: string }) {
   return (
@@ -73,9 +76,15 @@ export function PulseScreen() {
       else setRefreshing(true);
       try {
         const pulse = await api.pulse(studioId);
-        if (id === requestId.current) setState({ status: "ready", pulse });
+        if (id === requestId.current) setState({ status: "ready", pulse, loadedAt: Date.now() });
       } catch (error) {
-        if (id === requestId.current) setState({ status: "error", error });
+        if (id === requestId.current) {
+          setState((prev) =>
+            shouldKeepStale({ enabled: isStaffFeatureEnabled("keepStale"), mode, hadData: prev.status === "ready", error }) && prev.status === "ready"
+              ? { ...prev, stale: true }
+              : { status: "error", error },
+          );
+        }
       } finally {
         if (id === requestId.current) setRefreshing(false);
       }
@@ -105,6 +114,8 @@ export function PulseScreen() {
           </AppText>
         ) : null}
       </View>
+
+      {state.status === "ready" && state.stale ? <StaleBanner loadedAt={state.loadedAt} timeZone={state.pulse.timeZone} onRetry={() => void load("refresh")} /> : null}
 
       {state.status === "loading" ? <ScheduleSkeleton rows={3} label="Loading the studio pulse" /> : null}
 
