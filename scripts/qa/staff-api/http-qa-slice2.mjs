@@ -210,6 +210,20 @@ for (const who of ["instructor", "colleague", "independent"]) {
 await call("schedule: no token", `${ws}/schedule?date=${dateOf(2)}`, { expect: { status: 401, code: "unauthenticated" } });
 await call("schedule: impossible date", `${ws}/schedule?date=2026-02-30`, { token: tokens.owner, expect: { status: 400, code: "invalid_request" } });
 
+// pulse (slice 3)
+await call("pulse: front desk gets studio scope with counts and no names", `${ws}/pulse`, {
+  token: tokens.frontDesk,
+  expect: { status: 200, check: (b) => (b?.scope === "studio" && b.instructorId === null && typeof b.today?.total === "number" && b.newClientsLast7Days === 3 && !JSON.stringify(b).match(/Ana|Colin|Lee/) ? null : JSON.stringify(b)) },
+});
+await call("pulse: owner gets studio scope", `${ws}/pulse`, { token: tokens.owner, expect: { status: 200, check: (b) => (b?.scope === "studio" ? null : JSON.stringify(b)) } });
+await call("pulse: instructor gets own scope and no client count", `${ws}/pulse`, {
+  token: tokens.instructor,
+  expect: { status: 200, check: (b) => (b?.scope === "own" && b.instructorId === INS && b.newClientsLast7Days === null && b.next?.id !== undefined ? null : JSON.stringify(b)) },
+});
+await call("pulse: colleague is scoped to the colleague", `${ws}/pulse`, { token: tokens.colleague, expect: { status: 200, check: (b) => (b?.scope === "own" && b.instructorId === INS_COL && b.next === null ? null : JSON.stringify(b)) } });
+await call("pulse: independent instructor refused", `${ws}/pulse`, { token: tokens.independent, expect: { status: 403, code: "role_not_permitted" } });
+await call("pulse: no token", `${ws}/pulse`, { expect: { status: 401, code: "unauthenticated" } });
+
 writeFileSync(OUT, JSON.stringify({ gotrue: "v2.188.1", results }, null, 2));
 const failed = results.filter((r) => r.result !== "PASS");
 for (const r of results) console.log(`${r.result}  ${String(r.status ?? "").padEnd(3)} ${String(r.code ?? "").padEnd(20)} ${r.name}${r.problems.length ? `  <- ${r.problems.join("; ")}` : ""}`);
