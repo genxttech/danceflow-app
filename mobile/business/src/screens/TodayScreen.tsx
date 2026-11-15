@@ -1,3 +1,4 @@
+import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
@@ -43,25 +44,29 @@ function placeLabel(appointment: TodayAppointment) {
   return appointment.room?.name ?? appointment.locationName ?? null;
 }
 
-function AppointmentRow({
+export function AppointmentRow({
   appointment,
   timeZone,
   onPress,
+  instructorName,
 }: {
   appointment: TodayAppointment;
   timeZone: string;
   onPress: () => void;
+  /** The studio-wide day names who teaches each row. */
+  instructorName?: string | null;
 }) {
   const headline = appointmentHeadline(appointment);
   const start = formatTime(appointment.startsAt, timeZone);
   const minutes = durationMinutes(appointment.startsAt, appointment.endsAt);
   const detail = [appointmentTypeLabel(appointment.appointmentType), placeLabel(appointment)].filter(Boolean).join(" · ");
+  const withLine = instructorName ? `with ${instructorName}` : null;
   const cancelled = appointment.status === "cancelled";
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${start}, ${minutes} minutes. ${headline}. ${detail}. ${statusLabel(appointment.status)}.`}
+      accessibilityLabel={`${start}, ${minutes} minutes. ${headline}. ${detail}.${withLine ? ` ${withLine}.` : ""} ${statusLabel(appointment.status)}.`}
       accessibilityHint="Opens the appointment"
       onPress={onPress}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -80,13 +85,14 @@ function AppointmentRow({
           {headline}
         </AppText>
         {detail ? <AppText tone="muted">{detail}</AppText> : null}
+        {withLine ? <AppText tone="muted">{withLine}</AppText> : null}
         <StatusBadge status={appointment.status} />
       </View>
     </Pressable>
   );
 }
 
-export function TodayScreen() {
+export function TodayScreen({ modeSwitch }: { modeSwitch?: React.ReactNode } = {}) {
   const api = useStaffApi();
   const { workspace, reload: reloadWorkspaces, signOut } = useStaffSession();
   const studioId = workspace?.studioId ?? null;
@@ -152,6 +158,8 @@ export function TodayScreen() {
           <AppText tone="muted">{formatDayHeading(shownDate)}</AppText>
         ) : null}
       </View>
+
+      {modeSwitch}
 
       <View style={styles.dayNav}>
         <AppButton label="Previous day" variant="secondary" onPress={() => goToDay(-1)} disabled={!shownDate} />

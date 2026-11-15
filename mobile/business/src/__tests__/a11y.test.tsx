@@ -9,6 +9,7 @@ import { ClientsScreen, SEARCH_DEBOUNCE_MS } from "@/screens/ClientsScreen";
 import { PushProvider } from "@/lib/push";
 import type { PermissionState, PushAdapter } from "@/lib/pushSetup";
 import { PulseScreen } from "@/screens/PulseScreen";
+import { DayModeSwitch, StudioScheduleScreen } from "@/screens/StudioScheduleScreen";
 import { MoreScreen } from "@/screens/MoreScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
 import SignInScreen from "../../app/sign-in";
@@ -212,6 +213,19 @@ describe("every screen passes the audit", () => {
     withProviders(<MoreScreen />, fakeApi(), { workspaces: [workspace(), second] });
     expectClean();
     fireEvent.press(screen.getByRole("button", { name: "Sign out of all devices" }));
+    expectClean();
+  });
+
+  it.each([
+    ["with rows", [{ id: "a1", title: null, appointmentType: "private_lesson", status: "scheduled", startsAt: "2026-11-10T15:00:00.000Z", endsAt: "2026-11-10T15:45:00.000Z", room: null, locationName: null, client: { id: "c1", firstName: "Ana", lastName: "Rivera" }, partner: null, instructor: { id: "i1", firstName: "Ida", lastName: "Instructor" } }], false],
+    ["empty", [], false],
+    ["cut off", [], true],
+  ] as const)("Studio schedule (%s)", async (_label, appointments, truncated) => {
+    withProviders(
+      <StudioScheduleScreen modeSwitch={<DayModeSwitch mode="studio" onChange={() => undefined} />} />,
+      fakeApi({ studioSchedule: jest.fn(async () => ({ studioId: STUDIO_ID, date: "2026-11-10", timeZone: "America/New_York", truncated, appointments: [...appointments] })) }),
+    );
+    await flush();
     expectClean();
   });
 
