@@ -77,8 +77,6 @@ export default function JobsScreen() {
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
-    setErrorMessage(null);
 
     getPublicJobPostingsForMobile()
       .then((items) => {
@@ -307,7 +305,7 @@ export default function JobsScreen() {
       </View>
 
       {loading ? <LoadingState label="Loading jobs" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Now Hiring needs attention" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Now Hiring needs attention" onRetry={() => { setLoading(true); setErrorMessage(null); setRetryKey((key) => key + 1); }} /> : null}
 
       {filteredJobs.length ? (
         filteredJobs.map((job) => (
