@@ -174,7 +174,7 @@ export function TodayScreen({ modeSwitch }: { modeSwitch?: React.ReactNode } = {
           error={state.error}
           onRetry={() => void load("initial")}
           onSignInAgain={() => void signOut()}
-          onRefreshWorkspaces={() => void reloadWorkspaces()}
+          onRefreshWorkspaces={() => void reloadWorkspaces().then(() => load("initial"))}
         />
       ) : null}
 
