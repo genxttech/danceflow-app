@@ -56,9 +56,9 @@ export function localDayUtcRange(date: string, timeZone: string) {
 
 type ClientName = { id: string; firstName: string; lastName: string };
 type ClientNameRow = { id: string; first_name: string | null; last_name: string | null };
-type Embedded<T> = T | T[] | null | undefined;
+export type Embedded<T> = T | T[] | null | undefined;
 
-function one<T>(value: Embedded<T>): T | null {
+export function one<T>(value: Embedded<T>): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
 }
 
@@ -79,7 +79,7 @@ async function loadTeachingClientNames(supabase: SupabaseClient, studioId: strin
   return toClientNameMap((data ?? []) as ClientNameRow[]);
 }
 
-async function loadStudioClientNames(supabase: SupabaseClient, studioId: string, clientIds: string[]) {
+export async function loadStudioClientNames(supabase: SupabaseClient, studioId: string, clientIds: string[]) {
   if (clientIds.length === 0) return new Map<string, ClientName>();
   const { data, error } = await supabase
     .from("clients")
@@ -90,7 +90,7 @@ async function loadStudioClientNames(supabase: SupabaseClient, studioId: string,
   return toClientNameMap((data ?? []) as ClientNameRow[]);
 }
 
-type AppointmentSummaryRow = {
+export type AppointmentSummaryRow = {
   id: string;
   title: string | null;
   appointment_type: string;
@@ -103,7 +103,7 @@ type AppointmentSummaryRow = {
   rooms: Embedded<{ id: string; name: string | null }>;
 };
 
-function toAppointmentSummary(row: AppointmentSummaryRow, names: Map<string, ClientName>) {
+export function toAppointmentSummary(row: AppointmentSummaryRow, names: Map<string, ClientName>) {
   const room = one(row.rooms);
   return {
     id: row.id,
@@ -119,7 +119,7 @@ function toAppointmentSummary(row: AppointmentSummaryRow, names: Map<string, Cli
   };
 }
 
-const SUMMARY_FIELDS =
+export const SUMMARY_FIELDS =
   "id, title, appointment_type, status, starts_at, ends_at, client_id, partner_client_id, location_name, rooms ( id, name )";
 
 /**

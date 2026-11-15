@@ -100,7 +100,7 @@ const PKG_ARCHIVED = id();
 const DAY_OFFSET = (days: number, time: string) => `${new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10)}T${time}:00Z`;
 
 type Handler = (request: Request, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
-let routes: { me: (r: Request) => Promise<Response>; detail: Handler; clients: Handler; client: Handler; attendance: Handler };
+let routes: { me: (r: Request) => Promise<Response>; schedule: Handler; detail: Handler; clients: Handler; client: Handler; attendance: Handler };
 
 const authed = (path: string, user: string, init: RequestInit = {}) =>
   new Request(`https://app.test${path}`, { ...init, headers: { Authorization: `Bearer ${tokenFor(user)}`, ...(init.headers ?? {}) } });
@@ -180,11 +180,48 @@ describe.skipIf(!enabled)("staff API slice 2 against real RLS", () => {
 
     routes = {
       me: (await import("../me/route")).GET,
+      schedule: (await import("../workspaces/[studioId]/schedule/route")).GET as unknown as Handler,
       detail: (await import("../workspaces/[studioId]/appointments/[appointmentId]/route")).GET as unknown as Handler,
       clients: (await import("../workspaces/[studioId]/clients/route")).GET as unknown as Handler,
       client: (await import("../workspaces/[studioId]/clients/[clientId]/route")).GET as unknown as Handler,
       attendance: (await import("../workspaces/[studioId]/appointments/[appointmentId]/attendance/[clientId]/route")).PUT as unknown as Handler,
     };
+  });
+
+  describe("studio schedule (owner, admin, front desk)", () => {
+    const day = (offset: number) => DAY_OFFSET(offset, "12:00").slice(0, 10);
+    const schedule = (user: string, date: string, studioId = STUDIO_A) =>
+      routes.schedule(authed(`/api/staff/workspaces/${studioId}/schedule?date=${date}`, user), { params: Promise.resolve({ studioId }) });
+
+    it("gives owner and front desk every appointment of the day with names, the instructor, and no money or contact fields", async () => {
+      for (const user of [USERS.owner, USERS.frontDesk]) {
+        const response = await schedule(user, day(2));
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body).toMatchObject({ studioId: STUDIO_A, date: day(2), timeZone: "America/Chicago", truncated: false });
+        expect(body.appointments.map((row: { id: string }) => row.id)).toEqual([RENTAL, CLASS, COLLEAGUE_CLASS]);
+        const [rental, klass, waltz] = body.appointments;
+        expect(rental.client).toEqual({ id: RENTER_CLIENT, firstName: "Rene", lastName: "Renter" });
+        expect(rental.instructor).toBeNull();
+        expect(klass.instructor).toEqual({ id: INS, firstName: "Ida", lastName: "Teacher" });
+        expect(waltz.instructor).toEqual({ id: INS_COL, firstName: "Cole", lastName: "Teacher" });
+        expect(JSON.stringify(body)).not.toMatch(/example.test|555-|referral|price|payment|sold/);
+      }
+      const lesson = await (await schedule(USERS.frontDesk, day(3))).json();
+      expect(lesson.appointments.find((row: { id: string }) => row.id === LESSON).client).toEqual({ id: ANA, firstName: "Ana", lastName: "Alvarez" });
+    });
+
+    it("refuses instructors, independent instructors and other studios' users, answered by the guard or role check", async () => {
+      await expectCode(await schedule(USERS.instructor, day(2)), 403, "role_not_permitted");
+      await expectCode(await schedule(USERS.colleague, day(2)), 403, "role_not_permitted");
+      await expectCode(await schedule(USERS.independent, day(2)), 403, "role_not_permitted");
+      await expectCode(await schedule(USERS.instructorB, day(2)), 403, "not_a_member");
+      await expectCode(await schedule(USERS.owner, day(2), STUDIO_B), 403, "not_a_member");
+    });
+
+    it("rejects an impossible date", async () => {
+      await expectCode(await schedule(USERS.owner, "2026-02-30"), 400, "invalid_request");
+    });
   });
 
   describe("timeZone and timestamps", () => {

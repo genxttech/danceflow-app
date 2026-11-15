@@ -109,6 +109,41 @@ The caller's own teaching appointments for one local day in that studio. Require
 - `instructorId: null` means the caller has no active instructor record at this studio, so `appointments` is empty. Show "not linked to an instructor profile". This is also what a failed instructor lookup looks like (see Known limits).
 - `client` and `partner` can be `null` even when the appointment has one. Names come through the teaching relationship rule: scheduled, confirmed or rescheduled lessons that have not ended, or attended lessons from the last 14 days. A partner's name appears only if they are also a primary client in that window. Show a neutral "Client" label, not an error.
 
+## `GET /api/staff/workspaces/{studioId}/schedule?date=YYYY-MM-DD` (slice 3)
+
+The whole studio's appointments for one local day, for **owners, admins and front desk only** (role `studio_owner`, `studio_admin` or `front_desk` in `/me`). Instructors get `403 role_not_permitted` and keep `today`: a studio-wide list would bypass the teaching-relationship window on client names. Independent instructors and organizer roles are refused too. The role check runs before any appointment or client read.
+
+`date` is optional and defaults to today in the studio's time zone; a malformed or impossible date is `400 invalid_request`. The day is the studio's local day (23 or 25 hours on a DST change), and a row belongs to the day its `startsAt` falls in.
+
+```json
+{
+  "studioId": "uuid",
+  "date": "2026-11-09",
+  "timeZone": "America/New_York",
+  "truncated": false,
+  "appointments": [
+    {
+      "id": "uuid",
+      "title": null,
+      "appointmentType": "private_lesson",
+      "status": "scheduled",
+      "startsAt": "2026-11-09T15:00:00.000Z",
+      "endsAt": "2026-11-09T15:45:00.000Z",
+      "room": { "id": "uuid", "name": "Main Floor" },
+      "locationName": null,
+      "client": { "id": "uuid", "firstName": "Ana", "lastName": "Rivera" },
+      "partner": null,
+      "instructor": { "id": "uuid", "firstName": "Ida", "lastName": "Instructor" }
+    }
+  ]
+}
+```
+
+- Same row shape as `today` plus `instructor` (`null` for a floor rental or an unassigned slot). Sorted by `startsAt`, then id. All statuses are returned, including `cancelled`. Floor rentals are included, as on the web calendar. Events are not (as in `today`).
+- Client names are the studio's own client names (broad staff scope, as on the appointment detail). No prices, payment state, package balances, contact details or referral source.
+- At most 500 rows; a day with more is cut and `truncated` is `true`. There is no paging.
+- Open the row with `GET .../appointments/{appointmentId}`: broad staff already have access there.
+
 ## `GET /api/staff/workspaces/{studioId}/appointments/{appointmentId}`
 
 Requires `capabilities.viewStudioSchedule`. Instructors can read their own appointments. Owners, admins and front desk can read any appointment in the studio. `accessScope` reports which rule applied (`own-instructor` or `broad`).
@@ -228,7 +263,6 @@ A client summary with no money and no contact details. Same role rules as the se
 
 ## Planned, not in slice 2
 
-- **Studio schedule:** a studio-wide day view for front desk and admins.
 - **Pulse:** the studio summary for the Business home screen.
 - **Session recap writes.**
 - **Event door check-in:** the web logic lives inside the events registration server actions, together with Organizer Suite entitlement checks. It needs extracting into a shared module before an API can reuse it, so it is not exposed yet.
