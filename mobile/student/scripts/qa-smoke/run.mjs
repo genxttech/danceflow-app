@@ -149,7 +149,10 @@ async function emulatorUp() {
   state.emulator = spawn(join(cfg.sdk, "emulator", "emulator.exe"), ["-avd", cfg.avd, "-no-snapshot", "-no-boot-anim", "-gpu", "swiftshader_indirect", "-memory", "2048", "-no-audio"], { stdio: "ignore", detached: false });
   await waitFor(() => sh(["shell", "getprop", "sys.boot_completed"]).stdout.trim() === "1", "the emulator to boot", 300_000);
   sh(["shell", "settings", "put", "global", "hide_error_dialogs", "1"]);
+  writeFileSync(join(cfg.out, "talkback.txt"), sh(["shell", "pm", "list", "packages", "talkback"]).stdout || "TalkBack package not installed on this image");
   state.prevFont = sh(["shell", "settings", "get", "system", "font_scale"]).stdout.trim();
+  const d = /(d+)s*$/.exec(sh(["shell", "wm", "density"]).stdout.trim())?.[1];
+  if (d) writeFileSync(join(cfg.out, "density.txt"), d); // px per 160 dpi, for the touch-target check
 }
 
 const hierarchy = () => {
@@ -172,6 +175,7 @@ async function screens(link) {
   const signedIn = () => /Today|Discover|Wallet|Settings/.test(hierarchy());
   sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]); // cold start first, so the link is not lost
   await sleep(15000);
+  writeFileSync(join(cfg.out, "signin-screen.xml"), hierarchy()); shot(join(cfg.out, "signin-screen.png")); // the signed-out screen, for the a11y audit
   let ok = false;
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
     openLink(await link());
@@ -195,6 +199,7 @@ async function screens(link) {
         await sleep(4000);
         const xml = await waitFor(() => { const x = hierarchy(); return s.expect.test(x) ? x : null; }, `${tag} content`, 25_000, 2500).catch(() => hierarchy());
         shot(join(cfg.out, `${tag}.png`));
+        writeFileSync(join(cfg.out, `${tag}.xml`), xml); // accessibility tree, read by a11y-audit.mjs
         const crashed = /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(xml);
         record(tag, s.expect.test(xml) && !crashed, crashed ? "crash/ANR dialog" : s.expect.test(xml) ? "" : `expected ${s.expect}`);
       }

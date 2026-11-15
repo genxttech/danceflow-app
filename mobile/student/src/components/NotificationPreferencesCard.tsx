@@ -94,7 +94,10 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
       {message ? <AppText style={styles.saved}>{message}</AppText> : null}
 
       <Pressable
-        accessibilityRole="button"
+        accessibilityHint="Master switch for DanceFlow mobile notifications."
+        accessibilityLabel="Push notifications"
+        accessibilityRole="switch"
+        accessibilityState={{ checked: pushOn, disabled: saving || loading }}
         onPress={() => togglePushNotifications(!pushOn)}
         style={({ pressed }) => [styles.masterOption, pressed && styles.optionPressed]}
       >
@@ -103,6 +106,8 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
           <AppText variant="caption">Master switch for DanceFlow mobile notifications.</AppText>
         </View>
         <Switch
+          accessibilityElementsHidden
+          importantForAccessibility="no"
           disabled={saving || loading}
           onValueChange={togglePushNotifications}
           thumbColor="#fff"
@@ -114,7 +119,10 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
       <View style={styles.options}>
         {preferenceOptions.map((option) => (
           <Pressable
-            accessibilityRole="button"
+            accessibilityHint={option.detail}
+            accessibilityLabel={option.title}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: preferences[option.key], disabled: saving || loading || !pushOn }}
             key={option.key}
             disabled={saving || loading || !pushOn}
             onPress={() => updatePreference(option.key, !preferences[option.key])}
@@ -129,6 +137,8 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
               <AppText variant="caption">{option.detail}</AppText>
             </View>
             <Switch
+              accessibilityElementsHidden
+              importantForAccessibility="no"
               disabled={saving || loading || !pushOn}
               onValueChange={(value) => updatePreference(option.key, value)}
               thumbColor="#fff"

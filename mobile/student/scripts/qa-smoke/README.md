@@ -34,3 +34,7 @@ It refuses to start if another `df-isoqa-*` stack, a java/Gradle process or an e
 ## Not covered (still BLOCKED)
 
 Event/Ticket (needs a seeded event and the real web API), partner photo upload, real push delivery, real payments, Android 12 and older, iOS. Manual steps and context: `docs/mobile/Student_Device_QA_R7.md`.
+
+## Screen-reader tree audit
+
+`run.mjs` also saves each screen's accessibility tree (`*.xml`, plus the signed-out `signin-screen.xml`) next to the screenshots. `node mobile/student/scripts/qa-smoke/a11y-audit.mjs <out-dir>` reports clickable nodes with no name (TalkBack would announce them as nothing), touch targets under 44dp and repeated labels, and writes the reading order of the main screens to `a11y-report.md`. It fails (exit 1) on an unnamed control. Findings and method: `docs/mobile/Student_TalkBack_Audit.md`.
