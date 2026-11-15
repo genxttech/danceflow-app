@@ -86,6 +86,7 @@ function fakeSupabase(fixture: {
   const ops: Op[] = [];
   const builder = (table: string) => {
     const state: { op: string; payload?: Record<string, unknown> } = { op: "select" };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const chain: any = {
       select: () => chain,
       eq: () => chain,
