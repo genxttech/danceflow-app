@@ -1,3 +1,4 @@
+import { friendlyMessage } from "@/lib/errorKind";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, Share, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -233,7 +234,7 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
         current.map((item) => (item.id === event.id ? { ...item, favorited } : item))
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Sign in to save events.");
+      setMessage(friendlyMessage(error, "Sign in to save events."));
     }
   }
 

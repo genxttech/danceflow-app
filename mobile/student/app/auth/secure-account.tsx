@@ -1,3 +1,4 @@
+import { friendlyMessage } from "@/lib/errorKind";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, useColorScheme, View } from "react-native";
@@ -46,7 +47,7 @@ export default function SecureAccountScreen() {
       clearEmailBindingRequired();
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "We could not save your password. Please try again.");
+      setError(friendlyMessage(err, "We could not save your password. Please try again."));
     } finally {
       setSaving(false);
     }

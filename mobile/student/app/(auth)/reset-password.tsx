@@ -1,3 +1,4 @@
+import { friendlyMessage } from "@/lib/errorKind";
 import { Link } from "expo-router";
 import { useMemo, useState } from "react";
 import { StyleSheet, TextInput, useColorScheme, View } from "react-native";
@@ -25,7 +26,7 @@ export default function ResetPasswordScreen() {
       await sendPasswordReset(email.trim());
       setMessage("Password reset instructions were sent if the account exists.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Password reset failed.");
+      setError(friendlyMessage(err, "Password reset failed."));
     } finally {
       setSubmitting(false);
     }
