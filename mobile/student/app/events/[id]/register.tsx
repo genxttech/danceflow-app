@@ -6,6 +6,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { LoadingState } from "@/components/LoadingState";
+import { Announce } from "@/components/Announce";
 import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
@@ -379,6 +380,7 @@ export default function EventRegisterScreen() {
       {errorMessage ? <ErrorState error={errorMessage} title="Checkout needs attention" /> : null}
       {noticeMessage ? (
         <View accessibilityLiveRegion="polite" style={styles.statusCard}>
+          <Announce message={noticeMessage} />
           <AppText variant="caption" style={{ flex: 1 }}>{noticeMessage}</AppText>
         </View>
       ) : null}
