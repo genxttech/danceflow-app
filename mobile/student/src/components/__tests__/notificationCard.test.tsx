@@ -14,12 +14,12 @@ jest.mock("expo-constants", () => ({ __esModule: true, default: { appOwnership: 
 jest.mock("expo-notifications", () => ({}));
 jest.mock("@/lib/supabase", () => ({ supabase: {} }));
 
-const mockState = { permissionStatus: "undetermined", message: null as string | null };
+const mockState = { permissionStatus: "undetermined", message: null as string | null, pushEnabled: false };
 jest.mock("@/lib/pushNotifications", () => ({
   ...jest.requireActual("@/lib/pushNotifications"),
   useNotificationPreferences: () => ({
     preferences: {
-      pushEnabled: false,
+      pushEnabled: mockState.pushEnabled,
       scheduleUpdates: true,
       eventUpdates: true,
       favoriteUpdates: true,
@@ -41,6 +41,23 @@ beforeAll(warmUpRenderer, WARM_UP_TIMEOUT_MS);
 beforeEach(() => {
   mockState.permissionStatus = "undetermined";
   mockState.message = null;
+  mockState.pushEnabled = false;
+});
+
+describe("master switch reflects this device", () => {
+  it("is off until the OS permission is granted, even if the stored preference is on", () => {
+    mockState.permissionStatus = "undetermined";
+    mockState.pushEnabled = true;
+    render(<NotificationPreferencesCard userId="u1" />);
+    expect(screen.getByRole("switch", { checked: false })).toBeTruthy();
+  });
+
+  it("is on only with the preference and the permission", () => {
+    mockState.permissionStatus = "granted";
+    mockState.pushEnabled = true;
+    render(<NotificationPreferencesCard userId="u1" />);
+    expect(screen.getAllByRole("switch", { checked: true }).length).toBeGreaterThan(0);
+  });
 });
 
 describe("notification permission wording", () => {

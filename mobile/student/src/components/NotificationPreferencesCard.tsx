@@ -61,6 +61,9 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
     openNotificationSettings
   } = useNotificationPreferences(userId);
 
+  // The switch shows what is true on this device: push is on only with the preference AND the OS permission.
+  const pushOn = preferences.pushEnabled && permissionStatus === "granted";
+
   function updatePreference(preferenceKey: keyof NotificationPreferences, value: boolean) {
     updatePreferences({ ...preferences, [preferenceKey]: value });
   }
@@ -92,7 +95,7 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
 
       <Pressable
         accessibilityRole="button"
-        onPress={() => togglePushNotifications(!preferences.pushEnabled)}
+        onPress={() => togglePushNotifications(!pushOn)}
         style={({ pressed }) => [styles.masterOption, pressed && styles.optionPressed]}
       >
         <View style={{ flex: 1 }}>
@@ -104,7 +107,7 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
           onValueChange={togglePushNotifications}
           thumbColor="#fff"
           trackColor={{ false: colors.border, true: colors.primary }}
-          value={preferences.pushEnabled}
+          value={pushOn}
         />
       </Pressable>
 
@@ -113,11 +116,11 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
           <Pressable
             accessibilityRole="button"
             key={option.key}
-            disabled={saving || loading || !preferences.pushEnabled}
+            disabled={saving || loading || !pushOn}
             onPress={() => updatePreference(option.key, !preferences[option.key])}
             style={({ pressed }) => [
               styles.option,
-              !preferences.pushEnabled && styles.optionDisabled,
+              !pushOn && styles.optionDisabled,
               pressed && styles.optionPressed,
             ]}
           >
@@ -126,7 +129,7 @@ export function NotificationPreferencesCard({ userId }: { userId: string }) {
               <AppText variant="caption">{option.detail}</AppText>
             </View>
             <Switch
-              disabled={saving || loading || !preferences.pushEnabled}
+              disabled={saving || loading || !pushOn}
               onValueChange={(value) => updatePreference(option.key, value)}
               thumbColor="#fff"
               trackColor={{ false: colors.border, true: colors.primary }}
