@@ -64,8 +64,20 @@ export async function POST(request: NextRequest, { params }: Params) {
     .eq("id", id)
     .maybeSingle();
 
-  const studio = one((item as any)?.studios);
-  const content = one((item as any)?.commerce_digital_content);
+  type StudioRow = {
+    subscription_status: string | null;
+    stripe_connected_account_id: string | null;
+    stripe_connect_charges_enabled: boolean | null;
+    stripe_connect_payouts_enabled: boolean | null;
+    stripe_connect_onboarding_complete: boolean | null;
+  };
+  type ContentRow = { status: string | null; release_at: string | null; mux_upload_status: string | null };
+  const relations = item as unknown as {
+    studios?: StudioRow | StudioRow[] | null;
+    commerce_digital_content?: ContentRow | ContentRow[] | null;
+  } | null;
+  const studio = one(relations?.studios);
+  const content = one(relations?.commerce_digital_content);
   const available =
     item?.active === true &&
     item?.published === true &&
@@ -215,7 +227,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           connected_account_id: studio.stripe_connected_account_id,
         },
       },
-      { stripeAccount: studio.stripe_connected_account_id },
+      { stripeAccount: studio?.stripe_connected_account_id as string }, // non-null: guaranteed by the availability check above
     );
 
     if (!paymentIntent.client_secret) {
