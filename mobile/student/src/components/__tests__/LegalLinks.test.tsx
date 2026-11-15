@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Linking } from "react-native";
-import { AccountDeletionLink, LegalLinks, legalUrl } from "@/components/LegalLinks";
+import { AccountDeletionLink, HelpLinks, LegalLinks, legalUrl } from "@/components/LegalLinks";
 import { AppButton } from "@/components/AppButton";
 
 jest.mock("@react-native-async-storage/async-storage", () =>
@@ -80,6 +80,20 @@ describe("AppText font scaling cap", () => {
     render(<AccountDeletionLink />);
     fireEvent.press(screen.getByRole("link", { name: "How account deletion works" }));
     expect(open).toHaveBeenCalledWith("https://danceflow.test/account-deletion");
+    open.mockRestore();
+  });
+
+  it("opens the public help, security and DPA pages", () => {
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    render(<HelpLinks />);
+    fireEvent.press(screen.getByRole("link", { name: "Help Center" }));
+    fireEvent.press(screen.getByRole("link", { name: "Security" }));
+    fireEvent.press(screen.getByRole("link", { name: "Data Processing Agreement" }));
+    expect(open.mock.calls).toEqual([
+      ["https://danceflow.test/knowledgebase"],
+      ["https://danceflow.test/security"],
+      ["https://danceflow.test/dpa"],
+    ]);
     open.mockRestore();
   });
 
