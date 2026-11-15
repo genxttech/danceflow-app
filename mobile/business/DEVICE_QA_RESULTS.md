@@ -190,4 +190,4 @@ Setup: a **release** APK (x86_64, QA-only signing key, cleartext HTTP to the hos
 | R5-11 | Recovery after the 403 (role restored, then Refresh studios) | **FAIL, then fixed**: the screen stayed on the error until a pull-to-refresh (`r5-13`, `r5-14`). #543 fetches the screen again after the studio list reloads, with jest regression cases; **not re-run on the device** | `r5-13`, `r5-14` |
 | R5-12 | Instructor: Today has no switch; Pulse is "Your day" with no client card | **PASS** | `r5-15`, `r5-16` |
 
-Not run (**BLOCKED / not done**): Pulse and Studio light at 2.0 for the Pulse tab, Studio dark at 2.0 scrolled and the dark 401/403 states (screenshots exist but were not reviewed, so not claimed); the cut-off day (500 rows) on the device; talkback; the post-fix recovery (R5-11) on the device; iOS.
+Not run or not reviewed (**BLOCKED / not claimed**): Pulse in light at 2.0 and Studio in dark at 2.0 scrolled (screenshots were taken but not reviewed); the 401/403 states in dark and at 2.0; the cut-off day (500 rows) on the device; talkback; the post-fix recovery (R5-11) on the device; iOS.
