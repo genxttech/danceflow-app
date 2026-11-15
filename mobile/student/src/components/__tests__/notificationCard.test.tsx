@@ -60,6 +60,24 @@ describe("master switch reflects this device", () => {
   });
 });
 
+describe("screen reader: each row is one named switch", () => {
+  it("names every switch and reports its state; the inner native Switch is not a second stop", () => {
+    mockState.permissionStatus = "granted";
+    mockState.pushEnabled = true;
+    render(<NotificationPreferencesCard userId="u1" />);
+    expect(screen.getByRole("switch", { name: "Push notifications", checked: true })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Schedule updates" })).toBeTruthy();
+    expect(screen.getAllByRole("switch").length).toBe(7); // master + six categories, no unnamed duplicates
+  });
+
+  it("reads a row as off and disabled until push is on", () => {
+    mockState.permissionStatus = "undetermined";
+    mockState.pushEnabled = false;
+    render(<NotificationPreferencesCard userId="u1" />);
+    expect(screen.getByRole("switch", { name: "Schedule updates", checked: true, disabled: true })).toBeTruthy();
+  });
+});
+
 describe("notification permission wording", () => {
   it("is 'not asked yet' (not blocked) until the first prompt", () => {
     render(<NotificationPreferencesCard userId="u1" />);
