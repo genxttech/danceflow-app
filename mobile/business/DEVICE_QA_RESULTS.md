@@ -170,3 +170,24 @@ Setup: a **release** APK (x86_64, QA-only signing key, not debuggable) built in 
 Not run (**BLOCKED / not done**): client detail and the appointment screens in dark; dark combined with font 2.0; changing dark mode while the app is open (styles are chosen at launch, known); a 401 or expired-session state on the device; the second "Don't allow" (permanent denial) path on the device; talkback walkthrough; iOS (no macOS).
 
 Root cause of R4-3 (from the generated manifest): Expo's `MainActivity` declares `configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"` without `fontScale`, so a text-size change recreates the activity and React Native keeps its old shadow tree. PR 531 adds `fontScale` with a small config plugin (it touches `app.json`, a protected path).
+
+## R5: Pulse and the studio-wide schedule on a release build, 2026-11-15
+
+Setup: a **release** APK (x86_64, QA-only signing key, cleartext HTTP to the host for this build only) built from main at `9487b497` plus #541 (`6595a7f5`), with `EXPO_PUBLIC_STAFF_FEATURES=pulse,studioSchedule` baked in **for this QA build only** (the shipping defaults are unchanged, both flags off). Backend: a disposable `iso-qa --auth` stack (real GoTrue, real RLS), the roster-names function applied locally, the fictional seed from `seed-staff.mjs`, and the real staff API from a **production** `next build` + `next start`. Real sign-in as Owen (owner, no instructor profile) and Ida (instructor); for this run both got a short QA password through GoTrue's admin API because a 39-character password does not type reliably through `adb`. Emulator `df-api35`, Android 15. Settings restored to font 1.0 / night off, app uninstalled, stack and server removed afterwards.
+
+| # | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| R5-1 | Owner: Today tab shows the My day / Studio switch; Pulse tab present | **PASS** | `r5-05` |
+| R5-2 | Studio view (light, 1.0): the studio's day in time order, who teaches each row, cancelled row struck through, client names | **PASS** | `r5-01` |
+| R5-3 | Pulse (light, 1.0): counts with words, next up, new clients; the numbers agree with the Studio list (3 live + 1 cancelled) | **PASS**. Finding: the label repeated the number ("3" over "3 appointments"); fixed in #543 | `r5-02` |
+| R5-4 | Dark mode (system dark, launched dark) on Studio and Pulse at 1.0 | **PASS**: legible, selected switch option clear | `r5-03`, `r5-04` |
+| R5-5 | Font 2.0, cold start, dark: Today, Studio, Pulse | **PASS**: wraps, nothing clipped, tab labels intact | `r5-05`, `r5-06`, `r5-07` |
+| R5-6 | Font 2.0, cold start, light: Studio | **PASS** | `r5-08` |
+| R5-7 | Font changed **while running** (2.0 to 1.0, Studio open), #531's `fontScale` handling | **PASS**: no clipping or stale boxes; the app keeps its launch size until restart (by design) | `r5-09` |
+| R5-8 | Empty day (Studio, next day) | **PASS**: explained in words | `r5-10` |
+| R5-9 | 403: the owner's role demoted to independent instructor in the database mid-session, then pull-to-refresh | **PASS**: "Not available for your role" with Refresh studios, from the real server's `role_not_permitted` | `r5-11` |
+| R5-10 | 401: the session deleted in the database, then pull-to-refresh | **PASS**: "Sign in again"; the button returns to sign-in and signing in again works | `r5-12` |
+| R5-11 | Recovery after the 403 (role restored, then Refresh studios) | **FAIL, then fixed**: the screen stayed on the error until a pull-to-refresh (`r5-13`, `r5-14`). #543 fetches the screen again after the studio list reloads, with jest regression cases; **not re-run on the device** | `r5-13`, `r5-14` |
+| R5-12 | Instructor: Today has no switch; Pulse is "Your day" with no client card | **PASS** | `r5-15`, `r5-16` |
+
+Not run (**BLOCKED / not done**): Pulse and Studio light at 2.0 for the Pulse tab, Studio dark at 2.0 scrolled and the dark 401/403 states (screenshots exist but were not reviewed, so not claimed); the cut-off day (500 rows) on the device; talkback; the post-fix recovery (R5-11) on the device; iOS.
