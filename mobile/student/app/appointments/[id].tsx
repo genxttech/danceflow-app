@@ -92,6 +92,8 @@ export default function AppointmentDetailScreen() {
   const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -145,7 +147,7 @@ export default function AppointmentDetailScreen() {
     return () => {
       mounted = false;
     };
-  }, [appointmentId, session?.user.id]);
+  }, [appointmentId, session?.user.id, retryKey]);
 
   const requestTitle = useMemo(() => {
     if (selectedAction === "reschedule") return "Reschedule requested";
@@ -238,7 +240,7 @@ export default function AppointmentDetailScreen() {
         <LoadingState label="Loading schedule details" />
       ) : null}
 
-      {error ? <ErrorState error={error} title="Details unavailable" /> : null}
+      {error ? <ErrorState error={error} title="Details unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {appointment ? (
         <>

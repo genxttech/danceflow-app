@@ -81,7 +81,7 @@ export default function DigitalPurchasesPage() {
 
       {!loading && errorMessage ? (
         <>
-          <ErrorState error={errorMessage} title="Digital purchases unavailable" />
+          <ErrorState error={errorMessage} title="Digital purchases unavailable" onRetry={() => void load()} />
           <AppButton label="Try again" onPress={() => void load()} variant="secondary" />
         </>
       ) : null}

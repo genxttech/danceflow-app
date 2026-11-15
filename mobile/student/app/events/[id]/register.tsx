@@ -127,11 +127,15 @@ export default function EventRegisterScreen() {
     return id;
   }
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
 
     if (!id) return;
 
+    setLoading(true);
+    setErrorMessage(null);
     getPublicEventDetailForMobile(id, session?.user.id)
       .then((detail) => {
         if (!mounted) return;
@@ -149,7 +153,7 @@ export default function EventRegisterScreen() {
     return () => {
       mounted = false;
     };
-  }, [id, session?.user.id]);
+  }, [id, session?.user.id, retryKey]);
 
   const selectedTickets = useMemo(() => {
     if (!event) return [];
@@ -360,7 +364,7 @@ export default function EventRegisterScreen() {
   if (!event) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This event could not be loaded." title="Event unavailable" />
+        <ErrorState error={errorMessage} fallback="This event could not be loaded." onRetry={() => setRetryKey((key) => key + 1)} title="Event unavailable" />
       </Screen>
     );
   }

@@ -184,7 +184,7 @@ export default function ProfileScreen() {
 
       {loading ? <LoadingState label="Loading your profile" /> : null}
 
-      {!loading && errorMessage ? <ErrorState error={errorMessage} title="Profile not available yet" /> : null}
+      {!loading && errorMessage ? <ErrorState error={errorMessage} title="Profile not available yet" onRetry={() => void loadProfile()} /> : null}
       {!loading && message ? <FeatureCard title="Saved" detail={message} /> : null}
 
       {!loading && !session ? (

@@ -54,6 +54,8 @@ export default function MembershipsScreen() {
   const [wallet, setWallet] = useState<StudentWallet | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -89,7 +91,7 @@ export default function MembershipsScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.email, session?.user.id]);
+  }, [session?.user.email, session?.user.id, retryKey]);
 
   const hasPortalAccess = linkedStudios.length > 0;
   const memberships = wallet?.memberships ?? [];
@@ -101,7 +103,7 @@ export default function MembershipsScreen() {
       <AppText variant="caption">Review active memberships, renewal dates, and status.</AppText>
 
       {loading ? <LoadingState label="Loading memberships" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Memberships unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Memberships unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {!loading && hasPortalAccess && memberships.length > 0 ? (
         <View style={styles.section}>

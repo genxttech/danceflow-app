@@ -84,7 +84,7 @@ export default function CurriculumVideoScreen() {
   if (!video) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This video could not be opened." title="Video unavailable" />
+        <ErrorState error={errorMessage} fallback="This video could not be opened." title="Video unavailable" onRetry={() => void load()} />
         <AppButton
           label="Back to assignment"
           onPress={() =>

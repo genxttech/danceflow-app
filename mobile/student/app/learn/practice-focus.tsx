@@ -63,6 +63,8 @@ export default function PracticeFocusScreen() {
   const [overview, setOverview] = useState<StudentLearnOverview>(emptyOverview);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -98,7 +100,7 @@ export default function PracticeFocusScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, retryKey]);
 
   const hasPortalAccess = linkedStudios.length > 0;
 
@@ -111,7 +113,7 @@ export default function PracticeFocusScreen() {
       </AppText>
 
       {loading ? <LoadingState label="Loading practice focus" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Practice focus unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Practice focus unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard

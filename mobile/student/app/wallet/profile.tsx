@@ -115,6 +115,8 @@ export default function WalletProfileScreen() {
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -147,7 +149,7 @@ export default function WalletProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, retryKey]);
 
   const hasPortalAccess = linkedStudios.length > 0;
 
@@ -194,7 +196,7 @@ export default function WalletProfileScreen() {
       <AppText variant="caption">Your DanceFlow identity, settings, and connected studio records.</AppText>
 
       {loading ? <LoadingState label="Loading profile" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Profile unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Profile unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {!loading ? (
         <View style={styles.section}>

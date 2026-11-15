@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
+import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
@@ -109,7 +110,7 @@ export default function FavoritesScreen() {
       />
 
       {loading ? <LoadingState label="Loading saved items" /> : null}
-      {message ? <FeatureCard title="Saved items" detail={message} /> : null}
+      {message ? <ErrorState error={message} onRetry={() => void loadFavorites()} title="Saved items" /> : null}
 
       {!loading && !hasItems ? (
         <FeatureCard

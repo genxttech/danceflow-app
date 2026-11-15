@@ -27,8 +27,12 @@ export default function CurriculumAssignmentsScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let active = true;
+    setLoading(true);
+    setErrorMessage(null);
 
     loadStudentCurriculumAssignments()
       .then((rows) => {
@@ -50,7 +54,7 @@ export default function CurriculumAssignmentsScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [retryKey]);
 
   return (
     <Screen>
@@ -65,7 +69,7 @@ export default function CurriculumAssignmentsScreen() {
       ) : null}
 
       {errorMessage ? (
-        <ErrorState error={errorMessage} title="Assignments unavailable" />
+        <ErrorState error={errorMessage} onRetry={() => setRetryKey((key) => key + 1)} title="Assignments unavailable" />
       ) : null}
 
       {!loading && !errorMessage && assignments.length === 0 ? (

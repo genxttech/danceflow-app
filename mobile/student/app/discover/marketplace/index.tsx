@@ -21,6 +21,8 @@ export default function MarketplaceScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useFocusEffect(
     useCallback(() => {
       let mounted = true;
@@ -45,7 +47,7 @@ export default function MarketplaceScreen() {
       return () => {
         mounted = false;
       };
-    }, [])
+    }, [retryKey])
   );
 
   return (
@@ -61,7 +63,7 @@ export default function MarketplaceScreen() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <ErrorState error={errorMessage} title="Marketplace unavailable" />
+        <ErrorState error={errorMessage} onRetry={() => setRetryKey((key) => key + 1)} title="Marketplace unavailable" />
       ) : null}
 
       {!loading && !errorMessage && items.length === 0 ? (

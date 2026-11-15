@@ -274,7 +274,7 @@ export default function RewardsScreen() {
       </View>
 
       {errorMessage ? (
-        <ErrorState error={errorMessage} title="Rewards unavailable" />
+        <ErrorState error={errorMessage} title="Rewards unavailable" onRetry={() => void loadRewards(true)} />
       ) : null}
 
       {!loading && !hasLinkedStudio ? (

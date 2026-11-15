@@ -31,9 +31,13 @@ export default function MarketplaceDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     if (!catalogItemId) return;
     let mounted = true;
+    setLoading(true);
+    setErrorMessage(null);
 
     loadStudentMarketplaceItem(catalogItemId)
       .then((nextItem) => {
@@ -51,7 +55,7 @@ export default function MarketplaceDetailScreen() {
     return () => {
       mounted = false;
     };
-  }, [catalogItemId]);
+  }, [catalogItemId, retryKey]);
 
 
   if (loading) {
@@ -65,7 +69,7 @@ export default function MarketplaceDetailScreen() {
   if (!item) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This item could not be found." title="Content unavailable" />
+        <ErrorState error={errorMessage} fallback="This item could not be found." title="Content unavailable" onRetry={() => setRetryKey((key) => key + 1)} />
       </Screen>
     );
   }

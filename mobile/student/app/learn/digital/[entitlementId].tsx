@@ -179,7 +179,7 @@ export default function DigitalContentPlaybackScreen() {
   if (!content || errorMessage) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This content could not be opened." title="Content unavailable" />
+        <ErrorState error={errorMessage} fallback="This content could not be opened." title="Content unavailable" onRetry={() => void load()} />
         <AppButton
           label="Try again"
           onPress={() => void load(initialCatalogItemId)}

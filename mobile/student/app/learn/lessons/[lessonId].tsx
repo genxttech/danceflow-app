@@ -36,6 +36,8 @@ export default function LessonRecapDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -74,7 +76,7 @@ export default function LessonRecapDetailScreen() {
     return () => {
       mounted = false;
     };
-  }, [lessonId, session?.user.id]);
+  }, [lessonId, session?.user.id, retryKey]);
 
   if (loading) {
     return (
@@ -87,7 +89,7 @@ export default function LessonRecapDetailScreen() {
   if (!lesson) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This recap could not be found." title="Recap unavailable" />
+        <ErrorState error={errorMessage} fallback="This recap could not be found." title="Recap unavailable" onRetry={() => setRetryKey((key) => key + 1)} />
         <AppButton label="Back to Learn" onPress={() => router.replace("/(tabs)/learn")} />
       </Screen>
     );

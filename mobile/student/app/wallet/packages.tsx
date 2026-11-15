@@ -53,6 +53,8 @@ export default function PackagesScreen() {
   const [wallet, setWallet] = useState<StudentWallet | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -88,7 +90,7 @@ export default function PackagesScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.email, session?.user.id]);
+  }, [session?.user.email, session?.user.id, retryKey]);
 
   const hasPortalAccess = linkedStudios.length > 0;
   const packages = wallet?.packages ?? [];
@@ -100,7 +102,7 @@ export default function PackagesScreen() {
       <AppText variant="caption">Review lesson packages, credits, and remaining balances.</AppText>
 
       {loading ? <LoadingState label="Loading packages" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Packages unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Packages unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {!loading && hasPortalAccess && packages.length > 0 ? (
         <View style={styles.section}>

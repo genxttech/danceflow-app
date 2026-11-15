@@ -65,8 +65,11 @@ export default function EventDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
+    setErrorMessage(null);
 
     if (!id) return;
 
@@ -89,7 +92,7 @@ export default function EventDetailScreen() {
     return () => {
       mounted = false;
     };
-  }, [id, session?.user.id]);
+  }, [id, session?.user.id, retryKey]);
 
   const goBack = () =>
     router.canGoBack() ? router.back() : router.push("/(tabs)/discover" as unknown as RouterPushTarget);
@@ -105,7 +108,7 @@ export default function EventDetailScreen() {
   if (!event || errorMessage) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This event could not be found." title="Event unavailable" />
+        <ErrorState error={errorMessage} fallback="This event could not be found." title="Event unavailable" onRetry={() => setRetryKey((key) => key + 1)} />
         <AppButton label="Back to events" onPress={() => router.push("/discover/events" as unknown as RouterPushTarget)} />
       </Screen>
     );

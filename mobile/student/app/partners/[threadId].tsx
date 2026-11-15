@@ -175,7 +175,7 @@ export default function PartnerThreadScreen() {
 
       {loading ? <LoadingState label="Loading messages" /> : null}
       {statusMessage ? <FeatureCard title="Partner Messages" detail={statusMessage} /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Messages need attention" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Messages need attention" onRetry={() => void loadThread()} /> : null}
 
       {thread ? (
         <View style={styles.threadCard}>

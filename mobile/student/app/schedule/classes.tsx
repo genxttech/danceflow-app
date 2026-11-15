@@ -194,7 +194,7 @@ export default function ScheduleClassesScreen() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <ErrorState error={errorMessage} title="Classes unavailable" />
+        <ErrorState error={errorMessage} title="Classes unavailable" onRetry={() => void loadClasses()} />
       ) : null}
 
       {!loading && !session ? (

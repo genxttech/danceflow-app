@@ -90,7 +90,7 @@ export default function CurriculumAssignmentDetailScreen() {
   if (!assignment) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This assignment could not be found." title="Assignment unavailable" />
+        <ErrorState error={errorMessage} fallback="This assignment could not be found." title="Assignment unavailable" onRetry={() => void load()} />
         <AppButton
           label="Back to assignments"
           onPress={() => router.replace("/learn/curriculum" as never)}
