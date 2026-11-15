@@ -6,11 +6,16 @@
   is a per-build override: "none" turns both off, "-clients" / "-attendance" turn one off, and naming one keeps it on.
 */
 
-export type StaffFeature = "clients" | "attendance";
+/**
+ * "pulse" (the Pulse tab, GET /pulse) and "studioSchedule" (the studio-wide day, GET /schedule) are OFF by default: the routes are merged and QA'd, the screens
+ * are not yet device-verified. Turn one on per build with EXPO_PUBLIC_STAFF_FEATURES=pulse (or studioSchedule).
+ */
+export type StaffFeature = "clients" | "attendance" | "pulse" | "studioSchedule";
 
 const ENABLED_BY_DEFAULT: readonly StaffFeature[] = ["clients", "attendance"];
 
-const isFeature = (value: string): value is StaffFeature => value === "clients" || value === "attendance";
+const isFeature = (value: string): value is StaffFeature =>
+  value === "clients" || value === "attendance" || value === "pulse" || value === "studioSchedule";
 
 export function parseStaffFeatures(raw: string | undefined): Set<StaffFeature> {
   const enabled = new Set<StaffFeature>(ENABLED_BY_DEFAULT);

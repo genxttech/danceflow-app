@@ -22,7 +22,8 @@ function can(workspace: StaffWorkspace, key: string) {
   return workspace.capabilities?.[key] === true;
 }
 
-export function tabsForWorkspace(workspace: StaffWorkspace | null | undefined): TabKey[] {
+/** `pulseForAll`: the Pulse screen is enabled, so every schedule viewer (instructors included, with their own day) gets the tab. */
+export function tabsForWorkspace(workspace: StaffWorkspace | null | undefined, options: { pulseForAll?: boolean } = {}): TabKey[] {
   if (!workspace || !workspace.accessAllowed || !isServedRole(workspace.role)) return ["more"];
 
   const tabs = new Set<TabKey>(["more"]);
@@ -31,14 +32,14 @@ export function tabsForWorkspace(workspace: StaffWorkspace | null | undefined): 
   if (schedule) tabs.add("today");
   // Owners, admins and front desk see the studio's clients; instructors see the people they teach.
   if (can(workspace, "viewClients") || schedule) tabs.add("clients");
-  if (can(workspace, "viewReports")) tabs.add("pulse");
+  if (can(workspace, "viewReports") || (options.pulseForAll && schedule)) tabs.add("pulse");
 
   return TAB_ORDER.filter((tab) => tabs.has(tab));
 }
 
 /** The tab a workspace opens on. */
-export function initialTab(workspace: StaffWorkspace | null | undefined): TabKey {
-  const tabs = tabsForWorkspace(workspace);
+export function initialTab(workspace: StaffWorkspace | null | undefined, options: { pulseForAll?: boolean } = {}): TabKey {
+  const tabs = tabsForWorkspace(workspace, options);
   return tabs.includes("today") ? "today" : tabs[0];
 }
 

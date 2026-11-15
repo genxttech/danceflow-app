@@ -81,6 +81,7 @@ function renderToday(today: StaffApi["today"], overrides: { signOut?: jest.Mock;
     me: jest.fn(),
     today: jest.fn(today),
     appointment: jest.fn(),
+    pulse: jest.fn(),
     searchClients: jest.fn(),
     client: jest.fn(),
     setAttendance: jest.fn(),
