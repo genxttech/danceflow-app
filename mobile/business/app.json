@@ -46,7 +46,8 @@
           "color": "#5B145E"
         }
       ],
-      "./plugins/withAndroidReleaseSigning"
+      "./plugins/withAndroidReleaseSigning",
+      "./plugins/withFontScaleConfigChange.js"
     ],
     "experiments": {
       "typedRoutes": true
