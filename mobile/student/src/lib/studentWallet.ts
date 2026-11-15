@@ -340,6 +340,18 @@ export function clearStudentWalletCache() {
   walletCache.clear();
 }
 
+/** Whether a digital entitlement's access window has closed (an entitlement can stay listed after it ends). */
+export function digitalAccessEnded(expiresAt: string | null | undefined, now: number = Date.now()) {
+  if (!expiresAt) return false;
+  const ends = new Date(expiresAt).getTime();
+  return !Number.isNaN(ends) && ends <= now;
+}
+
+export function digitalAccessLabel(expiresAt: string | null | undefined, now: number = Date.now()) {
+  if (!expiresAt) return "Lifetime access";
+  return `${digitalAccessEnded(expiresAt, now) ? "Access ended" : "Access expires"} ${formatWalletDate(expiresAt)}`;
+}
+
 export function formatWalletDate(value: string | null | undefined) {
   if (!value) return "Not set";
   const date = new Date(value.includes("T") ? value : `${value}T12:00:00`);
