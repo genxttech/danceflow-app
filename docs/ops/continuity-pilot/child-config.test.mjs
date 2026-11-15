@@ -9,6 +9,8 @@ import { buildSuite, abuseVariants, evaluate, checkIsolationReport } from './iso
 import { StreamParser } from './driver.mjs';
 import { entries } from './owner-tool.mjs';
 import { bashMatch } from './deny-check.mjs';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const policy = JSON.parse(fs.readFileSync(path.join(HERE, 'phase2', 'policy.json'), 'utf8'));
@@ -37,9 +39,9 @@ test('C3. limits and shape: budget, timeout, addDirs, cwd, model, missing fields
 
 test('C4. wildcard families accept exactly the reviewed shapes', () => {
   const ok = (rule) => { const t = base(); t.allow.push(rule); assert.doesNotThrow(() => validateTemplateIsolation('x', t, required), rule); };
-  ok('Bash(git -C C:/Dev/df-u18pkg ls-tree *)'); ok('Bash(docker exec -i -e PGPASSWORD=postgres cf1pilot-q9 psql -U postgres -h localhost -d postgres *)'); ok('Bash(docker rm -f -v cf1pilot-q9)');
+  ok('Bash(git -C C:/Dev/df-u18pkg ls-tree *)'); ok('Bash(docker exec -e PGPASSWORD=postgres cf1pilot-q9 pg_dump -U postgres -h localhost *)'); ok('Bash(bash {CODE}/phase2/scripts/psql_sql.sh cf1pilot-q9 postgres *)'); ok('Bash(docker rm -f -v cf1pilot-q9)');
   ok('Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18/*)'); ok('Bash(KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out)');
-  for (const rule of ['Bash(docker exec cf1pilot-q1 sh -c *)', 'Bash(docker exec cf1pilot-q1 bash *)', 'Bash(docker exec -i -e PGPASSWORD=a b cf1pilot-q1 psql *)', 'Bash(docker rm -f cf1pilot-q1)', 'Bash(docker rm -f -v cf1c-qa)', 'Bash(docker ps -a --format {{.Names}})', 'Bash(docker inspect cf1c-qa-db)', 'Bash(docker logs *)'])
+  for (const rule of ['Bash(docker exec cf1pilot-q1 sh -c *)', 'Bash(docker exec -i -e PGPASSWORD=postgres cf1pilot-q1 psql -U postgres -h localhost -d postgres *)', 'Bash(bash {CODE}/phase2/scripts/psql_sql.sh cf1c-qa-db postgres *)', 'Bash(bash {CODE}/phase2/scripts/psql_sql.sh cf1pilot-q1 root *)', 'Bash(docker exec cf1pilot-q1 bash *)', 'Bash(docker exec -i -e PGPASSWORD=a b cf1pilot-q1 psql *)', 'Bash(docker rm -f cf1pilot-q1)', 'Bash(docker rm -f -v cf1c-qa)', 'Bash(docker ps -a --format {{.Names}})', 'Bash(docker inspect cf1c-qa-db)', 'Bash(docker logs *)'])
     assert.throws(() => { const t = base(); t.allow.push(rule); validateTemplateIsolation('x', t, required); }, /reviewed families/, rule);
 });
 
@@ -140,4 +142,17 @@ test('C11. rule syntax: a backslash escapes the next character, so "any backslas
   assert.ok(bashMatch('*' + bs + bs + '*', 'docker exec x psql -c "' + bs + '! id"') && !bashMatch('*' + bs + bs + '*', 'docker ps'));
   assert.ok(bashMatch('*' + bs + '*', 'echo a*') && !bashMatch('*' + bs + '*', 'echo a' + bs + 'b'), 'a single backslash before * means a literal asterisk');
   assert.ok(!EXTRA_DENY.some((r) => r.includes(bs) && !r.includes(bs + bs)), 'no rule uses a lone backslash');
+});
+
+test('C12. psql_sql.sh (the ONLY SQL path) accepts ordinary SQL and refuses every psql/server-side escape, without ever reaching docker for a refusal', () => {
+  const bs = String.fromCharCode(92); const stub = fs.mkdtempSync(path.join(os.tmpdir(), 'cpilot-stub-')); const NL = String.fromCharCode(10); fs.writeFileSync(path.join(stub, 'docker'), ['#!/bin/bash', 'echo "STUB-DOCKER $@"', ''].join(NL)); try { fs.chmodSync(path.join(stub, 'docker'), 0o755); } catch { /* windows */ }
+  const script = path.join(HERE, 'phase2', 'scripts', 'psql_sql.sh').replaceAll(bs, '/');
+  const run = (...a) => spawnSync('bash', [script, ...a], { encoding: 'utf8', env: { ...process.env, PATH: stub + path.delimiter + process.env.PATH } });
+  const ok = (sql) => { const r = run('cf1pilot-q1', 'postgres', sql); assert.equal(r.status, 0, sql + ' :: ' + r.stderr); assert.match(r.stdout, /STUB-DOCKER exec -i -e PGPASSWORD=postgres cf1pilot-q1 psql -U postgres -h localhost -d postgres -X -v ON_ERROR_STOP=1 -c /); assert.ok(r.stdout.includes(sql)); };
+  const no = (args, why) => { const r = run(...args); assert.equal(r.status, 2, why + ' :: ' + r.stdout + r.stderr); assert.match(r.stderr, /refused/); assert.ok(!r.stdout.includes('STUB-DOCKER'), why + ': docker must not be reached'); };
+  ok('select 1'); ok("select count(*) from pg_trigger where tgname <> 'x'"); ok('select a, b from t where a != 3'); ok('select 1' + String.fromCharCode(10) + 'from t');
+  for (const sql of [bs + '! id', bs + 'o /tmp/x', bs + 'copy t to stdout', 'select 1 ' + bs + 'gexec', "copy (select 1) to program 'id'", "COPY t FROM PROGRAM 'id'", "CoPy t To PrOgRaM 'id'", "select pg_read_file('/etc/passwd')", "select PG_READ_BINARY_FILE('/x')", "select pg_ls_dir('/')", "select pg_stat_file('/x')", "select lo_import('/etc/passwd')", "select LO_EXPORT(1,'/x')", "select dblink_connect('host=10.0.0.5')", 'create extension postgres_fdw', 'select pg_execute_server_program(1)', '', 'x'.repeat(4001)]) no(['cf1pilot-q1', 'postgres', sql], 'sql: ' + sql.slice(0, 40));
+  no(['cf1pilot-q1', 'postgres', 'select 1', 'extra'], 'extra arg'); no(['cf1pilot-q1', 'postgres'], 'missing arg'); no(['cf1c-qa-db', 'postgres', 'select 1'], 'other container'); no(['cf1pilot-q1x', 'postgres', 'select 1'], 'container shape'); no(['cf1pilot-q1', 'root', 'select 1'], 'role'); no(['cf1pilot-q1', 'postgres; id', 'select 1'], 'role injection'); no(['cf1pilot-q1 -it', 'postgres', 'select 1'], 'container injection');
+  const apply = path.join(HERE, 'phase2', 'scripts', 'apply_sql.sh').replaceAll(bs, '/'); const ra = (...a) => spawnSync('bash', [apply, ...a], { encoding: 'utf8', env: { ...process.env, PATH: stub + path.delimiter + process.env.PATH } });
+  for (const a of [['cf1pilot-q1', 'postgres', 'C:/Dev/df-u18pkg/docs/qa/x.sql'], ['cf1pilot-q1', 'postgres', 'C:/Dev/df-u18/src/lib/supabase/migrations/../../../../x.sql'], ['cf1pilot-q1', 'postgres', 'C:/Dev/studioapp/src/lib/supabase/migrations/x.sql'], ['cf1c-qa-db', 'postgres', 'C:/Dev/df-u18/src/lib/supabase/migrations/x.sql'], ['cf1pilot-q1', 'postgres', 'C:/Dev/df-u18/src/lib/supabase/migrations/nonexistent.sql']]) { const r = ra(...a); assert.equal(r.status, 2, a.join(' ')); assert.ok(!r.stdout.includes('STUB-DOCKER')); }
 });

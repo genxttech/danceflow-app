@@ -14,7 +14,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const CODE_DIR = HERE.replaceAll('\\', '/');
 export const CODE_PLACEHOLDER = '{CODE}';
 export const resolveCode = (s, codeDir = CODE_DIR) => String(s).replaceAll(CODE_PLACEHOLDER, codeDir);
-export const SCRIPTS = ['phase2/scripts/run_u18s2.sh', 'phase2/scripts/apply_sql.sh'];
+export const SCRIPTS = ['phase2/scripts/run_u18s2.sh', 'phase2/scripts/apply_sql.sh', 'phase2/scripts/psql_sql.sh'];
 
 export const CLAUDE_VERSION = '2.1.321';
 export const CHILD_TOOLS = 'Bash,Read,Edit,Write,Glob,Grep';
@@ -41,8 +41,10 @@ export const CAPS = { maxBudgetUsd: 10, timeoutMs: 3600000 };
 // git add/commit are NOT allowed to the child: the driver stages and commits (hooks disabled) after verifying what changed.
 export const WILDCARD_FAMILIES = [
   /^git -C C:\/Dev\/[A-Za-z0-9._-]+ (ls-tree|show|cat-file|log|rev-parse|diff|status|worktree list) \*$/,
-  // runs only inside a disposable cf1pilot-qN container that has NO network (run_u18s2.sh starts it with --network none)
-  /^docker exec( -i)?( -e [A-Z_]+=[A-Za-z0-9_]+)* cf1pilot-q[0-9]+ (psql|pg_dump|pg_restore|pg_isready)( [A-Za-z0-9_@:=.\/-]+)* \*$/,
+  // pg_dump/pg_restore run only inside a disposable cf1pilot-qN container that has NO network (run_u18s2.sh starts it with --network none)
+  /^docker exec( -i)?( -e [A-Z_]+=[A-Za-z0-9_]+)* cf1pilot-q[0-9]+ (pg_dump|pg_restore|pg_isready)( [A-Za-z0-9_@:=.\/-]+)* \*$/,
+  // the ONLY SQL path: a reviewed helper that refuses backslashes (psql meta-commands), PROGRAM and server-side file/large-object/network features
+  /^bash \{CODE\}\/phase2\/scripts\/psql_sql\.sh cf1pilot-q[0-9]+ (postgres|supabase_admin) \*$/,
   // reviewed helper: applies one host migration .sql file (the helper itself enforces df-u18* migrations tree only, real path, no "..")
   /^bash \{CODE\}\/phase2\/scripts\/apply_sql\.sh cf1pilot-q[0-9]+ (postgres|supabase_admin) C:\/Dev\/df-u18[A-Za-z0-9._-]*\/\*$/,
 ];

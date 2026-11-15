@@ -7,7 +7,7 @@ export const DEFAULT_SOURCE = {
   authPath: 'docs/ops/continuity-pilot/phase2/authorizations.json',
   // The local code that runs the loop must byte-equal (modulo CRLF) the reviewed copy on the protected ref.
   codeDir: 'docs/ops/continuity-pilot',
-  codeFiles: ['orchestrator.mjs', 'protected-source.mjs', 'config.mjs', 'deny-check.mjs', 'deny-probe.mjs', 'preflight.mjs', 'owner-tool.mjs', 'child-config.mjs', 'driver.mjs', 'isolation-test.mjs', 'phase2/required-deny.json', 'phase2/scripts/run_u18s2.sh', 'phase2/scripts/apply_sql.sh'],
+  codeFiles: ['orchestrator.mjs', 'protected-source.mjs', 'config.mjs', 'deny-check.mjs', 'deny-probe.mjs', 'preflight.mjs', 'owner-tool.mjs', 'child-config.mjs', 'driver.mjs', 'isolation-test.mjs', 'phase2/required-deny.json', 'phase2/scripts/run_u18s2.sh', 'phase2/scripts/apply_sql.sh', 'phase2/scripts/psql_sql.sh'],
   credentialHelper: '!node C:/Users/mcurt/d24-app-key/git-credential-app.mjs',
 };
 
