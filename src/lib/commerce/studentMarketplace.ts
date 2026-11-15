@@ -149,7 +149,7 @@ async function queueStudentMarketplacePurchaseConfirmation(params: {
 
   const { subject, bodyText, bodyHtml } = buildMarketplacePurchaseEmail({
     studio: studio ?? {},
-    firstName: client?.first_name ?? null,
+    firstName: client?.first_name ?? (typeof metadata.buyer_first_name === "string" ? metadata.buyer_first_name : null),
     itemName,
     orderNumber: order.order_number || order.id,
     total,
