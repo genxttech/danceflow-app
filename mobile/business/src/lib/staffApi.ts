@@ -54,6 +54,18 @@ export type TodayAppointment = {
   partner: PersonName | null;
 };
 
+/** One row of the studio-wide day: a Today row plus who teaches it (null for a floor rental or an unassigned slot). */
+export type StudioAppointment = TodayAppointment & { instructor: PersonName | null };
+
+export type StaffStudioDay = {
+  studioId: string;
+  date: string;
+  timeZone: string;
+  /** True when the day has more than 500 appointments and only the first 500 are here. */
+  truncated: boolean;
+  appointments: StudioAppointment[];
+};
+
 export type StaffToday = {
   studioId: string;
   date: string;
@@ -264,6 +276,8 @@ export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
   appointment: (studioId: string, appointmentId: string) => Promise<AppointmentDetail>;
+  /** Slice 3: GET /workspaces/{id}/schedule?date=. The whole studio's day for owner, admin and front desk; instructors get 403 role_not_permitted. */
+  studioSchedule: (studioId: string, date?: string) => Promise<StaffStudioDay>;
   /** Slice 3: GET /workspaces/{id}/pulse. Counts and the next appointment; studio scope for owner, admin and front desk, own scope for an instructor. */
   pulse: (studioId: string) => Promise<StaffPulse>;
   /** Slice 2: GET /workspaces/{id}/clients?q=&cursor=&limit= (limit 1–50). Front desk and admins: active clients. Instructors: the clients they teach. */
@@ -283,6 +297,41 @@ export type StaffApi = {
 const str = (value: unknown) => (typeof value === "string" ? value : null);
 
 const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
+
+const person = (raw: unknown): PersonName | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const id = str(r.id);
+  return id ? { id, firstName: str(r.firstName), lastName: str(r.lastName) } : null;
+};
+
+/** The studio-day wire format, normalised: a row without an id or start time is dropped rather than half-shown. */
+export function toStaffStudioDay(raw: unknown): StaffStudioDay {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const rows = Array.isArray(r.appointments) ? r.appointments : [];
+  const appointments: StudioAppointment[] = [];
+  for (const row of rows) {
+    const a = (row ?? {}) as Record<string, unknown>;
+    const id = str(a.id);
+    const startsAt = str(a.startsAt);
+    if (!id || !startsAt) continue;
+    const room = a.room && typeof a.room === "object" ? (a.room as Record<string, unknown>) : null;
+    appointments.push({
+      id,
+      title: str(a.title),
+      appointmentType: str(a.appointmentType) ?? "",
+      status: str(a.status) ?? "",
+      startsAt,
+      endsAt: str(a.endsAt) ?? startsAt,
+      room: room && str(room.id) ? { id: String(room.id), name: str(room.name) ?? "" } : null,
+      locationName: str(a.locationName),
+      client: person(a.client),
+      partner: person(a.partner),
+      instructor: person(a.instructor),
+    });
+  }
+  return { studioId: str(r.studioId) ?? "", date: str(r.date) ?? "", timeZone: str(r.timeZone) ?? "", truncated: r.truncated === true, appointments };
+}
 
 /** The pulse wire format, normalised: a missing or malformed number is 0, never NaN on screen, and an unknown scope is the narrower "own". */
 export function toStaffPulse(raw: unknown): StaffPulse {
@@ -437,6 +486,8 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
   return {
     me: () => call<StaffMe>("/me"),
     today: (studioId, date) => call<StaffToday>(`${ws(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+    studioSchedule: async (studioId, date) =>
+      toStaffStudioDay(await call<unknown>(`${ws(studioId)}/schedule${date ? `?date=${encodeURIComponent(date)}` : ""}`)),
     pulse: async (studioId) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse`)),
     appointment: (studioId, appointmentId) =>
       call<AppointmentDetail>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}`),

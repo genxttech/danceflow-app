@@ -14,6 +14,11 @@ const SERVED_ROLES = new Set(["studio_owner", "studio_admin", "front_desk", "ins
 
 const TAB_ORDER: TabKey[] = ["pulse", "today", "clients", "more"];
 
+/** Owner, admin and front desk: the roles the studio-wide schedule route serves (an instructor keeps their own Today). */
+export function isStudioWideRole(role: string | null | undefined) {
+  return role === "studio_owner" || role === "studio_admin" || role === "front_desk";
+}
+
 export function isServedRole(role: string | null | undefined) {
   return SERVED_ROLES.has(role ?? "");
 }

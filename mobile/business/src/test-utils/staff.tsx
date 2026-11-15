@@ -24,6 +24,7 @@ export function fakeApi(overrides: Partial<StaffApi> = {}): StaffApi & Record<ke
     today: jest.fn(),
     appointment: jest.fn(),
     pulse: jest.fn(),
+    studioSchedule: jest.fn(),
     searchClients: jest.fn(),
     client: jest.fn(),
     setAttendance: jest.fn(),
