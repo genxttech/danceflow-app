@@ -11,6 +11,8 @@ import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess } from "@/lib/studentAccess";
 import {
+  digitalAccessEnded,
+  digitalAccessLabel,
   formatWalletDate,
   loadStudentWallet,
   type StudentDigitalEntitlement
@@ -97,8 +99,8 @@ export default function DigitalPurchasesPage() {
         <View style={styles.list}>
           {items.map((item) => {
             const playable =
-              item.itemType === "digital_video" ||
-              item.itemType === "video_series";
+              (item.itemType === "digital_video" || item.itemType === "video_series") &&
+              !digitalAccessEnded(item.expiresAt);
 
             return (
               <Pressable
@@ -145,12 +147,10 @@ export default function DigitalPurchasesPage() {
                   Access granted {formatWalletDate(item.grantedAt)}
                 </AppText>
                 <AppText variant="caption">
-                  {item.expiresAt
-                    ? `Access expires ${formatWalletDate(item.expiresAt)}`
-                    : "Lifetime access"}
+                  {digitalAccessLabel(item.expiresAt)}
                 </AppText>
                 <AppText variant="caption">
-                  {playable ? "Tap to watch" : "Download access coming next"}
+                  {digitalAccessEnded(item.expiresAt) ? "Access has ended" : playable ? "Tap to watch" : "Download access coming next"}
                 </AppText>
                 </View>
               </Pressable>
