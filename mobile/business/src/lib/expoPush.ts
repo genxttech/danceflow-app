@@ -14,7 +14,7 @@ type PermissionResult = { status: string; granted?: boolean; canAskAgain?: boole
 export type NotificationsModule = {
   getPermissionsAsync: () => Promise<PermissionResult>;
   requestPermissionsAsync: () => Promise<PermissionResult>;
-  getDevicePushTokenAsync: () => Promise<{ data: unknown }>;
+  getExpoPushTokenAsync: (options?: { projectId?: string }) => Promise<{ data: unknown }>;
   addNotificationResponseReceivedListener: (
     handler: (response: { notification: { request: { content: { data: unknown } } } }) => void,
   ) => { remove: () => void };
@@ -29,13 +29,17 @@ function toPermission(result: PermissionResult): PermissionState {
   return "undetermined";
 }
 
-export function createExpoPushAdapter(mod: NotificationsModule): PushAdapter {
+// The server sender (sendMobilePushToUser) talks to Expo's push service, so the token is an Expo push token, not the raw FCM/APNs one; the same
+// shape the claim function accepts.
+const EXPO_TOKEN = /^(Exponent|Expo)PushToken[[A-Za-z0-9_-]+]$/;
+
+export function createExpoPushAdapter(mod: NotificationsModule, projectId?: string): PushAdapter {
   return {
     getPermission: async () => toPermission(await mod.getPermissionsAsync()),
     requestPermission: async () => toPermission(await mod.requestPermissionsAsync()),
     getDeviceToken: async () => {
-      const { data } = await mod.getDevicePushTokenAsync();
-      if (typeof data !== "string" || data.length === 0) throw new Error("no device token");
+      const { data } = await mod.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+      if (typeof data !== "string" || !EXPO_TOKEN.test(data)) throw new Error("no push token");
       return data;
     },
   };
@@ -48,5 +52,22 @@ export function createExpoTapSource(mod: NotificationsModule): TapSource {
       return () => sub.remove();
     },
     getInitial: async () => (await mod.getLastNotificationResponseAsync())?.notification.request.content.data ?? null,
+  };
+}
+
+type Rpc = (fn: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string } | null }>;
+
+/**
+ * Registers the token with the existing claim function (the Student app uses the same one): the row follows whoever is signed in on the device, the table's RLS
+ * stays as it is, and no new route or table is needed. A failure throws, which readPushStatus reports as "on, setup will finish later". Never logs the token.
+ */
+export function createClaimRegister(rpc: Rpc, platform: string): (token: string) => Promise<void> {
+  return async (token) => {
+    const { error } = await rpc("claim_mobile_push_token", {
+      p_expo_push_token: token,
+      p_platform: platform === "ios" || platform === "android" ? platform : "unknown",
+      p_app_slug: "danceflow-business",
+    });
+    if (error) throw new Error("push token registration failed");
   };
 }
