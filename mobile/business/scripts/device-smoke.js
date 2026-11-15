@@ -22,6 +22,8 @@ const lib = require("./device-smoke-lib");
 const APP = "com.idanceflow.business";
 const REPO = path.resolve(__dirname, "../../..");
 const WIN = process.platform === "win32";
+// With shell:true (needed for .bat on Windows) arguments are concatenated, so a value with a space has to carry its own quotes.
+const GRADLE_JVMARGS = WIN ? '"-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m"' : "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m";
 const PASSWORD = "Walk2026qa"; // QA only, set on the two seeded users through GoTrue's admin API of the disposable stack
 
 const opts = (() => {
@@ -177,7 +179,7 @@ async function startWeb() {
   const env = { ...process.env, NEXT_PUBLIC_SUPABASE_URL: state.stack.TW4A_LOCAL_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY: state.stack.ISO_QA_SERVICE_ROLE_KEY, NODE_OPTIONS: "--max-old-space-size=8192" };
   log("next build (production; several minutes)");
   const build = run("npx", ["next", "build"], { cwd: REPO, env });
-  if (build.status !== 0) throw new Error(`next build failed: ${build.stdout.slice(-400)}`);
+  if (build.status !== 0) throw new Error(`next build failed (exit ${build.status}): ${(build.stderr || build.stdout).slice(-400)}`);
   state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env, stdio: "ignore", shell: WIN });
   for (let i = 0; i < 60; i++) {
     try {
@@ -218,8 +220,11 @@ function buildApk() {
   const manifest = path.join(dir, "android/app/src/main/AndroidManifest.xml");
   const xml = fs.readFileSync(manifest, "utf8");
   if (!xml.includes("usesCleartextTraffic")) fs.writeFileSync(manifest, xml.replace("<application ", '<application android:usesCleartextTraffic="true" '));
-  const gradle = run(WIN ? "gradlew.bat" : "./gradlew", ["assembleRelease", "--no-daemon", "-PreactNativeArchitectures=x86_64", "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m"], { cwd: path.join(dir, "android"), env });
-  if (gradle.status !== 0) throw new Error(`Gradle failed: ${gradle.stdout.slice(-400)}`);
+  const androidDir = path.join(dir, "android");
+  // an absolute path: a bare "gradlew.bat" is looked up on PATH, not in the working directory, and fails with no output
+  const gradle = run(path.join(androidDir, WIN ? "gradlew.bat" : "gradlew"), ["assembleRelease", "--no-daemon", "-PreactNativeArchitectures=x86_64", GRADLE_JVMARGS], { cwd: androidDir, env });
+  if (gradle.status !== 0) throw new Error(`Gradle failed (exit ${gradle.status}): ${(gradle.stderr || gradle.stdout).slice(-400)}`);
+  fs.writeFileSync(path.join(OUT, "gradle.log"), gradle.stdout + gradle.stderr);
   const apk = path.join(dir, "android/app/build/outputs/apk/release/app-release.apk");
   fs.copyFileSync(apk, path.join(OUT, "business-qa-flags.apk"));
   return path.join(OUT, "business-qa-flags.apk");
