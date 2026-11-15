@@ -8,6 +8,7 @@ import { ClientDetailScreen } from "@/screens/ClientDetailScreen";
 import { ClientsScreen, SEARCH_DEBOUNCE_MS } from "@/screens/ClientsScreen";
 import { PushProvider } from "@/lib/push";
 import type { PermissionState, PushAdapter } from "@/lib/pushSetup";
+import { StaleBanner } from "@/components/StaleBanner";
 import { PulseScreen } from "@/screens/PulseScreen";
 import { DayModeSwitch, StudioScheduleScreen } from "@/screens/StudioScheduleScreen";
 import { MoreScreen } from "@/screens/MoreScreen";
@@ -213,6 +214,11 @@ describe("every screen passes the audit", () => {
     withProviders(<MoreScreen />, fakeApi(), { workspaces: [workspace(), second] });
     expectClean();
     fireEvent.press(screen.getByRole("button", { name: "Sign out of all devices" }));
+    expectClean();
+  });
+
+  it("stale-data banner after a failed refresh", () => {
+    render(<StaleBanner loadedAt={Date.UTC(2026, 10, 9, 15, 30)} timeZone="America/New_York" onRetry={() => undefined} />);
     expectClean();
   });
 

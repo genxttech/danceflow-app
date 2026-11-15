@@ -9,7 +9,10 @@ import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StateMessage } from "@/components/StateMessage";
 import { formatDayHeading, personName, shiftDate } from "@/lib/format";
+import { isStaffFeatureEnabled } from "@/lib/features";
+import { shouldKeepStale } from "@/lib/stale";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
+import { StaleBanner } from "@/components/StaleBanner";
 import type { StaffStudioDay, StudioAppointment } from "@/lib/staffApi";
 import { AppointmentRow } from "@/screens/TodayScreen";
 import { colors, radius, space } from "@/theme";
@@ -17,7 +20,7 @@ import { colors, radius, space } from "@/theme";
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
-  | { status: "ready"; day: StaffStudioDay };
+  | { status: "ready"; day: StaffStudioDay; loadedAt: number; stale?: boolean };
 
 export type DayMode = "mine" | "studio";
 
@@ -72,9 +75,15 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
       else setRefreshing(true);
       try {
         const day = await api.studioSchedule(studioId, date ?? undefined);
-        if (id === requestId.current) setState({ status: "ready", day });
+        if (id === requestId.current) setState({ status: "ready", day, loadedAt: Date.now() });
       } catch (error) {
-        if (id === requestId.current) setState({ status: "error", error });
+        if (id === requestId.current) {
+          setState((prev) =>
+            shouldKeepStale({ enabled: isStaffFeatureEnabled("keepStale"), mode, hadData: prev.status === "ready", error }) && prev.status === "ready"
+              ? { ...prev, stale: true }
+              : { status: "error", error },
+          );
+        }
       } finally {
         if (id === requestId.current) setRefreshing(false);
       }
@@ -119,6 +128,8 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
         {date !== null ? <AppButton label="Today" variant="quiet" onPress={() => setDate(null)} /> : null}
         <AppButton label="Next day" variant="secondary" onPress={() => goToDay(1)} disabled={!shownDate} />
       </View>
+
+      {state.status === "ready" && state.stale ? <StaleBanner loadedAt={state.loadedAt} timeZone={state.day.timeZone} onRetry={() => void load("refresh")} /> : null}
 
       {state.status === "loading" ? <ScheduleSkeleton label="Loading the studio schedule" /> : null}
 
