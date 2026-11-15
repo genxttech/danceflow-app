@@ -310,9 +310,11 @@ type ClientRewardProgressRow = {
   }>;
 };
 
+export const NO_STUDIO_NAME = "Studio";
+
 function studioNameFor(studioId: string, linkedStudios: LinkedStudioAccess[]) {
   const studio = linkedStudios.find((item) => item.studioId === studioId);
-  return studio?.studioPublicName || studio?.studioName || "Studio";
+  return studio?.studioPublicName || studio?.studioName || NO_STUDIO_NAME;
 }
 
 function attendeeName(row: TicketRow) {
@@ -798,13 +800,14 @@ export async function loadStudentWallet(
 
     try {
       const library = await loadStudentDigitalLibrary();
-      const imageByCatalogItemId = new Map(
-        library.map((item) => [item.catalogItemId, item.imageUrl]),
-      );
-      digitalEntitlements = digitalEntitlements.map((item) => ({
-        ...item,
-        imageUrl: imageByCatalogItemId.get(item.catalogItemId) ?? null,
-      }));
+      const libraryByCatalogItemId = new Map(library.map((item) => [item.catalogItemId, item]));
+      digitalEntitlements = digitalEntitlements.map((item) => {
+        const fromLibrary = libraryByCatalogItemId.get(item.catalogItemId);
+        // A buyer with no linked studio (no studio relationship is needed to own content) has no studio name
+        // from linkedStudios, so take it from the library the server returns.
+        const studioName = item.studioName === NO_STUDIO_NAME ? fromLibrary?.studioName || item.studioName : item.studioName;
+        return { ...item, studioName, imageUrl: fromLibrary?.imageUrl ?? null };
+      });
     } catch {
       // Wallet remains usable when thumbnail enrichment is temporarily unavailable.
     }
