@@ -133,3 +133,11 @@ test('C10. commit/containers fields are validated; the child cannot stage or com
   assert.match(run, /cf1pilot-q\[0-9\]/); assert.match(run, /refused: image must be ns1-base:snap/); assert.match(apply, /pwd -P/); assert.match(apply, /refused: only C:\/Dev\/df-u18\*/); assert.ok(!/docs/.test(apply.split('\n').filter((l) => /case "\$F"/.test(l)).slice(0, 1).join()));
   assert.equal(CODE_DIR, HERE.replaceAll(String.fromCharCode(92), '/'));
 });
+
+test('C11. rule syntax: a backslash escapes the next character, so "any backslash" must be spelled with an escaped backslash', () => {
+  const bs = String.fromCharCode(92);
+  assert.ok(EXTRA_DENY.includes('Bash(*' + bs + bs + '*)'), 'the any-backslash deny rule uses an escaped backslash');
+  assert.ok(bashMatch('*' + bs + bs + '*', 'docker exec x psql -c "' + bs + '! id"') && !bashMatch('*' + bs + bs + '*', 'docker ps'));
+  assert.ok(bashMatch('*' + bs + '*', 'echo a*') && !bashMatch('*' + bs + '*', 'echo a' + bs + 'b'), 'a single backslash before * means a literal asterisk');
+  assert.ok(!EXTRA_DENY.some((r) => r.includes(bs) && !r.includes(bs + bs)), 'no rule uses a lone backslash');
+});

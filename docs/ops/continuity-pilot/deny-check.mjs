@@ -23,7 +23,9 @@ const norm = (p) => slash(p).replace(/^\/([A-Za-z])\//, (_, d) => `${d.toLowerCa
 
 export function bashMatch(spec, cmd) {
   const m = /^(.*):\*$/.exec(spec);
-  const body = (s) => s.split('*').map(esc).join('.*');
+  // rule syntax: `*` is a wildcard, a backslash escapes the next character (so `\\` is a literal backslash and `\*` a literal asterisk)
+  const lit = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const body = (s) => { let out = ''; for (let i = 0; i < s.length; i++) { const ch = s[i]; if (ch === String.fromCharCode(92) && i + 1 < s.length) out += lit(s[++i]); else if (ch === '*') out += '.*'; else out += lit(ch); } return out; };
   const re = m ? new RegExp(`^${body(m[1])}(\\s.*)?$`) : new RegExp(`^${body(spec)}$`);
   return re.test(cmd.trim());
 }

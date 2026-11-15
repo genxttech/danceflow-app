@@ -25,7 +25,7 @@ export const EXTRA_DENY = ['Bash(*>*)', 'Bash(*>>*)', 'Bash(*$(*)', 'Bash(*`*)',
   // git argument escapes (review 2026-11-15): arbitrary-file reads, external programs, message-from-file, history rewrite, config injection
   'Bash(*--no-index*)', 'Bash(*pathspec-from-file*)', 'Bash(*--ext-diff*)', 'Bash(*--textconv*)', 'Bash(* -F *)', 'Bash(*--file*)', 'Bash(*--amend*)', 'Bash(*--exec-path*)', 'Bash(*--config*)', 'Bash(*core.hooksPath*)', 'Bash(*core.sshCommand*)',
   // psql meta-commands (\\! \\o \\copy ...) and server-side program/file/network features: any backslash is refused; COPY ... PROGRAM, large-object and file functions, dblink/fdw
-  'Bash(*\\*)', 'Bash(*PROGRAM*)', 'Bash(*program*)', 'Bash(*Program*)', 'Bash(*pg_read_file*)', 'Bash(*pg_read_binary_file*)', 'Bash(*pg_ls_dir*)', 'Bash(*lo_import*)', 'Bash(*lo_export*)', 'Bash(*dblink*)', 'Bash(*postgres_fdw*)',
+  'Bash(*\\\\*)', 'Bash(*PROGRAM*)', 'Bash(*program*)', 'Bash(*Program*)', 'Bash(*pg_read_file*)', 'Bash(*pg_read_binary_file*)', 'Bash(*pg_ls_dir*)', 'Bash(*lo_import*)', 'Bash(*lo_export*)', 'Bash(*dblink*)', 'Bash(*postgres_fdw*)',
   // a later -h/--host/connection string would override the pinned `-h localhost`
   'Bash(*-h *-h *)', 'Bash(*--host*)', 'Bash(*://*)', 'Bash(*host=*)', 'Bash(*PGHOST*)',
   // host-information and interpreter commands the harness would otherwise auto-approve, and sensitive-looking file names (defense in depth)
