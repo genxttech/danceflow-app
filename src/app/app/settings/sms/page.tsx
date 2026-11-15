@@ -25,7 +25,8 @@ import NumberSelection from "./NumberSelection";
 const EDIT_STATES = new Set(["not_started", "draft", "needs_info"]);
 
 function appOrigin() {
-  return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
+  // the canonical host: the apex redirects (307) to www, so a campaign package must never name it
+  return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/+$/, "");
 }
 
 export default async function SmsSettingsPage({ searchParams }: { searchParams?: Promise<Record<string, string | undefined>> }) {
