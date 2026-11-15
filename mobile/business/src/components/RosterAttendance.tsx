@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { attendanceLabel } from "@/lib/format";
-import { newIdempotencyKey } from "@/lib/features";
+import { isStaffFeatureEnabled, newIdempotencyKey } from "@/lib/features";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import { ATTENDANCE_MARKS, staffErrorKind, type AppointmentDetail, type AttendanceMark } from "@/lib/staffApi";
 import { colors, radius, space } from "@/theme";
@@ -72,16 +72,46 @@ export function RosterAttendance({
     Object.fromEntries(attendees.map((a) => [a.clientId, { status: a.attendanceStatus, saving: false, error: null }])),
   );
 
-  async function mark(clientId: string, value: AttendanceMark) {
+  // Mark all present: the dancers with no attendance recorded yet, one write each, one after the other.
+  const [bulk, setBulk] = useState<{ running: boolean; saved: number; failed: string[] } | null>(null);
+
+  /** "ok": the server confirmed the mark (or there was nothing to do). "failed": refused. "fatal": the session or account is gone. */
+  async function mark(clientId: string, value: AttendanceMark): Promise<"ok" | "failed" | "fatal"> {
     const before = rows[clientId];
-    if (!before || before.saving || before.status === value) return;
+    if (!before || before.saving) return "failed";
+    if (before.status === value) return "ok";
     setRows((current) => ({ ...current, [clientId]: { status: value, saving: true, error: null } }));
     try {
       const result = await api.setAttendance(studioId, appointmentId, clientId, value, newIdempotencyKey());
       setRows((current) => ({ ...current, [clientId]: { status: result.attendanceStatus ?? value, saving: false, error: null } }));
+      return "ok";
     } catch (error) {
       setRows((current) => ({ ...current, [clientId]: { status: before.status, saving: false, error: saveErrorText(error), exit: exitLabel(error) } }));
+      return exitLabel(error) ? "fatal" : "failed";
     }
+  }
+
+  const unmarked = attendees.filter((a) => rows[a.clientId]?.status === null).map((a) => a.clientId);
+  const bulkOn = canMark && isStaffFeatureEnabled("bulkAttendance");
+
+  async function markAllPresent(ids: string[]) {
+    setBulk({ running: true, saved: 0, failed: [] });
+    let saved = 0;
+    const failed: string[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      const outcome = await mark(ids[i], "attended");
+      if (outcome === "ok") {
+        saved += 1;
+        continue;
+      }
+      failed.push(ids[i]);
+      // an ended session or a deactivated account fails every remaining write the same way: stop instead of repeating it
+      if (outcome === "fatal") {
+        failed.push(...ids.slice(i + 1));
+        break;
+      }
+    }
+    setBulk({ running: false, saved, failed });
   }
 
   const recorded = Object.values(rows).filter((r) => r.status === "attended").length;
@@ -98,6 +128,36 @@ export function RosterAttendance({
         <AppText tone="muted" accessibilityLiveRegion="polite" testID="attendance-absent-summary">
           {absent} marked no-show
         </AppText>
+      ) : null}
+      {bulkOn && (unmarked.length > 0 || bulk) ? (
+        <View style={styles.bulk} testID="bulk-attendance">
+          {unmarked.length > 0 && !bulk?.running ? (
+            <AppButton
+              label={`Mark all present (${unmarked.length})`}
+              variant="secondary"
+              onPress={() => void markAllPresent(unmarked)}
+              accessibilityHint="Marks every dancer with no attendance recorded as present"
+            />
+          ) : null}
+          {bulk?.running ? (
+            <AppText tone="muted" accessibilityLiveRegion="polite" testID="bulk-running">
+              Saving attendance…
+            </AppText>
+          ) : null}
+          {bulk && !bulk.running && bulk.saved > 0 ? (
+            <AppText accessibilityLiveRegion="polite" testID="bulk-saved">
+              {bulk.saved === 1 ? "1 dancer marked present." : `${bulk.saved} dancers marked present.`}
+            </AppText>
+          ) : null}
+          {bulk && !bulk.running && bulk.failed.length > 0 ? (
+            <View style={styles.bulk}>
+              <AppText tone="error" accessibilityRole="alert" testID="bulk-failed">
+                {bulk.failed.length === 1 ? "1 dancer did not save." : `${bulk.failed.length} dancers did not save.`} See the rows below.
+              </AppText>
+              <AppButton label="Try the failed ones again" variant="secondary" onPress={() => void markAllPresent(bulk.failed)} />
+            </View>
+          ) : null}
+        </View>
       ) : null}
       {attendees.length === 0 ? <AppText tone="muted">No one is enrolled yet.</AppText> : null}
       {attendees.map((attendee) => {
@@ -160,6 +220,7 @@ export function RosterAttendance({
 
 const styles = StyleSheet.create({
   list: { gap: space.xs },
+  bulk: { gap: space.sm, paddingVertical: space.sm },
   attendee: { gap: space.sm, paddingVertical: space.md, borderTopWidth: 1, borderTopColor: colors.border },
   attendeeHead: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: space.sm },
   attendeeName: { flexShrink: 1 },
