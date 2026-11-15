@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Linking, StyleSheet, useColorScheme, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppState, Linking, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -26,7 +26,7 @@ function paymentTypeLabel(value: string | null | undefined) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function PaymentRequestCard({ payment }: { payment: StudentPaymentRequest }) {
+function PaymentRequestCard({ payment, onPay }: { payment: StudentPaymentRequest; onPay: (url: string) => void }) {
   const colors = colorsForScheme(useColorScheme());
   const styles = useMemo(() => createStyles(colors), [colors]);
   const amount = formatCurrency(payment.amount);
@@ -39,7 +39,7 @@ function PaymentRequestCard({ payment }: { payment: StudentPaymentRequest }) {
       <AppText variant="caption">{paymentTypeLabel(payment.paymentType)}</AppText>
       {payment.notes ? <AppText variant="caption">{payment.notes}</AppText> : null}
       <AppText variant="caption">Requested {formatWalletDate(payment.createdAt)}</AppText>
-      <AppButton label="Pay Now" onPress={() => Linking.openURL(payment.checkoutUrl)} />
+      <AppButton label="Pay Now" onPress={() => onPay(payment.checkoutUrl)} />
     </View>
   );
 }
@@ -53,11 +53,14 @@ export default function PaymentRequestsScreen() {
   const [wallet, setWallet] = useState<StudentWallet | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
-    const userId = session?.user.id;
+  const [notice, setNotice] = useState<string | null>(null);
+  const mounted = useRef(true);
+  const awaitingReturn = useRef(false);
+  const userId = session?.user.id;
+  const email = session?.user.email ?? null;
 
-    async function load() {
+  const load = useCallback(
+    async (quiet: boolean) => {
       if (!userId) {
         setLinkedStudios([]);
         setWallet(null);
@@ -65,30 +68,57 @@ export default function PaymentRequestsScreen() {
         return;
       }
 
-      setLoading(true);
+      if (!quiet) setLoading(true);
       setErrorMessage(null);
 
       try {
         const access = await getStudentAccess(userId);
-        const nextWallet = await loadStudentWallet(access.linkedStudios, session?.user.email ?? null);
+        const nextWallet = await loadStudentWallet(access.linkedStudios, email);
 
-        if (!mounted) return;
+        if (!mounted.current) return;
         setLinkedStudios(access.linkedStudios);
         setWallet(nextWallet);
       } catch {
-        if (!mounted) return;
+        if (!mounted.current) return;
         setErrorMessage("Payment requests could not be loaded. Try again in a moment.");
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted.current && !quiet) setLoading(false);
       }
-    }
+    },
+    [email, userId],
+  );
 
-    load();
-
+  useEffect(() => {
+    mounted.current = true;
+    void load(false);
     return () => {
-      mounted = false;
+      mounted.current = false;
     };
-  }, [session?.user.email, session?.user.id]);
+  }, [load]);
+
+  // Payment happens in the browser. When the dancer comes back, re-read the requests so a paid one is gone.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "active" || !awaitingReturn.current) return;
+      awaitingReturn.current = false;
+      setNotice("Checking your payment status...");
+      void load(true).then(() => {
+        if (mounted.current) setNotice("Payment requests are up to date.");
+      });
+    });
+    return () => subscription.remove();
+  }, [load]);
+
+  async function pay(url: string) {
+    setNotice(null);
+    awaitingReturn.current = true;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      awaitingReturn.current = false;
+      setNotice("We could not open the payment page. Try again in a moment.");
+    }
+  }
 
   const hasPortalAccess = linkedStudios.length > 0;
   const paymentRequests = wallet?.paymentRequests ?? [];
@@ -99,13 +129,14 @@ export default function PaymentRequestsScreen() {
       <AppText variant="title">Payment Requests</AppText>
       <AppText variant="caption">Review and pay open requests from connected studios.</AppText>
 
+      {notice ? <AppText accessibilityLiveRegion="polite" variant="caption">{notice}</AppText> : null}
       {loading ? <LoadingState label="Loading payment requests" /> : null}
       {errorMessage ? <ErrorState error={errorMessage} title="Payment requests unavailable" /> : null}
 
       {!loading && hasPortalAccess && paymentRequests.length > 0 ? (
         <View style={styles.section}>
           {paymentRequests.map((payment) => (
-            <PaymentRequestCard key={payment.id} payment={payment} />
+            <PaymentRequestCard key={payment.id} onPay={pay} payment={payment} />
           ))}
         </View>
       ) : !loading && hasPortalAccess ? (
