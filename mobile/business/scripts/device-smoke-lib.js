@@ -84,6 +84,11 @@ function findNode(nodes, label, { cls } = {}) {
   return nodes.find((n) => (!cls || n.cls.includes(cls)) && (matches(n.text, label) || matches(n.desc, label))) ?? null;
 }
 
+/** What a tap should hit: a clickable node with that label (the button), else any node with it. A heading and its button can share the same words ("Sign in again"). */
+function findTappable(nodes, label) {
+  return nodes.find((n) => n.clickable && (matches(n.text, label) || matches(n.desc, label))) ?? findNode(nodes, label);
+}
+
 function hasLabel(nodes, label) {
   return findNode(nodes, label) !== null;
 }
@@ -102,4 +107,4 @@ function summarize(results) {
   return { total: results.length, passed: results.length - failed.length, failed: failed.map((r) => r.name), ok: results.length > 0 && failed.length === 0 };
 }
 
-module.exports = { parseArgs, buildPlan, busyReason, parseNodes, findNode, hasLabel, centerOf, makeResult, summarize };
+module.exports = { parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };

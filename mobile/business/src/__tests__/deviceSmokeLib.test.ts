@@ -78,6 +78,24 @@ describe("uiautomator parsing", () => {
   });
 });
 
+describe("findTappable", () => {
+  const nodes = lib.parseNodes(`<hierarchy>
+<node text="Sign in again" class="android.widget.TextView" content-desc="" clickable="false" bounds="[100,300][500,360]" />
+<node text="" class="android.view.ViewGroup" content-desc="Sign in again" clickable="true" bounds="[100,500][900,640]" />
+</hierarchy>`);
+
+  it("taps the button, not the heading that shares its words", () => {
+    expect(lib.findNode(nodes, /^Sign in again$/)?.clickable).toBe(false); // first in tree order: the heading
+    expect(lib.findTappable(nodes, /^Sign in again$/)?.bounds.top).toBe(500);
+  });
+
+  it("falls back to a plain match when nothing clickable has the label", () => {
+    const plain = lib.parseNodes('<hierarchy><node text="Pulse" class="android.widget.TextView" content-desc="" clickable="false" bounds="[0,0][10,10]" /></hierarchy>');
+    expect(lib.findTappable(plain, /^Pulse$/)?.bounds.right).toBe(10);
+    expect(lib.findTappable(nodes, "Not there")).toBeNull();
+  });
+});
+
 describe("summarize", () => {
   it("passes only when something ran and everything passed", () => {
     expect(lib.summarize([]).ok).toBe(false);
