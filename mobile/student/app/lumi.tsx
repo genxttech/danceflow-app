@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
+import { ErrorState } from "@/components/ErrorState";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
@@ -52,6 +53,8 @@ export default function LumiScreen() {
   const params = useLocalSearchParams<{ prompt?: string }>();
   const { session } = useAuth();
   const [loadingAccess, setLoadingAccess] = useState(true);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [lumiEnabled, setLumiEnabled] = useState(false);
   const [overview, setOverview] = useState<StudentLearnOverview>(emptyOverview);
@@ -81,6 +84,7 @@ export default function LumiScreen() {
       }
 
       setLoadingAccess(true);
+      setLoadError(null);
 
       try {
         const access = await getStudentAccess(userId);
@@ -95,8 +99,9 @@ export default function LumiScreen() {
         setLumiEnabled(access.lumiEnabled);
         setOverview(learnOverview);
         setSchedule(scheduleOverview);
-      } catch {
+      } catch (error) {
         if (!mounted) return;
+        setLoadError(error ?? new Error("LUMI could not load."));
         setLinkedStudios([]);
         setLumiEnabled(false);
         setOverview(emptyOverview);
@@ -112,7 +117,7 @@ export default function LumiScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, loadAttempt]);
 
   useEffect(() => {
     if (!incomingPrompt) return;
@@ -324,6 +329,14 @@ export default function LumiScreen() {
             <AppText variant="caption">Checking your studio connection.</AppText>
           </View>
         </View>
+      </Screen>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Screen>
+        <ErrorState error={loadError} fallback="LUMI could not load your studio connection." onRetry={() => setLoadAttempt((n) => n + 1)} title="LUMI unavailable" />
       </Screen>
     );
   }

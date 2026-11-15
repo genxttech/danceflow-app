@@ -1,3 +1,4 @@
+import { friendlyMessage } from "@/lib/errorKind";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
@@ -151,7 +152,7 @@ export default function ScheduleRequestScreen() {
         setSelectedSlotKey(null);
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Lesson times could not be loaded.");
+      setMessage(friendlyMessage(error, "Lesson times could not be loaded."));
       setSlots([]);
       setInstructors([]);
     } finally {
@@ -189,7 +190,7 @@ export default function ScheduleRequestScreen() {
       setMessage(response.bookingDecision?.mode === "instant" ? "Lesson booked." : "Request sent to the studio.");
       await loadSlots();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not submit the request.");
+      setMessage(friendlyMessage(error, "Could not submit the request."));
     } finally {
       setSubmittingSlotKey(null);
     }

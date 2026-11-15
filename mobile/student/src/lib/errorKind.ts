@@ -26,3 +26,14 @@ export const ERROR_COPY: Record<Exclude<ErrorKind, "unknown">, { title: string; 
   forbidden: { title: "No access", detail: "This account can't open this. If that seems wrong, ask your studio." },
   notFound: { title: "Not available", detail: "This was moved or removed." }
 };
+
+/**
+ * One-line text for a screen's inline message. Offline and signed-out failures read the same everywhere
+ * ("Network request failed" never reaches a dancer); any other caught message is kept, since the server's
+ * own wording (for example "That time was just taken") is meaningful; no message falls back to the screen's text.
+ */
+export function friendlyMessage(error: unknown, fallback: string): string {
+  const kind = classifyError(error);
+  if (kind === "offline" || kind === "signedOut") return `${ERROR_COPY[kind].title}. ${ERROR_COPY[kind].detail}`;
+  return error instanceof Error && error.message ? error.message : fallback;
+}
