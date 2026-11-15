@@ -74,4 +74,15 @@ What one run does, in order:
 
 Output: `summary.json`, the screenshots and `stack.json` in the output folder; the exit code is 0 only if every check passed. A check that needs a screen the run could not reach fails with the label it was waiting for; nothing is marked passed by default.
 
-Status (2026-11-15): **UNVERIFIED end to end.** The pure parts (argument handling, the plan, the busy check, the `uiautomator` parsing) are unit-tested in `src/__tests__/deviceSmokeLib.test.ts`. A first full run reached the Gradle step and failed there because `gradlew.bat` was started by bare name (fixed: absolute path, and quoting of the memory argument on Windows); a second run built the web app and the APK and started the emulator, and was then stopped on purpose because another session needed the emulator, so **none of the device checks has been run by this script yet**. The stack, web and Gradle steps are proven; the flows (sign-in, the matrix, teardown after a full pass) are not. Re-run with `--apk <the built APK>` (the stack port is baked into the APK, so it only works if the new stack gets the same port; otherwise rebuild) and record the result in `DEVICE_QA_RESULTS.md`.
+Status (2026-11-15): **VERIFIED end to end: run 6 passed 18 of 18** on the Android 15 emulator (`DEVICE_QA_RESULTS.md`, R6). Six runs were needed, and every failure before the last was the script, not the app:
+
+1. `gradlew.bat` was started by bare name (fixed in #553: absolute path, quoted memory argument).
+2. Stopped on purpose, to give the emulator to another session.
+3. The script drove the emulator right after `sys.boot_completed`, before Android had settled. It now waits for the activity and package services and dismisses "isn't responding" dialogs.
+4. `adb input text` dropped characters and left "owe" in the email field. The script now types in chunks and reads the field back until it matches.
+5. 13 of 18: a card below the fold at 2.0 is not in the `uiautomator` dump (the script now scrolls), and it tapped the "Sign in again" heading instead of the button (it now prefers the clickable node).
+6. 18 of 18.
+
+On any fatal failure the run keeps `fatal.png` and `fatal.xml`. Reusing an APK with `--apk` only works if the new stack gets the same port, because the port is baked into the APK; otherwise use `--build-dir`.
+
+Lessons for the next device script: wait for the system to settle, not for `boot_completed`; verify typed text by reading it back; the dump holds only what is on screen; a heading and its button can share the same words.
