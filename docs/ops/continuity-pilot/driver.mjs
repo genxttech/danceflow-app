@@ -9,14 +9,14 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import * as O from './orchestrator.mjs';
 import { DEFAULT_SOURCE, DEFAULT_CLAUDE_CMD, WORK_ROOT } from './config.mjs';
-import { CLAUDE_VERSION, childArgs, childEnv, childSettings } from './child-config.mjs';
+import { CLAUDE_VERSION, childArgs, childEnv, childSettings, resolveCode } from './child-config.mjs';
 
 const DENIAL_TEXT = /permission|denied|not allowed|requires approval|was blocked|don't have access|cannot be used|doesn't allow/i;
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => x?.text ?? '').join(' ') : JSON.stringify(c ?? ''));
 
 // Incremental stream-json parser: objective records of what the child tried and whether the harness denied it.
 export class StreamParser {
-  constructor() { this.buf = ''; this.init = null; this.calls = new Map(); this.results = new Map(); this.result = null; this.denials = []; this.events = 0; }
+  constructor() { this.buf = ''; this.init = null; this.calls = new Map(); this.results = new Map(); this.result = null; this.denials = []; this.strict = new Set(); this.events = 0; }
   feed(chunk) {
     this.buf += chunk; let nl; const fresh = [];
     while ((nl = this.buf.indexOf('\n')) >= 0) {
@@ -28,9 +28,11 @@ export class StreamParser {
       else if (e.type === 'user') for (const b of e.message?.content ?? []) {
         if (b.type !== 'tool_result') continue;
         const r = { is_error: !!b.is_error, text: textOf(b.content).slice(0, 400) }; this.results.set(b.tool_use_id, r);
+        if (r.is_error && /^\s*Permission to use .+ (has been )?denied/i.test(r.text)) this.strict.add(b.tool_use_id); // the harness's own wording, not an OS error from a command that ran
         if (r.is_error && DENIAL_TEXT.test(r.text)) { const d = { id: b.tool_use_id, call: this.calls.get(b.tool_use_id), reason: r.text }; this.denials.push(d); fresh.push(d); }
       } else if (e.type === 'result') {
         this.result = e;
+        for (const d of e.permission_denials ?? []) this.strict.add(d.tool_use_id);
         for (const d of e.permission_denials ?? []) if (!this.denials.some((x) => x.id === d.tool_use_id)) { const x = { id: d.tool_use_id, call: { name: d.tool_name, input: d.tool_input }, reason: 'permission_denials' }; this.denials.push(x); fresh.push(x); }
       }
     }
@@ -41,7 +43,7 @@ export class StreamParser {
 export function buildPrompt(item) {
   return [
     'You are executing ONE pre-approved local task inside an isolated environment. You have no network, no hosted systems and no way to change permissions.',
-    `TASK: ${item.title}`, `HOW: ${item.cmd}`, `DONE WHEN: ${item.done}`,
+    `TASK: ${item.title}`, `HOW: ${resolveCode(item.cmd)}`, `DONE WHEN: ${item.done}`,
     'RULES: use only the tools and commands you have been allowed; give the commands exactly as written, one per tool call; never chain commands, use redirection, command substitution, or semicolons; if ANY tool call is denied, stop immediately and say which one: do not retry, rephrase or work around it; do not push, open pull requests, merge, or touch any hosted system; do not run code you wrote yourself.',
     'When finished reply with one short paragraph that starts with "DONE:" (success) or "FAILED:" (could not complete).',
   ].join('\n');
@@ -57,13 +59,39 @@ export function changedPaths(dirs) {
   return out;
 }
 
+const git = (dir, args) => execFileSync('git', ['-C', dir, '-c', 'core.hooksPath=' + EMPTY_HOOKS, '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, env: childEnv({ GIT_TERMINAL_PROMPT: '0' }) });
+const EMPTY_HOOKS = path.join(os.tmpdir(), 'cpilot-empty-hooks'); fs.mkdirSync(EMPTY_HOOKS, { recursive: true });
+const dirty = (dir) => git(dir, ['status', '--porcelain', '-uall']).split('\n').filter((l) => l.trim()).map((l) => l.slice(3).trim().replace(/^"|"$/g, ''));
+
+// Before the child runs: the commit directory must be clean (so every later change is the child's) and we remember HEAD.
+export function repoPrepare(iso) {
+  if (!iso.commit) return { base: null };
+  const d = dirty(iso.commit.dir); if (d.length) throw new Error('worktree ' + iso.commit.dir + ' is not clean before the item: ' + d.slice(0, 5).join(', '));
+  return { base: git(iso.commit.dir, ['rev-parse', 'HEAD']).trim() };
+}
+// After a successful child: refuse any change outside commit.paths or any commit made by the child; otherwise stage exactly the
+// changed files and make ONE local commit with hooks disabled. Returns { ok, reason, changed, commit }.
+export function repoFinish(iso, base) {
+  if (!iso.commit) return { ok: true, changed: [] };
+  const { dir, paths, message } = iso.commit;
+  const head = git(dir, ['rev-parse', 'HEAD']).trim(); if (head !== base) return { ok: false, reason: 'child changed HEAD (it must not commit)', changed: [] };
+  const changed = dirty(dir); if (!changed.length) return { ok: true, changed: [], commit: null };
+  const outside = changed.filter((f) => !paths.some((p) => f.startsWith(p)) || f.split('/').includes('..'));
+  if (outside.length) return { ok: false, reason: 'unexpected changes outside ' + paths.join(',') + ': ' + outside.slice(0, 5).join(', '), changed };
+  git(dir, ['add', '--', ...changed]); git(dir, ['commit', '--no-verify', '-m', message]);
+  return { ok: true, changed, commit: git(dir, ['rev-parse', 'HEAD']).trim() };
+}
+export function removeContainers(iso) { for (const c of iso.containers ?? []) { try { execFileSync('docker', ['rm', '-f', '-v', c], { stdio: 'ignore', timeout: 60000 }); } catch { /* not present */ } } }
+
 // Runs one claimed item in an isolated child. Never throws; returns { ok, reason, denials, ... }.
 export async function runChild(root, claim, { claudeCmd = DEFAULT_CLAUDE_CMD, workRoot = WORK_ROOT, env = {}, stopOnDenial = true, hbMs = 60000, pollMs = 1000 } = {}) {
   const item = claim.item; const iso = item.iso;
   const workDir = path.join(workRoot, iso.cwd); fs.rmSync(workDir, { recursive: true, force: true }); fs.mkdirSync(workDir, { recursive: true });
-  const settingsPath = path.join(workDir, '.pilot-settings.json'); fs.writeFileSync(settingsPath, JSON.stringify(childSettings({ allow: iso.allow })));
+  const runDir = path.join(path.dirname(workRoot), 'runs', iso.cwd); fs.rmSync(runDir, { recursive: true, force: true }); fs.mkdirSync(runDir, { recursive: true }); // not a working directory of the child
+  let prep; try { prep = repoPrepare(iso); } catch (e) { O.log(root, { ev: 'CHILD_END', id: item.id, ok: false, reason: String(e.message) }); return { ok: false, reason: String(e.message), denials: [], stoppedBy: 'precondition' }; }
+  const settingsPath = path.join(runDir, 'pilot-settings.json'); fs.writeFileSync(settingsPath, JSON.stringify(childSettings({ allow: iso.allow })));
   const args = childArgs({ prompt: buildPrompt(item), settingsPath, tpl: iso });
-  const parser = new StreamParser(); const streamPath = path.join(workDir, 'stream.jsonl'); const sf = fs.createWriteStream(streamPath);
+  const parser = new StreamParser(); const streamPath = path.join(runDir, 'stream.jsonl'); const sf = fs.createWriteStream(streamPath);
   O.log(root, { ev: 'CHILD_START', id: item.id, model: iso.model, addDirs: iso.addDirs, budget: iso.maxBudgetUsd });
   const child = spawn(claudeCmd[0], [...claudeCmd.slice(1), ...args], { cwd: workDir, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   let why = null; let stderr = '';
@@ -75,12 +103,15 @@ export async function runChild(root, claim, { claudeCmd = DEFAULT_CLAUDE_CMD, wo
   const stopper = setInterval(() => { if (fs.existsSync(path.join(root, 'STOP'))) stop('STOP file set'); }, pollMs);
   const beat = setInterval(() => { try { O.heartbeat(root, item.id, item.runner.token); } catch { /* never kill the driver */ } }, hbMs);
   const code = await done; clearTimeout(timer); clearInterval(stopper); clearInterval(beat); sf.end();
+  removeContainers(iso); // a timeout or kill must never leave the database container running
   const r = parser.result; const text = String(r?.result ?? '');
-  const ok = !why && code === 0 && r && !r.is_error && /^\s*DONE:/.test(text) && parser.denials.length === 0;
-  const reason = ok ? null : (why ?? (parser.denials.length ? `permission denial: ${parser.denials[0].call?.name}` : r?.is_error ? `child error: ${text.slice(0, 200)}` : !/^\s*DONE:/.test(text) ? `child did not report DONE: ${text.slice(0, 200)}` : `child exited with code ${code}: ${stderr.slice(0, 200)}`));
+  let ok = !why && code === 0 && r && !r.is_error && /^\s*DONE:/.test(text) && parser.denials.length === 0;
+  let fin = { changed: [] }; let finReason = null;
+  if (ok) { try { fin = repoFinish(iso, prep.base); if (!fin.ok) { ok = false; finReason = fin.reason; } } catch (e) { ok = false; finReason = 'repository step failed: ' + String(e.message).split('\n')[0]; } }
+  const reason = finReason ? finReason : ok ? null : (why ?? (parser.denials.length ? `permission denial: ${parser.denials[0].call?.name}` : r?.is_error ? `child error: ${text.slice(0, 200)}` : !/^\s*DONE:/.test(text) ? `child did not report DONE: ${text.slice(0, 200)}` : `child exited with code ${code}: ${stderr.slice(0, 200)}`));
   const tools = {}; for (const c of parser.calls.values()) tools[c.name] = (tools[c.name] ?? 0) + 1;
-  O.log(root, { ev: 'CHILD_END', id: item.id, ok, reason, code, cost: r?.total_cost_usd, turns: r?.num_turns, tools, denials: parser.denials.map((d) => ({ tool: d.call?.name, input: JSON.stringify(d.call?.input ?? '').slice(0, 160) })), init: parser.init });
-  return { ok, reason, denials: parser.denials, init: parser.init, cost: r?.total_cost_usd, summary: text.slice(0, 400), streamPath, stoppedBy: why };
+  O.log(root, { ev: 'CHILD_END', id: item.id, ok, reason, code, changed: fin.changed, commit: fin.commit, cost: r?.total_cost_usd, turns: r?.num_turns, tools, denials: parser.denials.map((d) => ({ tool: d.call?.name, input: JSON.stringify(d.call?.input ?? '').slice(0, 160) })), init: parser.init });
+  return { ok, reason, denials: parser.denials, init: parser.init, cost: r?.total_cost_usd, summary: text.slice(0, 400), streamPath, stoppedBy: why, changed: fin.changed ?? [], commit: fin.commit ?? null };
 }
 
 export function acquireDriverLock(root) {
@@ -103,8 +134,7 @@ export async function runDriver(root, { worker = 'COMPETITION', source = DEFAULT
       const c = O.claim(root, { worker, source, external: true });
       if (c.status !== 'CLAIMED') return { status: c.status, reason: c.reason, blocked: c.blocked, stuck: c.stuck, results };
       const r = await runChild(root, c, { claudeCmd, ...rest });
-      const changed = changedPaths(c.item.iso.addDirs);
-      const state = O.complete(root, c.item, r.ok ? {} : { error: r.reason }, source, changed);
+      const state = O.complete(root, c.item, r.ok ? {} : { error: r.reason }, source, r.changed ?? []);
       results.push({ id: c.item.id, ok: r.ok, state, reason: r.reason });
       if (!r.ok && (r.denials.length || r.stoppedBy)) return { status: 'STOPPED', reason: r.reason, results }; // stop conditions end the run
     }

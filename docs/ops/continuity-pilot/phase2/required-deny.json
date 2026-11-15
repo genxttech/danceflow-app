@@ -103,6 +103,20 @@
     "Write(//c/Dev/**/docs/ops/continuity-pilot/**)",
     "Edit(//c/Dev/continuity-live/**)",
     "Write(//c/Dev/continuity-live/**)",
+    "Edit(//c/Dev/**/.git/**)",
+    "Write(//c/Dev/**/.git/**)",
+    "Edit(//c/Dev/**/.gitattributes)",
+    "Write(//c/Dev/**/.gitattributes)",
+    "Edit(//c/Dev/**/.gitmodules)",
+    "Write(//c/Dev/**/.gitmodules)",
+    "Edit(//c/Dev/**/.husky/**)",
+    "Write(//c/Dev/**/.husky/**)",
+    "Edit(//c/Dev/**/package.json)",
+    "Write(//c/Dev/**/package.json)",
+    "Edit(//c/Dev/**/.github/**)",
+    "Write(//c/Dev/**/.github/**)",
+    "Edit(//c/Dev/cpilot-iso/runs/**)",
+    "Write(//c/Dev/cpilot-iso/runs/**)",
     "Edit(//c/Users/mcurt/danceflow-ops/**)",
     "Write(//c/Users/mcurt/danceflow-ops/**)",
     "Edit(//c/Users/mcurt/d24-app-key/**)",
@@ -573,6 +587,52 @@
       "probePath": "C:/Dev/cpilot-probe-scratch/docs/ops/continuity-pilot/phase2/probe.txt"
     },
     {
+      "id": "edit-git-hook",
+      "tool": "Edit",
+      "path": "C:/Dev/df-pilot-runner/.git/hooks/pre-commit"
+    },
+    {
+      "id": "edit-nested-git",
+      "tool": "Edit",
+      "path": "C:/Dev/df-pilot-runner/scripts/qa/x/.git/config"
+    },
+    {
+      "id": "write-nested-git",
+      "tool": "Write",
+      "path": "C:/Dev/df-pilot-runner/scripts/qa/x/.git/config",
+      "probePath": "C:/Dev/cpilot-probe-scratch/scripts/qa/x/.git/cpilot-probe"
+    },
+    {
+      "id": "edit-gitattributes",
+      "tool": "Edit",
+      "path": "C:/Dev/df-pilot-runner/.gitattributes"
+    },
+    {
+      "id": "edit-gitmodules",
+      "tool": "Edit",
+      "path": "C:/Dev/df-pilot-runner/.gitmodules"
+    },
+    {
+      "id": "edit-husky",
+      "tool": "Edit",
+      "path": "C:/Dev/df-pilot-runner/.husky/pre-commit"
+    },
+    {
+      "id": "edit-package-json",
+      "tool": "Edit",
+      "path": "C:/Dev/df-pilot-runner/package.json"
+    },
+    {
+      "id": "edit-github-workflow",
+      "tool": "Edit",
+      "path": "C:/Dev/df-u18pkg/.github/workflows/ci.yml"
+    },
+    {
+      "id": "edit-pilot-settings",
+      "tool": "Edit",
+      "path": "C:/Dev/cpilot-iso/runs/q1/.pilot-settings.json"
+    },
+    {
       "id": "edit-live-queue",
       "tool": "Edit",
       "path": "C:/Dev/continuity-live/COMPETITION/queue.json"
@@ -725,25 +785,19 @@
     }
   ],
   "allowedCommands": [
-    "node C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs claim --wake --root C:/Dev/continuity-live/COMPETITION --worker COMPETITION",
-    "node C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs heartbeat --id Q1 --token abc --root C:/Dev/continuity-live/COMPETITION",
-    "node C:/Dev/studioapp/docs/ops/continuity-pilot/orchestrator.mjs complete --id Q1 --token abc --changed docs/qa/x.md --root C:/Dev/continuity-live/COMPETITION",
     "git -C C:/Dev/df-u18pkg ls-tree -r --name-only origin/release/competition-cf1-app-candidate -- src/lib/supabase/migrations",
     "git -C C:/Dev/df-u18pkg show origin/release/competition-cf1-app-candidate:src/lib/supabase/migrations/20270215093000_competition_u18_heat_entry_status_guard.sql",
-    "git -C C:/Dev/df-u18pkg cat-file blob refs/heads/main:docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh",
+    "git -C C:/Dev/df-u18pkg cat-file -p HEAD",
     "git -C C:/Dev/df-u18pkg rev-parse HEAD",
     "git -C C:/Dev/df-u18pkg log --oneline -20",
-    "git -C C:/Dev/df-u18pkg add docs/qa/cf1-competition-migration-inventory-2026-11-14.md",
-    "git -C C:/Dev/df-u18pkg commit -m \"CF1 migration inventory (local only)\"",
-    "git worktree add C:/Dev/df-pilot-runner -b claude/pilot-runner origin/main",
-    "sha256sum C:/Dev/df-u18pkg/src/lib/supabase/migrations/20270215093000_competition_u18_heat_entry_status_guard.sql",
-    "KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/df-cpilot/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q1 both /tmp/q1.out",
+    "git -C C:/Dev/df-u18pkg diff origin/main origin/release/competition-cf1-app-candidate --stat",
+    "git -C C:/Dev/df-u18pkg status",
+    "KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out",
+    "bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18s/src/lib/supabase/migrations/rollback/x.sql",
     "docker exec -i -e PGPASSWORD=postgres cf1pilot-q2 psql -U supabase_admin -h localhost -d postgres -c \"select count(*) from event_competition_heat_entries\"",
-    "docker exec cf1pilot-q2 pg_dump -U postgres -h localhost --data-only -t event_competition_heat_entries postgres",
+    "docker exec -e PGPASSWORD=postgres cf1pilot-q2 pg_dump -U postgres -h localhost --data-only -t event_competition_heat_entries -f /tmp/d.sql postgres",
     "docker rm -f -v cf1pilot-q1",
-    "docker ps -a --format {{.Names}}",
-    "bash C:/Dev/df-pilot-runner/scripts/qa/run-sql-suites.sh cf1pilot-q4",
-    "node --test C:/Dev/df-cpilot/docs/ops/continuity-pilot/orchestrator.test.mjs"
+    "bash -n C:/Dev/df-pilot-runner/scripts/qa/run-sql-suites.sh"
   ],
   "knownResidual": [
     "Obfuscated spellings (pro\"\"d-apply, variable expansion, base64/eval, a script file that contains the command) cannot be matched by string rules.",

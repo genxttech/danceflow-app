@@ -15,21 +15,21 @@
     "u18-rollback-rehearsal": {
       "class": "A",
       "title": "Rehearse U18-S then U18 rollback on a disposable chain; prove clean removal and clean re-apply",
-      "cmd": "Local disposable database container only (name cf1pilot-q1, removed at the end). Build the chain with the pinned runner: KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out . Apply host SQL files only through the helper: bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 <supabase_admin|postgres> C:/Dev/<worktree>/<path>.sql . Apply the U18-S rollback, then the U18 rollback from the release package, assert with catalog queries (single statements, no semicolons, no redirection) that triggers, functions and privileges are restored, then re-apply the forward migrations cleanly. Finish with docker rm -f -v cf1pilot-q1.",
-      "done": "Evidence note docs/qa/cf1-u18-package/rollback-rehearsal.md in the df-u18pkg worktree (local commit only) with before/after catalog results and the git rev-parse HEAD of the df-u18s and df-u18 worktrees whose SQL was applied; container removed; no hosted system touched",
+      "cmd": "Local disposable database container only (name cf1pilot-q1, removed at the end). Build the chain with the pinned runner: KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out . Apply host SQL files only through the helper: bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 <supabase_admin|postgres> C:/Dev/<worktree>/<path>.sql . Apply the U18-S rollback, then the U18 rollback from the release package, assert with catalog queries (single statements, no semicolons, no redirection) that triggers, functions and privileges are restored, then re-apply the forward migrations cleanly. Do NOT run git add or git commit: the driver stages and commits your evidence file. Finish with docker rm -f -v cf1pilot-q1.",
+      "done": "Evidence note docs/qa/cf1-u18-package/rollback-rehearsal.md in the df-u18pkg worktree (the driver makes the local commit) with before/after catalog results and the git rev-parse HEAD of the df-u18s and df-u18 worktrees whose SQL was applied; container removed; no hosted system touched",
       "worktree": "df-u18pkg",
       "dbslot": "cf1pilot-pg",
       "touches": [
         "docs/qa/cf1-u18-package/"
       ],
       "allow": [
-        "Bash(KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18s/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18s/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18pkg/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18pkg/*)",
+        "Bash(KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18s/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18s/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18pkg/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 postgres C:/Dev/df-u18pkg/*)",
         "Bash(docker exec -i -e PGPASSWORD=postgres cf1pilot-q1 psql -U supabase_admin -h localhost -d postgres *)",
         "Bash(docker exec -i -e PGPASSWORD=postgres cf1pilot-q1 psql -U postgres -h localhost -d postgres *)",
         "Bash(docker rm -f -v cf1pilot-q1)",
@@ -54,8 +54,6 @@
         "Bash(git -C C:/Dev/df-u18pkg diff *)",
         "Bash(git -C C:/Dev/df-u18pkg status)",
         "Bash(git -C C:/Dev/df-u18pkg rev-parse HEAD)",
-        "Bash(git -C C:/Dev/df-u18pkg add *)",
-        "Bash(git -C C:/Dev/df-u18pkg commit -m *)",
         "Read(//c/Dev/df-u18/**)",
         "Glob(//c/Dev/df-u18/**)",
         "Grep(//c/Dev/df-u18/**)",
@@ -69,12 +67,11 @@
         "Edit(//c/Dev/df-u18pkg/docs/qa/**)"
       ],
       "examples": [
-        "KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out",
-        "bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18s/src/lib/supabase/migrations/rollback/x.sql",
+        "KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q1 both C:/Dev/cpilot-iso/work/q1/chain.out",
+        "bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q1 supabase_admin C:/Dev/df-u18s/src/lib/supabase/migrations/rollback/x.sql",
         "docker exec -i -e PGPASSWORD=postgres cf1pilot-q1 psql -U supabase_admin -h localhost -d postgres -c \"select count(*) from pg_trigger\"",
         "docker rm -f -v cf1pilot-q1",
-        "git -C C:/Dev/df-u18pkg rev-parse HEAD",
-        "git -C C:/Dev/df-u18pkg commit -m \"CF1 rollback rehearsal evidence\""
+        "git -C C:/Dev/df-u18pkg rev-parse HEAD"
       ],
       "addDirs": [
         "C:/Dev/df-u18",
@@ -82,6 +79,16 @@
         "C:/Dev/df-u18pkg"
       ],
       "cwd": "q1",
+      "containers": [
+        "cf1pilot-q1"
+      ],
+      "commit": {
+        "dir": "C:/Dev/df-u18pkg",
+        "paths": [
+          "docs/qa/cf1-u18-package/"
+        ],
+        "message": "CF1 U18 rollback rehearsal evidence (local only, pilot Q1)"
+      },
       "model": "sonnet",
       "timeoutMs": 3600000,
       "maxBudgetUsd": 5
@@ -89,21 +96,21 @@
     "u18-tooling-residual-check": {
       "class": "A",
       "title": "Verify pg_dump/pg_restore, COPY and MERGE behaviour with client TRIGGER privilege revoked (documented U18 residual)",
-      "cmd": "Local disposable database container only (name cf1pilot-q2, removed at the end). Build the chain with the pinned runner: KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q2 both C:/Dev/cpilot-iso/work/q2/chain.out . Exercise dump and restore with the in-container pg_dump and pg_restore tools (write inside the container with -f), COPY and MERGE against event_competition_heat_entries as the owner role and as client roles, using single-statement SQL commands without semicolons or redirection. Finish with docker rm -f -v cf1pilot-q2.",
-      "done": "Evidence appended to docs/qa/cf1-u18-package/tooling-residual-check.md in the df-u18pkg worktree (local commit only): which paths the guards cover and which they do not; the git rev-parse HEAD of the df-u18s and df-u18 worktrees whose SQL was applied; container removed; no hosted system touched",
+      "cmd": "Local disposable database container only (name cf1pilot-q2, removed at the end). Build the chain with the pinned runner: KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q2 both C:/Dev/cpilot-iso/work/q2/chain.out . Exercise dump and restore with the in-container pg_dump and pg_restore tools (write inside the container with -f), COPY and MERGE against event_competition_heat_entries as the owner role and as client roles, using single-statement SQL commands without semicolons or redirection. Do NOT run git add or git commit: the driver stages and commits your evidence file. Finish with docker rm -f -v cf1pilot-q2.",
+      "done": "Evidence appended to docs/qa/cf1-u18-package/tooling-residual-check.md in the df-u18pkg worktree (local commit made by the driver): which paths the guards cover and which they do not; the git rev-parse HEAD of the df-u18s and df-u18 worktrees whose SQL was applied; container removed; no hosted system touched",
       "worktree": "df-u18pkg",
       "dbslot": "cf1pilot-pg",
       "touches": [
         "docs/qa/cf1-u18-package/"
       ],
       "allow": [
-        "Bash(KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q2 both C:/Dev/cpilot-iso/work/q2/chain.out)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q2 supabase_admin C:/Dev/df-u18/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q2 postgres C:/Dev/df-u18/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q2 supabase_admin C:/Dev/df-u18s/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q2 postgres C:/Dev/df-u18s/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q2 supabase_admin C:/Dev/df-u18pkg/*)",
-        "Bash(bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/apply_sql.sh cf1pilot-q2 postgres C:/Dev/df-u18pkg/*)",
+        "Bash(KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q2 both C:/Dev/cpilot-iso/work/q2/chain.out)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q2 supabase_admin C:/Dev/df-u18/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q2 postgres C:/Dev/df-u18/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q2 supabase_admin C:/Dev/df-u18s/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q2 postgres C:/Dev/df-u18s/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q2 supabase_admin C:/Dev/df-u18pkg/*)",
+        "Bash(bash {CODE}/phase2/scripts/apply_sql.sh cf1pilot-q2 postgres C:/Dev/df-u18pkg/*)",
         "Bash(docker exec -i -e PGPASSWORD=postgres cf1pilot-q2 psql -U supabase_admin -h localhost -d postgres *)",
         "Bash(docker exec -i -e PGPASSWORD=postgres cf1pilot-q2 psql -U postgres -h localhost -d postgres *)",
         "Bash(docker exec -e PGPASSWORD=postgres cf1pilot-q2 pg_dump -U postgres -h localhost *)",
@@ -130,8 +137,6 @@
         "Bash(git -C C:/Dev/df-u18pkg diff *)",
         "Bash(git -C C:/Dev/df-u18pkg status)",
         "Bash(git -C C:/Dev/df-u18pkg rev-parse HEAD)",
-        "Bash(git -C C:/Dev/df-u18pkg add *)",
-        "Bash(git -C C:/Dev/df-u18pkg commit -m *)",
         "Read(//c/Dev/df-u18/**)",
         "Glob(//c/Dev/df-u18/**)",
         "Grep(//c/Dev/df-u18/**)",
@@ -145,7 +150,7 @@
         "Edit(//c/Dev/df-u18pkg/docs/qa/**)"
       ],
       "examples": [
-        "KEEP=1 SUITES=none IMG=ns1-base:snap bash C:/Dev/studioapp/docs/ops/continuity-pilot/phase2/scripts/run_u18s2.sh cf1pilot-q2 both C:/Dev/cpilot-iso/work/q2/chain.out",
+        "KEEP=1 SUITES=none IMG=ns1-base:snap bash {CODE}/phase2/scripts/run_u18s2.sh cf1pilot-q2 both C:/Dev/cpilot-iso/work/q2/chain.out",
         "docker exec -i -e PGPASSWORD=postgres cf1pilot-q2 psql -U postgres -h localhost -d postgres -c \"select 1\"",
         "docker exec -e PGPASSWORD=postgres cf1pilot-q2 pg_dump -U postgres -h localhost --data-only -t event_competition_heat_entries -f /tmp/d.sql postgres",
         "docker rm -f -v cf1pilot-q2"
@@ -156,6 +161,16 @@
         "C:/Dev/df-u18pkg"
       ],
       "cwd": "q2",
+      "containers": [
+        "cf1pilot-q2"
+      ],
+      "commit": {
+        "dir": "C:/Dev/df-u18pkg",
+        "paths": [
+          "docs/qa/cf1-u18-package/"
+        ],
+        "message": "CF1 U18 tooling residual check evidence (local only, pilot Q2)"
+      },
       "model": "sonnet",
       "timeoutMs": 3600000,
       "maxBudgetUsd": 5
@@ -164,7 +179,7 @@
       "class": "A",
       "title": "Git-only: Competition migrations on the release branch with sha256 pins and dependency order (no hosted queries)",
       "cmd": "git read-only commands (ls-tree, show, cat-file, log, rev-parse, diff) on the already-fetched origin/release/competition-cf1-app-candidate and origin/main in the df-u18pkg worktree, hashing file contents with git show piped nowhere (read them with the file tools and note the git blob ids). No fetching, no network, no database access of any kind: the comparison with PROD migration history is done by the coordinator outside the loop.",
-      "done": "Inventory doc docs/qa/cf1-competition-migration-inventory-2026-11-14.md in the df-u18pkg worktree (local commit only): list, git blob ids, required apply order, owner-gate checklist with a \"PROD history comparison pending\" column; no hosted access",
+      "done": "Inventory doc docs/qa/cf1-competition-migration-inventory-2026-11-14.md in the df-u18pkg worktree (local commit made by the driver): list, git blob ids, required apply order, owner-gate checklist with a \"PROD history comparison pending\" column; no hosted access",
       "worktree": "df-u18pkg",
       "touches": [
         "docs/qa/"
@@ -177,8 +192,6 @@
         "Bash(git -C C:/Dev/df-u18pkg diff *)",
         "Bash(git -C C:/Dev/df-u18pkg status)",
         "Bash(git -C C:/Dev/df-u18pkg rev-parse HEAD)",
-        "Bash(git -C C:/Dev/df-u18pkg add *)",
-        "Bash(git -C C:/Dev/df-u18pkg commit -m *)",
         "Read(//c/Dev/df-u18pkg/**)",
         "Glob(//c/Dev/df-u18pkg/**)",
         "Grep(//c/Dev/df-u18pkg/**)",
@@ -187,13 +200,19 @@
       ],
       "examples": [
         "git -C C:/Dev/df-u18pkg ls-tree -r --name-only origin/release/competition-cf1-app-candidate -- src/lib/supabase/migrations",
-        "git -C C:/Dev/df-u18pkg log --oneline -20 origin/release/competition-cf1-app-candidate",
-        "git -C C:/Dev/df-u18pkg commit -m \"CF1 migration inventory (local only)\""
+        "git -C C:/Dev/df-u18pkg log --oneline -20 origin/release/competition-cf1-app-candidate"
       ],
       "addDirs": [
         "C:/Dev/df-u18pkg"
       ],
       "cwd": "q3",
+      "commit": {
+        "dir": "C:/Dev/df-u18pkg",
+        "paths": [
+          "docs/qa/"
+        ],
+        "message": "CF1 migration inventory (local only, pilot Q3)"
+      },
       "model": "sonnet",
       "timeoutMs": 3600000,
       "maxBudgetUsd": 2
@@ -201,8 +220,8 @@
     "sql-suite-runner-script": {
       "class": "A",
       "title": "WRITE (do not execute) a portable runner for the rollback-only SQL suites, as a local proposal in a prepared worktree",
-      "cmd": "In the prepared worktree C:/Dev/df-pilot-runner (created by the coordinator beforehand) write scripts/qa/run-sql-suites.sh and a short scripts/qa/README-sql-suites.md using the file tools; check syntax only with bash -n on the exact file path; commit locally. The isolated environment never executes model-written code: running the script is a later owner-reviewed step. Do NOT edit .github, package.json or any workflow.",
-      "done": "Script and README written in the df-pilot-runner worktree, bash -n clean, local commit only; NOT executed; no push, no PR, no workflow change",
+      "cmd": "In the prepared worktree C:/Dev/df-pilot-runner (created by the coordinator beforehand) write scripts/qa/run-sql-suites.sh and a short scripts/qa/README-sql-suites.md using the file tools; check syntax only with bash -n on the exact file path; do NOT run git add or git commit (the driver stages and commits only files under scripts/qa/). The isolated environment never executes model-written code: running the script is a later owner-reviewed step. Do NOT edit .github, package.json or any workflow.",
+      "done": "Script and README written in the df-pilot-runner worktree, bash -n clean, local commit made by the driver; NOT executed; no push, no PR, no workflow change",
       "worktree": "df-pilot-runner",
       "touches": [
         "scripts/qa/run-sql-suites.sh"
@@ -215,8 +234,6 @@
         "Bash(git -C C:/Dev/df-pilot-runner diff *)",
         "Bash(git -C C:/Dev/df-pilot-runner status)",
         "Bash(git -C C:/Dev/df-pilot-runner rev-parse HEAD)",
-        "Bash(git -C C:/Dev/df-pilot-runner add *)",
-        "Bash(git -C C:/Dev/df-pilot-runner commit -m *)",
         "Read(//c/Dev/df-pilot-runner/**)",
         "Glob(//c/Dev/df-pilot-runner/**)",
         "Grep(//c/Dev/df-pilot-runner/**)",
@@ -226,13 +243,19 @@
       ],
       "examples": [
         "bash -n C:/Dev/df-pilot-runner/scripts/qa/run-sql-suites.sh",
-        "git -C C:/Dev/df-pilot-runner status",
-        "git -C C:/Dev/df-pilot-runner commit -m \"SQL suite runner proposal (local only)\""
+        "git -C C:/Dev/df-pilot-runner status"
       ],
       "addDirs": [
         "C:/Dev/df-pilot-runner"
       ],
       "cwd": "q4",
+      "commit": {
+        "dir": "C:/Dev/df-pilot-runner",
+        "paths": [
+          "scripts/qa/"
+        ],
+        "message": "SQL suite runner proposal (local only, pilot Q4)"
+      },
       "model": "sonnet",
       "timeoutMs": 3600000,
       "maxBudgetUsd": 3

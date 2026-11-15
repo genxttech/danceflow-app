@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 import * as O from './orchestrator.mjs';
 import { loadProtected, scrubbedEnv } from './protected-source.mjs';
 import { DEFAULT_SOURCE } from './config.mjs';
-import { childConfigSha, checkExamples, CLAUDE_VERSION, loadRequired } from './child-config.mjs';
+import { childConfigSha, checkExamples, CLAUDE_VERSION, EXTRA_DENY, loadRequired } from './child-config.mjs';
+import { coverage } from './deny-check.mjs';
 import { checkIsolationReport } from './isolation-test.mjs';
 import { DEFAULT_CLAUDE_CMD } from './config.mjs';
 
@@ -99,6 +100,7 @@ export function runPreflight(opts) {
   // 6. isolated child: configuration, tested version, and isolation-test evidence bound to the exact configuration
   if (prot) {
     const cfg = childConfigSha(prot.policy, requiredDeny); const probs = [];
+    const cov = coverage(requiredDeny, [...requiredDeny.recommendedRules, ...EXTRA_DENY].map((x) => ({ r: x }))); if (!cov.ok) probs.push('child deny layer does not cover protected variants: ' + cov.uncovered.join(', '));
     for (const [n, t] of Object.entries(prot.policy.templates)) if (t.class === 'A') probs.push(...checkExamples(t, requiredDeny).map((p) => n + ': ' + p));
     add('6.child-config', probs.length === 0, probs.length ? probs.join('; ') : 'child configuration ' + cfg.slice(0, 12) + ': every allowlist is inside the reviewed families, no allow rule permits a protected variant, every example command is allowed and none is denied');
     add('6.claude-version', typeof claudeVersion === 'string' && claudeVersion.includes(CLAUDE_VERSION), 'installed claude: ' + (claudeVersion || 'unknown') + '; tested: ' + CLAUDE_VERSION);

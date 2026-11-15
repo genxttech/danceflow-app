@@ -33,7 +33,7 @@ export function render(tpl, params = {}) {
   const decl = tpl.params || {};
   for (const [k, re] of Object.entries(decl)) if (!new RegExp(re).test(String(params[k] ?? ''))) throw new Error(`param ${k} invalid`);
   for (const k of Object.keys(params)) if (!own(decl, k)) throw new Error(`unexpected param ${k}`);
-  return (tpl.cmd || '').replace(/\{(\w+)\}/g, (_, k) => (own(decl, k) ? String(params[k]) : ''));
+  return (tpl.cmd || '').replace(/\{(\w+)\}/g, (m, k) => (own(decl, k) ? String(params[k]) : k === 'CODE' ? m : '')); // {CODE} is resolved later, by the driver, to the verified code directory
 }
 
 // Policy + authorizations self-check: fail closed on anything missing, malformed or unsafe.
@@ -211,7 +211,7 @@ export function claim(root, { worker = 'W', external = false, source = DEFAULT_S
       i.runner = { pid: process.pid, worker, token: crypto.randomUUID(), started: now, hb: now, external, template: i.template, scope: sc };
       saveQ(root, q);
       log(root, { ev: 'START', id: i.id, worker, attempt: i.attempts, commit, template: i.template, scope: sc });
-      return { status: 'CLAIMED', commit, item: { id: i.id, template: i.template, title: tpl.title, cmd, done: tpl.done, action: tpl.action, worktree: tpl.worktree, dbslot: tpl.dbslot, iso: { allow: tpl.allow, addDirs: tpl.addDirs, cwd: tpl.cwd, model: tpl.model, maxBudgetUsd: tpl.maxBudgetUsd, timeoutMs: tpl.timeoutMs }, attempts: i.attempts, runner: i.runner } };
+      return { status: 'CLAIMED', commit, item: { id: i.id, template: i.template, title: tpl.title, cmd, done: tpl.done, action: tpl.action, worktree: tpl.worktree, dbslot: tpl.dbslot, iso: { allow: tpl.allow, addDirs: tpl.addDirs, cwd: tpl.cwd, model: tpl.model, maxBudgetUsd: tpl.maxBudgetUsd, timeoutMs: tpl.timeoutMs, containers: tpl.containers, commit: tpl.commit }, attempts: i.attempts, runner: i.runner } };
     });
   } catch (e) { return halt(root, `claim failed: ${String(e.message).split('\n')[0]}`); }
 }

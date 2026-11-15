@@ -1,12 +1,15 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as O from './orchestrator.mjs';
 import { runDriver, StreamParser, acquireDriverLock } from './driver.mjs';
 import { world } from './test-world.mjs';
-import { CHILD_TOOLS, EXTRA_DENY } from './child-config.mjs';
+import { CHILD_TOOLS, EXTRA_DENY, CODE_DIR } from './child-config.mjs';
+import { removeContainers } from './driver.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const __created = new Set(); const __orig = fs.mkdtempSync;
@@ -99,4 +102,65 @@ test('D7. untested claude version, held driver lock, and HALT from claim all ref
 test('D8. maxItems bounds one run; items run one at a time in order', { timeout: 120000 }, async () => {
   const w = world([{ id: 'A1', template: 'work' }, { id: 'A2', template: 'work' }, { id: 'A3', template: 'work' }]);
   const r = await drive(w, scenario(w, lines(ev.init, ev.done())), { maxItems: 2 }); assert.equal(r.status, 'LIMIT'); assert.deepEqual(r.results.map((x) => x.id), ['A1', 'A2']); assert.equal(st(w, 'A3'), 'PENDING');
+});
+
+// ---- driver-side repository handling (review 2026-11-15) ----
+const gitq = (dir, ...a) => execFileSync('git', ['-C', dir, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const repos = [];
+after(() => { for (const d of repos) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
+function mkRepo() {
+  const dir = 'C:/Dev/cpilot-tr-' + process.pid + '-' + repos.length; repos.push(dir); fs.mkdirSync(dir + '/docs', { recursive: true });
+  gitq(dir, 'init', '-q', '-b', 'main'); gitq(dir, 'config', 'user.name', 't'); gitq(dir, 'config', 'user.email', 't@t'); gitq(dir, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(dir + '/README.md', 'x'); gitq(dir, 'add', '-A'); gitq(dir, 'commit', '-q', '-m', 'init'); return dir;
+}
+const tplFor = (dir, extra = {}) => ({ work: { ...world([]).policy.templates.work, addDirs: [dir], allow: ['Read(//c/Dev/' + dir.slice(7) + '/**)'], examples: [], commit: { dir, paths: ['docs/'], message: 'pilot test commit' }, cmd: 'echo {n} in {CODE}', ...extra } });
+const count = (dir) => Number(gitq(dir, 'rev-list', '--count', 'HEAD').trim());
+
+test('D9. the DRIVER commits what the child wrote under commit.paths: one local commit, hooks NOT run, message from the template', { timeout: 120000 }, async () => {
+  const dir = mkRepo(); const marker = path.join(os.tmpdir(), 'cpilot-hook-marker-' + process.pid); fs.rmSync(marker, { force: true });
+  fs.writeFileSync(dir + '/.git/hooks/pre-commit', '#!/bin/sh\ntouch "' + marker.replaceAll(String.fromCharCode(92), '/') + '"\n'); try { fs.chmodSync(dir + '/.git/hooks/pre-commit', 0o755); } catch { /* windows */ }
+  const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
+  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: [{ path: dir + '/docs/note.md', content: 'evidence' }] }));
+  assert.equal(st(w, 'A1'), 'DONE', JSON.stringify(r)); assert.equal(count(dir), before + 1);
+  assert.equal(gitq(dir, 'log', '-1', '--format=%s').trim(), 'pilot test commit'); assert.deepEqual(gitq(dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['docs/note.md']);
+  assert.equal(fs.existsSync(marker), false, 'the repo pre-commit hook must NOT run'); assert.equal(gitq(dir, 'status', '--porcelain').trim(), '');
+  const end = O.readLog(w.root).find((e) => e.ev === 'CHILD_END'); assert.deepEqual(end.changed, ['docs/note.md']); assert.ok(end.commit);
+});
+
+test('D10. changes outside commit.paths fail the item, nothing is committed, files are left for review', { timeout: 120000 }, async () => {
+  const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
+  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: [{ path: dir + '/docs/ok.md', content: 'a' }, { path: dir + '/package.json', content: '{}' }] }));
+  assert.equal(r.results[0].state, 'FAILED'); assert.match(r.results[0].reason, /unexpected changes outside docs\//); assert.equal(count(dir), before);
+  assert.ok(fs.existsSync(dir + '/package.json') && fs.existsSync(dir + '/docs/ok.md'), 'left in place for the owner to inspect');
+});
+
+test('D11. a child that commits by itself is rejected', { timeout: 120000 }, async () => {
+  const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) });
+  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), commitIn: dir })); assert.equal(r.results[0].state, 'FAILED'); assert.match(r.results[0].reason, /child changed HEAD/);
+});
+
+test('D12. a dirty worktree is refused BEFORE any child is started', { timeout: 120000 }, async () => {
+  const dir = mkRepo(); fs.writeFileSync(dir + '/docs/leftover.md', 'left'); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) });
+  const r = await drive(w, scenario(w, lines(ev.init, ev.done()))); assert.equal(r.results[0].state, 'FAILED'); assert.match(r.results[0].reason, /not clean/);
+  assert.equal(fs.existsSync(path.join(w.workRoot, 'w', 'dump.json')), false, 'the child was never spawned');
+});
+
+test('D13. the settings and stream live OUTSIDE the child working directory; {CODE} is resolved to the verified code dir', { timeout: 120000 }, async () => {
+  const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) });
+  await drive(w, scenario(w, lines(ev.init, ev.done()))); const dump = JSON.parse(fs.readFileSync(path.join(w.workRoot, 'w', 'dump.json'), 'utf8'));
+  assert.ok(!path.resolve(dump.settingsPath).startsWith(path.resolve(w.workRoot)), 'settings are not inside a working directory');
+  assert.deepEqual(fs.readdirSync(path.join(w.workRoot, 'w')).sort(), ['dump.json'], 'nothing the driver wrote sits in the child cwd');
+  const prompt = dump.args[dump.args.indexOf('-p') + 1]; assert.ok(prompt.includes(CODE_DIR) && !prompt.includes('{CODE}'));
+});
+
+test('D14. containers are removed after the item even when the child is killed on timeout', { timeout: 300000 }, async () => {
+  let docker = true; try { execFileSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'ignore', timeout: 30000 }); } catch { docker = false; }
+  if (!docker) return;
+  const name = 'cf1pilot-q95'; try { execFileSync('docker', ['rm', '-f', '-v', name], { stdio: 'ignore' }); } catch { /* none */ }
+  execFileSync('docker', ['create', '--name', name, '--network', 'none', 'ns1-base:snap'], { stdio: 'ignore', timeout: 60000 });
+  const names = () => execFileSync('docker', ['ps', '-a', '--format', '{{.Names}}'], { encoding: 'utf8' }).split(/\r?\n/);
+  assert.ok(names().includes(name)); const dir = mkRepo();
+  const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir, { timeoutMs: 600, containers: [name] }) });
+  const r = await drive(w, scenario(w, { ...lines(ev.init), hangMs: 60000 })); assert.match(r.reason, /timeout/); assert.equal(names().includes(name), false, 'container removed after a timeout kill');
+  removeContainers({ containers: [name] }); // idempotent on an absent container
 });
