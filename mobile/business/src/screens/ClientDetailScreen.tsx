@@ -108,7 +108,7 @@ export function ClientDetailScreen({ clientId, studioId }: { clientId: string; s
           error={state.error}
           onRetry={() => void load()}
           onSignInAgain={() => void signOut()}
-          onRefreshWorkspaces={() => void reloadWorkspaces()}
+          onRefreshWorkspaces={() => void reloadWorkspaces().then(() => load())}
           copy={{ not_found: { title: "Client not found", body: "This client is gone, or isn't one of the clients you can see." } }}
         />
       </Screen>

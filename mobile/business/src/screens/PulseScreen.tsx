@@ -17,11 +17,6 @@ type LoadState =
   | { status: "error"; error: unknown }
   | { status: "ready"; pulse: StaffPulse };
 
-/** "1 appointment" / "3 appointments": every count is words as well as a number. */
-export function countLabel(count: number, singular: string, plural = `${singular}s`) {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
-
 function Stat({ label, value, testID }: { label: string; value: number; testID: string }) {
   return (
     <View style={styles.stat} accessible accessibilityLabel={`${label}: ${value}`} testID={testID}>
@@ -118,7 +113,7 @@ export function PulseScreen() {
           error={state.error}
           onRetry={() => void load("initial")}
           onSignInAgain={() => void signOut()}
-          onRefreshWorkspaces={() => void reloadWorkspaces()}
+          onRefreshWorkspaces={() => void reloadWorkspaces().then(() => load("initial"))}
         />
       ) : null}
 
@@ -141,7 +136,7 @@ export function PulseScreen() {
               <AppText testID="pulse-today-empty">Nothing on the schedule today.</AppText>
             ) : (
               <View style={styles.stats}>
-                <Stat label={countLabel(pulse.today.total, "appointment")} value={pulse.today.total} testID="pulse-total" />
+                <Stat label={pulse.today.total === 1 ? "appointment" : "appointments"} value={pulse.today.total} testID="pulse-total" />
                 <Stat label="still to come" value={pulse.today.upcoming} testID="pulse-upcoming" />
                 {pulse.today.cancelled > 0 ? <Stat label="cancelled" value={pulse.today.cancelled} testID="pulse-cancelled" /> : null}
               </View>

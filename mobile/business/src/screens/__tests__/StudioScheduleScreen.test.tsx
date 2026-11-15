@@ -101,6 +101,15 @@ describe("StudioScheduleScreen", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it("after a 403, Refresh studios reloads the studio list and then the day", async () => {
+    const reload = jest.fn(async () => undefined);
+    const studioSchedule = jest.fn().mockRejectedValueOnce(new StaffApiError(403, "role_not_permitted", "x")).mockResolvedValueOnce(DAY);
+    renderStudio(studioSchedule, { reload });
+    fireEvent.press(await screen.findByRole("button", { name: "Refresh studios" }));
+    expect(await screen.findByText("3 appointments")).toBeTruthy();
+    expect(studioSchedule).toHaveBeenCalledTimes(2);
+  });
+
   it("a 401 asks to sign in again and signs out on the button", async () => {
     const signOut = jest.fn(async () => undefined);
     renderStudio(jest.fn(async () => Promise.reject(new StaffApiError(401, "unauthenticated", "x"))), { signOut });

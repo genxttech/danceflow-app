@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { router } from "expo-router";
 import { StaffApiError, type StaffPulse } from "@/lib/staffApi";
-import { countLabel, PulseScreen } from "@/screens/PulseScreen";
+import { PulseScreen } from "@/screens/PulseScreen";
 import { fakeApi, STUDIO_ID, StaffTestProviders } from "@/test-utils/staff";
 
 jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
@@ -45,7 +45,8 @@ describe("PulseScreen", () => {
     await act(async () => finish(STUDIO));
     expect(api.pulse).toHaveBeenCalledWith(STUDIO_ID);
     expect(screen.getByText(/Studio today/)).toBeTruthy();
-    expect(screen.getByLabelText("5 appointments: 5")).toBeTruthy();
+    expect(screen.getByLabelText("appointments: 5")).toBeTruthy();
+    expect(screen.queryByText("5 appointments")).toBeNull(); // the number is shown once, not twice
     expect(screen.getByLabelText("still to come: 4")).toBeTruthy();
     expect(screen.getByLabelText("cancelled: 1")).toBeTruthy();
     expect(screen.getByLabelText("new in the last 7 days: 3")).toBeTruthy();
@@ -101,19 +102,22 @@ describe("PulseScreen", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it("after a 403, Refresh studios reloads the studio list and then the screen itself, so the numbers come back without a pull", async () => {
+    const reload = jest.fn(async () => undefined);
+    const pulse = jest.fn().mockRejectedValueOnce(new StaffApiError(403, "role_not_permitted", "x")).mockResolvedValueOnce(STUDIO);
+    renderPulse(fakeApi({ pulse }), { reload });
+    fireEvent.press(await screen.findByRole("button", { name: "Refresh studios" }));
+    expect(await screen.findByLabelText("appointments: 5")).toBeTruthy();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(pulse).toHaveBeenCalledTimes(2);
+  });
+
   it("an outage retries on the button and recovers", async () => {
     const pulse = jest.fn().mockRejectedValueOnce(new StaffApiError(503, "service_unavailable", "x")).mockResolvedValueOnce(STUDIO);
     renderPulse(fakeApi({ pulse }));
     fireEvent.press(await screen.findByRole("button", { name: "Try again" }));
-    expect(await screen.findByLabelText("5 appointments: 5")).toBeTruthy();
+    expect(await screen.findByLabelText("appointments: 5")).toBeTruthy();
     expect(pulse).toHaveBeenCalledTimes(2);
   });
 });
 
-describe("countLabel", () => {
-  it("pluralises", () => {
-    expect(countLabel(1, "appointment")).toBe("1 appointment");
-    expect(countLabel(0, "appointment")).toBe("0 appointments");
-    expect(countLabel(3, "class", "classes")).toBe("3 classes");
-  });
-});

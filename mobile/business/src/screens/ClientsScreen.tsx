@@ -137,7 +137,7 @@ function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolea
           error={state.error}
           onRetry={() => void load()}
           onSignInAgain={() => void signOut()}
-          onRefreshWorkspaces={() => void reloadWorkspaces()}
+          onRefreshWorkspaces={() => void reloadWorkspaces().then(() => load())}
           copy={LOOKUP_ERROR_COPY}
         />
       ) : null}
