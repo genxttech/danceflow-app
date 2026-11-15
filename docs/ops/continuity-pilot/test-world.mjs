@@ -10,7 +10,7 @@ import { childConfigSha } from './child-config.mjs';
 
 const G = (cwd, ...a) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 export const PILOT = { enabled: true, coordinator: 'W', not_before: '2000-01-01T00:00:00Z', not_after: '2099-01-01T00:00:00Z', maxHours: 4, maxWakeups: 12, maxClaims: 100, maxCalls: 1000, claimTtlMs: 600000, maxAttempts: 2 };
-export const ISO = { allow: ['Read(//c/Dev/df-iso-test/**)', 'Bash(git -C C:/Dev/df-iso-test status)'], examples: ['git -C C:/Dev/df-iso-test status'], addDirs: ['C:/Dev/df-iso-test'], cwd: 'w', model: 'haiku', maxBudgetUsd: 1, timeoutMs: 60000 };
+export const ISO = { allow: ['Read(//c/Dev/df-iso-test/**)', 'Bash(bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-iso-test status)'], examples: ['bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-iso-test status'], addDirs: ['C:/Dev/df-iso-test'], cwd: 'w', model: 'haiku', maxBudgetUsd: 1, timeoutMs: 60000 };
 export const TPL = { work: { class: 'A', title: 'fictional work', cmd: 'echo {n}', params: { n: '^[0-9]+$' }, done: 'x', ...ISO } };
 
 export function world(items, { templates = TPL, pilot = {} } = {}) {

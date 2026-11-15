@@ -54,7 +54,8 @@ export const EXACT_FAMILIES = [
   /^KEEP=1 SUITES=none IMG=ns1-base:snap bash \{CODE\}\/phase2\/scripts\/run_u18s2\.sh cf1pilot-q[0-9]+ (none|u18|u18s|both) C:\/Dev\/cpilot-iso\/work\/[a-z0-9-]+\/[A-Za-z0-9._-]+$/,
   /^docker rm -f -v cf1pilot-q[0-9]+$/,
   /^bash -n C:\/Dev\/df-pilot-runner\/scripts\/qa\/[A-Za-z0-9._-]+\.sh$/,
-  /^git -C C:\/Dev\/[A-Za-z0-9._-]+ (status|rev-parse HEAD|log --oneline -[0-9]+|branch --show-current|worktree list)$/,
+  // no raw `git` at all (review 2026-11-15 round 3): a raw `git status` runs repo-local config (core.fsmonitor in a nested repo) as the owner
+  /^bash \{CODE\}\/phase2\/scripts\/git_read\.sh C:\/Dev\/[A-Za-z0-9_-][A-Za-z0-9._-]* (status|rev-parse HEAD)$/,
 ];
 const FILE_TOOL = /^(Read|Glob|Grep|Edit|Write)\(\/\/c\/Dev\/[A-Za-z0-9._\-/*]+\)$/;
 const BASH_RULE = /^Bash\((.+)\)$/;

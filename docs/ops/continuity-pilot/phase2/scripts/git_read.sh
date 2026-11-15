@@ -34,6 +34,7 @@ for a in "$@"; do
   if [ "$AFTER" = 1 ]; then
     [[ "$a" =~ ^[A-Za-z0-9._/-]+$ ]] || refuse "path argument: bad characters"
     [[ "$a" != /* ]] || refuse "path argument: absolute"
+    [[ "$a" =~ ^[A-Za-z]: ]] && refuse "path argument: drive path"
     [[ "$a" =~ (^|/)\.\.(/|$) ]] && refuse "path argument: .. segment"
     PATHS+=("$a"); continue
   fi
@@ -49,12 +50,15 @@ for a in "$@"; do
       [[ "$a" =~ ^[A-Za-z0-9._/@^~{}+:-]+$ ]] || refuse "revision argument: bad characters"
       [[ "$a" != :* ]] || refuse "revision argument: leading colon"
       [[ "$a" != /* ]] || refuse "revision argument: absolute"
-      [[ "$a" =~ ^[A-Za-z]:/ ]] && refuse "revision argument: drive path"
+      [[ "$a" =~ ^[A-Za-z]: ]] && refuse "revision argument: drive path (absolute or drive-relative)"
       [[ "$a" =~ (^|[/:])\.\.(/|$) ]] && refuse "revision argument: .. segment"
       ARGS+=("$a")
       ;;
   esac
 done
-TAIL=(); if [ "${#PATHS[@]}" -gt 0 ]; then TAIL=(-- "${PATHS[@]}"); fi
+# diff/show/log always get a literal "--" after the revisions: git can then never reinterpret two positional arguments as file paths
+# (implicit --no-index mode, which reads arbitrary files). status/diff never recurse into nested repositories.
+TAIL=(); if [ "${#PATHS[@]}" -gt 0 ]; then TAIL=(-- "${PATHS[@]}"); else case "$SUB" in diff|show|log) TAIL=(--) ;; esac; fi
 EXTRA=(); case "$SUB" in diff|show|log) EXTRA=(--no-ext-diff --no-textconv) ;; esac
+case "$SUB" in status|diff) EXTRA+=(--ignore-submodules=all) ;; esac
 exec git --no-pager --no-replace-objects --no-optional-locks -C "$D" -c core.pager=cat -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.allow=never "$SUB" "${EXTRA[@]}" "${ARGS[@]}" "${TAIL[@]}"

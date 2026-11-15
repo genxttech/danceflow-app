@@ -144,7 +144,9 @@
     "ArtifactComments",
     "NotebookEdit",
     "SendMessage",
-    "Monitor"
+    "Monitor",
+    "Edit(//c/Dev/**/.git)",
+    "Write(//c/Dev/**/.git)"
   ],
   "bashVariants": [
     {
@@ -675,6 +677,17 @@
       "tool": "Read",
       "path": "C:/Users/mcurt/.ssh/id_ed25519",
       "probePath": "C:/Users/mcurt/.ssh/cpilot-probe-nonexistent"
+    },
+    {
+      "id": "edit-dotgit-file",
+      "tool": "Edit",
+      "path": "C:/Dev/df-pilot-runner/scripts/qa/x/.git"
+    },
+    {
+      "id": "write-dotgit-file",
+      "tool": "Write",
+      "path": "C:/Dev/df-pilot-runner/scripts/qa/x/.git",
+      "probePath": "C:/Dev/cpilot-probe-scratch/scripts/qa/x/.git"
     }
   ],
   "toolVariants": [

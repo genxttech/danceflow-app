@@ -67,22 +67,40 @@ const IDENT = ['-c', 'user.name=' + gitCfg('user.name', 'Continuity Pilot'), '-c
 const git = (dir, args) => execFileSync('git', ['--no-replace-objects', '-C', dir, '-c', 'core.hooksPath=' + EMPTY_HOOKS, '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'commit.gpgsign=false', '-c', 'protocol.allow=never', ...IDENT, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, env: childEnv() });
 const dirty = (dir) => git(dir, ['status', '--porcelain', '-uall']).split('\n').filter((l) => l.trim()).map((l) => l.slice(3).trim().replace(/^"|"$/g, ''));
 
+// Entries under the commit paths that could make git treat a directory as a repository or point outside the worktree: any name starting
+// .git (any case), a symlink/junction, an alternates file. `git status` hides some of them, so walk the disk.
+export function scanPlanted(dir, paths) {
+  const found = []; let seen = 0;
+  const walk = (rel) => { let ents; try { ents = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of ents) { if (++seen > 50000) return; const r = rel + e.name; if (/^\.git/i.test(e.name) || e.isSymbolicLink() || /^alternates$/i.test(e.name)) found.push(r); if (e.isDirectory() && !e.isSymbolicLink()) walk(r + '/'); } };
+  for (const p of paths) walk(p);
+  return found;
+}
 // Before the child runs: the commit directory must be clean (so every later change is the child's) and we remember HEAD.
 export function repoPrepare(iso) {
   if (!iso.commit) return { base: null };
   const d = dirty(iso.commit.dir); if (d.length) throw new Error('worktree ' + iso.commit.dir + ' is not clean before the item: ' + d.slice(0, 5).join(', '));
-  return { base: git(iso.commit.dir, ['rev-parse', 'HEAD']).trim() };
+  return { base: git(iso.commit.dir, ['rev-parse', 'HEAD']).trim(), known: scanPlanted(iso.commit.dir, iso.commit.paths) };
 }
 // After a successful child: refuse any change outside commit.paths or any commit made by the child; otherwise stage exactly the
 // changed files and make ONE local commit with hooks disabled. Returns { ok, reason, changed, commit }.
-export function repoFinish(iso, base) {
+export function repoFinish(iso, base, known = []) {
   if (!iso.commit) return { ok: true, changed: [] };
   const { dir, paths, message } = iso.commit;
   const head = git(dir, ['rev-parse', 'HEAD']).trim(); if (head !== base) return { ok: false, reason: 'child changed HEAD (it must not commit)', changed: [] };
+  const fresh = scanPlanted(dir, paths).filter((f) => !known.includes(f)); // review round 3: a nested repository / .git* name / symlink planted by the child
+  if (fresh.length) return { ok: false, reason: 'refused: nested-repository or .git* path planted: ' + fresh.slice(0, 5).join(', '), changed: [] };
   const changed = dirty(dir); if (!changed.length) return { ok: true, changed: [], commit: null };
   const outside = changed.filter((f) => !paths.some((p) => f.startsWith(p)) || f.split('/').includes('..'));
   if (outside.length) return { ok: false, reason: 'unexpected changes outside ' + paths.join(',') + ': ' + outside.slice(0, 5).join(', '), changed };
-  git(dir, ['add', '--', ...changed]); git(dir, ['commit', '--no-verify', '-m', message]);
+  // review round 3: the child must not plant a nested repository (untracked directory entry, a `.git` file or any .git* name, an
+  // alternates file) or a gitlink/symlink: a later `git status` in the owner's worktree would run that repo's config (core.fsmonitor)
+  const planted = changed.filter((f) => f.endsWith('/') || /(^|\/)\.git[^/]*(\/|$)/i.test(f) || /objects\/info\/alternates/i.test(f));
+  if (planted.length) return { ok: false, reason: 'refused: nested-repository or .git* path planted: ' + planted.slice(0, 5).join(', '), changed };
+  git(dir, ['add', '--', ...changed]);
+  const bad = git(dir, ['diff', '--cached', '--raw', '--no-renames']).split('\n').filter((l) => /^:\d{6} (\d{6}) /.test(l) && /^:\d{6} (160000|120000) /.test(l));
+  if (bad.length) { try { git(dir, ['reset', '-q']); } catch { /* reported below */ } return { ok: false, reason: 'refused: gitlink or symlink staged: ' + bad.slice(0, 3).join(' | '), changed }; }
+  git(dir, ['commit', '--no-verify', '-m', message]);
   return { ok: true, changed, commit: git(dir, ['rev-parse', 'HEAD']).trim() };
 }
 export function removeContainers(iso) { for (const c of iso.containers ?? []) { try { execFileSync('docker', ['rm', '-f', '-v', c], { stdio: 'ignore', timeout: 60000 }); } catch { /* not present */ } } }
@@ -111,7 +129,7 @@ export async function runChild(root, claim, { claudeCmd = DEFAULT_CLAUDE_CMD, wo
   const r = parser.result; const text = String(r?.result ?? '');
   let ok = !why && code === 0 && r && !r.is_error && /^\s*DONE:/.test(text) && parser.denials.length === 0;
   let fin = { changed: [] }; let finReason = null;
-  if (ok) { try { fin = repoFinish(iso, prep.base); if (!fin.ok) { ok = false; finReason = fin.reason; } } catch (e) { ok = false; finReason = 'repository step failed: ' + String(e.message).split('\n')[0]; } }
+  if (ok) { try { fin = repoFinish(iso, prep.base, prep.known); if (!fin.ok) { ok = false; finReason = fin.reason; } } catch (e) { ok = false; finReason = 'repository step failed: ' + String(e.message).split('\n')[0]; } }
   const reason = finReason ? finReason : ok ? null : (why ?? (parser.denials.length ? `permission denial: ${parser.denials[0].call?.name}` : r?.is_error ? `child error: ${text.slice(0, 200)}` : !/^\s*DONE:/.test(text) ? `child did not report DONE: ${text.slice(0, 200)}` : `child exited with code ${code}: ${stderr.slice(0, 200)}`));
   const tools = {}; for (const c of parser.calls.values()) tools[c.name] = (tools[c.name] ?? 0) + 1;
   O.log(root, { ev: 'CHILD_END', id: item.id, ok, reason, code, changed: fin.changed, commit: fin.commit, cost: r?.total_cost_usd, turns: r?.num_turns, tools, denials: parser.denials.map((d) => ({ tool: d.call?.name, input: JSON.stringify(d.call?.input ?? '').slice(0, 160) })), init: parser.init });

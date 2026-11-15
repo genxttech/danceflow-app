@@ -50,7 +50,7 @@ test('D1. happy path: isolated child gets exactly the authorized authority, a sc
     assert.equal(val('--permission-mode'), 'dontAsk'); assert.equal(val('--permission-prompts'), 'none'); assert.equal(val('--tools'), CHILD_TOOLS);
     assert.equal(val('--output-format'), 'stream-json'); assert.equal(val('--model'), 'haiku'); assert.equal(val('--max-budget-usd'), '1'); assert.equal(val('--add-dir'), 'C:/Dev/df-iso-test');
     assert.ok(!a.includes('--dangerously-skip-permissions') && !a.includes('--allow-dangerously-skip-permissions') && !a.includes('--bare'));
-    assert.equal(dump.settings.permissions.defaultMode, 'dontAsk'); assert.deepEqual(dump.settings.permissions.allow, w.policy.templates.work.allow);
+    assert.equal(dump.settings.permissions.defaultMode, 'dontAsk'); assert.deepEqual(dump.settings.permissions.allow, w.policy.templates.work.allow.map((x) => x.replaceAll('{CODE}', CODE_DIR)));
     for (const d of ['Bash(*prod-apply*)', 'Bash(*git*push*)', 'Edit(//c/Users/mcurt/.claude/settings*.json)', 'mcp__terminal', ...EXTRA_DENY]) assert.ok(dump.settings.permissions.deny.includes(d), d);
     assert.equal(dump.settings.disableAllHooks, true);
     for (const k of ['GH_TOKEN', 'GITHUB_TOKEN', 'SUPABASE_ACCESS_TOKEN']) assert.ok(!dump.envKeys.includes(k), `${k} must not reach the child`);
@@ -163,4 +163,20 @@ test('D14. containers are removed after the item even when the child is killed o
   const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir, { timeoutMs: 600, containers: [name] }) });
   const r = await drive(w, scenario(w, { ...lines(ev.init), hangMs: 60000 })); assert.match(r.reason, /timeout/); assert.equal(names().includes(name), false, 'container removed after a timeout kill');
   removeContainers({ containers: [name] }); // idempotent on an absent container
+});
+
+test('D15. a child that plants a nested repository, a .git pointer file, a case-variant .git* name or an alternates file is refused (nothing committed)', { timeout: 120000 }, async () => {
+  const marker = path.join(os.tmpdir(), 'cpilot-fsmon-marker-' + process.pid).replaceAll(String.fromCharCode(92), '/'); fs.rmSync(marker, { force: true });
+  const cases = {
+    'nested repo via .git pointer file': [{ path: 'docs/x/.git', content: 'gitdir: ../evil\n' }, { path: 'docs/evil/HEAD', content: 'ref: refs/heads/main\n' }, { path: 'docs/evil/config', content: '[core]\n\tfsmonitor = touch ' + marker + '\n' }],
+    'case-variant .gitattributes': [{ path: 'docs/sub/.GITATTRIBUTES', content: '*.txt -diff\n' }],
+    '.gitmodules': [{ path: 'docs/.gitmodules', content: '[submodule "a"]\n' }],
+    'alternates file': [{ path: 'docs/evil/objects/info/alternates', content: 'C:/Dev/x/.git/objects\n' }],
+  };
+  for (const [name, files] of Object.entries(cases)) {
+    const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
+    const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: files.map((f) => ({ path: dir + '/' + f.path, content: f.content })) }));
+    assert.equal(r.results[0].state, 'FAILED', name); assert.match(r.results[0].reason, /refused: nested-repository or \.git\* path planted/, name); assert.equal(count(dir), before, name + ': nothing committed');
+  }
+  assert.equal(fs.existsSync(marker), false, 'no planted config may ever have been executed by the driver');
 });
