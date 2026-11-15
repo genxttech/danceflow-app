@@ -55,12 +55,16 @@ function killTree(child) {
 
 export function changedPaths(dirs) {
   const out = [];
-  for (const d of dirs) { try { for (const l of execFileSync('git', ['-C', d, 'status', '--porcelain'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30000 }).split('\n')) if (l.trim()) out.push(l.slice(3).trim()); } catch { /* not a repo */ } }
+  for (const d of dirs) { try { for (const l of execFileSync('git', ['-C', d, '-c', 'core.fsmonitor=false', 'status', '--porcelain'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30000, env: childEnv() }).split('\n')) if (l.trim()) out.push(l.slice(3).trim()); } catch { /* not a repo */ } }
   return out;
 }
 
-const git = (dir, args) => execFileSync('git', ['-C', dir, '-c', 'core.hooksPath=' + EMPTY_HOOKS, '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, env: childEnv({ GIT_TERMINAL_PROMPT: '0' }) });
-const EMPTY_HOOKS = path.join(os.tmpdir(), 'cpilot-empty-hooks'); fs.mkdirSync(EMPTY_HOOKS, { recursive: true });
+// The driver's git ignores the owner's global/system git config (childEnv) and never runs hooks. The commit identity is read ONCE
+// (read-only `git config --global`, unscrubbed) and passed explicitly, so no config file can inject commands into the driver's git.
+const EMPTY_HOOKS = fs.mkdtempSync(path.join(os.tmpdir(), 'cpilot-nohooks-')); // per process: nobody can pre-populate it
+const gitCfg = (k, d) => { try { return execFileSync('git', ['config', '--global', k], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 }).trim() || d; } catch { return d; } };
+const IDENT = ['-c', 'user.name=' + gitCfg('user.name', 'Continuity Pilot'), '-c', 'user.email=' + gitCfg('user.email', 'pilot@localhost')];
+const git = (dir, args) => execFileSync('git', ['--no-replace-objects', '-C', dir, '-c', 'core.hooksPath=' + EMPTY_HOOKS, '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'commit.gpgsign=false', '-c', 'protocol.allow=never', ...IDENT, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, env: childEnv() });
 const dirty = (dir) => git(dir, ['status', '--porcelain', '-uall']).split('\n').filter((l) => l.trim()).map((l) => l.slice(3).trim().replace(/^"|"$/g, ''));
 
 // Before the child runs: the commit directory must be clean (so every later change is the child's) and we remember HEAD.

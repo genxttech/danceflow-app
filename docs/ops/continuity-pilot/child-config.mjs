@@ -14,7 +14,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const CODE_DIR = HERE.replaceAll('\\', '/');
 export const CODE_PLACEHOLDER = '{CODE}';
 export const resolveCode = (s, codeDir = CODE_DIR) => String(s).replaceAll(CODE_PLACEHOLDER, codeDir);
-export const SCRIPTS = ['phase2/scripts/run_u18s2.sh', 'phase2/scripts/apply_sql.sh', 'phase2/scripts/psql_sql.sh'];
+export const SCRIPTS = ['phase2/scripts/run_u18s2.sh', 'phase2/scripts/apply_sql.sh', 'phase2/scripts/psql_sql.sh', 'phase2/scripts/git_read.sh'];
 
 export const CLAUDE_VERSION = '2.1.321';
 export const CHILD_TOOLS = 'Bash,Read,Edit,Write,Glob,Grep';
@@ -40,7 +40,9 @@ export const CAPS = { maxBudgetUsd: 10, timeoutMs: 3600000 };
 // Every Bash allow rule must match one of these reviewed families (wildcard families first, then exact commands).
 // git add/commit are NOT allowed to the child: the driver stages and commits (hooks disabled) after verifying what changed.
 export const WILDCARD_FAMILIES = [
-  /^git -C C:\/Dev\/[A-Za-z0-9._-]+ (ls-tree|show|cat-file|log|rev-parse|diff|status|worktree list) \*$/,
+  // git read commands WITH arguments go only through a reviewed helper that validates argv against per-subcommand allowlists
+  // (review 2026-11-15, P2-2): raw `git <sub> *` is never allowed, so no flag such as --no-index/-O/--ext-diff can reach git.
+  /^bash \{CODE\}\/phase2\/scripts\/git_read\.sh C:\/Dev\/[A-Za-z0-9_-][A-Za-z0-9._-]* (ls-tree|show|cat-file|log|rev-parse|diff|status) \*$/,
   // pg_dump/pg_restore run only inside a disposable cf1pilot-qN container that has NO network (run_u18s2.sh starts it with --network none)
   /^docker exec( -i)?( -e [A-Z_]+=[A-Za-z0-9_]+)* cf1pilot-q[0-9]+ (pg_dump|pg_restore|pg_isready)( [A-Za-z0-9_@:=.\/-]+)* \*$/,
   // the ONLY SQL path: a reviewed helper that refuses backslashes (psql meta-commands), PROGRAM and server-side file/large-object/network features
@@ -95,6 +97,11 @@ export function validateTemplateIsolation(name, t, required = loadRequired()) {
       for (const v of required.editVariants) if (v.tool === tool || (tool === 'Edit' && v.tool === 'Write')) for (const p of [v.path, v.probePath].filter(Boolean)) if (pathMatch(spec, p) && !denied(p)) fail(`file allow rule ${r} would permit protected target ${v.id}`);
       const dirs = t.addDirs.map((d) => `//c/Dev/${d.slice('C:/Dev/'.length)}`);
       if (!dirs.some((d) => spec === `${d}/**` || spec.startsWith(`${d}/`))) fail(`file allow rule ${r} must stay inside the template addDirs`);
+      // writes must not be wider than what the driver may commit (review 2026-11-15, P2-3): anything else would only fail the item
+      if (t.commit && (tool === 'Write' || tool === 'Edit')) {
+        const roots = t.commit.paths.map((p) => `//c/Dev/${t.commit.dir.slice('C:/Dev/'.length)}/${p}`);
+        if (!roots.some((root) => spec.startsWith(root))) fail(`write allow rule ${r} must stay inside commit.paths`);
+      }
     } else fail(`unsupported allow rule form: ${r}`);
   }
 }
@@ -118,9 +125,12 @@ export function childArgs({ prompt, settingsPath, tpl }) {
 
 // Minimal environment for the child. No API key or OAuth token is passed: the CLI uses its own stored login, so allowed
 // commands, git hooks and anything else the child runs cannot read the owner's model credential from the environment.
+// Git inside the child and in the driver ignores the owner's global and system git config (aliases, pager/fsmonitor commands,
+// url rewrites, credential helper; review 2026-11-15, P2-1): GIT_CONFIG_GLOBAL points at an empty file.
 export function childEnv(extra = {}) {
   const keep = ['PATH', 'Path', 'SystemRoot', 'ComSpec', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOMEDRIVE', 'HOMEPATH'];
-  return { ...Object.fromEntries(keep.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]])), ...extra };
+  const git = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
+  return { ...Object.fromEntries(keep.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]])), ...git, ...extra };
 }
 
 // Every example command a template says it needs must be matched by one of its own allow rules and by NO deny rule.

@@ -26,9 +26,9 @@ Probe suite per template: every protected command variant; ten abuse shapes on e
 ## Limits (be honest about these)
 - The probing model is a cheap one (haiku); enforcement is the harness's, independent of the model, but the working model (sonnet) was not itself probed.
 - One machine, one CLI version (2.1.321, pinned; any other version fails the preflight until re-tested). The probe set is finite: abuse shapes not in the set are untested.
-- Allowed commands (`git -C C:/Dev/<dir> ...`, `pg_dump`/`pg_restore` in a container, the reviewed runner and helpers) run as the owner's OS user, unconfined. Safety rests on the reviewed command shapes, the deny layer, the helpers and these probes.
-- The child can read the item's own repositories through the allowed git read commands, and inside the no-network container it can run arbitrary SQL and shell commands.
-- The report and the attestation are local files produced by a cooperative coordinator; the hard gates are the protected policy and CODEOWNERS.
-- The fixes made after the independent review have not themselves had a second independent review.
+- Allowed commands (exact `git -C C:/Dev/<dir> status` / `rev-parse HEAD`, `pg_dump`/`pg_restore` in a container, the reviewed runner and helpers) run as the owner's OS user, unconfined. Git reads with arguments go only through `git_read.sh` (argv-level allowlist, unit-tested offline in C13) and git ignores the owner's global/system config. Safety rests on the reviewed command shapes, the helpers, the deny layer and these probes.
+- The child can read the item's own repositories through `git_read.sh`, and inside the no-network container it can run arbitrary SQL and shell commands.
+- The report and the attestation are local files produced by a cooperative coordinator; the hard gates are the protected policy and CODEOWNERS. This layer constrains the isolated child, not a compromised driver or coordinator.
+- A second independent review (2026-11-15, static read) found no P1 and three P2 (git inherits the owner's global config; git reads guarded only by raw-text deny rules; child write allow wider than the commit path) and two P3, all fixed. That second round of fixes has not itself been reviewed.
 
 Reproduce: sign the CLI in, then `node isolation-test.mjs --root C:/Dev/continuity-live/COMPETITION` (about 40 minutes, billed to the signed-in plan).
