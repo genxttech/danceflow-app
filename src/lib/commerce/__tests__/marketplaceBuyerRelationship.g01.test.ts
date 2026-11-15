@@ -21,6 +21,7 @@ function fakeAdmin(fixture: Fixture) {
   const reads: string[] = [];
   const from = (table: string) => {
     let selfQuery = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const chain: any = {
       select: () => chain,
       eq: (column: string, value: unknown) => {

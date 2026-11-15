@@ -31,6 +31,7 @@ export type MarketplaceBuyerResolution =
  * and/or link AFTER settlement. Today it intentionally does nothing and returns { created: false }; checkout and
  * settlement never call anything that creates a relationship.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function applyMarketplaceBuyerRelationshipOptIn(_input: {
   studioId: string;
   userId: string;
