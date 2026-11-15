@@ -191,3 +191,22 @@ Setup: a **release** APK (x86_64, QA-only signing key, cleartext HTTP to the hos
 | R5-12 | Instructor: Today has no switch; Pulse is "Your day" with no client card | **PASS** | `r5-15`, `r5-16` |
 
 Not run or not reviewed (**BLOCKED / not claimed**): Pulse in light at 2.0 and Studio in dark at 2.0 scrolled (screenshots were taken but not reviewed); the 401/403 states in dark and at 2.0; the cut-off day (500 rows) on the device; talkback; the post-fix recovery (R5-11) on the device; iOS.
+
+## R6: one-command smoke, run 6, 2026-11-15 (18 of 18 PASS)
+
+`node scripts/device-smoke.js --apk <QA APK> --allow-busy`: the APK from the R5 build (flags `pulse` and `studioSchedule` on in that QA build only), a fresh `iso-qa --auth` stack, a production web build, real GoTrue sign-in, emulator `df-api35`. Every check asserts on the screen's text through `uiautomator` and keeps a screenshot. Evidence (outside the repo): `C:\dfr-out\qa-smoke6\` (`summary.json`, `run.log`, one screenshot per check).
+
+| Flow | Result |
+| --- | --- |
+| Owner, light 1.0: Today has the My day / Studio switch and a Pulse tab; the Studio view lists the studio's day with who teaches; Pulse shows the numbers and new clients | **PASS** (3 checks) |
+| The same three, dark 1.0 | **PASS** (3) |
+| The same three, dark 2.0 from a cold start (the Clients card is found by scrolling) | **PASS** (3) |
+| The same three, light 2.0 from a cold start | **PASS** (3) |
+| Live font change 2.0 to 1.0 while running: screen intact, nothing recreated | **PASS** |
+| Empty day: Studio, next day, explained in words | **PASS** |
+| 403: the role demoted in the database mid-session, pull to refresh shows "Not available for your role" | **PASS** |
+| 403 recovery: role restored, "Refresh studios" brings the numbers back without a pull (#543) | **PASS** |
+| 401: session ended, pull to refresh shows "Sign in again", the button returns to sign-in | **PASS** |
+| Instructor: Today has no switch, Pulse says "Your day" with no client card | **PASS** |
+
+Teardown ran and was checked afterwards: font scale and night mode restored, app uninstalled, stack and web server removed, emulator stopped. Not covered by this script (BLOCKED or manual): TalkBack, a visual review of every screen, the 500-row cut-off day, and iOS.

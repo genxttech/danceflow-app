@@ -62,16 +62,32 @@ const psql = (sql) => run("docker", ["exec", "-i", `df-isoqa-${opts.stackName}-d
 
 // ---------------------------------------------------------------- device helpers
 function dump() {
-  const r = adb("exec-out", "uiautomator", "dump", "/dev/tty");
-  return lib.parseNodes(r.stdout);
+  let nodes = lib.parseNodes(adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
+  // A cold swiftshader emulator raises "System UI isn't responding" style dialogs that cover the app: tap Wait and look again.
+  for (let i = 0; i < 3 && lib.hasLabel(nodes, /isn't responding|isn.t responding/i); i++) {
+    const wait = lib.findNode(nodes, /^Wait$/);
+    if (!wait) break;
+    tapNode(wait);
+    nodes = lib.parseNodes(adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
+  }
+  return nodes;
 }
-async function waitFor(label, { timeout = 30000, cls } = {}) {
+/** `scroll`: the dump only lists what is on screen, so at a large text size a card below the fold is found by swiping up a few times (and back to the top afterwards). */
+async function waitFor(label, { timeout = 30000, cls, scroll = false, tappable = false } = {}) {
   const end = Date.now() + timeout;
-  let nodes = [];
   while (Date.now() < end) {
-    nodes = dump();
-    const node = lib.findNode(nodes, label, { cls });
+    const nodes = dump();
+    const node = tappable ? lib.findTappable(nodes, label) : lib.findNode(nodes, label, { cls });
     if (node) return node;
+    if (scroll) {
+      for (let i = 0; i < 4; i++) {
+        adb("shell", "input", "swipe", "540", "1800", "540", "700", "300");
+        await sleep(800);
+        const below = lib.findNode(dump(), label, { cls });
+        if (below) return below;
+      }
+      for (let i = 0; i < 4; i++) adb("shell", "input", "swipe", "540", "700", "540", "1800", "300");
+    }
     await sleep(1500);
   }
   return null;
@@ -81,7 +97,7 @@ function tapNode(node) {
   adb("shell", "input", "tap", String(x), String(y));
 }
 async function tapLabel(label, o = {}) {
-  const node = await waitFor(label, o);
+  const node = await waitFor(label, { ...o, tappable: true });
   if (!node) throw new Error(`not on screen: ${String(label)}`);
   tapNode(node);
   await sleep(1200);
@@ -124,22 +140,41 @@ const expectLabel = async (label, o) => {
   if (!(await waitFor(label, o))) throw new Error(`expected on screen: ${String(label)}`);
 };
 
+/**
+ * Types into an EditText and checks what is really in it (adb "input text" drops characters on a busy emulator: run 4 ended with "owe" for a 23-character email).
+ * Short chunks, then read the field back through uiautomator and start over until it matches. A password field shows one bullet per character, so its length is compared.
+ */
+async function typeInto(label, text, { secret = false } = {}) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const field = lib.findNode(dump(), label, { cls: "EditText" });
+    if (!field) throw new Error(`no ${label} field`);
+    tapNode(field);
+    await sleep(500);
+    adb("shell", "input", "keyevent", "KEYCODE_MOVE_END");
+    const del = Array(40).fill("67");
+    adb("shell", "input", "keyevent", ...del);
+    adb("shell", "input", "keyevent", ...del);
+    for (const chunk of text.match(/.{1,6}/g)) {
+      adb("shell", "input", "text", chunk);
+      await sleep(250);
+    }
+    await sleep(500);
+    const got = lib.findNode(dump(), label, { cls: "EditText" })?.text ?? "";
+    if (secret ? got.length === text.length : got === text) return;
+  }
+  throw new Error(`could not type the ${label} (the field never matched what was sent)`);
+}
+
 async function signIn(email) {
   await expectLabel("Sign in to your studio", { timeout: 60000 });
-  const emailField = lib.findNode(dump(), "Email", { cls: "EditText" });
-  if (!emailField) throw new Error("no email field");
-  tapNode(emailField);
-  adb("shell", "input", "text", email);
-  const pwField = lib.findNode(dump(), "Password", { cls: "EditText" });
-  if (!pwField) throw new Error("no password field");
-  tapNode(pwField);
-  adb("shell", "input", "text", PASSWORD);
+  await typeInto("Email", email);
+  await typeInto("Password", PASSWORD, { secret: true });
   hideKeyboard();
   await sleep(800);
   const button = lib.findNode(dump(), /^Sign in$/);
   if (!button) throw new Error("no Sign in button");
   tapNode(button);
-  await expectLabel(/^Today$/, { timeout: 60000 });
+  await expectLabel(/^Today$/, { timeout: 120000 });
 }
 
 // ---------------------------------------------------------------- steps
@@ -230,6 +265,15 @@ function buildApk() {
   return path.join(OUT, "business-qa-flags.apk");
 }
 
+/** sys.boot_completed turns 1 well before the system is usable: wait until the activity manager and package manager answer, then let the first-boot churn pass. */
+async function waitSettled() {
+  for (let i = 0; i < 60; i++) {
+    if (/found/.test(sh("service check activity")) && /package:/.test(sh("pm path android"))) break;
+    await sleep(5000);
+  }
+  await sleep(20000);
+}
+
 async function bootEmulator() {
   const running = adb("devices").stdout.includes("emulator-");
   if (!running) {
@@ -242,6 +286,7 @@ async function bootEmulator() {
     }
     if (sh("getprop sys.boot_completed") !== "1") throw new Error("the emulator did not finish booting");
   }
+  await waitSettled();
   state.original.font = sh("settings get system font_scale") || "1.0";
   state.original.night = /yes/.test(sh("cmd uimode night")) ? "yes" : "no";
 }
@@ -266,8 +311,8 @@ async function flows(apk) {
     await check(`${tag}: Pulse shows the studio numbers and new clients`, async () => {
       await tapLabel(/^Pulse$/);
       await expectLabel(/Studio today ·/, { timeout: 30000 });
-      await expectLabel("new in the last 7 days");
       await expectLabel("still to come");
+      await expectLabel("new in the last 7 days", { scroll: true });
     });
   };
 
@@ -296,7 +341,7 @@ async function flows(apk) {
     setFont("1.0");
     await sleep(6000);
     await expectLabel(/^Pulse$/);
-    await expectLabel("new in the last 7 days");
+    await expectLabel("new in the last 7 days", { scroll: true });
   });
 
   setFont("1.0");
@@ -318,7 +363,7 @@ async function flows(apk) {
   await check("403 recovery: role restored, Refresh studios brings the numbers back without a pull", async () => {
     psql(`update public.user_studio_roles set role='studio_owner' where user_id='${state.seed.users.owen}'`);
     await tapLabel("Refresh studios");
-    await expectLabel("new in the last 7 days", { timeout: 30000 });
+    await expectLabel("new in the last 7 days", { timeout: 30000, scroll: true });
   });
 
   await check("401: session ended, pull to refresh shows 'Sign in again' and the button returns to sign-in", async () => {
@@ -371,6 +416,14 @@ async function teardown() {
   } catch (error) {
     fatal = error;
     state.results.push(lib.makeResult("run", false, String(error.message ?? error)));
+    if (state.installed) {
+      try {
+        shot("fatal");
+        fs.writeFileSync(path.join(OUT, "fatal.xml"), adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
+      } catch {
+        /* best effort */
+      }
+    }
   } finally {
     await teardown();
   }
