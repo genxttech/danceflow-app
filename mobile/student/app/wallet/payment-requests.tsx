@@ -4,6 +4,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { LoadingState } from "@/components/LoadingState";
+import { Announce } from "@/components/Announce";
 import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
@@ -129,7 +130,12 @@ export default function PaymentRequestsScreen() {
       <AppText variant="title">Payment Requests</AppText>
       <AppText variant="caption">Review and pay open requests from connected studios.</AppText>
 
-      {notice ? <AppText accessibilityLiveRegion="polite" variant="caption">{notice}</AppText> : null}
+      {notice ? (
+        <>
+          <Announce message={notice} />
+          <AppText accessibilityLiveRegion="polite" variant="caption">{notice}</AppText>
+        </>
+      ) : null}
       {loading ? <LoadingState label="Loading payment requests" /> : null}
       {errorMessage ? <ErrorState error={errorMessage} title="Payment requests unavailable" onRetry={() => void load(false)} /> : null}
 

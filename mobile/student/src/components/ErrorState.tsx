@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, useColorScheme, View } from "react-native";
 import Animated from "react-native-reanimated";
+import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { colorsForScheme } from "@/constants/theme";
@@ -45,6 +46,7 @@ export function ErrorState({ title, error, fallback, onRetry }: ErrorStateProps)
         <View style={[styles.icon, { backgroundColor: colors.surfaceAlt }]}>
           <Ionicons accessibilityElementsHidden color={kind === "unknown" ? colors.danger : colors.primary} importantForAccessibility="no" name={ICONS[kind]} size={22} />
         </View>
+        <Announce message={`${copy.title}. ${detail}`} />
         <AppText variant="subtitle">{copy.title}</AppText>
         <AppText variant="caption">{detail}</AppText>
         {onRetry && kind !== "signedOut" && kind !== "forbidden" ? (
