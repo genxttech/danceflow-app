@@ -310,7 +310,7 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
 
       {loading ? <LoadingState label="Loading events" /> : null}
       {message ? <FeatureCard title="Events" detail={message} /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Events need attention" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Events need attention" onRetry={() => void loadEvents()} /> : null}
 
       {favoriteEvents.length > 0 ? (
         <View style={styles.sectionHeading}>

@@ -217,6 +217,8 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
   const [selfServiceError, setSelfServiceError] = useState<string | null>(null);
   const [requestingSlotKey, setRequestingSlotKey] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
 
@@ -241,7 +243,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
     return () => {
       mounted = false;
     };
-  }, [id, session?.user.id]);
+  }, [id, session?.user.id, retryKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -296,7 +298,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
   if (!studio || errorMessage) {
     return (
       <Screen>
-        <ErrorState error={errorMessage} fallback="This studio could not be found." title="Studio unavailable" />
+        <ErrorState error={errorMessage} fallback="This studio could not be found." onRetry={() => setRetryKey((key) => key + 1)} title="Studio unavailable" />
         <AppButton label="Back to studios" onPress={() => router.push("/discover/studios" as unknown as RouterPushTarget)} />
       </Screen>
     );

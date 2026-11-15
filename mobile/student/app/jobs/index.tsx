@@ -73,6 +73,8 @@ export default function JobsScreen() {
   const [radiusMiles, setRadiusMiles] = useState(50);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
 
@@ -93,7 +95,7 @@ export default function JobsScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [retryKey]);
 
   const filteredJobs = useMemo(() => {
     const search = normalize(query);
@@ -303,7 +305,7 @@ export default function JobsScreen() {
       </View>
 
       {loading ? <LoadingState label="Loading jobs" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Now Hiring needs attention" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Now Hiring needs attention" onRetry={() => { setLoading(true); setErrorMessage(null); setRetryKey((key) => key + 1); }} /> : null}
 
       {filteredJobs.length ? (
         filteredJobs.map((job) => (

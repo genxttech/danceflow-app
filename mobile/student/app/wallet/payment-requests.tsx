@@ -131,7 +131,7 @@ export default function PaymentRequestsScreen() {
 
       {notice ? <AppText accessibilityLiveRegion="polite" variant="caption">{notice}</AppText> : null}
       {loading ? <LoadingState label="Loading payment requests" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Payment requests unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Payment requests unavailable" onRetry={() => void load(false)} /> : null}
 
       {!loading && hasPortalAccess && paymentRequests.length > 0 ? (
         <View style={styles.section}>

@@ -97,6 +97,8 @@ export default function LatestRecapsScreen() {
   const [overview, setOverview] = useState<StudentLearnOverview>(emptyOverview);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -132,7 +134,7 @@ export default function LatestRecapsScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, retryKey]);
 
   const latestLesson = overview.recentLessons[0] ?? null;
   const latestGroupRecap = overview.groupLessonRecaps[0] ?? null;
@@ -147,7 +149,7 @@ export default function LatestRecapsScreen() {
       </AppText>
 
       {loading ? <LoadingState label="Loading recaps" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Recaps unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Recaps unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard

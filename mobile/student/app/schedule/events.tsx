@@ -306,7 +306,7 @@ export default function ScheduleEventsScreen() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <ErrorState error={errorMessage} title="Events unavailable" />
+        <ErrorState error={errorMessage} title="Events unavailable" onRetry={() => void loadEvents()} />
       ) : null}
 
       {!loading && !session ? (

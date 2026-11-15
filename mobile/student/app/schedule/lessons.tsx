@@ -291,7 +291,7 @@ export default function ScheduleLessonsScreen() {
       ) : null}
 
       {!loading && errorMessage ? (
-        <ErrorState error={errorMessage} title="Lessons unavailable" />
+        <ErrorState error={errorMessage} title="Lessons unavailable" onRetry={() => void loadLessons()} />
       ) : null}
 
       {!loading && !session ? (

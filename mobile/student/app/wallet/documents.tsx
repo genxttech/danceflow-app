@@ -204,7 +204,7 @@ export default function StudentDocumentsScreen() {
       ) : null}
       {error ? (
         <View style={styles.stateBlock}>
-          <ErrorState error={error} title="Documents unavailable" />
+          <ErrorState error={error} title="Documents unavailable" onRetry={() => void refresh()} />
           <AppButton label="Try again" onPress={refresh} variant="secondary" />
         </View>
       ) : null}

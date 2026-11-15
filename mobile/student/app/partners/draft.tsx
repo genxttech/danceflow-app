@@ -842,7 +842,7 @@ export default function PartnerSearchScreen() {
 
       {loading ? <LoadingState label="Loading Partner Search" /> : null}
       {message ? <FeatureCard title="Partner Search" detail={message} /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Partner Search needs attention" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Partner Search needs attention" onRetry={() => void loadPartnerSearch()} /> : null}
 
       <View style={styles.safetyCard}>
         <View style={styles.safetyIcon}>

@@ -7,6 +7,7 @@ import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native
 import Animated from "react-native-reanimated";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
@@ -180,6 +181,8 @@ export default function HomeScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [loadingAccess, setLoadingAccess] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [scheduleOverview, setScheduleOverview] = useState<StudentScheduleOverview | null>(null);
   const [favoriteStudios, setFavoriteStudios] = useState<PublicStudioItem[]>([]);
@@ -200,6 +203,7 @@ export default function HomeScreen() {
     }
 
     setLoadingAccess(true);
+    setLoadError(null);
 
     Promise.all([getPublicStudiosForMobile(userId), getPublicEventsForMobile(userId)])
       .then(([studios, events]) => {
@@ -234,8 +238,9 @@ export default function HomeScreen() {
           if (mounted) setLoadingSchedule(false);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (!mounted) return;
+        setLoadError(error ?? new Error("Today could not load."));
         setLinkedStudios([]);
         setScheduleOverview(null);
       })
@@ -247,7 +252,7 @@ export default function HomeScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, retryKey]);
 
   const isGuest = !session;
   const primaryStudio = linkedStudios[0] ?? null;
@@ -289,6 +294,8 @@ export default function HomeScreen() {
 
       {loadingAccess || loadingSchedule ? (
         <LoadingState label="Loading your day" rows={1} />
+      ) : loadError ? (
+        <ErrorState error={loadError} fallback="Your day could not be loaded." onRetry={() => setRetryKey((key) => key + 1)} title="Today unavailable" />
       ) : hasPortalAccess && nextItem ? (
         <MomentHero
           detail={[nextItem.studioName, nextItem.roomName, formatScheduleTimeRange(nextItem.startsAt, nextItem.endsAt, nextItem.timeZone)]

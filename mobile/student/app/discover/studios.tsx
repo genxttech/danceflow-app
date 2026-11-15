@@ -253,7 +253,7 @@ export default function DiscoverStudiosScreen() {
 
       {loading ? <LoadingState label="Loading studios" /> : null}
       {message ? <FeatureCard title="Studios" detail={message} /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Studios need attention" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Studios need attention" onRetry={() => void loadStudios()} /> : null}
 
       {favoriteStudios.length > 0 ? (
         <View style={styles.sectionHeading}>

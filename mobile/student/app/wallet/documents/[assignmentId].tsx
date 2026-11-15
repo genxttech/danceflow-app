@@ -434,7 +434,7 @@ export default function StudentDocumentDetailScreen() {
   if (error && !detail) {
     return (
       <Screen>
-        <ErrorState error={error} title="Document unavailable" />
+        <ErrorState error={error} title="Document unavailable" onRetry={() => void load()} />
         <AppButton label="Try again" onPress={load} />
       </Screen>
     );

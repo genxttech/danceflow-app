@@ -86,6 +86,8 @@ export default function EventTicketsScreen() {
   const [wallet, setWallet] = useState<StudentWallet | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -119,7 +121,7 @@ export default function EventTicketsScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.email, session?.user.id]);
+  }, [session?.user.email, session?.user.id, retryKey]);
 
   const tickets = wallet?.tickets ?? [];
   const registrations = wallet?.registrations ?? [];
@@ -131,7 +133,7 @@ export default function EventTicketsScreen() {
       <AppText variant="caption">Open this at the door and show the code or QR.</AppText>
 
       {loading ? <LoadingState label="Loading tickets" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Tickets unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Tickets unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {!loading && tickets.length > 0 ? (
         <View style={styles.section}>

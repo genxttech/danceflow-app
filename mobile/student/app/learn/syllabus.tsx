@@ -73,6 +73,8 @@ export default function SyllabusScreen() {
   const [overview, setOverview] = useState<StudentLearnOverview>(emptyOverview);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const [retryKey, setRetryKey] = useState(0);
+
   useEffect(() => {
     let mounted = true;
     const userId = session?.user.id;
@@ -108,7 +110,7 @@ export default function SyllabusScreen() {
     return () => {
       mounted = false;
     };
-  }, [session?.user.id]);
+  }, [session?.user.id, retryKey]);
 
   const hasPortalAccess = linkedStudios.length > 0;
   const syllabi =
@@ -138,7 +140,7 @@ export default function SyllabusScreen() {
       </Link>
 
       {loading ? <LoadingState label="Loading syllabus" /> : null}
-      {errorMessage ? <ErrorState error={errorMessage} title="Syllabus unavailable" /> : null}
+      {errorMessage ? <ErrorState error={errorMessage} title="Syllabus unavailable" onRetry={() => setRetryKey((key) => key + 1)} /> : null}
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard
