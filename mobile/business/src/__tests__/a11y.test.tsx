@@ -2,12 +2,13 @@ import { act, render, screen, fireEvent } from "@testing-library/react-native";
 import type React from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { StaffErrorState } from "@/components/StaffErrorState";
-import { StaffApiError, type AppointmentDetail, type StaffToday } from "@/lib/staffApi";
+import { StaffApiError, type AppointmentDetail, type StaffPulse, type StaffToday } from "@/lib/staffApi";
 import { AppointmentScreen } from "@/screens/AppointmentScreen";
 import { ClientDetailScreen } from "@/screens/ClientDetailScreen";
 import { ClientsScreen, SEARCH_DEBOUNCE_MS } from "@/screens/ClientsScreen";
 import { PushProvider } from "@/lib/push";
 import type { PermissionState, PushAdapter } from "@/lib/pushSetup";
+import { PulseScreen } from "@/screens/PulseScreen";
 import { MoreScreen } from "@/screens/MoreScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
 import SignInScreen from "../../app/sign-in";
@@ -211,6 +212,30 @@ describe("every screen passes the audit", () => {
     withProviders(<MoreScreen />, fakeApi(), { workspaces: [workspace(), second] });
     expectClean();
     fireEvent.press(screen.getByRole("button", { name: "Sign out of all devices" }));
+    expectClean();
+  });
+
+  it.each([
+    ["studio scope", { scope: "studio", instructorId: null, newClientsLast7Days: 3 }],
+    ["own scope", { scope: "own", instructorId: "ins-1", newClientsLast7Days: null }],
+    ["empty day", { today: { total: 0, upcoming: 0, cancelled: 0, truncated: false }, next: null }],
+    ["not linked", { scope: "own", instructorId: null }],
+    ["cut-off day", { today: { total: 500, upcoming: 100, cancelled: 3, truncated: true } }],
+  ] as const)("Pulse (%s)", async (_label, overrides) => {
+    const pulse: StaffPulse = {
+      studioId: STUDIO_ID,
+      timeZone: "America/New_York",
+      date: "2026-11-10",
+      asOf: "2026-11-10T15:00:00.000Z",
+      scope: "studio" as const,
+      instructorId: null,
+      today: { total: 5, upcoming: 4, cancelled: 1, truncated: false },
+      next: { id: "a1", appointmentType: "private_lesson", title: null, status: "scheduled", startsAt: "2026-11-10T16:00:00.000Z", endsAt: "2026-11-10T16:45:00.000Z" },
+      newClientsLast7Days: 3,
+      ...overrides,
+    };
+    withProviders(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => pulse) }));
+    await flush();
     expectClean();
   });
 

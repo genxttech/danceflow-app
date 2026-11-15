@@ -1,8 +1,11 @@
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { StateMessage } from "@/components/StateMessage";
+import { isStaffFeatureEnabled } from "@/lib/features";
+import { PulseScreen } from "@/screens/PulseScreen";
 
-export default function PulseScreen() {
+/** Until the Pulse screen is device-verified (EXPO_PUBLIC_STAFF_FEATURES=pulse) this stays the placeholder. */
+function PulsePlaceholder() {
   return (
     <Screen>
       <AppText variant="heading" accessibilityRole="header">
@@ -16,3 +19,5 @@ export default function PulseScreen() {
     </Screen>
   );
 }
+
+export default isStaffFeatureEnabled("pulse") ? PulseScreen : PulsePlaceholder;

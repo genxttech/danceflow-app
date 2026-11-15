@@ -62,6 +62,20 @@ export type StaffToday = {
   appointments: TodayAppointment[];
 };
 
+export type StaffPulse = {
+  studioId: string;
+  timeZone: string;
+  date: string;
+  asOf: string;
+  /** "studio" for owner, admin and front desk; "own" for an instructor (their own teaching day). */
+  scope: "studio" | "own";
+  instructorId: string | null;
+  today: { total: number; upcoming: number; cancelled: number; truncated: boolean };
+  next: { id: string; appointmentType: string; title: string | null; status: string; startsAt: string; endsAt: string } | null;
+  /** null for an instructor, who has no studio-wide client view. */
+  newClientsLast7Days: number | null;
+};
+
 export type AppointmentDetail = TodayAppointment & {
   studioId: string;
   /** Slice 2: the studio's IANA zone. Optional so a server without slice 2 still parses. */
@@ -250,6 +264,8 @@ export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
   appointment: (studioId: string, appointmentId: string) => Promise<AppointmentDetail>;
+  /** Slice 3: GET /workspaces/{id}/pulse. Counts and the next appointment; studio scope for owner, admin and front desk, own scope for an instructor. */
+  pulse: (studioId: string) => Promise<StaffPulse>;
   /** Slice 2: GET /workspaces/{id}/clients?q=&cursor=&limit= (limit 1–50). Front desk and admins: active clients. Instructors: the clients they teach. */
   searchClients: (studioId: string, params: { q?: string; cursor?: string | null; limit?: number }) => Promise<ClientPage>;
   /** Slice 2: GET /workspaces/{id}/clients/{clientId}. An instructor gets 404 for a client they don't teach. */
@@ -265,6 +281,38 @@ export type StaffApi = {
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : null);
+
+const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0);
+
+/** The pulse wire format, normalised: a missing or malformed number is 0, never NaN on screen, and an unknown scope is the narrower "own". */
+export function toStaffPulse(raw: unknown): StaffPulse {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const today = (r.today ?? {}) as Record<string, unknown>;
+  const next = r.next && typeof r.next === "object" ? (r.next as Record<string, unknown>) : null;
+  const nextId = next ? str(next.id) : null;
+  const startsAt = next ? str(next.startsAt) : null;
+  return {
+    studioId: str(r.studioId) ?? "",
+    timeZone: str(r.timeZone) ?? "",
+    date: str(r.date) ?? "",
+    asOf: str(r.asOf) ?? "",
+    scope: r.scope === "studio" ? "studio" : "own",
+    instructorId: str(r.instructorId),
+    today: { total: count(today.total), upcoming: count(today.upcoming), cancelled: count(today.cancelled), truncated: today.truncated === true },
+    next:
+      next && nextId && startsAt
+        ? {
+            id: nextId,
+            appointmentType: str(next.appointmentType) ?? "",
+            title: str(next.title),
+            status: str(next.status) ?? "",
+            startsAt,
+            endsAt: str(next.endsAt) ?? startsAt,
+          }
+        : null,
+    newClientsLast7Days: r.scope === "studio" && typeof r.newClientsLast7Days === "number" ? count(r.newClientsLast7Days) : null,
+  };
+}
 
 function toClientSummary(raw: unknown): ClientSummary {
   const r = (raw ?? {}) as Record<string, unknown>;
@@ -389,6 +437,7 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
   return {
     me: () => call<StaffMe>("/me"),
     today: (studioId, date) => call<StaffToday>(`${ws(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`),
+    pulse: async (studioId) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse`)),
     appointment: (studioId, appointmentId) =>
       call<AppointmentDetail>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}`),
     searchClients: async (studioId, { q, cursor, limit }) => {

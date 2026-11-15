@@ -6,6 +6,7 @@ import { Screen } from "@/components/Screen";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StateMessage } from "@/components/StateMessage";
 import { useFontScale } from "@/lib/fontScale";
+import { isStaffFeatureEnabled } from "@/lib/features";
 import { initialTab, tabsForWorkspace, type TabKey } from "@/lib/navigation";
 import { useStaffSession } from "@/lib/staff";
 import { colors } from "@/theme";
@@ -68,14 +69,15 @@ export default function TabsLayout() {
     );
   }
 
-  const visible = new Set(tabsForWorkspace(workspace));
+  const navigationOptions = { pulseForAll: isStaffFeatureEnabled("pulse") };
+  const visible = new Set(tabsForWorkspace(workspace, navigationOptions));
 
   return (
     // Keyed by workspace so switching studios resets each tab's screen state.
     <LayoutProbe name="tabs">
     <Tabs
       key={workspace?.studioId ?? "none"}
-      initialRouteName={initialTab(workspace)}
+      initialRouteName={initialTab(workspace, navigationOptions)}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.plum,
