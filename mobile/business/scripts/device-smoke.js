@@ -118,6 +118,13 @@ function launch(coldStart = true) {
 const setFont = (v) => adb("shell", "settings", "put", "system", "font_scale", v);
 const setNight = (on) => adb("shell", "cmd", "uimode", "night", on ? "yes" : "no");
 
+const slug = (name) => name.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+
+/** The accessibility tree of the screen as it is now, for scripts/a11y-audit.js (TalkBack reads this same tree). */
+function saveTree(name) {
+  fs.writeFileSync(path.join(OUT, `${name}.xml`), adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
+}
+
 /** One named check: runs fn, records PASS/FAIL, keeps a screenshot (named after the check) either way. */
 async function check(name, fn) {
   let ok = true;
@@ -129,7 +136,8 @@ async function check(name, fn) {
     detail = String(error.message ?? error);
   }
   try {
-    shot(name.replace(/[^a-z0-9]+/gi, "-").toLowerCase());
+    shot(slug(name));
+    if (opts.a11y) saveTree(slug(name));
   } catch {
     /* a screenshot failure never hides the result */
   }
@@ -318,7 +326,16 @@ async function flows(apk) {
 
   setFont("1.0");
   setNight(false);
+  if (opts.a11y) {
+    fs.writeFileSync(path.join(OUT, "density.txt"), (/(d+)s*$/.exec(sh("wm density")) ?? [, "420"])[1]);
+    fs.writeFileSync(path.join(OUT, "height.txt"), (/x(d+)/.exec(sh("wm size")) ?? [, "0"])[1]);
+  }
   launch();
+  if (opts.a11y) {
+    await check("a11y sign-in (signed out)", async () => {
+      await expectLabel("Sign in to your studio", { timeout: 90000 });
+    });
+  }
   await signIn(owner);
   await ownerScreens("owner light 1.0");
 
@@ -380,6 +397,31 @@ async function flows(apk) {
     await expectLabel(/Your day ·/, { timeout: 30000 });
     if (lib.hasLabel(dump(), "new in the last 7 days")) throw new Error("an instructor must not see the client count");
   });
+
+  if (opts.a11y) {
+    // screens the matrix above does not open, walked as the instructor (the class and the clients are theirs); each check keeps its tree for the audit
+    await check("a11y class roster", async () => {
+      await tapLabel(/^Today$/);
+      await tapLabel(/Beginner Salsa/, { timeout: 30000 });
+      await expectLabel("Roster and attendance", { timeout: 30000 });
+    });
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+    await check("a11y clients", async () => {
+      await tapLabel(/^Clients$/);
+      await expectLabel(/^My clients$/, { timeout: 30000 });
+    });
+    await check("a11y client detail", async () => {
+      await tapLabel(/^Ana/, { timeout: 30000 });
+      await expectLabel("Next booking", { timeout: 30000 });
+    });
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+    await check("a11y more", async () => {
+      await tapLabel(/^More$/);
+      await expectLabel(/^Sign out$/, { timeout: 30000 });
+    });
+  }
 }
 
 // ---------------------------------------------------------------- teardown (always)

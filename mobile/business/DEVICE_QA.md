@@ -86,3 +86,17 @@ Status (2026-11-15): **VERIFIED end to end: run 6 passed 18 of 18** on the Andro
 On any fatal failure the run keeps `fatal.png` and `fatal.xml`. Reusing an APK with `--apk` only works if the new stack gets the same port, because the port is baked into the APK; otherwise use `--build-dir`.
 
 Lessons for the next device script: wait for the system to settle, not for `boot_completed`; verify typed text by reading it back; the dump holds only what is on screen; a heading and its button can share the same words.
+
+## Accessibility-tree audit (TalkBack)
+
+Ported from the Student app (`mobile/student/scripts/qa-smoke/a11y-audit.mjs`, `docs/mobile/Student_TalkBack_Audit.md`), same rules so the two reports read alike. TalkBack walks the `uiautomator` tree: it speaks a node's own content-desc and ignores its children, otherwise it merges the descendants' text, so a clickable node with no text or content-desc anywhere inside it is announced as just "button".
+
+```bash
+cd mobile/business
+node scripts/device-smoke.js --apk <QA APK> --a11y --out <dir>      # the smoke, also saving the tree of every check, plus sign-in, class roster, client and More
+node scripts/a11y-audit.js <dir>                                    # writes a11y-report.md and a11y-report.json, exit 1 if any control is unlabelled
+```
+
+What it reports per screen: **unlabelled** controls (fails the audit), **small** targets under 44dp (reported; a row cut off at the screen edge is not counted), and **stutter** (the same words twice in a row in the reading order); then the reading order itself, interactive items in `[brackets]`.
+
+What is guarded without a device: `src/__tests__/a11yTreeAudit.test.ts` (the audit rules on fixture trees) and `src/__tests__/readingOrder.test.tsx` (the order a screen reader walks sign-in, Today, the studio view, Pulse, the class roster, the client and More, plus an error state, from the rendered tree; with the existing `a11y.test.tsx` audit of roles, names, states and touch targets). Status: the `--a11y` mode and the audit CLI have **not been run on a device yet** (the emulator was not free); run them once and record the report in `DEVICE_QA_RESULTS.md`.

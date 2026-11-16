@@ -9,6 +9,7 @@ const DEFAULTS = {
   webPort: 3107,
   avd: "df-api35",
   dryRun: false,
+  a11y: false,
   allowBusy: false,
   keepEmulator: false,
   apk: null,
@@ -23,6 +24,7 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--allow-busy") opts.allowBusy = true;
+    else if (arg === "--a11y") opts.a11y = true;
     else if (arg === "--keep-emulator") opts.keepEmulator = true;
     else if (takes[arg]) {
       const value = argv[++i];
@@ -42,6 +44,7 @@ function buildPlan(opts) {
   steps.push(opts.apk ? `apk: reuse ${opts.apk}` : `apk: expo prebuild + Gradle assembleRelease in ${opts.buildDir} (both new flags on, cleartext QA only)`);
   steps.push(`emulator: boot ${opts.avd} if none is running, record font scale and night mode`);
   steps.push("flows: owner light 1.0, dark 1.0, dark 2.0, light 2.0, live font change, empty day, 403 and recovery, 401 and re-sign-in, instructor");
+  if (opts.a11y) steps.push("a11y: also save the accessibility tree (.xml) of every check, plus sign-in, class roster, client and More; then run node scripts/a11y-audit.js <out>");
   steps.push("summary: out/summary.json, screenshots, exit code 0 only if every check passed");
   steps.push("teardown (always): restore font scale and night mode, uninstall the app, stop web, remove the stack, stop the emulator only if this run started it");
   return steps;

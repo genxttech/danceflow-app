@@ -29,6 +29,16 @@ describe("parseArgs", () => {
   });
 });
 
+describe("--a11y", () => {
+  it("is off by default, switches on with the flag and adds a step to the plan", () => {
+    expect(lib.parseArgs(["--apk", "a"]).a11y).toBe(false);
+    const on = lib.parseArgs(["--apk", "a", "--a11y"]);
+    expect(on.a11y).toBe(true);
+    expect(lib.buildPlan(on).join("\n")).toContain("a11y-audit.js");
+    expect(lib.buildPlan(lib.parseArgs(["--apk", "a"])).join("\n")).not.toContain("a11y-audit.js");
+  });
+});
+
 describe("buildPlan", () => {
   it("always ends with teardown, and builds or reuses the APK as asked", () => {
     const reuse = lib.buildPlan(lib.parseArgs(["--apk", "x.apk"]));
