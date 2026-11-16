@@ -276,6 +276,45 @@ event page fields render publicly; `studio_simple@2` programs are untouched.
   opens and then closes competition registration on a run-scoped event only.
 - **No commerce**: no test buys a ticket or submits a competition entry.
 
+## Full simulated competition (Q1)
+
+`e2e/tests/competition-full-event.spec.ts` is the Competition OS definition of done (§9) as one serial Playwright run,
+driven through the normal DanceFlow UI on a local stack. It grows as slices land; stages that cannot be driven yet are
+`test.fixme` with the definition-of-done wording, so they report as skipped, never as passed.
+
+- **Seed only** (`e2e/helpers/competitionFullEventFixture.ts`): a run-scoped studio (Pro + Organizer Suite, an existing
+  Stripe TEST connected account), its owner, three judges and three dancers, with random per-run passwords that are
+  never logged. Everything else (event, competition, registrations, payments, check-in, heats) is created in browsers.
+  Teardown deletes the event first (its cascade is the only order the published-running-order and entry/order guards
+  allow), then the seed, and fails loudly if anything is left.
+- **Stage 1**: Competitions -> New Competition (Create Event form, Publish now) -> setup wizard (Country, adjudicated,
+  Couples Newcomer · Open, Two Step, $40 per entry, no account required) -> Publish competition -> Open registration.
+- **Stage 2**: three dancer accounts and one guest register a couple each on `/events/[slug]/competition/register`;
+  every dancer uses "This is me". That needs a verified, password-bound email (LAUNCH-SEC-1C), so each dancer first
+  requests a sign-in link, opens it and sets a password on Account security. The local stack's default email template
+  links to GoTrue's PKCE verify URL, which DanceFlow never treats as proof, so the helper reads the token from the
+  delivered email in the local mail catcher (`E2E_LOCAL_MAILBOX_URL`, default `http://127.0.0.1:55324`, loopback only)
+  and opens the DanceFlow token-hash callback link that production emails use. Payment follows the CI-A pattern (hosted
+  Checkout reached in the browser, paid with `tok_visa` through the payment page API in TEST mode); the signed
+  webhook, not the browser, settles the order, and the status page then shows "Registration confirmed".
+- **Stage 4**: Entries (eligibility set to Eligible) -> Check-in for each registration (participants present, entry
+  verified, competitor numbers issued, Complete check-in) -> Schedule & Heats (Generate heats, Publish running order).
+- **Stage 3 / 4b / isolation (refunds, scratch, duplicate check-in)**: needs an app built from main + R2 + SC1 + CI-B (the
+  integration branch) and a QA database with those migrations applied. A second, priced event is created in the browser
+  (fee line + 10% discount; one buyer, two entries, one order, $82). Product gap: no organizer UI creates fee/discount rules, so
+  `seedPricingRules` inserts them (setup only). 3b: net-cap + $0.01 refused, nothing written. 3a: one entry refunded, ledger,
+  dated `competition_entry_refund` entry and the Stripe refund agree. 3c: the form submitted twice gives one Stripe refund.
+  4b: two desks (owner + a second studio_admin) start the same batch and mark the same participant present at once. 3d/3e: a
+  normal scratch moves no money; the refund of the scratched entry goes through the R2 page. Tenant isolation: another studio's
+  owner gets 404 on the refund and scratch pages. Locked/danced-heat scratch stays `test.fixme` (no UI locks or runs a heat, O1).
+  The desk-balance check runs only with `E2E_DESK_BALANCE_FIX=true` (needs CI-B desk-balance, PR 320). Teardown deletes refund
+  evidence first and then asserts zero leftover rows.
+- **Environment**: as in `docs/qa/local-e2e-environment.md` -- app on `http://localhost:<port>` (not `127.0.0.1`: the
+  dev server blocks its HMR socket for that origin and reloads forms mid-fill), started with
+  `NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED=true`, Stripe TEST keys and `stripe listen --forward-connect-to`; run
+  with `E2E_COMPETITION_REGISTRATION_ENABLED=true`, `E2E_STRIPE_TEST_SECRET_KEY`, `E2E_STRIPE_TEST_CONNECTED_ACCOUNT`
+  and `--workers=1`. Without the flag or the Stripe test values the whole file skips.
+
 ## Files
 
 - `playwright.config.ts` (repo root) -- Playwright config; fails closed at
@@ -309,6 +348,8 @@ event page fields render publicly; `studio_simple@2` programs are untouched.
 - `e2e/helpers/competitionFixture.ts`, `e2e/helpers/competitionWizard.ts`,
   `e2e/tests/competition-setup-registration-isolation.spec.ts` -- Phase 10C.5
   Competition setup wizard and registration isolation.
+- `e2e/helpers/competitionFullEventFixture.ts`, `e2e/helpers/competitionFullEvent.ts`,
+  `e2e/tests/competition-full-event.spec.ts` -- Q1 full simulated competition (stages 1, 2, 4 live; 3, 5-10 fixme).
 - `e2e/tests/registration-cancellation.spec.ts` -- Slice 3 genuine
   cancellation, kept distinct from technical failure.
 - `src/app/events/page.tsx` / `src/app/discover/events/resumeBanner.ts` --
