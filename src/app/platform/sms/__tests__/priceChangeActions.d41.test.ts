@@ -121,10 +121,25 @@ describe("propose", () => {
 
   it("accepts a zero provider cost (a free provider item) and every price kind of the price list", async () => {
     replies.tw4_price_propose = { data: { request_id: REQ, status: "pending", replayed: false } };
+    replies.tw4_price_propose_micros = { data: { request_id: REQ, status: "pending", replayed: false } };
     for (const kind of ["brand", "brand_low_volume", "campaign_vetting", "number", "monthly", "monthly_low_volume", "sms_usage", "sms_inbound"]) {
       expect((await run(pricePropose, { ...GOOD, kind, providerUsd: "0" })).ok, kind).toBe(true);
     }
     expect(rpc).toHaveLength(8);
+    // the per-segment kinds go to the micro-dollar entry point, never through whole cents
+    expect(rpc.filter((c) => c.fn === "tw4_price_propose_micros").map((c) => c.args.p_kind)).toEqual(["sms_usage", "sms_inbound"]);
+  });
+
+  it("prices a per-segment kind in exact micro-dollars ($0.017 is 17,000, never rounded to whole cents) and validates the micro amounts", async () => {
+    replies.tw4_price_propose_micros = { data: { request_id: REQ, status: "pending", replayed: false } };
+    const r = await run(pricePropose, { ...GOOD, kind: "sms_usage", customerUsd: "0.017", providerUsd: "0.0127" });
+    expect(r.ok).toBe(true);
+    expect(rpc).toEqual([{ fn: "tw4_price_propose_micros", args: { p_kind: "sms_usage", p_price_micros: 17000, p_cost_micros: 12700, p_description: "Phone number rent", p_reason: "Twilio raised the monthly number rent" } }]);
+    rpc.length = 0;
+    for (const bad of [{ customerUsd: "0" }, { customerUsd: "0.0000001" }, { customerUsd: "11" }, { customerUsd: "-0.017" }, { providerUsd: "" }, { providerUsd: "-1" }]) {
+      expect((await run(pricePropose, { ...GOOD, kind: "sms_inbound", customerUsd: "0.013", providerUsd: "0.0102", ...bad })).ok, JSON.stringify(bad)).toBe(false);
+    }
+    expect(rpc).toHaveLength(0);
   });
 
   it("maps database refusals to fixed sentences and never shows the database text", async () => {

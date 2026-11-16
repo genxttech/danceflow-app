@@ -9,6 +9,8 @@ import { loadPlannerInput, loadScheduleVersions } from "@/lib/competition/floorS
 /* 10D: Schedule & Heats operations. Every change goes through the database authority
    (apply/move/insert/delete RPCs + deferred integrity checks); nothing here is trusted. */
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
@@ -22,6 +24,12 @@ function friendly(error: { message?: string } | null | undefined) {
   const message = error?.message ?? "";
   const match = message.match(/COMP10D_[A-Z_]+:\s*([\s\S]+)$/);
   if (match) return match[1].replace(/\s+/g, " ").trim();
+  // Heat-size refusals from set_competition_round_heat_capacity(round, capacity, reason, request id) are plain sentences.
+  const capacity = message.match(/^COMP_CAPACITY_[A-Z0-9_]+:\s*([\s\S]+)$/);
+  if (capacity && !message.startsWith("COMP_CAPACITY_FORBIDDEN")) {
+    const sentence = capacity[1].replace(/\s+/g, " ").trim();
+    return sentence.charAt(0).toUpperCase() + sentence.slice(1);
+  }
   if (message.includes("Locked or certified")) return "A locked heat can only change through the correction workflow.";
   if (message.includes("Add at least one session")) return "Generate heats before publishing.";
   return "That change could not be saved. Refresh and try again.";
@@ -93,10 +101,30 @@ export async function deleteFloorHeatAction(formData: FormData): Promise<void> {
   back(eventId, error ? { error: friendly(error) } : { notice: "Empty heat removed." });
 }
 
+/**
+ * Heat size ("Max entries per heat"). Since the CF1 S3 migrations the two-argument RPC always refuses
+ * (COMP_CAPACITY_REASON_REQUIRED): every change carries a reason and a request id and is audited (owner decisions OD-3/OD-14).
+ * Nothing from the form is trusted: the request id must be a UUID (never replaced by a fresh one, which would turn a retry into a
+ * second request) and the round must belong to the event of the URL. The database re-checks everything.
+ */
 export async function setHeatCapacityAction(formData: FormData): Promise<void> {
   const { eventId, supabase } = await manager(formData);
-  const { error } = await supabase.rpc("set_competition_round_heat_capacity", { p_round_id: text(formData, "roundId"), p_capacity: Number(text(formData, "capacity")) });
-  back(eventId, error ? { error: friendly(error), heat: text(formData, "floorHeatId") } : { notice: "Heat size saved. It applies the next time heats are generated.", heat: text(formData, "floorHeatId") });
+  const heat = text(formData, "floorHeatId");
+  const roundId = text(formData, "roundId");
+  const requestId = text(formData, "requestId");
+  const reason = text(formData, "reason");
+  if (!reason) back(eventId, { error: "Enter a reason for the heat size change (20-500 characters). It is kept in the audit history.", heat });
+  if (!UUID.test(requestId)) back(eventId, { error: "That change could not be saved. Refresh and try again.", heat });
+  if (!UUID.test(roundId)) back(eventId, { error: "That round could not be found. Refresh and try again.", heat });
+  const { data: ownRound, error: ownRoundError } = await supabase.from("event_competition_rounds").select("id").eq("id", roundId).eq("event_id", eventId).maybeSingle();
+  if (ownRoundError || !ownRound) back(eventId, { error: "That round could not be found. Refresh and try again.", heat });
+  const { error } = await supabase.rpc("set_competition_round_heat_capacity", {
+    p_round_id: roundId,
+    p_capacity: Number(text(formData, "capacity")),
+    p_reason: reason,
+    p_request_id: requestId,
+  });
+  back(eventId, error ? { error: friendly(error), heat } : { notice: "Heat size saved. It applies the next time heats are generated.", heat });
 }
 
 export async function publishRunningOrderAction(formData: FormData): Promise<void> {

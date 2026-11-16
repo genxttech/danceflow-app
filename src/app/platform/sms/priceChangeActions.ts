@@ -8,6 +8,7 @@ import { requirePlatformStepUp, type AssuranceTier } from "@/lib/auth/platform-a
 import { PRICE_FLASH_COOKIE, PRICE_KINDS, PriceChangeError, PriceChangeStore, isB64u, type AuthzChallenge, type CredChallenge, type CredentialState } from "@/lib/sms/priceChange";
 import { encodePanelFlash } from "@/lib/sms/twilioIsv/panelFlash";
 import { usdToCents } from "@/lib/sms/pilotApprovalEvidence";
+import { isMicroPriceKind, usdToMicros } from "@/lib/sms/priceChange";
 
 /**
  * D4-1: SMS price changes need TWO different platform administrators. Every action runs `requirePlatformStepUp()` FIRST (which runs `requirePlatformAdmin()` and then
@@ -80,10 +81,23 @@ const store = async () => new PriceChangeStore(await createClient());
 export async function pricePropose(formData: FormData) {
   await guarded("fresh", async () => {
     const kind = field(formData, "kind");
-    const customer = usdToCents(field(formData, "customerUsd"));
-    const provider = usdToCents(field(formData, "providerUsd"));
     const description = text(formData, "description", 3, 200);
     const reason = text(formData, "reason", 10, 500);
+    // the per-segment kinds are priced in micro-dollars (a sub-cent rate is never rounded into whole cents)
+    if (isMicroPriceKind(kind)) {
+      const priceMicros = usdToMicros(field(formData, "customerUsd"));
+      const costRaw = field(formData, "providerUsd");
+      const costMicros = /^0(\.0{1,6})?$/.test(costRaw) ? 0 : usdToMicros(costRaw); // a zero provider cost is allowed
+      if (priceMicros === null || costMicros === null || !description || !reason) {
+        return fail("Give the per-segment customer price and DanceFlow's expected provider cost in dollars (up to six decimals, for example 0.017), a description (3 to 200 characters) and a written reason (10 to 500). Nothing changed.");
+      }
+      const m = await (await store()).proposeMicros({ kind, priceMicros, costMicros, description, reason });
+      return done(m.replayed
+        ? "This identical proposal is already waiting. Nothing changed."
+        : "Proposal recorded. It waits out the mandatory cooling-off, then it must be authorized with the hardware key from a separate session; no price has changed.");
+    }
+    const customer = usdToCents(field(formData, "customerUsd"));
+    const provider = usdToCents(field(formData, "providerUsd"));
     if (!PRICE_KINDS.includes(kind) || customer === null || customer <= 0 || provider === null || !description || !reason) {
       return fail("Choose a price kind, give the customer price (above zero) and DanceFlow's provider cost in dollars, a description (3 to 200 characters) and a written reason (10 to 500). Nothing changed.");
     }
