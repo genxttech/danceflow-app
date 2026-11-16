@@ -57,6 +57,17 @@ describe("Pay Now (payment happens in the browser)", () => {
     expect(mockLoadWallet).toHaveBeenCalledTimes(2);
   });
 
+  it("opens only the request that was pressed, never another request's page", async () => {
+    mockLoadWallet.mockResolvedValue({ paymentRequests: [request("p1"), request("p2")] });
+    const open = jest.spyOn(Linking, "openURL").mockResolvedValue(undefined);
+    render(<PaymentRequestsScreen />);
+    const buttons = await screen.findAllByText("Pay Now");
+    expect(buttons).toHaveLength(2);
+    fireEvent.press(buttons[1]);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith("https://pay.example.test/p2");
+  });
+
   it("does not refetch on foregrounding when no payment was started", async () => {
     render(<PaymentRequestsScreen />);
     await screen.findByText("Pay Now");
