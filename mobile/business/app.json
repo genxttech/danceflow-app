@@ -9,6 +9,7 @@
     "newArchEnabled": true,
     "backgroundColor": "#fff9f3",
     "ios": {
+      "icon": "./assets/danceflow-app-icon-1024-ios.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.idanceflow.business",
       "infoPlist": {
