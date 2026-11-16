@@ -137,7 +137,12 @@ async function ensureForeground(where) {
   saveLogs(`lost-foreground-${state.lostForeground}`);
   log(`the app left the foreground (${where}); logs saved`);
   if (state.lostForeground > 1) throw new Error(`the app left the foreground twice (${where}); see logcat-lost-foreground-*.txt`);
-  launch(false);
+  // A cold relaunch: force-stop, wait for the system UI to be quiet, start again. The first loss in run 8 was an ANR kill after a system UI crash loop.
+  const exitInfo = adb("shell", "dumpsys", "activity", "exit-info", APP).stdout;
+  log(lib.isAnrExit(exitInfo) ? "the system killed the app after an ANR: cold relaunch after the system UI settles" : "cold relaunch after the system UI settles");
+  adb("shell", "am", "force-stop", APP);
+  await waitSystemUiStable(180000);
+  launch();
   await sleep(8000);
 }
 
@@ -327,6 +332,25 @@ async function waitSettled() {
   await sleep(20000);
 }
 
+/**
+ * Waits for a quiet window: the launcher is the top activity and the log holds no system UI crash or ANR for QUIET_MS. A cold -no-snapshot boot can crash-loop the
+ * system UI for a while after boot_completed (run 8); driving the app into that is what killed it. Throws if it never calms down within `limitMs`.
+ */
+const QUIET_MS = 30000;
+async function waitSystemUiStable(limitMs) {
+  const end = Date.now() + limitMs;
+  while (Date.now() < end) {
+    adb("logcat", "-c");
+    await sleep(QUIET_MS);
+    const trouble = lib.systemUiTrouble(adb("logcat", "-d").stdout);
+    const home = lib.isLauncherTop(adb("shell", "dumpsys", "activity", "activities").stdout);
+    if (trouble.length === 0 && home) return;
+    log(trouble.length ? `system UI still unstable (${trouble.length} crash/ANR lines); waiting` : "launcher not resumed yet; waiting");
+    if (!home) adb("shell", "input", "keyevent", "3"); // HOME
+  }
+  throw new Error(`the system UI did not settle within ${Math.round(limitMs / 1000)} s`);
+}
+
 async function bootEmulator() {
   const running = adb("devices").stdout.includes("emulator-");
   if (!running) {
@@ -340,6 +364,7 @@ async function bootEmulator() {
     if (sh("getprop sys.boot_completed") !== "1") throw new Error("the emulator did not finish booting");
   }
   await waitSettled();
+  await waitSystemUiStable(300000);
   state.original.font = sh("settings get system font_scale") || "1.0";
   state.original.night = /yes/.test(sh("cmd uimode night")) ? "yes" : "no";
 }

@@ -106,6 +106,39 @@ describe("findTappable", () => {
   });
 });
 
+describe("system UI stability and ANR kills (run 8)", () => {
+  const BAD = [
+    "11-16 17:05:19.022   574  2501 E ActivityManager: ANR in com.android.systemui",
+    "11-16 17:05:20.360   574   605 W ActivityManager: Process com.android.systemui has crashed too many times, killing! Reason: crashed quickly",
+    "11-16 17:05:21.000  1733  1733 E AndroidRuntime: Process: com.android.systemui, PID: 1733",
+  ].join("\n");
+
+  it("finds system UI crashes and ANRs in a logcat dump", () => {
+    expect(lib.systemUiTrouble(BAD)).toHaveLength(3);
+  });
+
+  it("ignores ordinary lines, other apps' ANRs and empty input", () => {
+    expect(lib.systemUiTrouble("11-16 17:05:19 I ActivityManager: Start proc 2661:com.idanceflow.business")).toEqual([]);
+    expect(lib.systemUiTrouble("E ActivityManager: ANR in com.google.android.apps.photos")).toEqual([]);
+    expect(lib.systemUiTrouble("")).toEqual([]);
+    expect(lib.systemUiTrouble(undefined)).toEqual([]);
+  });
+
+  it("recognises the ANR exit of the app, but not a crash or a low-memory kill", () => {
+    const anr = "process=com.idanceflow.business reason=6 (ANR) subreason=0 (UNKNOWN) description=user request after error: Input dispatching timed out (Application does not have a focused window)";
+    expect(lib.isAnrExit(anr)).toBe(true);
+    expect(lib.isAnrExit("reason=4 (CRASH) subreason=0")).toBe(false);
+    expect(lib.isAnrExit("reason=3 (LOW MEMORY)")).toBe(false);
+    expect(lib.isAnrExit(undefined)).toBe(false);
+  });
+
+  it("knows when a launcher has the screen", () => {
+    expect(lib.isLauncherTop("topResumedActivity=ActivityRecord{a1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}")).toBe(true);
+    expect(lib.isLauncherTop("topResumedActivity=ActivityRecord{a1 u0 com.idanceflow.business/.MainActivity t64}")).toBe(false);
+    expect(lib.isLauncherTop("")).toBe(false);
+  });
+});
+
 describe("emulator memory", () => {
   it("defaults to 2048 MB and takes --memory as a number", () => {
     expect(lib.parseArgs(["--dry-run"]).memory).toBe(2048);

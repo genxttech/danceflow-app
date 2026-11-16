@@ -43,7 +43,7 @@ function parseArgs(argv) {
 function buildPlan(opts) {
   const steps = ["preflight (emulator and Gradle/Java not in use by another session)", `stack: iso-qa --auth "${opts.stackName}", roster migration, seed, QA passwords`, `web: production next build, next start on ${opts.webPort}`];
   steps.push(opts.apk ? `apk: reuse ${opts.apk}` : `apk: expo prebuild + Gradle assembleRelease in ${opts.buildDir} (both new flags on, cleartext QA only)`);
-  steps.push(`emulator: boot ${opts.avd} if none is running, record font scale and night mode`);
+  steps.push(`emulator: boot ${opts.avd} if none is running, wait for the system UI to be quiet, record font scale and night mode`);
   steps.push("flows: owner light 1.0, dark 1.0, dark 2.0, light 2.0, live font change, empty day, 403 and recovery, 401 and re-sign-in, instructor");
   if (opts.a11y) steps.push("a11y: also save the accessibility tree (.xml) of every check, plus sign-in, class roster, client and More; then run node scripts/a11y-audit.js <out>");
   steps.push("summary: out/summary.json, screenshots, exit code 0 only if every check passed");
@@ -125,4 +125,25 @@ function isAppForeground(dumpsys, pkg) {
   return top !== null && top.startsWith(`${pkg}/`);
 }
 
-module.exports = { topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/**
+ * Lines in a logcat dump that mean the emulator's own system UI is unstable (run 8: an ANR in com.android.systemui, then "crashed too many times").
+ * The smoke waits until a quiet window has none of them before it drives the app.
+ */
+function systemUiTrouble(logcat) {
+  return String(logcat ?? "")
+    .split(/\r?\n/)
+    .filter((line) => /ANR in com\.android\.systemui|Process com\.android\.systemui has crashed|Process: com\.android\.systemui, PID/.test(line));
+}
+
+/** True when the app's ApplicationExitInfo says the system killed it after an ANR (the run 8 signature), not a crash or a low-memory kill. */
+function isAnrExit(exitInfo) {
+  return /reason=6 \(ANR\)|Application does not have a focused window/.test(String(exitInfo ?? ""));
+}
+
+/** True when the foreground activity is a launcher (the system is idle at the home screen). */
+function isLauncherTop(dumpsys) {
+  const top = topActivity(dumpsys);
+  return top !== null && /launcher/i.test(top);
+}
+
+module.exports = { systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
