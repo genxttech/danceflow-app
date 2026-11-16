@@ -12,3 +12,7 @@
 -keep class com.facebook.react.turbomodule.** { *; }
 
 # Add any project specific keep options here:
+
+# Stripe push provisioning (Google/Samsung wallet push) is optional and not shipped in the app:
+# R8 would otherwise fail on its missing classes when minification is enabled.
+-dontwarn com.stripe.android.pushProvisioning.**
