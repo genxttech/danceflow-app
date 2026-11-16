@@ -44,3 +44,13 @@ describe("iOS plist trimming", () => {
     expect(optionsOf("expo-secure-store")?.faceIDPermission).toBe(false);
   });
 });
+
+describe("iOS app icon wiring", () => {
+  it("points ios.icon at the RGB (no alpha) copy and keeps the original for the shared icon", () => {
+    const cfg = JSON.parse(readFileSync(join(__dirname, "..", "..", "..", "app.json"), "utf8")) as { expo: { icon: string; ios: { icon?: string } } };
+    expect(cfg.expo.ios.icon).toBe("./assets/danceflow-app-icon-1024-ios.png");
+    expect(cfg.expo.icon).toBe("./assets/danceflow-app-icon-1024.png");
+    const png = readFileSync(join(__dirname, "..", "..", "..", cfg.expo.ios.icon as string));
+    expect(png[25]).toBe(2); // color type 2: RGB, no alpha
+  });
+});

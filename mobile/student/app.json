@@ -8,6 +8,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "icon": "./assets/danceflow-app-icon-1024-ios.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.idanceflow.student",
       "infoPlist": {
