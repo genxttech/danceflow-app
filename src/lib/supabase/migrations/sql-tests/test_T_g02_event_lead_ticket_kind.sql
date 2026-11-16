@@ -1,4 +1,4 @@
--- G-02 -- event registration lead capture is gated by ticket kind (migration 20270219090000).
+-- G-02 -- event registration lead capture follows the per-ticket-type creates_prospect_lead setting (migration 20270219090000).
 --
 -- Needs the PAY-WH-1 chain (20261116090000..20261116094000) plus 20270219090000. One transaction, synthetic fixtures only
 -- (UUID block 00000000-0000-0000-0000-00a2f0XXXXXX). The final block ALWAYS raises, so nothing persists; its message is
@@ -56,8 +56,11 @@ begin
     insert into t_kv values ('tt:' || v_kind, v_id::text);
   end loop;
 end $$;
-insert into public.event_ticket_types (id, event_id, name, price, currency, capacity, active, attendees_per_ticket, ticket_kind) values
-  ('00000000-0000-0000-0000-00a2f0000390', '00000000-0000-0000-0000-00a2f0000202', 'Other GA', 30, 'USD', null, true, 1, 'general_admission');
+insert into public.event_ticket_types (id, event_id, name, price, currency, capacity, active, attendees_per_ticket, ticket_kind, creates_prospect_lead) values
+  ('00000000-0000-0000-0000-00a2f0000391', '00000000-0000-0000-0000-00a2f0000201', 'T ga_flagged', 30, 'USD', null, true, 1, 'general_admission', true);
+insert into t_kv values ('tt:ga_flagged', '00000000-0000-0000-0000-00a2f0000391');
+insert into public.event_ticket_types (id, event_id, name, price, currency, capacity, active, attendees_per_ticket, ticket_kind, creates_prospect_lead) values
+  ('00000000-0000-0000-0000-00a2f0000390', '00000000-0000-0000-0000-00a2f0000202', 'Other GA', 30, 'USD', null, true, 1, 'general_admission', true);
 
 create or replace function pg_temp.mk_order(p_key text, p_ticket uuid, p_expires interval default interval '30 minutes')
 returns uuid
@@ -128,15 +131,21 @@ create or replace function pg_temp.notices(p_reg text, p_prefix text) returns in
 -- ===============================================================================================================
 -- Policy function
 -- ===============================================================================================================
-select pg_temp.chk('policy: general_admission and workshop create leads',
-  public.event_ticket_kind_creates_lead('general_admission') and public.event_ticket_kind_creates_lead(' Workshop '));
-select pg_temp.chk('policy: every other kind, unknown and null do not',
-  not public.event_ticket_kind_creates_lead('vip') and not public.event_ticket_kind_creates_lead('competitor')
-  and not public.event_ticket_kind_creates_lead('spectator') and not public.event_ticket_kind_creates_lead('staff')
-  and not public.event_ticket_kind_creates_lead('vendor') and not public.event_ticket_kind_creates_lead('table')
-  and not public.event_ticket_kind_creates_lead('pass') and not public.event_ticket_kind_creates_lead('other')
-  and not public.event_ticket_kind_creates_lead('brand_new_kind') and not public.event_ticket_kind_creates_lead(null)
-  and not public.event_ticket_kind_creates_lead(''));
+select pg_temp.chk('column: creates_prospect_lead exists, boolean, NOT NULL, default false; existing-style ticket types are OFF',
+  (select data_type = 'boolean' and is_nullable = 'NO' and column_default = 'false' from information_schema.columns
+   where table_schema = 'public' and table_name = 'event_ticket_types' and column_name = 'creates_prospect_lead')
+  and (select count(*) from public.event_ticket_types where id <> '00000000-0000-0000-0000-00a2f0000391' and id <> '00000000-0000-0000-0000-00a2f0000390' and creates_prospect_lead) = 0);
+select pg_temp.chk('a ticket type inserted without the setting is OFF (default A2)',
+  pg_temp.try($q$insert into public.event_ticket_types (id, event_id, name, price, currency, active, ticket_kind) values ('00000000-0000-0000-0000-00a2f0000392', '00000000-0000-0000-0000-00a2f0000201', 'dflt', 1, 'USD', true, 'general_admission')$q$) = 'ok'
+  and (select creates_prospect_lead = false from public.event_ticket_types where id = '00000000-0000-0000-0000-00a2f0000392'));
+select pg_temp.chk('CHECK: the flag can be set on general_admission',
+  pg_temp.try($q$update public.event_ticket_types set creates_prospect_lead = true where id = '00000000-0000-0000-0000-00a2f0000392'$q$) = 'ok');
+select pg_temp.chk('CHECK: every excluded kind (vip, competitor, spectator, staff, vendor, table, pass, other) can never be flagged',
+  (select bool_and(pg_temp.try(format($q$update public.event_ticket_types set creates_prospect_lead = true where id = %L$q$, pg_temp.kv('tt:' || k))) like '%event_ticket_types_prospect_lead_kind_check%')
+   from unnest(array['vip', 'competitor', 'spectator', 'staff', 'vendor', 'table', 'pass', 'other']) k));
+select pg_temp.chk('CHECK: a flagged ticket cannot be switched to an excluded kind while flagged',
+  pg_temp.try($q$update public.event_ticket_types set ticket_kind = 'spectator' where id = '00000000-0000-0000-0000-00a2f0000392'$q$) like '%event_ticket_types_prospect_lead_kind_check%'
+  and pg_temp.try($q$update public.event_ticket_types set creates_prospect_lead = false, ticket_kind = 'spectator' where id = '00000000-0000-0000-0000-00a2f0000392'$q$) = 'ok');
 
 -- ===============================================================================================================
 -- Each real ticket kind, through settlement -> outbox -> capture
@@ -149,12 +158,12 @@ declare
   v_email text;
   v_eligible boolean;
 begin
-  foreach v_kind in array array['general_admission', 'vip', 'competitor', 'spectator', 'staff', 'vendor', 'table', 'pass', 'other'] loop
+  foreach v_kind in array array['general_admission', 'ga_flagged', 'vip', 'competitor', 'spectator', 'staff', 'vendor', 'table', 'pass', 'other'] loop
     perform pg_temp.mk_order('k_' || v_kind, pg_temp.kv('tt:' || v_kind)::uuid);
     v_settled := pg_temp.settle('k_' || v_kind);
     v_outcomes := pg_temp.drain_leads('k_' || v_kind);
     v_email := 'g02-k_' || v_kind || '@example.com';
-    v_eligible := v_kind = 'general_admission';
+    v_eligible := v_kind = 'ga_flagged';
 
     perform pg_temp.chk('kind ' || v_kind || ': settlement committed and queued exactly one studio_lead effect',
       (v_settled ->> 'outcome') = 'settled'
@@ -173,7 +182,7 @@ begin
     else
       perform pg_temp.chk('kind ' || v_kind || ': NO lead, registration not linked, studio still notified with a clear label',
         (v_outcomes -> 0 ->> 'outcome') = 'skipped'
-        and (v_outcomes -> 0 ->> 'reason') = 'ticket_kind_not_lead_eligible'
+        and (v_outcomes -> 0 ->> 'reason') = 'ticket_not_flagged_for_leads'
         and (v_outcomes -> 0 ->> 'notified')::boolean
         and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', v_email) = 0
         and (select client_id is null from public.event_registrations where id = pg_temp.kv('reg:k_' || v_kind)::uuid)
@@ -191,13 +200,13 @@ end $$;
 -- ===============================================================================================================
 -- Settlement replay: the same Stripe settlement delivered again returns the settled order, never a second outbox effect.
 select pg_temp.chk('replay: settling again does not queue a second studio_lead effect',
-  (pg_temp.settle('k_general_admission') ->> 'outcome') in ('already_settled', 'settled')
-  and (select count(*) from public.event_settlement_outbox where order_id = pg_temp.kv('order:k_general_admission')::uuid and effect = 'studio_lead') = 1);
-select pg_temp.run_order('r_ga', 'k_general_admission');
+  (pg_temp.settle('k_ga_flagged') ->> 'outcome') in ('already_settled', 'settled')
+  and (select count(*) from public.event_settlement_outbox where order_id = pg_temp.kv('order:k_ga_flagged')::uuid and effect = 'studio_lead') = 1);
+select pg_temp.run_order('r_ga', 'k_ga_flagged');
 select pg_temp.chk('replay: draining/capturing again is idempotent for a lead (one client, one notification)',
   (pg_temp.o('r_ga') -> 0 ->> 'outcome') = 'captured'
-  and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-k_general_admission@example.com') = 1
-  and pg_temp.notices('k_general_admission', 'event_registration_lead') = 1);
+  and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-k_ga_flagged@example.com') = 1
+  and pg_temp.notices('k_ga_flagged', 'event_registration_lead') = 1);
 select pg_temp.run_order('r_sp1', 'k_spectator');
 select pg_temp.run_order('r_sp2', 'k_spectator');
 select pg_temp.chk('replay: draining/capturing again is idempotent for a non-lead (still one notice, still no client)',
@@ -209,7 +218,7 @@ select pg_temp.chk('replay: draining/capturing again is idempotent for a non-lea
 -- ===============================================================================================================
 -- Failed, pending, expired / abandoned settlement: no successful-purchase behavior
 -- ===============================================================================================================
-select pg_temp.mk_order('f1', pg_temp.kv('tt:general_admission')::uuid);
+select pg_temp.mk_order('f1', pg_temp.kv('tt:ga_flagged')::uuid);
 select pg_temp.put('f1s', pg_temp.settle('f1', 100));
 select pg_temp.run_reg('f1c', pg_temp.kv('reg:f1')::uuid);
 select pg_temp.chk('failed: an amount-mismatched settlement is not settled, queues nothing and creates no lead',
@@ -220,7 +229,7 @@ select pg_temp.chk('failed: an amount-mismatched settlement is not settled, queu
   and pg_temp.notices('f1', 'event_registration_lead') = 0 and pg_temp.notices('f1', 'event_registration_notice') = 0);
 
 select pg_temp.mk_order('p1', pg_temp.kv('tt:spectator')::uuid);
-select pg_temp.mk_order('p2', pg_temp.kv('tt:general_admission')::uuid);
+select pg_temp.mk_order('p2', pg_temp.kv('tt:ga_flagged')::uuid);
 select pg_temp.run_reg('p1c', pg_temp.kv('reg:p1')::uuid);
 select pg_temp.run_reg('p2c', pg_temp.kv('reg:p2')::uuid);
 select pg_temp.chk('pending: an unpaid registration produces neither a lead nor a notice (any kind)',
@@ -229,7 +238,7 @@ select pg_temp.chk('pending: an unpaid registration produces neither a lead nor 
   and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-p2@example.com') = 0
   and pg_temp.notices('p1', 'event_registration_notice') = 0 and pg_temp.notices('p2', 'event_registration_lead') = 0);
 
-select pg_temp.mk_order('x1', pg_temp.kv('tt:general_admission')::uuid);
+select pg_temp.mk_order('x1', pg_temp.kv('tt:ga_flagged')::uuid);
 select public._paywh1_release_order(pg_temp.kv('order:x1')::uuid, 'released');
 select pg_temp.run_reg('x1c', pg_temp.kv('reg:x1')::uuid);
 select pg_temp.chk('expired/abandoned: a released order produces no lead and no notice',
@@ -255,14 +264,14 @@ select pg_temp.mk_order('ec_spectator', pg_temp.kv('tt:spectator')::uuid);
 select pg_temp.settle('ec_spectator');
 select pg_temp.run_order('ecs', 'ec_spectator');
 select pg_temp.chk('existing client + spectator: client row byte-identical, no new client, registration not linked, notice written',
-  (pg_temp.o('ecs') -> 0 ->> 'reason') = 'ticket_kind_not_lead_eligible'
+  (pg_temp.o('ecs') -> 0 ->> 'reason') = 'ticket_not_flagged_for_leads'
   and pg_temp.unchanged('00000000-0000-0000-0000-00a2f0000c01')
   and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-ec_spectator@example.com') = 1
   and (select client_id is null from public.event_registrations where id = pg_temp.kv('reg:ec_spectator')::uuid)
   and pg_temp.notices('ec_spectator', 'event_registration_notice') = 1);
 
 -- Existing lead buys general admission: the previous (preserved) behavior -- reuse the client, fill empty source fields only.
-select pg_temp.mk_order('ec_ga', pg_temp.kv('tt:general_admission')::uuid);
+select pg_temp.mk_order('ec_ga', pg_temp.kv('tt:ga_flagged')::uuid);
 select pg_temp.settle('ec_ga');
 select pg_temp.run_order('ecg', 'ec_ga');
 select pg_temp.chk('existing lead + general admission: reused (no duplicate), linked, source filled only where empty',
@@ -298,7 +307,7 @@ values ('00000000-0000-0000-0000-00a2f0000f01', '00000000-0000-0000-0000-00a2f00
         '00000000-0000-0000-0000-00a2f0000101', 'confirmed', 'paid', 1, 30, 30, 'USD', 'public_event_page', 'Foreign', 'Ticket', 'g02-foreign@example.com');
 select pg_temp.run_reg('f01c', '00000000-0000-0000-0000-00a2f0000f01');
 select pg_temp.chk('tenant: a foreign (cross-event) ticket type grants no lead classification',
-  (pg_temp.o('f01c') ->> 'reason') = 'ticket_kind_not_lead_eligible'
+  (pg_temp.o('f01c') ->> 'reason') = 'ticket_not_flagged_for_leads'
   and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-foreign@example.com') = 0);
 
 -- Orderless paid registration (box office / legacy) with no ticket type: cannot be classified, so no lead (fail closed), notice kept.
@@ -308,9 +317,41 @@ values ('00000000-0000-0000-0000-00a2f0000f02', '00000000-0000-0000-0000-00a2f00
         'confirmed', 'paid', 1, 30, 30, 'USD', 'public_event_page', 'No', 'Ticket', 'g02-noticket@example.com');
 select pg_temp.run_reg('f02c', '00000000-0000-0000-0000-00a2f0000f02');
 select pg_temp.chk('no ticket type: fail closed (no lead), studio notified',
-  (pg_temp.o('f02c') ->> 'reason') = 'ticket_kind_not_lead_eligible'
+  (pg_temp.o('f02c') ->> 'reason') = 'ticket_not_flagged_for_leads'
   and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-noticket@example.com') = 0
   and exists (select 1 from public.notifications where dedupe_key = 'event_registration_notice:00000000-0000-0000-0000-00a2f0000f02'));
+
+-- Free sign-up (orderless, price 0, paid): follows the flag like any other ticket (A4 conservative default).
+insert into public.event_registrations (id, event_id, ticket_type_id, studio_id, status, payment_status, quantity, unit_price, total_price,
+                                        currency, registration_source, attendee_first_name, attendee_last_name, attendee_email) values
+  ('00000000-0000-0000-0000-00a2f0000f03', '00000000-0000-0000-0000-00a2f0000201', '00000000-0000-0000-0000-00a2f0000391',
+   '00000000-0000-0000-0000-00a2f0000101', 'confirmed', 'paid', 1, 0, 0, 'USD', 'public_event_page', 'Free', 'Flagged', 'g02-free-flagged@example.com'),
+  ('00000000-0000-0000-0000-00a2f0000f04', '00000000-0000-0000-0000-00a2f0000201', pg_temp.kv('tt:general_admission')::uuid,
+   '00000000-0000-0000-0000-00a2f0000101', 'confirmed', 'paid', 1, 0, 0, 'USD', 'public_event_page', 'Free', 'Unflagged', 'g02-free-unflagged@example.com');
+select pg_temp.run_reg('f03', '00000000-0000-0000-0000-00a2f0000f03');
+select pg_temp.run_reg('f04', '00000000-0000-0000-0000-00a2f0000f04');
+select pg_temp.chk('free sign-up: flagged ticket creates a lead; unflagged ticket does not (notice only)',
+  (pg_temp.o('f03') ->> 'outcome') = 'captured' and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-free-flagged@example.com') = 1
+  and (pg_temp.o('f04') ->> 'reason') = 'ticket_not_flagged_for_leads' and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-free-unflagged@example.com') = 0
+  and exists (select 1 from public.notifications where dedupe_key = 'event_registration_notice:00000000-0000-0000-0000-00a2f0000f04'));
+
+-- Refund before capture: a refunded registration is not paid, so no lead and no notice. A refund AFTER a lead exists never deletes it.
+insert into public.event_registrations (id, event_id, ticket_type_id, studio_id, status, payment_status, quantity, unit_price, total_price,
+                                        currency, registration_source, attendee_first_name, attendee_last_name, attendee_email) values
+  ('00000000-0000-0000-0000-00a2f0000f05', '00000000-0000-0000-0000-00a2f0000201', '00000000-0000-0000-0000-00a2f0000391',
+   '00000000-0000-0000-0000-00a2f0000101', 'cancelled', 'refunded', 1, 30, 30, 'USD', 'public_event_page', 'Re', 'Funded', 'g02-refunded@example.com');
+select pg_temp.run_reg('f05', '00000000-0000-0000-0000-00a2f0000f05');
+select pg_temp.chk('refund: a refunded registration creates no lead and no notice',
+  (pg_temp.o('f05') ->> 'reason') = 'registration_not_paid' and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-refunded@example.com') = 0
+  and not exists (select 1 from public.notifications where dedupe_key like '%00000000-0000-0000-0000-00a2f0000f05'));
+update public.event_registrations set payment_status = 'refunded', status = 'cancelled' where id = pg_temp.kv('reg:k_ga_flagged')::uuid;
+select pg_temp.chk('refund after capture: the existing lead and its notification are left untouched',
+  pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-k_ga_flagged@example.com') = 1 and pg_temp.notices('k_ga_flagged', 'event_registration_lead') = 1);
+
+-- Un-flagging a ticket never touches existing leads (no cleanup, decided at settlement time only).
+update public.event_ticket_types set creates_prospect_lead = false where id = '00000000-0000-0000-0000-00a2f0000391';
+select pg_temp.chk('turning the setting off later leaves every existing lead as it is',
+  pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-k_ga_flagged@example.com') = 1 and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-free-flagged@example.com') = 1);
 
 -- Missing registration is unchanged behavior.
 select pg_temp.run_reg('unk', gen_random_uuid());
@@ -320,13 +361,10 @@ select pg_temp.chk('unknown registration id is skipped, not an error',
 -- ===============================================================================================================
 -- Privileges: unchanged contract (service role only)
 -- ===============================================================================================================
-select pg_temp.chk('privilege: lead capture and the policy function are service_role only',
+select pg_temp.chk('privilege: lead capture is service_role only',
   has_function_privilege('service_role', 'public.capture_event_registration_lead(uuid)', 'execute')
   and not has_function_privilege('anon', 'public.capture_event_registration_lead(uuid)', 'execute')
-  and not has_function_privilege('authenticated', 'public.capture_event_registration_lead(uuid)', 'execute')
-  and has_function_privilege('service_role', 'public.event_ticket_kind_creates_lead(text)', 'execute')
-  and not has_function_privilege('anon', 'public.event_ticket_kind_creates_lead(text)', 'execute')
-  and not has_function_privilege('authenticated', 'public.event_ticket_kind_creates_lead(text)', 'execute'));
+  and not has_function_privilege('authenticated', 'public.capture_event_registration_lead(uuid)', 'execute'));
 
 -- ===============================================================================================================
 -- Verdict (always raises: nothing persists)

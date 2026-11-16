@@ -10,6 +10,7 @@ import { effectiveTicketPrice } from "@/lib/events/ticketPricing";
 import { instantToEventLocalInput } from "@/lib/events/eventLocalTime";
 import { ticketEditorErrorMessage } from "@/lib/events/ticketPricingInput";
 import { getEventTimeZone } from "@/lib/events/eventTiming";
+import ProspectLeadToggle from "./ProspectLeadToggle";
 
 type TicketTypeRow = {
   id: string;
@@ -27,6 +28,7 @@ type TicketTypeRow = {
   early_bird_price: number | string | null;
   early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
+  creates_prospect_lead: boolean;
 };
 
 type EventRow = {
@@ -220,7 +222,8 @@ export default async function EventTicketsPage({
       early_bird_enabled,
       early_bird_price,
       early_bird_ends_at,
-      attendees_per_ticket
+      attendees_per_ticket,
+      creates_prospect_lead
     `)
     .eq("event_id", typedEvent.id)
     .order("sort_order", { ascending: true })
@@ -251,6 +254,7 @@ export default async function EventTicketsPage({
     early_bird_price: ticket.early_bird_price ?? null,
     early_bird_ends_at: ticket.early_bird_ends_at ?? null,
     attendees_per_ticket: Math.max(1, Number(ticket.attendees_per_ticket ?? 1)),
+    creates_prospect_lead: ticket.creates_prospect_lead === true,
   }));
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
 
@@ -527,6 +531,8 @@ export default async function EventTicketsPage({
                       </select>
                     </label>
 
+                    <ProspectLeadToggle initialKind={ticket.ticket_kind} defaultChecked={ticket.creates_prospect_lead} disabled={!canManage} />
+
                     <label className="space-y-2 text-sm md:col-span-2">
                       <span className="font-medium text-slate-700">Description</span>
                       <textarea
@@ -741,6 +747,8 @@ export default async function EventTicketsPage({
                 <option value="other">Other</option>
               </select>
             </label>
+
+            <ProspectLeadToggle initialKind="general_admission" />
 
             <label className="space-y-2 text-sm md:col-span-2">
               <span className="font-medium text-slate-700">Description</span>

@@ -1,38 +1,40 @@
--- G-02 -- Event registrations create studio CRM leads only for ticket kinds that represent prospective students.
+-- G-02 -- Event registrations create studio CRM leads only for ticket types the STUDIO has explicitly flagged.
 --
 -- Before: capture_event_registration_lead(uuid) (20261116091000) turned EVERY paid registrant of a studio-hosted event
 -- into a studio CRM lead, whatever the ticket (spectator, vendor, staff, table, pass, competitor ...), and those leads
--- then appeared in event_attendees campaign audiences.
--- After:  a lead is created/refreshed only when the registration's ticket kind is lead-eligible
---         (public.event_ticket_kind_creates_lead). Any other paid registration creates NO client row, changes NO client
---         row and does not link the registration to a client; the studio still receives an in-app notification that is
---         clearly labelled as a registration that was NOT added as a lead (same notifications table, same
---         'event_registration' type: no new channel, no constraint change).
+-- then showed up in CRM Leads and the new_leads campaign audience.
+-- After (owner decision A1 = "Rule 1"): a new per-ticket-type setting event_ticket_types.creates_prospect_lead
+--   (boolean, NOT NULL, default FALSE) decides. A lead is created/refreshed only when the registration's ticket type has the
+--   flag set. A CHECK makes the flag impossible for every kind except general_admission (spectator, vendor, staff, table,
+--   pass, competitor are hard-excluded; vip and other are not flaggable until the owner decides A3). Every other paid
+--   registration creates NO client row, changes NO client row and does not link the registration to a client; the studio
+--   still receives an in-app notification labelled as a registration that was NOT added as a lead (same notifications
+--   table / 'event_registration' type: no new channel, no constraint change).
 --
--- Default policy (audit D5, owner-overridable by editing event_ticket_kind_creates_lead in a later migration):
---   lead-eligible:     general_admission, workshop (workshop is not a ticket_kind the current CHECK allows; kept so the audit default holds if it is ever added)
---   not lead-eligible: vip, competitor, spectator, staff, vendor, table, pass, other, anything unknown, and a
---                      registration with no ticket type (cannot be classified -> fail closed)
+-- Defaults used while owner decisions are pending (flagged in the PR): A2 existing ticket types default OFF (no backfill);
+-- A3 vip/other not flaggable; A4 free sign-ups follow the same flag (no special case); A5 no banner.
 --
--- Compatibility: the function keeps its signature and its jsonb contract. The non-lead path returns
--- outcome='skipped' (reason 'ticket_kind_not_lead_eligible', notified=true), which the existing TypeScript outbox worker
--- (src/lib/events/settlementOutbox.ts) already treats as success, so SQL and app can be released in either order.
--- No data is backfilled, deleted or modified: existing leads, clients and notifications are untouched.
--- Rollback: rollback/20270219090000_g02_event_lead_ticket_kind_gate_rollback.sql (restores the 20261116091000 body).
+-- Compatibility: the function keeps its signature and jsonb contract. The non-lead path returns outcome='skipped'
+-- (reason 'ticket_not_flagged_for_leads', notified=true), which the existing TypeScript outbox worker already treats as
+-- success, so SQL and app can be released in either order. The new column has a default, so the old app keeps working.
+-- No data is backfilled, deleted or modified: existing leads, clients, notifications and ticket types are untouched.
+-- Rollback: rollback/20270219090000_g02_event_lead_ticket_kind_gate_rollback.sql (restores the 20261116091000 body and
+-- drops the column; refuses nothing because the column only ever held opt-ins).
 
 begin;
 
-create or replace function public.event_ticket_kind_creates_lead(p_ticket_kind text)
-returns boolean
-language sql
-immutable
-set search_path = public, pg_temp
-as $$
-  select lower(btrim(coalesce(p_ticket_kind, ''))) in ('general_admission', 'workshop');
-$$;
+alter table public.event_ticket_types
+  add column if not exists creates_prospect_lead boolean not null default false;
 
-revoke all on function public.event_ticket_kind_creates_lead(text) from public, anon, authenticated;
-grant execute on function public.event_ticket_kind_creates_lead(text) to service_role;
+-- Hard exclusion: only general_admission may ever be flagged (A1 hard CHECK; vip/other wait for owner decision A3).
+alter table public.event_ticket_types
+  drop constraint if exists event_ticket_types_prospect_lead_kind_check;
+alter table public.event_ticket_types
+  add constraint event_ticket_types_prospect_lead_kind_check
+  check (not creates_prospect_lead or ticket_kind = 'general_admission');
+
+comment on column public.event_ticket_types.creates_prospect_lead is
+  'Studio setting: buyers of this ticket type become studio CRM leads (prospective students) when paid. Default false. Only general_admission may be true.';
 
 create or replace function public.capture_event_registration_lead(p_registration_id uuid)
 returns jsonb
@@ -49,6 +51,7 @@ declare
   v_existing record;
   v_studio_id uuid;
   v_kind text;
+  v_flag boolean;
 begin
   select er.id, er.studio_id, er.client_id, er.status, er.payment_status, er.attendee_first_name, er.attendee_last_name,
          er.attendee_email, er.attendee_phone, er.ticket_type_id, e.id as event_id, e.name as event_name,
@@ -75,22 +78,23 @@ begin
   v_first := coalesce(nullif(btrim(coalesce(v_reg.attendee_first_name, '')), ''), 'Event');
   v_last := coalesce(nullif(btrim(coalesce(v_reg.attendee_last_name, '')), ''), 'Registrant');
 
-  -- Ticket classification (tenant-safe: the ticket type must belong to this registration's event).
-  select ett.ticket_kind into v_kind
+  -- Ticket setting (tenant-safe: the ticket type must belong to this registration's event). Fail closed: no ticket type,
+  -- a foreign ticket type, or an unflagged one means no lead. The kind is re-checked here as defence in depth.
+  select ett.ticket_kind, ett.creates_prospect_lead into v_kind, v_flag
   from public.event_ticket_types ett
   where ett.id = v_reg.ticket_type_id and ett.event_id = v_reg.event_id;
 
-  if v_studio_id is not null and not public.event_ticket_kind_creates_lead(v_kind) then
+  if v_studio_id is not null and not (coalesce(v_flag, false) and v_kind = 'general_admission') then
     -- Not a prospective-student ticket: NO client is created, linked or modified. The studio is still told about the
     -- committed registration, clearly labelled. Idempotent per registration (replays are no-ops).
     insert into public.notifications (studio_id, client_id, type, title, body, dedupe_key)
     values (v_studio_id, v_reg.client_id, 'event_registration', 'New event registration (not added as a lead)',
-            format('%s %s registered for %s with a "%s" ticket. This registration was not added to Leads because the ticket is not a student-prospect ticket.',
+            format('%s %s registered for %s with a "%s" ticket. This registration was not added to Leads because this ticket type is not set to add buyers as prospective students.',
                    v_first, v_last, v_reg.event_name, coalesce(nullif(btrim(coalesce(v_kind, '')), ''), 'unclassified')),
             'event_registration_notice:' || v_reg.id::text)
     on conflict (dedupe_key) where dedupe_key is not null do nothing;
-    return jsonb_build_object('outcome', 'skipped', 'reason', 'ticket_kind_not_lead_eligible', 'notified', true,
-                              'ticket_kind', coalesce(v_kind, ''));
+    return jsonb_build_object('outcome', 'skipped', 'reason', 'ticket_not_flagged_for_leads', 'notified', true,
+                              'ticket_kind', coalesce(v_kind, ''), 'flag', coalesce(v_flag, false));
   end if;
 
   if v_studio_id is null or v_email = '' then

@@ -1,5 +1,5 @@
 -- Rollback of 20270219090000_g02_event_lead_ticket_kind_gate.sql: restores the 20261116091000 capture_event_registration_lead
--- body (every paid studio-event registrant becomes a lead) and drops the ticket-kind policy function.
+-- body (every paid studio-event registrant becomes a lead) and drops the creates_prospect_lead setting + its CHECK.
 -- Notifications already written (dedupe_key event_registration_notice:*) are kept; no client data is touched.
 
 begin;
@@ -84,7 +84,8 @@ $$;
 revoke all on function public.capture_event_registration_lead(uuid) from public, anon, authenticated;
 grant execute on function public.capture_event_registration_lead(uuid) to service_role;
 
-drop function if exists public.event_ticket_kind_creates_lead(text);
+alter table public.event_ticket_types drop constraint if exists event_ticket_types_prospect_lead_kind_check;
+alter table public.event_ticket_types drop column if exists creates_prospect_lead;
 
 notify pgrst, 'reload schema';
 

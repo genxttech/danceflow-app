@@ -11,8 +11,9 @@ vi.mock("@/lib/notifications/templates", () => ({
 }));
 
 import {
-  LEAD_ELIGIBLE_TICKET_KINDS,
-  ticketKindCreatesLead,
+  LEAD_FLAGGABLE_TICKET_KINDS,
+  ticketCreatesLead,
+  ticketKindMayCreateLeads,
 } from "@/lib/events/leadEligibility";
 import { safeCaptureStudioEventRegistrationLead } from "@/lib/events/settlementSideEffects";
 
@@ -22,55 +23,49 @@ const migration = readFileSync(
   "utf8",
 );
 
-describe("G-02 ticket-kind policy", () => {
-  it.each([
-    ["general_admission", true],
-    ["general", false],
-    ["workshop", true],
-    [" General_Admission ", true],
-    ["spectator", false],
-    ["vendor", false],
-    ["staff", false],
-    ["table", false],
-    ["pass", false],
-    ["vip", false],
-    ["competitor", false],
-    ["other", false],
-    ["", false],
-    ["something_new", false],
-    [null, false],
-    [undefined, false],
-  ])("kind %j -> creates lead: %s", (kind, expected) => {
-    expect(ticketKindCreatesLead(kind as string | null | undefined)).toBe(expected);
+const ALL_KINDS = ["general_admission", "vip", "competitor", "spectator", "staff", "vendor", "table", "pass", "other"];
+
+describe("G-02 Rule 1: explicit per-ticket-type flag", () => {
+  it.each(ALL_KINDS)("kind %s: flag OFF never creates a lead; flag ON only for flaggable kinds", (kind) => {
+    expect(ticketCreatesLead({ ticket_kind: kind, creates_prospect_lead: false })).toBe(false);
+    expect(ticketCreatesLead({ ticket_kind: kind, creates_prospect_lead: null })).toBe(false);
+    expect(ticketCreatesLead({ ticket_kind: kind, creates_prospect_lead: true })).toBe(kind === "general_admission");
+    expect(ticketKindMayCreateLeads(kind)).toBe(kind === "general_admission");
   });
 
-  it("every ticket kind the product can create is classified (new kinds must be a deliberate policy decision)", () => {
-    const form = readFileSync(
-      path.join(root, "src/app/app/events/[id]/tickets/TicketTypeForm.tsx"),
-      "utf8",
-    );
+  it("unknown kind, no ticket and missing flag fail closed", () => {
+    expect(ticketCreatesLead({ ticket_kind: "something_new", creates_prospect_lead: true })).toBe(false);
+    expect(ticketCreatesLead(null)).toBe(false);
+    expect(ticketCreatesLead(undefined)).toBe(false);
+    expect(ticketCreatesLead({ ticket_kind: "general_admission" })).toBe(false);
+  });
+
+  it("every kind the product can create is classified (a new kind must be a deliberate decision)", () => {
+    const form = readFileSync(path.join(root, "src/app/app/events/[id]/tickets/TicketTypeForm.tsx"), "utf8");
     const kinds = [...form.matchAll(/<option value="([a-z_]+)">/g)].map((m) => m[1]);
-    expect(kinds.length).toBeGreaterThanOrEqual(9);
-    const eligible = kinds.filter((k) => ticketKindCreatesLead(k));
-    expect(eligible).toEqual(["general_admission"]);
+    expect(kinds.sort()).toEqual([...ALL_KINDS].sort());
+    expect(kinds.filter((k) => ticketKindMayCreateLeads(k))).toEqual([...LEAD_FLAGGABLE_TICKET_KINDS]);
   });
 
-  it("the SQL policy function lists exactly the TypeScript eligible kinds", () => {
-    const match = migration.match(/event_ticket_kind_creates_lead[\s\S]*?in \(([^)]*)\)/);
-    expect(match).not.toBeNull();
-    const sqlKinds = [...match![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
-    expect([...LEAD_ELIGIBLE_TICKET_KINDS].sort()).toEqual(sqlKinds);
+  it("SQL and TypeScript agree: column default false, CHECK allows only the flaggable kinds, function reads the flag", () => {
+    const sql = migration.replace(/--.*$/gm, "");
+    expect(sql).toMatch(/add column if not exists creates_prospect_lead boolean not null default false/);
+    const check = sql.match(/check \(not creates_prospect_lead or ticket_kind = '([a-z_]+)'\)/);
+    expect(check?.[1]).toBe("general_admission");
+    expect([...LEAD_FLAGGABLE_TICKET_KINDS]).toEqual([check?.[1]]);
+    expect(sql).toMatch(/coalesce\(v_flag, false\) and v_kind = 'general_admission'/);
+    expect(sql).not.toMatch(/update\s+public\.event_ticket_types/i); // no backfill: existing ticket types stay OFF
   });
 
-  it("the migration never writes or deletes existing data and leaves a Git-only rollback", () => {
+  it("the migration never deletes or modifies existing data and ships a Git-only rollback", () => {
     const body = migration.replace(/--.*$/gm, "");
     expect(body).not.toMatch(/\bdelete\s+from\b|\btruncate\b|\bdrop\s+table\b/i);
-    expect(body).not.toMatch(/\bupdate\s+public\.clients\b[^;]*status/i);
+    expect(body).not.toMatch(/\bupdate\s+public\.clients\b[^;]*\bstatus\b/i);
     const rollback = readFileSync(
       path.join(root, "src/lib/supabase/migrations/rollback/20270219090000_g02_event_lead_ticket_kind_gate_rollback.sql"),
       "utf8",
     );
-    expect(rollback).toContain("drop function if exists public.event_ticket_kind_creates_lead");
+    expect(rollback).toContain("drop column if exists creates_prospect_lead");
   });
 });
 
@@ -80,6 +75,7 @@ type Op = { table: string; op: string; payload?: Record<string, unknown> };
 function fakeSupabase(fixture: {
   registration: Record<string, unknown> | null;
   ticketKind?: string | null;
+  flag?: boolean | null;
   existingClients?: Array<Record<string, unknown>>;
   noticeError?: { code: string; message: string } | null;
 }) {
@@ -109,7 +105,7 @@ function fakeSupabase(fixture: {
       maybeSingle: async () => {
         if (table === "event_registrations") return { data: fixture.registration, error: null };
         if (table === "event_ticket_types")
-          return { data: fixture.ticketKind === undefined ? null : { ticket_kind: fixture.ticketKind }, error: null };
+          return { data: fixture.ticketKind === undefined ? null : { ticket_kind: fixture.ticketKind, creates_prospect_lead: fixture.flag ?? false }, error: null };
         return { data: null, error: null };
       },
       single: async () => ({ data: { id: "new-client" }, error: null }),
@@ -142,20 +138,29 @@ const clientWrites = (ops: Op[]) => ops.filter((o) => o.table === "clients" && o
 const notices = (ops: Op[]) => ops.filter((o) => o.table === "notifications");
 
 describe("safeCaptureStudioEventRegistrationLead (orderless registration path)", () => {
-  it("general admission creates a lead and a registration notification", async () => {
-    const { supabase, ops } = fakeSupabase({ registration: registration(), ticketKind: "general_admission" });
+  it("a FLAGGED general admission ticket creates a lead and a registration notification", async () => {
+    const { supabase, ops } = fakeSupabase({ registration: registration(), ticketKind: "general_admission", flag: true });
     await safeCaptureStudioEventRegistrationLead({ supabase, registrationId: "reg-1" });
     const inserted = clientWrites(ops).find((o) => o.op === "insert");
     expect(inserted?.payload).toMatchObject({ status: "lead", studio_id: "studio-1", email: "pat@example.com" });
     expect(notices(ops)[0]?.payload).toMatchObject({ title: "New event registration" });
   });
 
+  it("an UNFLAGGED general admission ticket (the default) creates NO lead and still notifies the studio", async () => {
+    const { supabase, ops } = fakeSupabase({ registration: registration(), ticketKind: "general_admission", flag: false });
+    await safeCaptureStudioEventRegistrationLead({ supabase, registrationId: "reg-1" });
+    expect(clientWrites(ops)).toEqual([]);
+    expect(notices(ops)).toHaveLength(1);
+    expect(String(notices(ops)[0].payload?.body)).toContain("not set to add buyers as prospective students");
+  });
+
   it.each(["spectator", "vendor", "staff", "table", "pass", "vip", "competitor", "other", "unknown_kind"])(
-    "%s creates NO lead, links no client, modifies no client and still notifies the studio",
+    "%s creates NO lead even if a stale flag were true, links no client, modifies no client and still notifies the studio",
     async (kind) => {
       const { supabase, ops } = fakeSupabase({
         registration: registration(),
         ticketKind: kind,
+        flag: true,
         existingClients: [{ id: "c-existing", referral_source: null, source_system: null, status: "lead" }],
       });
       await safeCaptureStudioEventRegistrationLead({ supabase, registrationId: "reg-1" });
