@@ -20,6 +20,9 @@ begin
   insert into t_results values (p_name, coalesce(p_ok, false), coalesce(p_detail, 'null'));
 end $$;
 
+create or replace function pg_temp.try(p_sql text) returns text language plpgsql as $$
+begin execute p_sql; return 'ok'; exception when others then return sqlerrm; end $$;
+
 create or replace function pg_temp.try_jsonb(p_sql text) returns jsonb
 language plpgsql as $$
 declare r jsonb;
@@ -135,17 +138,23 @@ select pg_temp.chk('column: creates_prospect_lead exists, boolean, NOT NULL, def
   (select data_type = 'boolean' and is_nullable = 'NO' and column_default = 'false' from information_schema.columns
    where table_schema = 'public' and table_name = 'event_ticket_types' and column_name = 'creates_prospect_lead')
   and (select count(*) from public.event_ticket_types where id <> '00000000-0000-0000-0000-00a2f0000391' and id <> '00000000-0000-0000-0000-00a2f0000390' and creates_prospect_lead) = 0);
+insert into public.event_ticket_types (id, event_id, name, price, currency, active, ticket_kind) values
+  ('00000000-0000-0000-0000-00a2f0000392', '00000000-0000-0000-0000-00a2f0000201', 'dflt', 1, 'USD', true, 'general_admission');
 select pg_temp.chk('a ticket type inserted without the setting is OFF (default A2)',
-  pg_temp.try($q$insert into public.event_ticket_types (id, event_id, name, price, currency, active, ticket_kind) values ('00000000-0000-0000-0000-00a2f0000392', '00000000-0000-0000-0000-00a2f0000201', 'dflt', 1, 'USD', true, 'general_admission')$q$) = 'ok'
-  and (select creates_prospect_lead = false from public.event_ticket_types where id = '00000000-0000-0000-0000-00a2f0000392'));
+  (select creates_prospect_lead = false from public.event_ticket_types where id = '00000000-0000-0000-0000-00a2f0000392'));
+update public.event_ticket_types set creates_prospect_lead = true where id = '00000000-0000-0000-0000-00a2f0000392';
 select pg_temp.chk('CHECK: the flag can be set on general_admission',
-  pg_temp.try($q$update public.event_ticket_types set creates_prospect_lead = true where id = '00000000-0000-0000-0000-00a2f0000392'$q$) = 'ok');
+  (select creates_prospect_lead from public.event_ticket_types where id = '00000000-0000-0000-0000-00a2f0000392'));
 select pg_temp.chk('CHECK: every excluded kind (vip, competitor, spectator, staff, vendor, table, pass, other) can never be flagged',
   (select bool_and(pg_temp.try(format($q$update public.event_ticket_types set creates_prospect_lead = true where id = %L$q$, pg_temp.kv('tt:' || k))) like '%event_ticket_types_prospect_lead_kind_check%')
    from unnest(array['vip', 'competitor', 'spectator', 'staff', 'vendor', 'table', 'pass', 'other']) k));
+select pg_temp.try($q$update public.event_ticket_types set ticket_kind = 'spectator' where id = '00000000-0000-0000-0000-00a2f0000392'$q$) as switch_msg \gset
 select pg_temp.chk('CHECK: a flagged ticket cannot be switched to an excluded kind while flagged',
-  pg_temp.try($q$update public.event_ticket_types set ticket_kind = 'spectator' where id = '00000000-0000-0000-0000-00a2f0000392'$q$) like '%event_ticket_types_prospect_lead_kind_check%'
-  and pg_temp.try($q$update public.event_ticket_types set creates_prospect_lead = false, ticket_kind = 'spectator' where id = '00000000-0000-0000-0000-00a2f0000392'$q$) = 'ok');
+  :'switch_msg' like '%event_ticket_types_prospect_lead_kind_check%'
+  and (select ticket_kind = 'general_admission' and creates_prospect_lead from public.event_ticket_types where id = '00000000-0000-0000-0000-00a2f0000392'));
+update public.event_ticket_types set creates_prospect_lead = false, ticket_kind = 'spectator' where id = '00000000-0000-0000-0000-00a2f0000392';
+select pg_temp.chk('CHECK: unflag and switch to an excluded kind in one statement is allowed',
+  (select ticket_kind = 'spectator' and not creates_prospect_lead from public.event_ticket_types where id = '00000000-0000-0000-0000-00a2f0000392'));
 
 -- ===============================================================================================================
 -- Each real ticket kind, through settlement -> outbox -> capture
