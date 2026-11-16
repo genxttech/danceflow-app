@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { attendanceLabel } from "@/lib/format";
@@ -145,12 +146,16 @@ export function RosterAttendance({
             </AppText>
           ) : null}
           {bulk && !bulk.running && bulk.saved > 0 ? (
-            <AppText accessibilityLiveRegion="polite" testID="bulk-saved">
-              {bulk.saved === 1 ? "1 dancer marked present." : `${bulk.saved} dancers marked present.`}
-            </AppText>
+            <>
+              <Announce message={bulk.saved === 1 ? "1 dancer marked present." : `${bulk.saved} dancers marked present.`} />
+              <AppText accessibilityLiveRegion="polite" testID="bulk-saved">
+                {bulk.saved === 1 ? "1 dancer marked present." : `${bulk.saved} dancers marked present.`}
+              </AppText>
+            </>
           ) : null}
           {bulk && !bulk.running && bulk.failed.length > 0 ? (
             <View style={styles.bulk}>
+              <Announce message={`${bulk.failed.length === 1 ? "1 dancer did not save." : `${bulk.failed.length} dancers did not save.`} See the rows below.`} />
               <AppText tone="error" accessibilityRole="alert" testID="bulk-failed">
                 {bulk.failed.length === 1 ? "1 dancer did not save." : `${bulk.failed.length} dancers did not save.`} See the rows below.
               </AppText>
@@ -206,9 +211,12 @@ export function RosterAttendance({
               </AppText>
             ) : null}
             {row.error ? (
-              <AppText variant="caption" tone="error" accessibilityRole="alert" testID={`attendance-error-${attendee.clientId}`}>
-                {row.error}
-              </AppText>
+              <>
+                <Announce message={`${name}: ${row.error}`} />
+                <AppText variant="caption" tone="error" accessibilityRole="alert" testID={`attendance-error-${attendee.clientId}`}>
+                  {row.error}
+                </AppText>
+              </>
             ) : null}
             {row.exit ? <AppButton label={row.exit} variant="secondary" onPress={() => void signOut()} /> : null}
           </View>

@@ -1,5 +1,6 @@
 import type React from "react";
 import { StyleSheet, View } from "react-native";
+import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { colors, radius, space } from "@/theme";
@@ -23,6 +24,7 @@ export function StateMessage({ title, body, tone = "neutral", actions = [], test
       accessibilityRole={tone === "error" ? "alert" : "summary"}
       style={[styles.card, tone === "error" && styles.error]}
     >
+      {tone === "error" ? <Announce message={body ? `${title}. ${body}` : title} /> : null}
       <AppText variant="title" accessibilityRole="header">
         {title}
       </AppText>

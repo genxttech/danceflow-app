@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { router } from "expo-router";
+import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
@@ -166,9 +167,12 @@ function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolea
             />
           ))}
           {state.moreError ? (
-            <AppText tone="error" accessibilityRole="alert">
-              More clients could not load. Try again.
-            </AppText>
+            <>
+              <Announce message="More clients could not load. Try again." />
+              <AppText tone="error" accessibilityRole="alert">
+                More clients could not load. Try again.
+              </AppText>
+            </>
           ) : null}
           {state.nextCursor ? (
             <AppButton label="Load more clients" variant="secondary" onPress={() => void loadMore()} loading={state.loadingMore} />
