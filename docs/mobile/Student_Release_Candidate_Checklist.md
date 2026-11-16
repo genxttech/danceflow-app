@@ -18,16 +18,17 @@
 
 | # | Item | Status |
 |---|---|---|
-| B1 | `fontScale` in MainActivity `configChanges` (live text-size change clips sign-in without it) | #533 OPEN, CI green, PENDING OWNER approval (protected manifest) |
-| B2 | Photo-library string for iOS (`app.json`, `expo-image-picker` plugin) | PENDING OWNER (protected) |
-| B3 | Real-device checks still BLOCKED: Event detail and Ticket (need a seeded event and the real web API), photo upload, real push delivery, real payments, Android 12 and older (no AVD), 16 KB page size, R8 minification, EAS cloud build, TalkBack gesture walk, VoiceOver, iOS | BLOCKED (see Student_Device_QA_R7.md "Still BLOCKED") |
+| B1 | `fontScale` in MainActivity `configChanges` (live text-size change clips sign-in without it) | DONE: #533 merged (main 157f0098) with the owner's approval; the new text size applies at next launch (Android recreates the activity otherwise) |
+| B2 | Photo-library string for iOS (`app.json`, `expo-image-picker` plugin) | PR #569 prepared, NOT merged: PENDING OWNER approval on its head (protected `app.json`). Three other introspected iOS plist items for the owner are listed in `Student_iOS_Readiness.md` |
+| B3 | Real-device checks still BLOCKED: Event detail and Ticket (seed and harness flag ready in #572; waits for the emulator slot, order android-release, Business, Student), photo upload, real push delivery, real payments, Android 12 and older (no AVD), 16 KB page size, R8 minification, EAS cloud build, TalkBack gesture walk, VoiceOver, iOS | BLOCKED (see Student_Device_QA_R7.md "Still BLOCKED") |
 | B4 | Offline ticket (cached tickets/QR at rest) | Open owner product decision (privacy/fraud); not built |
-| B5 | Evidence already green: sign-in, magic link cold/warm, notification wording/channel/switch, dark mode, font 1.0/2.0, Pay Now return, smoke 13/13, jest 37 suites, screen-reader names/roles/announcements (#524 to #560) | DONE |
+| B5 | Evidence already green (merged: #551 smoke, #552, #554 retry states, #557 VoiceOver announce, #560 named switches + tree audit, #566 buyers without a studio, #567 access-ended wording, plus #524 to #547 earlier): sign-in, magic link cold/warm, notification wording/channel/switch, dark mode, font 1.0/2.0, Pay Now return, smoke 13/13, jest 37 suites, screen-reader names/roles/announcements (#524 to #560) | DONE |
+| B7 | In review, not merged: #572 (harness `--events` seed + ticket screen screen-reader tests, prepares the Event/Ticket device rows), #574 (checkout URL and Pay Now hardening, test-only) | OPEN, merge on green CI |
 | B6 | Run the one-command device smoke (`mobile/student/scripts/qa-smoke/run.mjs`) then `a11y-audit.mjs` on the exact candidate commit before upload | OPEN at candidate time |
 
 ## C. Candidate gate (all must be true)
 
-A2 live, A5 and A6 decided and in place, B1 approved and merged, B6 PASS on the candidate commit, B3 rows either run or explicitly accepted by the owner, and the release is a signed AAB built from the recorded commit (artifact, versionCode, signing recorded in the coordinator report).
+A2 live, A5 and A6 decided and in place, B1 done (merged), B2 decided, B6 PASS on the candidate commit, B3 rows either run or explicitly accepted by the owner, and the release is a signed AAB built from the recorded commit (artifact, versionCode, signing recorded in the coordinator report).
 
 ## D. Dependency map: Student behaviours versus the web fixes (A2/E audit, backlog G-01, G-05)
 
