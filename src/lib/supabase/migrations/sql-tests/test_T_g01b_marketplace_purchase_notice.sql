@@ -127,7 +127,7 @@ drop trigger t_boom on public.notifications;
 -- a pre-existing notice with the same dedupe key does not break or duplicate
 select pg_temp.mk_order('00000000-0000-0000-0000-00a3f0000b07', '00000000-0000-0000-0000-00a3f0000005', null);
 insert into public.notifications (studio_id, type, title, dedupe_key) values ('00000000-0000-0000-0000-00a3f0000101', 'marketplace_purchase', 'pre', 'marketplace_purchase:00000000-0000-0000-0000-00a3f0000b07');
-select public.commerce_finalize_student_digital_order('00000000-0000-0000-0000-00a3f0000b07', 'pi_pre', 25, 'usd') as e5 gset
+select public.commerce_finalize_student_digital_order('00000000-0000-0000-0000-00a3f0000b07', 'pi_pre', 25, 'usd') as e5 \gset
 select pg_temp.chk('pre-existing dedupe row: settlement succeeds and the order still has exactly one notice', :'e5' is not null and pg_temp.notices('00000000-0000-0000-0000-00a3f0000b07') = 1);
 
 select pg_temp.chk('privileges unchanged: finalize is service_role only',
