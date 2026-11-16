@@ -73,6 +73,7 @@ function notificationTypeLabel(type: string) {
     mambo_opportunity: "ARIA",
     event_registration: "Event",
     event_check_in: "Event Check-In",
+    marketplace_purchase: "Marketplace Purchase",
   };
 
   return labels[type] ?? type.replaceAll("_", " ");
