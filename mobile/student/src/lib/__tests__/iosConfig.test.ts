@@ -27,3 +27,20 @@ describe("iOS photo-library permission string", () => {
     expect(access).toContain("requestMediaLibraryPermissionsAsync");
   });
 });
+
+describe("iOS plist trimming", () => {
+  const optionsOf = (name: string) =>
+    (appJson.expo.plugins.find((p) => Array.isArray(p) && p[0] === name) as [string, Record<string, unknown>] | undefined)?.[1];
+
+  it("declares only when-in-use location (the app never uses background location)", () => {
+    const location = optionsOf("expo-location");
+    expect(location?.locationAlwaysAndWhenInUsePermission).toBe(false);
+    expect(location?.locationAlwaysPermission).toBe(false);
+    expect(typeof location?.locationWhenInUsePermission).toBe("string");
+    expect(location?.isIosBackgroundLocationEnabled).not.toBe(true);
+  });
+
+  it("does not declare Face ID (secure storage here uses the keychain, no biometrics)", () => {
+    expect(optionsOf("expo-secure-store")?.faceIDPermission).toBe(false);
+  });
+});
