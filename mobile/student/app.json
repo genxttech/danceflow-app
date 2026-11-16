@@ -44,6 +44,14 @@
       "expo-secure-store",
       "expo-notifications",
       "expo-dev-client",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DanceFlow uses your photo library so you can add a photo to your Partner Search profile and posts.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
       "./plugins/withAndroidReleaseSigning",
       [
         "@stripe/stripe-react-native",
