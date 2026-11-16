@@ -8,6 +8,7 @@ const DEFAULTS = {
   stackName: "smoke",
   webPort: 3107,
   avd: "df-api35",
+  memory: 2048,
   dryRun: false,
   a11y: false,
   allowBusy: false,
@@ -19,7 +20,7 @@ const DEFAULTS = {
 /** `--apk <file>` skips the Gradle build; otherwise `--build-dir <short-path worktree>` builds it (see DEVICE_QA.md). */
 function parseArgs(argv) {
   const opts = { ...DEFAULTS };
-  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--apk": "apk", "--build-dir": "buildDir" };
+  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--memory": "memory", "--apk": "apk", "--build-dir": "buildDir" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--dry-run") opts.dryRun = true;
@@ -29,7 +30,7 @@ function parseArgs(argv) {
     else if (takes[arg]) {
       const value = argv[++i];
       if (value === undefined || value.startsWith("--")) throw new Error(`${arg} needs a value`);
-      opts[takes[arg]] = arg === "--web-port" ? Number(value) : value;
+      opts[takes[arg]] = arg === "--web-port" || arg === "--memory" ? Number(value) : value;
     } else throw new Error(`unknown option ${arg}`);
   }
   if (!Number.isInteger(opts.webPort) || opts.webPort < 1024 || opts.webPort > 65535) throw new Error("--web-port must be 1024-65535");
