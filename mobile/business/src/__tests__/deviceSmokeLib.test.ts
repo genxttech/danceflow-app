@@ -106,6 +106,30 @@ describe("findTappable", () => {
   });
 });
 
+describe("which activity has the screen", () => {
+  const APP_TOP = "  topResumedActivity=ActivityRecord{31966dd u0 com.idanceflow.business/.MainActivity t64}\n  ResumedActivity: ActivityRecord{31966dd u0 com.idanceflow.business/.MainActivity t64}";
+  const LAUNCHER_TOP = "  topResumedActivity=ActivityRecord{a1b2c3 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}";
+
+  it("reads the top activity as package/Activity", () => {
+    expect(lib.topActivity(APP_TOP)).toBe("com.idanceflow.business/.MainActivity");
+    expect(lib.topActivity(LAUNCHER_TOP)).toBe("com.google.android.apps.nexuslauncher/.NexusLauncherActivity");
+    expect(lib.topActivity("nothing useful")).toBeNull();
+    expect(lib.topActivity(undefined)).toBeNull();
+  });
+
+  it("the app is in the foreground only when its own package has the screen", () => {
+    expect(lib.isAppForeground(APP_TOP, "com.idanceflow.business")).toBe(true);
+    expect(lib.isAppForeground(LAUNCHER_TOP, "com.idanceflow.business")).toBe(false);
+    expect(lib.isAppForeground("", "com.idanceflow.business")).toBe(false);
+  });
+
+  it("another app with a similar name is not the app (the Student app shares the machine)", () => {
+    const student = "  topResumedActivity=ActivityRecord{38fcb8d u0 com.idanceflow.student/.MainActivity t49}";
+    expect(lib.isAppForeground(student, "com.idanceflow.business")).toBe(false);
+    expect(lib.isAppForeground("topResumedActivity=ActivityRecord{1 u0 com.idanceflow.businessx/.Main t1}", "com.idanceflow.business")).toBe(false);
+  });
+});
+
 describe("summarize", () => {
   it("passes only when something ran and everything passed", () => {
     expect(lib.summarize([]).ok).toBe(false);

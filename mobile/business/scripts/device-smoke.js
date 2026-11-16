@@ -79,6 +79,7 @@ function dump() {
 async function waitFor(label, { timeout = 30000, cls, scroll = false, tappable = false } = {}) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
+    if (state.installed) await ensureForeground(`waiting for ${String(label)}`);
     const nodes = dump();
     const node = tappable ? lib.findTappable(nodes, label) : lib.findNode(nodes, label, { cls });
     if (node) return node;
@@ -114,6 +115,30 @@ const swipeRefresh = () => adb("shell", "input", "swipe", "540", "700", "540", "
 function hideKeyboard() {
   if (/mInputShown=true/.test(adb("shell", "dumpsys", "input_method").stdout)) adb("shell", "input", "keyevent", "4");
 }
+/** Saves the crash buffer and the recent main log: after a failure this is what tells a crash, a low-memory kill and a launcher restart apart. */
+function saveLogs(tag) {
+  try {
+    fs.writeFileSync(path.join(OUT, `logcat-${tag}-crash.txt`), adb("logcat", "-b", "crash", "-d").stdout);
+    fs.writeFileSync(path.join(OUT, `logcat-${tag}-main.txt`), adb("logcat", "-d", "-t", "600").stdout);
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * If the app is not the top activity (it crashed, was killed, or something else took the screen), keep the evidence and bring it back once. A second loss
+ * fails the run with the logs saved: a flaky emulator is tolerated once, a repeating one is not.
+ */
+async function ensureForeground(where) {
+  if (lib.isAppForeground(adb("shell", "dumpsys", "activity", "activities").stdout, APP)) return;
+  state.lostForeground = (state.lostForeground ?? 0) + 1;
+  saveLogs(`lost-foreground-${state.lostForeground}`);
+  log(`the app left the foreground (${where}); logs saved`);
+  if (state.lostForeground > 1) throw new Error(`the app left the foreground twice (${where}); see logcat-lost-foreground-*.txt`);
+  launch(false);
+  await sleep(8000);
+}
+
 function launch(coldStart = true) {
   if (coldStart) adb("shell", "am", "force-stop", APP);
   adb("shell", "am", "start", "-n", `${APP}/.MainActivity`);
@@ -157,6 +182,7 @@ const expectLabel = async (label, o) => {
  */
 async function typeInto(label, text, { secret = false } = {}) {
   for (let attempt = 0; attempt < 4; attempt++) {
+    await ensureForeground(`before typing the ${label}`);
     const field = lib.findNode(dump(), label, { cls: "EditText" });
     if (!field) throw new Error(`no ${label} field`);
     tapNode(field);
@@ -476,6 +502,7 @@ async function teardown() {
     fatal = error;
     state.results.push(lib.makeResult("run", false, String(error.message ?? error)));
     if (state.installed) {
+      saveLogs("fatal");
       try {
         shot("fatal");
         fs.writeFileSync(path.join(OUT, "fatal.xml"), adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
