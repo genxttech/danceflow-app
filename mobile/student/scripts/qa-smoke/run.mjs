@@ -31,6 +31,7 @@ const cfg = {
   jdk: process.env.JAVA_HOME || "C:\\Android\\jdk-17",
   apk: opt("apk", ""), // reuse a QA APK and skip the build
   skipBuild: flag("skip-build"),
+  events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   noTeardown: flag("keep"), // debugging only
   email: "dana.dancer@example.test",
   pkg: "com.idanceflow.student",
@@ -94,6 +95,7 @@ async function makeDancer(service) {
   const user = await r.json();
   if (!user.id) throw new Error(`could not create the dancer: ${JSON.stringify(user).slice(0, 200)}`);
   psql(join(here, "seed.sql"), ["-v", `uid='${user.id}'`]);
+  if (cfg.events) psql(join(here, "seed-event.sql"));
   return async () => {
     const g = await fetch(`${base}/auth/v1/admin/generate_link`, { method: "POST", headers: h, body: JSON.stringify({ type: "magiclink", email: cfg.email }) });
     const body = await g.json();
@@ -166,6 +168,12 @@ const shot = (file) => {
 const openLink = (url) => sh(["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", `'${url}'`, cfg.pkg]);
 
 const SCREENS = [
+  ...(cfg.events
+    ? [
+        { id: "event-detail", link: "danceflow://events/44444444-4444-4444-8444-444444444441", expect: /QA Social Dance Night/ },
+        { id: "event-ticket", link: "danceflow://wallet/event-tickets", expect: /QA Social Dance Night|QA-DANA-0001|Dana/ },
+      ]
+    : []),
   { id: "settings", link: "danceflow://settings", expect: /Settings|Delete Account/i },
   { id: "payment-requests", link: "danceflow://wallet/payment-requests", expect: /\$40/ },
   { id: "wallet", link: "danceflow://wallet", expect: /Wallet/i },

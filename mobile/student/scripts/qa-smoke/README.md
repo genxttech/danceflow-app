@@ -38,3 +38,7 @@ Event/Ticket (needs a seeded event and the real web API), partner photo upload, 
 ## Screen-reader tree audit
 
 `run.mjs` also saves each screen's accessibility tree (`*.xml`, plus the signed-out `signin-screen.xml`) next to the screenshots. `node mobile/student/scripts/qa-smoke/a11y-audit.mjs <out-dir>` reports clickable nodes with no name (TalkBack would announce them as nothing), touch targets under 44dp and repeated labels, and writes the reading order of the main screens to `a11y-report.md`. It fails (exit 1) on an unnamed control. Findings and method: `docs/mobile/Student_TalkBack_Audit.md`.
+
+## Event detail and Wallet ticket (`--events`)
+
+`node mobile/student/scripts/qa-smoke/run.mjs --events` also applies `seed-event.sql` (a public event of the seeded studio, one ticket type, one confirmed and paid registration with ticket code `QA-DANA-0001`) and adds the `event-detail` and `event-ticket` screens to the matrix, so `a11y-audit.mjs` covers them too. Both screens read Supabase directly; the only web call is the ticket QR image, which `mock-web.mjs` answers with a 1x1 PNG. The seed's columns come from the live schema; the first `--events` run is what proves it. Running the real web app instead (`next build && next start` against the same stack, then `EXPO_PUBLIC_DANCEFLOW_WEB_URL` at it) is only needed for checkout, Pay Now and Stripe flows (BLOCKED without a Stripe TEST key).
