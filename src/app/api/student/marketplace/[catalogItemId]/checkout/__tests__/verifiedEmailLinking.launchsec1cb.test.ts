@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 /**
- * LAUNCH-SEC-1C-B (T1-B): marketplace auto-linking requires the buyer's
+ * LAUNCH-SEC-1C-B (T1-B): marketplace buyer matching requires the buyer's
  * verified current email, exact normalized matching, never steals a client
  * held by another account and never revives a closed relationship.
+ * G-01: checkout creation no longer creates clients or links at all (see marketplaceBuyerRelationship.ts).
  */
 
 const USER_ID = "user-1";
@@ -101,44 +100,47 @@ beforeEach(() => {
   queried.length = 0;
 });
 
-describe("LAUNCH-SEC-1C-B marketplace auto-linking (T1-B)", () => {
-  it("an unverified buyer is asked to verify; no client lookup or link", async () => {
+const orderInserts = () => writes.filter((write) => write.table === "commerce_orders" && write.op === "insert");
+const clientWrites = () => writes.filter((write) => write.table === "clients");
+
+describe("LAUNCH-SEC-1C-B marketplace identity guards (T1-B) after G-01", () => {
+  it("an unverified buyer is asked to verify; no client lookup, no link, no order", async () => {
     verifiedEmail = null;
     const response = await checkout();
     expect(response?.status).toBe(403);
     expect(queried).not.toContain("clients");
     expect(linkWrites()).toEqual([]);
+    expect(orderInserts()).toEqual([]);
   });
 
-  it("links an eligible existing client on exact normalized email", async () => {
+  it("G-01: an existing client matched on exact normalized email is attached to the order, but NO link or client is written", async () => {
     candidateClients = [{ id: "client-1", email: "PAT_X@example.test" }];
     await checkout();
-    expect(linkWrites()).toHaveLength(1);
-    expect(linkWrites()[0]).toMatchObject({ op: "insert", payload: { client_id: "client-1", user_id: USER_ID, status: "linked" } });
+    expect(linkWrites()).toEqual([]);
+    expect(clientWrites()).toEqual([]);
+    expect(orderInserts()[0]?.payload).toMatchObject({ client_id: "client-1", customer_type: "client", status: "open", payment_status: "pending" });
   });
 
-  it("the successful link carries a provenance value allowed by client_account_links_initiated_by_check", async () => {
-    candidateClients = [{ id: "client-1", email: "pat_x@example.test" }];
+  it("G-01: a buyer with no studio record gets a guest order -- no lead, no link, no portal permissions at checkout creation", async () => {
+    candidateClients = [];
     await checkout();
-    const payload = linkWrites()[0]?.payload as Record<string, unknown> | undefined;
-    expect(payload).toMatchObject({ relationship_type: "self", initiated_by: "dancer", status: "linked" });
-
-    const migration = readFileSync(
-      join(process.cwd(), "src/lib/supabase/migrations/20260713_student_identity_profile_foundation.sql"),
-      "utf8",
-    );
-    const check = migration.match(/client_account_links_initiated_by_check\s+check\s*\(\s*initiated_by in \(([^)]*)\)/i);
-    const allowed = [...(check?.[1] ?? "").matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    expect(allowed).toEqual(["system", "legacy_backfill", "legacy_email_repair", "studio", "dancer", "guardian"]);
-    expect(allowed).toContain(payload?.initiated_by);
-    expect(allowed).not.toContain("student");
+    expect(clientWrites()).toEqual([]);
+    expect(linkWrites()).toEqual([]);
+    expect(orderInserts()[0]?.payload).toMatchObject({
+      client_id: null,
+      customer_type: "guest",
+      guest_email: "pat_x@example.test",
+      status: "open",
+      payment_status: "pending",
+    });
   });
 
-  it("a wildcard-like stored address is never treated as the buyer's identity", async () => {
+  it("a wildcard-like stored address is never treated as the buyer's identity (guest order, nothing written to clients)", async () => {
     candidateClients = [{ id: "client-wild", email: "patyx@example.test" }];
     await checkout();
-    expect(writes.find((write) => write.table === "clients" && write.op === "insert")).toBeTruthy();
-    expect(linkWrites()[0]).toMatchObject({ payload: { client_id: "new-client" } });
+    expect(clientWrites()).toEqual([]);
+    expect(linkWrites()).toEqual([]);
+    expect(orderInserts()[0]?.payload).toMatchObject({ client_id: null, customer_type: "guest" });
   });
 
   it("does not steal a client already linked to another account", async () => {
@@ -147,6 +149,7 @@ describe("LAUNCH-SEC-1C-B marketplace auto-linking (T1-B)", () => {
     const response = await checkout();
     expect(response?.status).toBe(409);
     expect(linkWrites()).toEqual([]);
+    expect(orderInserts()).toEqual([]);
   });
 
   it.each(["disconnected", "former_client", "rejected", "conflict"])(
@@ -157,6 +160,7 @@ describe("LAUNCH-SEC-1C-B marketplace auto-linking (T1-B)", () => {
       const response = await checkout();
       expect(response?.status).toBe(409);
       expect(linkWrites()).toEqual([]);
+      expect(orderInserts()).toEqual([]);
     },
   );
 });

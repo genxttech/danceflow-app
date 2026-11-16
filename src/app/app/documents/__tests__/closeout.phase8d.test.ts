@@ -207,8 +207,8 @@ describe("signing-permission default (new links fail safe; existing decisions un
       "src/app/api/student/marketplace/[catalogItemId]/checkout/route.ts",
     ].map((file) => readFileSync(path.join(process.cwd(), file), "utf8"));
     expect(sources[0]).not.toMatch(/can_sign_documents: true,/);
-    // the marketplace path creates the buyer's own (self) link only
-    expect(sources[1]).toMatch(/relationship_type: "self",[\s\S]{0,400}can_sign_documents: true,/);
+    // G-01: the marketplace path no longer creates ANY link (nor a client) at checkout creation
+    expect(sources[1].replace(/\/\/.*$/gm, "")).not.toMatch(/client_account_links|can_sign_documents/);
   });
 });
 

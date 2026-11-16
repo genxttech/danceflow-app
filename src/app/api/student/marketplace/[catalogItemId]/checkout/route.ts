@@ -7,10 +7,10 @@ import {
   normalizeStudentApiUuid,
 } from "@/lib/auth/studentApiAuth";
 import {
-  escapeLikePattern,
   getMyVerifiedEmail,
   verifiedEmailMatches,
 } from "@/lib/auth/verifiedIdentity";
+import { resolveMarketplaceBuyerClient } from "@/lib/commerce/marketplaceBuyerRelationship";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type Params = { params: Promise<{ catalogItemId: string }> };
@@ -19,8 +19,6 @@ function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-// LAUNCH-SEC-1C-B: relationships a purchase must never silently revive.
-const NON_REVIVABLE_LINK_STATUSES = ["disconnected", "former_client", "rejected", "conflict"];
 
 function one<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -66,8 +64,20 @@ export async function POST(request: NextRequest, { params }: Params) {
     .eq("id", id)
     .maybeSingle();
 
-  const studio = one((item as any)?.studios);
-  const content = one((item as any)?.commerce_digital_content);
+  type StudioRow = {
+    subscription_status: string | null;
+    stripe_connected_account_id: string | null;
+    stripe_connect_charges_enabled: boolean | null;
+    stripe_connect_payouts_enabled: boolean | null;
+    stripe_connect_onboarding_complete: boolean | null;
+  };
+  type ContentRow = { status: string | null; release_at: string | null; mux_upload_status: string | null };
+  const relations = item as unknown as {
+    studios?: StudioRow | StudioRow[] | null;
+    commerce_digital_content?: ContentRow | ContentRow[] | null;
+  } | null;
+  const studio = one(relations?.studios);
+  const content = one(relations?.commerce_digital_content);
   const available =
     item?.active === true &&
     item?.published === true &&
@@ -116,187 +126,32 @@ export async function POST(request: NextRequest, { params }: Params) {
       ? userMetadata.full_name.trim()
       : "";
   const fullNameParts = metadataFullName.split(/\s+/).filter(Boolean);
-  const firstName = metadataFirstName || fullNameParts[0] || "Marketplace";
+  const firstName = metadataFirstName || fullNameParts[0] || "";
   const lastName =
-    metadataLastName || fullNameParts.slice(1).join(" ") || "Customer";
+    metadataLastName || fullNameParts.slice(1).join(" ");
   const now = new Date().toISOString();
 
-  const { data: existingSelfLink, error: existingSelfLinkError } = await admin
-    .from("client_account_links")
-    .select("id, client_id")
-    .eq("user_id", user.id)
-    .eq("studio_id", item.studio_id)
-    .eq("status", "linked")
-    .eq("relationship_type", "self")
-    .order("is_primary", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  // G-01: checkout creation never creates a studio client/lead or any client_account_links row or portal permission.
+  // The order attaches only to a studio client record that already exists for this buyer (see
+  // marketplaceBuyerRelationship.ts); otherwise it is a guest order and the entitlement is delivered to the buyer's
+  // DanceFlow account by verified payment settlement. A buyer's opt-in to a studio relationship is a pending owner
+  // decision (audit D6): applyMarketplaceBuyerRelationshipOptIn is the named seam.
+  const resolution = await resolveMarketplaceBuyerClient({
+    admin,
+    studioId: item.studio_id,
+    userId: user.id,
+    normalizedEmail,
+    isEmailVerified: async () =>
+      verifiedEmailMatches(
+        await getMyVerifiedEmail(await createStudentApiUserScopedClient(request)),
+        normalizedEmail,
+      ),
+  });
 
-  if (existingSelfLinkError) {
-    return jsonError("Your studio relationship could not be verified.", 500);
-  }
+  if (!resolution.ok) return jsonError(resolution.message, resolution.status);
 
-  let clientId = existingSelfLink?.client_id ?? null;
-
-  if (!clientId) {
-    // LAUNCH-SEC-1C-B (T1-B): linking this purchase to a studio customer
-    // record needs the buyer's verified, bound current email on this live
-    // session. Matching is exact normalized email equality in this studio;
-    // a client held by another account, or a relationship the studio closed
-    // (disconnected/former/rejected/conflict), is never auto-linked or
-    // revived -- that needs a fresh studio invitation.
-    const verifiedEmail = await getMyVerifiedEmail(
-      await createStudentApiUserScopedClient(request),
-    );
-
-    if (!verifiedEmailMatches(verifiedEmail, normalizedEmail)) {
-      return jsonError(
-        "Verify your email address before purchasing from this studio.",
-        403,
-      );
-    }
-
-    const { data: candidateClients, error: matchingClientError } = await admin
-      .from("clients")
-      .select("id, email")
-      .eq("studio_id", item.studio_id)
-      .ilike("email", escapeLikePattern(normalizedEmail))
-      .order("created_at", { ascending: true })
-      .limit(5);
-
-    if (matchingClientError) {
-      return jsonError("Your customer record could not be resolved.", 500);
-    }
-
-    const matchingClients = (candidateClients ?? []).filter(
-      (candidate) =>
-        String(candidate.email ?? "").trim().toLowerCase() === normalizedEmail,
-    );
-
-    if (matchingClients.length > 1) {
-      return jsonError(
-        "This studio has duplicate customer records for your email. Contact the studio before purchasing.",
-        409,
-      );
-    }
-
-    clientId = matchingClients[0]?.id ?? null;
-
-    if (clientId) {
-      const { data: clientLinks, error: clientLinksError } = await admin
-        .from("client_account_links")
-        .select("id, user_id, status")
-        .eq("studio_id", item.studio_id)
-        .eq("client_id", clientId);
-
-      if (clientLinksError) {
-        return jsonError("The customer relationship could not be verified.", 500);
-      }
-
-      if (
-        (clientLinks ?? []).some(
-          (link) =>
-            link.status === "linked" && link.user_id && link.user_id !== user.id,
-        )
-      ) {
-        return jsonError(
-          "A different DanceFlow account is already connected to this studio customer record. Contact the studio before purchasing.",
-          409,
-        );
-      }
-
-      if (
-        (clientLinks ?? []).some(
-          (link) =>
-            link.user_id === user.id &&
-            NON_REVIVABLE_LINK_STATUSES.includes(String(link.status)),
-        )
-      ) {
-        return jsonError(
-          "Your connection to this studio was closed. Ask the studio to send you a new invitation before purchasing.",
-          409,
-        );
-      }
-    } else {
-      const { data: insertedClient, error: clientInsertError } = await admin
-        .from("clients")
-        .insert({
-          studio_id: item.studio_id,
-          first_name: firstName,
-          last_name: lastName,
-          email: normalizedEmail,
-          status: "lead",
-          referral_source: "DanceFlow Marketplace",
-          source_system: "student_marketplace",
-          notes: "Created automatically from a public DanceFlow Marketplace purchase.",
-        })
-        .select("id")
-        .single();
-
-      if (clientInsertError || !insertedClient) {
-        return jsonError(
-          clientInsertError?.message ||
-            "A customer record could not be created for this purchase.",
-          500,
-        );
-      }
-
-      clientId = insertedClient.id;
-    }
-
-    const { data: priorLink, error: priorLinkError } = await admin
-      .from("client_account_links")
-      .select("id")
-      .eq("studio_id", item.studio_id)
-      .eq("client_id", clientId)
-      .eq("user_id", user.id)
-      .eq("relationship_type", "self")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (priorLinkError) {
-      return jsonError("The customer relationship could not be prepared.", 500);
-    }
-
-    const linkPayload = {
-      studio_id: item.studio_id,
-      client_id: clientId,
-      user_id: user.id,
-      status: "linked",
-      relationship_type: "self",
-      initiated_by: "dancer",
-      invited_email: normalizedEmail,
-      can_view_schedule: true,
-      can_view_billing: true,
-      can_manage_bookings: true,
-      can_sign_documents: true,
-      is_primary: true,
-      claimed_at: now,
-      linked_at: now,
-      accepted_at: now,
-      disconnected_at: null,
-      disconnected_by: null,
-      disconnect_reason: null,
-      conflict_details: null,
-      updated_at: now,
-    };
-
-    const { error: linkSaveError } = priorLink?.id
-      ? await admin
-          .from("client_account_links")
-          .update(linkPayload)
-          .eq("id", priorLink.id)
-      : await admin.from("client_account_links").insert(linkPayload);
-
-    if (linkSaveError) {
-      return jsonError(
-        `Your studio relationship could not be created: ${linkSaveError.message}`,
-        500,
-      );
-    }
-  }
+  const clientId = resolution.clientId;
+  const buyerName = `${firstName} ${lastName}`.trim();
 
   const amount = Number(item.price ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -311,7 +166,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       studio_id: item.studio_id,
       order_number: `COM-${crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase()}`,
       client_id: clientId,
-      customer_type: "client",
+      customer_type: clientId ? "client" : "guest",
+      guest_name: clientId ? null : buyerName || normalizedEmail,
+      guest_email: clientId ? null : normalizedEmail,
       status: "open",
       payment_status: "pending",
       fulfillment_status: "unfulfilled",
@@ -326,6 +183,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         source: "student_marketplace",
         student_user_id: user.id,
         buyer_email: user.email.toLowerCase(),
+        buyer_first_name: firstName || null,
         catalog_item_id: item.id,
       },
       created_by: user.id,
@@ -364,12 +222,12 @@ export async function POST(request: NextRequest, { params }: Params) {
           order_id: order.id,
           studio_id: item.studio_id,
           catalog_item_id: item.id,
-          client_id: clientId,
+          ...(clientId ? { client_id: clientId } : {}),
           user_id: user.id,
           connected_account_id: studio.stripe_connected_account_id,
         },
       },
-      { stripeAccount: studio.stripe_connected_account_id },
+      { stripeAccount: studio?.stripe_connected_account_id as string }, // non-null: guaranteed by the availability check above
     );
 
     if (!paymentIntent.client_secret) {
@@ -383,6 +241,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           source: "student_marketplace",
           student_user_id: user.id,
           buyer_email: user.email.toLowerCase(),
+          buyer_first_name: firstName || null,
           catalog_item_id: item.id,
           stripe_payment_intent_id: paymentIntent.id,
           stripe_connected_account_id: studio.stripe_connected_account_id,
