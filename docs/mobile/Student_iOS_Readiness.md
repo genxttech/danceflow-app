@@ -47,13 +47,11 @@ Still reviewed from the repository only; nothing was run on iOS. Everything in t
 
 **Owner-pending (unchanged or new):** photo library string (app.json); "offline ticket" (cached tickets or QR at rest) is an open owner product decision with privacy and fraud questions, deliberately not built; App Store privacy answers; APNs key; Apple merchant id.
 
-## Findings from the introspected Info.plist (2026-11-15, not changed; owner/App Review items)
+## Info.plist review from `expo config --type introspect` (2026-11-15)
 
-`npx expo config --type introspect --json` (no iOS build needed) lists keys that were not set in `app.json`:
-- `NSLocationAlwaysAndWhenInUseUsageDescription` and `NSLocationAlwaysUsageDescription` ("Allow $(PRODUCT_NAME) to access your location"): the app needs only when-in-use location. Declaring Always strings invites an App Review question; likely a default of the location config plugin (not listed in `plugins`), to confirm and trim with an explicit `expo-location` plugin entry (`isIosBackgroundLocationEnabled` false).
-- `NSFaceIDUsageDescription` ("Allow $(PRODUCT_NAME) to access your Face ID biometric data"): from `expo-secure-store`'s default; the app uses no biometrics, so set `faceIDPermission` false or give a real string.
-- `NSAppTransportSecurity.NSAllowsArbitraryLoads: true` with a localhost exception appears in the introspected plist; confirm the production prebuild/EAS profile ships ATS enabled (this is the Expo default template for development).
-None of these block a TestFlight build; each is an `app.json` (protected) change for the owner to approve.
+- **Always-location strings** (`NSLocationAlwaysAndWhenInUseUsageDescription`, `NSLocationAlwaysUsageDescription`): added by the `expo-location` config plugin's defaults although the app only needs when-in-use. Removed by listing the plugin with `locationAlwaysAndWhenInUsePermission` and `locationAlwaysPermission` false (a stacked PR after the photo-library one). Introspect afterwards shows only `NSLocationWhenInUseUsageDescription`; Android permissions are unchanged.
+- **Face ID string** (`NSFaceIDUsageDescription`): the `expo-secure-store` plugin's default; the app uses no biometrics. Removed with `faceIDPermission: false`.
+- **App Transport Security: no issue (correction of an earlier note).** The `NSAllowsArbitraryLoads: true` seen in introspect output comes from `@expo/config-plugins`' built-in fallback Info.plist (`withIosBaseMods.js`, used only to introspect without a native project) and is the same for every profile (checked with and without `NODE_ENV=production EAS_BUILD_PROFILE=production`). Real builds start from the Expo iOS template (`expo-template-bare-minimum@sdk-54`, 54.0.54), whose `Info.plist` has `NSAllowsArbitraryLoads` **false** and `NSAllowsLocalNetworking` true, so release builds do not allow arbitrary HTTP loads. `expo prebuild --platform ios` cannot run on Windows (it skips iOS), so the generated project itself was not inspected; confirm on the first Mac/EAS iOS build by reading the built Info.plist.
 
 ## Verification checklist (run when a Mac or an EAS iOS build exists)
 
