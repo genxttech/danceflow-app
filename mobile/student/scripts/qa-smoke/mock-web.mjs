@@ -23,6 +23,10 @@ http
         },
       });
     if (url.pathname === "/api/stripe/client-checkout") { res.writeHead(200, { "content-type": "text/html" }); return res.end("<h1>QA checkout</h1><p>Mock payment page for "+url.searchParams.get("paymentId")+"</p>"); }
+    if (url.pathname === "/api/tickets/qr") { // a 1x1 PNG stands in for the QR image
+      res.writeHead(200, { "content-type": "image/png" });
+      return res.end(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+    }
     return json(res, 404, { error: "not mocked" });
   })
   .listen(8791, "0.0.0.0", () => console.log("mock web on 8791"));
