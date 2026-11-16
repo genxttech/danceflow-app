@@ -11,7 +11,7 @@ Status 2026-11-14, refreshed 2026-11-15 (see "Refresh" below). **Everything that
 | `NSLocationWhenInUseUsageDescription` | present | Nearby studios and events. |
 | `NSUserNotificationsUsageDescription` | present but **not an Apple key** | iOS ignores it; notification permission is requested at runtime and needs no Info.plist string. Harmless; can be removed. |
 | `ITSAppUsesNonExemptEncryption` | `false` | OK for HTTPS-only use. |
-| Photo library string | **missing** | `expo-image-picker` is used (`app/partners/draft.tsx`, `app/partners/index.tsx` call `requestMediaLibraryPermissionsAsync`) but the `expo-image-picker` config plugin is not listed in `plugins`, so `NSPhotoLibraryUsageDescription` is not generated. Without it the permission request can abort the app on iOS. Fix: add the plugin with a `photosPermission` string. `app.json` is CODEOWNERS-protected, so this needs owner approval and was not changed. |
+| Photo library string | **added in this change** | `expo-image-picker` plugin with `photosPermission` "DanceFlow uses your photo library so you can add a photo to your Partner Search profile and posts." and `cameraPermission`/`microphonePermission` false (the app only picks from the library, so no camera or microphone string is generated). Proof: `npx expo config --type introspect --json` shows `NSPhotoLibraryUsageDescription` and no `NSCameraUsageDescription` or `NSMicrophoneUsageDescription`; `iosConfig.test.ts`. `app.json` is CODEOWNERS-protected: needs the owner's approval on the PR head. |
 | Camera / microphone strings | not needed | The app displays QR codes; it does not scan or record. Re-check if that changes. |
 | Push (APNs) | plugin present (`expo-notifications`) | Requires an APNs key attached to the Expo project and an iOS dev/production build; the `aps-environment` entitlement is added by the plugin at prebuild. Token and delivery proof BLOCKED (no device, no APNs/FCM credentials). |
 | Apple Pay | disabled (`merchantIdentifier: ""`) | The Stripe payment sheet works without it. Enabling needs an Apple merchant id and Stripe configuration (owner/Stripe change). |
@@ -46,6 +46,14 @@ Still reviewed from the repository only; nothing was run on iOS. Everything in t
 | Smoke script (#551) | Android emulator only; no iOS equivalent (needs macOS, Xcode, a simulator). | Not applicable until a Mac exists. |
 
 **Owner-pending (unchanged or new):** photo library string (app.json); "offline ticket" (cached tickets or QR at rest) is an open owner product decision with privacy and fraud questions, deliberately not built; App Store privacy answers; APNs key; Apple merchant id.
+
+## Findings from the introspected Info.plist (2026-11-15, not changed; owner/App Review items)
+
+`npx expo config --type introspect --json` (no iOS build needed) lists keys that were not set in `app.json`:
+- `NSLocationAlwaysAndWhenInUseUsageDescription` and `NSLocationAlwaysUsageDescription` ("Allow $(PRODUCT_NAME) to access your location"): the app needs only when-in-use location. Declaring Always strings invites an App Review question; likely a default of the location config plugin (not listed in `plugins`), to confirm and trim with an explicit `expo-location` plugin entry (`isIosBackgroundLocationEnabled` false).
+- `NSFaceIDUsageDescription` ("Allow $(PRODUCT_NAME) to access your Face ID biometric data"): from `expo-secure-store`'s default; the app uses no biometrics, so set `faceIDPermission` false or give a real string.
+- `NSAppTransportSecurity.NSAllowsArbitraryLoads: true` with a localhost exception appears in the introspected plist; confirm the production prebuild/EAS profile ships ATS enabled (this is the Expo default template for development).
+None of these block a TestFlight build; each is an `app.json` (protected) change for the owner to approve.
 
 ## Verification checklist (run when a Mac or an EAS iOS build exists)
 
