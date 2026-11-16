@@ -68,50 +68,80 @@ const IDENT = ['-c', 'user.name=' + gitCfg('user.name', 'Continuity Pilot'), '-c
 const git = (dir, args) => execFileSync('git', ['--no-replace-objects', '-C', dir, '-c', 'core.hooksPath=' + EMPTY_HOOKS, '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'commit.gpgsign=false', '-c', 'protocol.allow=never', ...IDENT, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, env: childEnv() });
 const dirty = (dir) => { const parts = git(dir, ['status', '--porcelain', '-z', '-uall']).split('\0').filter((x) => x.length); const out = []; for (let i = 0; i < parts.length; i++) { const e = parts[i]; out.push(e.slice(3)); if (/^[RC]/.test(e.slice(0, 2))) { out.push(parts[i + 1]); i++; } } return out; }; // -z: no quoting, rename/copy entries carry both paths
 
-// Entries under the commit paths that could make git treat a directory as a repository or point outside the worktree: any name starting
-// .git (any case), a symlink/junction, an alternates file. `git status` hides some of them, so walk the disk.
-export function scanPlanted(dir, paths) {
-  const found = []; let seen = 0;
-  // a git directory layout has no .git* name: refuse the names that make a directory a (bare) repository too (round 4)
-  const GITISH = /^(HEAD|config|commondir|gitdir|packed-refs|objects|refs|hooks|alternates|info|worktrees|modules|shallow|FETCH_HEAD|ORIG_HEAD)$/i;
-  const walk = (rel) => {
-    let ents; try { ents = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw new Error('cannot scan ' + rel + ': ' + e.message); } // fail closed
-    for (const e of ents) {
-      if (++seen > 50000) throw new Error('too many entries under the commit paths (scan cap 50000)'); // fail closed
-      const r = rel + e.name;
-      if (/^\.git/i.test(e.name) || e.isSymbolicLink() || GITISH.test(e.name)) found.push(r);
-      if (e.isDirectory() && !e.isSymbolicLink()) walk(r + '/');
+// ---- Round 5: the child NEVER writes into a repository. It writes plain files into a stage directory outside every repository
+// (C:/Dev/cpilot-out/<cwd>); the DRIVER validates them and copies them into commit.dir/commit.paths[0] as NEW regular files, then commits.
+// This closes the whole class "something the child planted in the worktree runs later or gets committed" (nested repos, bare layouts,
+// ignored files, retries, edits to existing gate scripts): the repository is byte-for-byte what it was before the child ran, plus files
+// the driver itself created from a validated list.
+export const STAGE_LIMITS = { files: 50, bytes: 1048576, depth: 4, entries: 200 };
+const GITISH = /^(HEAD|config|commondir|gitdir|packed-refs|objects|refs|hooks|alternates|info|worktrees|modules|shallow|FETCH_HEAD|ORIG_HEAD|description|branches|logs|index|COMMIT_EDITMSG|MERGE_HEAD)$/i;
+const STAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
+const STAGE_EXT = /\.(md|txt|sql|json|sh|csv)$/i;
+const refuse = (m) => { const e = new Error('refused: ' + m); e.refused = true; return e; };
+
+// Lists the stage directory; every entry must be a plain regular file (or a plain directory) with a safe name. Throws on anything else.
+export function collectStage(stage) {
+  const files = []; let entries = 0;
+  const walk = (rel, depth) => {
+    if (depth > STAGE_LIMITS.depth) throw refuse('stage directory too deep: ' + rel);
+    for (const e of fs.readdirSync(path.join(stage, rel), { withFileTypes: true })) {
+      if (++entries > STAGE_LIMITS.entries) throw refuse('too many entries in the stage directory');
+      const r = rel ? rel + '/' + e.name : e.name; const full = path.join(stage, r); const st = fs.lstatSync(full);
+      if (st.isSymbolicLink() || !(st.isFile() || st.isDirectory())) throw refuse('stage entry is not a plain file or directory: ' + r);
+      if (!STAGE_NAME.test(e.name) || /^\.git/i.test(e.name) || GITISH.test(e.name)) throw refuse('stage entry has a forbidden name: ' + r);
+      if (st.isDirectory()) { walk(r, depth + 1); continue; }
+      if (!STAGE_EXT.test(e.name)) throw refuse('stage file type not allowed (md, txt, sql, json, sh, csv): ' + r);
+      if (st.size > STAGE_LIMITS.bytes) throw refuse('stage file too large: ' + r);
+      files.push(r); if (files.length > STAGE_LIMITS.files) throw refuse('too many stage files');
     }
   };
-  for (const p of paths) walk(p);
-  return found;
+  walk('', 0);
+  return files.sort();
 }
-// Before the child runs: the commit directory must be clean (so every later change is the child's) and we remember HEAD.
+
+const snapshotRepo = (dir) => ({ head: git(dir, ['rev-parse', 'HEAD']).trim(), status: git(dir, ['status', '--porcelain', '-z', '-uall', '--ignored=matching']) });
+
+// Before the child runs: the commit directory must be clean (so every later change is detectable), remember HEAD and the complete
+// status INCLUDING ignored files, and start from an empty stage directory.
 export function repoPrepare(iso) {
   if (!iso.commit) return { base: null };
-  const d = dirty(iso.commit.dir); if (d.length) throw new Error('worktree ' + iso.commit.dir + ' is not clean before the item: ' + d.slice(0, 5).join(', '));
-  return { base: git(iso.commit.dir, ['rev-parse', 'HEAD']).trim(), known: scanPlanted(iso.commit.dir, iso.commit.paths) };
+  const { dir, stage } = iso.commit;
+  const d = dirty(dir); if (d.length) throw new Error('worktree ' + dir + ' is not clean before the item: ' + d.slice(0, 5).join(', '));
+  fs.rmSync(stage, { recursive: true, force: true }); fs.mkdirSync(stage, { recursive: true });
+  const snap = snapshotRepo(dir);
+  return { base: snap.head, snap, stage };
 }
-// After a successful child: refuse any change outside commit.paths or any commit made by the child; otherwise stage exactly the
-// changed files and make ONE local commit with hooks disabled. Returns { ok, reason, changed, commit }.
-export function repoFinish(iso, base, known = []) {
+
+// After a successful child: the repository must be exactly as it was (the child has no write access to it); then import the stage
+// files as new regular files under commit.paths[0] and make ONE local commit with hooks disabled. Returns { ok, reason, changed, commit }.
+export function repoFinish(iso, prep) {
   if (!iso.commit) return { ok: true, changed: [] };
-  const { dir, paths, message } = iso.commit;
-  const head = git(dir, ['rev-parse', 'HEAD']).trim(); if (head !== base) return { ok: false, reason: 'child changed HEAD (it must not commit)', changed: [] };
-  const fresh = scanPlanted(dir, paths).filter((f) => !known.includes(f)); // review round 3: a nested repository / .git* name / symlink planted by the child
-  if (fresh.length) return { ok: false, reason: 'refused: nested-repository or .git* path planted: ' + fresh.slice(0, 5).join(', '), changed: [] };
-  const changed = dirty(dir); if (!changed.length) return { ok: true, changed: [], commit: null };
-  const outside = changed.filter((f) => !paths.some((p) => f.startsWith(p)) || f.split('/').includes('..'));
-  if (outside.length) return { ok: false, reason: 'unexpected changes outside ' + paths.join(',') + ': ' + outside.slice(0, 5).join(', '), changed };
-  // review round 3: the child must not plant a nested repository (untracked directory entry, a `.git` file or any .git* name, an
-  // alternates file) or a gitlink/symlink: a later `git status` in the owner's worktree would run that repo's config (core.fsmonitor)
-  const planted = changed.filter((f) => f.endsWith('/') || /(^|\/)\.git[^/]*(\/|$)/i.test(f) || /objects\/info\/alternates/i.test(f));
-  if (planted.length) return { ok: false, reason: 'refused: nested-repository or .git* path planted: ' + planted.slice(0, 5).join(', '), changed };
-  git(dir, ['--literal-pathspecs', 'add', '--', ...changed]);
-  const bad = git(dir, ['diff', '--cached', '--raw', '--no-renames']).split('\n').filter((l) => /^:\d{6} (\d{6}) /.test(l) && /^:\d{6} (160000|120000) /.test(l));
-  if (bad.length) { try { git(dir, ['reset', '-q']); } catch { /* reported below */ } return { ok: false, reason: 'refused: gitlink or symlink staged: ' + bad.slice(0, 3).join(' | '), changed }; }
-  git(dir, ['commit', '--no-verify', '-m', message]);
-  return { ok: true, changed, commit: git(dir, ['rev-parse', 'HEAD']).trim() };
+  const { dir, paths, message, stage } = iso.commit;
+  const now = snapshotRepo(dir);
+  if (now.head !== prep.snap.head) return { ok: false, reason: 'child changed HEAD (it must not commit)', changed: [] };
+  if (now.status !== prep.snap.status) { const a = new Set(prep.snap.status.split('\0')); const diff = now.status.split('\0').filter((x) => !a.has(x)).slice(0, 5); return { ok: false, reason: 'refused: the repository changed while the child ran (it has no write access): ' + diff.join(', '), changed: [] }; }
+  let files; try { files = collectStage(stage); } catch (e) { if (e.refused) return { ok: false, reason: e.message, changed: [] }; throw e; }
+  if (!files.length) return { ok: true, changed: [], commit: null };
+  const root = path.join(dir, paths[0]); const rootSt = fs.lstatSync(root);
+  if (rootSt.isSymbolicLink() || !rootSt.isDirectory()) return { ok: false, reason: 'refused: commit path is not a plain directory: ' + paths[0], changed: [] };
+  const rootReal = path.resolve(root) + path.sep; const rels = []; const made = [];
+  for (const f of files) {
+    const dest = path.resolve(root, f); if (!dest.startsWith(rootReal)) return { ok: false, reason: 'refused: stage file escapes the commit path: ' + f, changed: [] };
+    if (fs.existsSync(dest) || (() => { try { fs.lstatSync(dest); return true; } catch { return false; } })()) return { ok: false, reason: 'refused: a file already exists at ' + paths[0] + f + ' (the pilot only creates new files)', changed: [] };
+    rels.push(paths[0] + f);
+  }
+  try {
+    for (const f of files) { const dest = path.resolve(root, f); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(path.join(stage, f), dest, fs.constants.COPYFILE_EXCL); made.push(dest); }
+    git(dir, ['--literal-pathspecs', 'add', '--', ...rels]);
+    const staged = git(dir, ['diff', '--cached', '--raw', '--no-renames', '-z']).split('\0').filter((x) => x.length);
+    const names = staged.filter((x) => !x.startsWith(':')).sort(); const modes = staged.filter((x) => x.startsWith(':'));
+    if (JSON.stringify(names) !== JSON.stringify([...rels].sort()) || modes.some((m) => !/^:000000 100644 /.test(m))) throw refuse('staged set differs from the imported files or has a non-regular mode');
+    git(dir, ['commit', '--no-verify', '-m', message]);
+    return { ok: true, changed: rels, commit: git(dir, ['rev-parse', 'HEAD']).trim() };
+  } catch (e) {
+    try { git(dir, ['reset', '-q']); } catch { /* best effort */ } for (const m of made) { try { fs.rmSync(m, { force: true }); } catch { /* best effort */ } }
+    return { ok: false, reason: e.refused ? e.message : 'repository step failed: ' + String(e.message).split('\n')[0], changed: [] };
+  }
 }
 export function removeContainers(iso) { for (const c of iso.containers ?? []) { try { execFileSync('docker', ['rm', '-f', '-v', c], { stdio: 'ignore', timeout: 60000 }); } catch { /* not present */ } } }
 
@@ -135,11 +165,12 @@ export async function runChild(root, claim, { claudeCmd = DEFAULT_CLAUDE_CMD, wo
   const stopper = setInterval(() => { if (fs.existsSync(path.join(root, 'STOP'))) stop('STOP file set'); }, pollMs);
   const beat = setInterval(() => { try { O.heartbeat(root, item.id, item.runner.token); } catch { /* never kill the driver */ } }, hbMs);
   const code = await done; clearTimeout(timer); clearInterval(stopper); clearInterval(beat); sf.end();
+  try { killTree(child); } catch { /* already gone */ } // background grandchildren must be dead before the repository is inspected (round 5)
   removeContainers(iso); // a timeout or kill must never leave the database container running
   const r = parser.result; const text = String(r?.result ?? '');
   let ok = !why && code === 0 && r && !r.is_error && /^\s*DONE:/.test(text) && parser.denials.length === 0;
   let fin = { changed: [] }; let finReason = null;
-  if (ok) { try { fin = repoFinish(iso, prep.base, prep.known); if (!fin.ok) { ok = false; finReason = fin.reason; } } catch (e) { ok = false; finReason = 'repository step failed: ' + String(e.message).split('\n')[0]; } }
+  if (ok) { try { fin = repoFinish(iso, prep); if (!fin.ok) { ok = false; finReason = fin.reason; } } catch (e) { ok = false; finReason = 'repository step failed: ' + String(e.message).split('\n')[0]; } }
   const reason = finReason ? finReason : ok ? null : (why ?? (parser.denials.length ? `permission denial: ${parser.denials[0].call?.name}` : r?.is_error ? `child error: ${text.slice(0, 200)}` : !/^\s*DONE:/.test(text) ? `child did not report DONE: ${text.slice(0, 200)}` : `child exited with code ${code}: ${stderr.slice(0, 200)}`));
   const tools = {}; for (const c of parser.calls.values()) tools[c.name] = (tools[c.name] ?? 0) + 1;
   O.log(root, { ev: 'CHILD_END', id: item.id, ok, reason, code, changed: fin.changed, commit: fin.commit, cost: r?.total_cost_usd, turns: r?.num_turns, tools, denials: parser.denials.map((d) => ({ tool: d.call?.name, input: JSON.stringify(d.call?.input ?? '').slice(0, 160) })), init: parser.init });

@@ -69,7 +69,7 @@ test('P1. happy path: ALL checks pass (host + fail-closed suite + isolation evid
   assert.equal(rep.ok, true); assert.ok(att(s));
   for (const id of ['1.code-matches-main', '1.policy-integrity', '2.enabled', '2.window', '2.auth-expiry', '3.scope', '4.claims-work', '4.class-gate', '4.forged-owner-done', '4.auth-of-class-G-rejected', '4.stop-file', '4.resume', '4.unreachable-source', '4.wrong-worker', '4.no-attestation', '4.stale-attestation', '4.child-config-drift', '4.duplicate-ids', '4.remote-disable', '4.limit-enforced', '5.limits', '5.docker', '5.disk', '6.child-config', '6.claude-version', '6.isolation-report']) assert.ok(rep.checks.find((c) => c.id === id && c.ok), id);
   const a = JSON.parse(fs.readFileSync(path.join(s.root, O.ATTEST), 'utf8')); assert.equal(a.childConfigSha, childConfigSha(s.policy, req));
-  const c = O.claim(s.root, { worker: 'COMPETITION', source: s.r.source, now: NOW }); assert.equal(c.status, 'CLAIMED'); assert.equal(c.item.id, 'Q1'); assert.ok(c.item.iso.allow.length > 10 && c.item.iso.addDirs.length === 3 && c.item.iso.cwd === 'q1');
+  const c = O.claim(s.root, { worker: 'COMPETITION', source: s.r.source, now: NOW }); assert.equal(c.status, 'CLAIMED'); assert.equal(c.item.id, 'Q1'); assert.ok(c.item.iso.allow.length > 10 && c.item.iso.addDirs.length === 4 && c.item.iso.addDirs.includes('C:/Dev/cpilot-out') && c.item.iso.cwd === 'q1' && c.item.iso.commit.stage === 'C:/Dev/cpilot-out/q1');
   assert.ok(fs.readdirSync(os.tmpdir()).filter((n) => /^cpilot-pf(root)?-/.test(n)).length - before <= 0, 'preflight temp dirs are removed');
 });
 

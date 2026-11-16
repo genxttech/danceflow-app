@@ -111,32 +111,55 @@ after(() => { for (const d of repos) { try { fs.rmSync(d, { recursive: true, for
 function mkRepo() {
   const dir = 'C:/Dev/cpilot-tr-' + process.pid + '-' + repos.length; repos.push(dir); fs.mkdirSync(dir + '/docs', { recursive: true });
   gitq(dir, 'init', '-q', '-b', 'main'); gitq(dir, 'config', 'user.name', 't'); gitq(dir, 'config', 'user.email', 't@t'); gitq(dir, 'config', 'commit.gpgsign', 'false');
-  fs.writeFileSync(dir + '/README.md', 'x'); gitq(dir, 'add', '-A'); gitq(dir, 'commit', '-q', '-m', 'init'); return dir;
+  fs.writeFileSync(dir + '/README.md', 'x'); fs.writeFileSync(dir + '/docs/.keep.md', 'k'); gitq(dir, 'add', '-A'); gitq(dir, 'commit', '-q', '-m', 'init'); return dir;
 }
-const tplFor = (dir, extra = {}) => ({ work: { ...world([]).policy.templates.work, addDirs: [dir], allow: ['Read(//c/Dev/' + dir.slice(7) + '/**)'], examples: [], commit: { dir, paths: ['docs/'], message: 'pilot test commit' }, cmd: 'echo {n} in {CODE}', ...extra } });
+const STAGE = 'C:/Dev/cpilot-out/w';
+const tplFor = (dir, extra = {}) => ({ work: { ...world([]).policy.templates.work, cwd: 'w', addDirs: [dir, 'C:/Dev/cpilot-out'], allow: ['Read(//c/Dev/' + dir.slice(7) + '/**)', 'Write(//c/Dev/cpilot-out/w/**)'], examples: [], commit: { dir, paths: ['docs/'], message: 'pilot test commit', stage: STAGE }, cmd: 'echo {n} in {CODE}', ...extra } });
 const count = (dir) => Number(gitq(dir, 'rev-list', '--count', 'HEAD').trim());
+const stageFiles = (files) => files.map((f) => ({ path: STAGE + '/' + f.path, content: f.content }));
+const one = async (files, { repoFiles = [], tweak } = {}) => { const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir); const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: [...stageFiles(files), ...repoFiles.map((f) => ({ path: dir + '/' + f.path, content: f.content }))] })); return { dir, w, r, before }; };
+const untouched = ({ dir, before }) => { assert.equal(count(dir), before, 'nothing committed'); assert.equal(gitq(dir, 'status', '--porcelain').trim(), '', 'no file was imported into the worktree'); };
 
-test('D9. the DRIVER commits what the child wrote under commit.paths: one local commit, hooks NOT run, message from the template', { timeout: 120000 }, async () => {
+test('D9. the DRIVER imports validated stage files as NEW files and commits them: one local commit, hooks NOT run, message from the template', { timeout: 120000 }, async () => {
   const dir = mkRepo(); const marker = path.join(os.tmpdir(), 'cpilot-hook-marker-' + process.pid); fs.rmSync(marker, { force: true });
   fs.writeFileSync(dir + '/.git/hooks/pre-commit', '#!/bin/sh\ntouch "' + marker.replaceAll(String.fromCharCode(92), '/') + '"\n'); try { fs.chmodSync(dir + '/.git/hooks/pre-commit', 0o755); } catch { /* windows */ }
   const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
-  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: [{ path: dir + '/docs/note.md', content: 'evidence' }] }));
+  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: stageFiles([{ path: 'note.md', content: 'evidence' }, { path: 'sub/more.sql', content: 'select 1' }]) }));
   assert.equal(st(w, 'A1'), 'DONE', JSON.stringify(r)); assert.equal(count(dir), before + 1);
-  assert.equal(gitq(dir, 'log', '-1', '--format=%s').trim(), 'pilot test commit'); assert.deepEqual(gitq(dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['docs/note.md']);
+  assert.equal(gitq(dir, 'log', '-1', '--format=%s').trim(), 'pilot test commit'); assert.deepEqual(gitq(dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n').sort(), ['docs/note.md', 'docs/sub/more.sql']);
   assert.equal(fs.existsSync(marker), false, 'the repo pre-commit hook must NOT run'); assert.equal(gitq(dir, 'status', '--porcelain').trim(), '');
-  const end = O.readLog(w.root).find((e) => e.ev === 'CHILD_END'); assert.deepEqual(end.changed, ['docs/note.md']); assert.ok(end.commit);
+  const end = O.readLog(w.root).find((e) => e.ev === 'CHILD_END'); assert.deepEqual(end.changed.sort(), ['docs/note.md', 'docs/sub/more.sql']); assert.ok(end.commit);
 });
 
-test('D10. changes outside commit.paths fail the item, nothing is committed, files are left for review', { timeout: 120000 }, async () => {
-  const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
-  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: [{ path: dir + '/docs/ok.md', content: 'a' }, { path: dir + '/package.json', content: '{}' }] }));
-  assert.equal(r.results[0].state, 'FAILED'); assert.match(r.results[0].reason, /unexpected changes outside docs\//); assert.equal(count(dir), before);
-  assert.ok(fs.existsSync(dir + '/package.json') && fs.existsSync(dir + '/docs/ok.md'), 'left in place for the owner to inspect');
+test('D10. stage files that are not plain new files with safe names are refused: nothing is imported or committed', { timeout: 600000 }, async () => {
+  const big = 'x'.repeat(1048577);
+  const cases = {
+    'git-like directory name': [{ path: 'x/.git/config', content: 'a' }], 'git pointer file': [{ path: 'x/.git', content: 'gitdir: ../evil' }], 'case variant': [{ path: '.GITATTRIBUTES', content: 'a' }],
+    'bare layout names': [{ path: 'x/HEAD', content: 'ref' }, { path: 'x/config', content: 'a' }, { path: 'x/objects/keep.md', content: '' }], 'gitmodules': [{ path: '.gitmodules', content: 'a' }],
+    'executable extension': [{ path: 'run.exe', content: 'a' }], 'no extension': [{ path: 'README', content: 'a' }], 'hidden file': [{ path: '.hidden.md', content: 'a' }], 'space in name': [{ path: 'a b.md', content: 'a' }],
+    'too large': [{ path: 'big.md', content: big }], 'too deep': [{ path: 'a/b/c/d/e/f.md', content: 'a' }],
+    'existing tracked file (no overwrite)': [{ path: 'existing.md', content: 'overwrite' }],
+  };
+  for (const [name, files] of Object.entries(cases)) {
+    const dir = mkRepo(); fs.writeFileSync(dir + '/docs/existing.md', 'orig'); gitq(dir, 'add', '-A'); gitq(dir, 'commit', '-q', '-m', 'existing'); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
+    const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: stageFiles(files) }));
+    assert.equal(r.results[0].state, 'FAILED', name); assert.match(r.results[0].reason, /^refused:/, name + ' :: ' + r.results[0].reason); assert.equal(count(dir), before, name); assert.equal(gitq(dir, 'status', '--porcelain').trim(), '', name + ': nothing imported'); assert.equal(fs.readFileSync(dir + '/docs/existing.md', 'utf8'), 'orig');
+  }
 });
 
-test('D11. a child that commits by itself is rejected', { timeout: 120000 }, async () => {
-  const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) });
-  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), commitIn: dir })); assert.equal(r.results[0].state, 'FAILED'); assert.match(r.results[0].reason, /child changed HEAD/);
+test('D11. a child that commits by itself, or changes the repository in any way (planted nested/bare repos, ignored files, edits) is refused', { timeout: 600000 }, async () => {
+  { const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), commitIn: dir })); assert.equal(r.results[0].state, 'FAILED'); assert.match(r.results[0].reason, /child changed HEAD/); }
+  const cases = {
+    'planted nested repo (.git pointer)': [{ path: 'docs/x/.git', content: 'gitdir: ../evil\n' }, { path: 'docs/evil/HEAD', content: 'ref: refs/heads/main\n' }, { path: 'docs/evil/config', content: '[core]\n\tfsmonitor = echo pwned\n' }],
+    'planted bare layout': [{ path: 'docs/x/HEAD', content: 'ref: refs/heads/main\n' }, { path: 'docs/x/config', content: '[core]\n\tbare = false\n' }, { path: 'docs/x/objects/keep', content: '' }, { path: 'docs/x/refs/keep', content: '' }],
+    'ignored file (node_modules)': [{ path: 'docs/node_modules/evil/index.mjs', content: 'x' }], 'ignored env file': [{ path: 'docs/.env.local', content: 'x' }],
+    'edit of an existing tracked file': [{ path: 'README.md', content: 'tampered' }], 'new untracked file': [{ path: 'docs/new.md', content: 'x' }],
+  };
+  for (const [name, files] of Object.entries(cases)) {
+    const dir = mkRepo(); fs.writeFileSync(dir + '/.gitignore', 'node_modules/\n.env*\n'); gitq(dir, 'add', '-A'); gitq(dir, 'commit', '-q', '-m', 'ignore'); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
+    const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: files.map((f) => ({ path: dir + '/' + f.path, content: f.content })) }));
+    assert.equal(r.results[0].state, 'FAILED', name); assert.match(r.results[0].reason, /^refused: the repository changed while the child ran/, name + ' :: ' + r.results[0].reason); assert.equal(count(dir), before, name);
+  }
 });
 
 test('D12. a dirty worktree is refused BEFORE any child is started', { timeout: 120000 }, async () => {
@@ -165,19 +188,3 @@ test('D14. containers are removed after the item even when the child is killed o
   removeContainers({ containers: [name] }); // idempotent on an absent container
 });
 
-test('D15. a child that plants a nested repository, a .git pointer file, a case-variant .git* name or an alternates file is refused (nothing committed)', { timeout: 900000 }, async () => {
-  const marker = path.join(os.tmpdir(), 'cpilot-fsmon-marker-' + process.pid).replaceAll(String.fromCharCode(92), '/'); fs.rmSync(marker, { force: true });
-  const cases = {
-    'nested repo via .git pointer file': [{ path: 'docs/x/.git', content: 'gitdir: ../evil\n' }, { path: 'docs/evil/HEAD', content: 'ref: refs/heads/main\n' }, { path: 'docs/evil/config', content: '[core]\n\tfsmonitor = touch ' + marker + '\n' }],
-    'case-variant .gitattributes': [{ path: 'docs/sub/.GITATTRIBUTES', content: '*.txt -diff\n' }],
-    '.gitmodules': [{ path: 'docs/.gitmodules', content: '[submodule "a"]\n' }],
-    'bare repository layout (no .git name)': [{ path: 'docs/x/HEAD', content: 'ref: refs/heads/main\n' }, { path: 'docs/x/config', content: '[core]\n\tbare = false\n\tfsmonitor = echo pwned\n' }, { path: 'docs/x/objects/keep', content: '' }, { path: 'docs/x/refs/keep', content: '' }],
-    'alternates file': [{ path: 'docs/evil/objects/info/alternates', content: 'C:/Dev/x/.git/objects\n' }],
-  };
-  for (const [name, files] of Object.entries(cases)) {
-    const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
-    const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: files.map((f) => ({ path: dir + '/' + f.path, content: f.content })) }));
-    assert.equal(r.results[0].state, 'FAILED', name); assert.match(r.results[0].reason, /refused: nested-repository or \.git\* path planted/, name); assert.equal(count(dir), before, name + ': nothing committed');
-  }
-  assert.equal(fs.existsSync(marker), false, 'no planted config may ever have been executed by the driver');
-});

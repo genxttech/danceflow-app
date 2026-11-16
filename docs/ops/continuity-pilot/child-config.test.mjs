@@ -185,9 +185,10 @@ test('C13. git_read.sh (the ONLY git path with arguments) serves ordinary reads 
 test('C14. git inside the child and the driver ignores the owner global/system config; write allows stay inside commit.paths', () => {
   const env = childEnv(); assert.equal(env.GIT_CONFIG_NOSYSTEM, '1'); assert.ok(/^(NUL|\/dev\/null)$/.test(env.GIT_CONFIG_GLOBAL)); assert.equal(env.GIT_TERMINAL_PROMPT, '0'); assert.ok(!('GIT_ASKPASS' in env) && !('SSH_AUTH_SOCK' in env));
   const r = spawnSync('git', ['config', '--global', '--list'], { encoding: 'utf8', env }); assert.ok(!/\S/.test(r.stdout), 'global config must read as empty: ' + r.stdout);
-  for (const [n, t] of A) if (t.commit) for (const rule of t.allow.filter((x) => /^(Write|Edit)\(/.test(x))) { const spec = rule.slice(rule.indexOf('(') + 1, -1); assert.ok(t.commit.paths.some((p) => spec.startsWith('//c/Dev/' + t.commit.dir.slice(7) + '/' + p)), n + ': ' + rule); }
-  bad((t) => { t.allow.push('Write(//c/Dev/df-u18pkg/docs/other/**)'); }, /commit\.paths/);
-  bad((t) => { t.allow.push('Edit(//c/Dev/df-u18pkg/docs/**)'); }, /commit\.paths/);
+  for (const [n, t] of A) if (t.commit) for (const rule of t.allow.filter((x) => /^(Write|Edit)\(/.test(x))) assert.equal(rule.slice(rule.indexOf('(') + 1, -1), '//c/Dev/cpilot-out/' + t.cwd + '/**', n + ': the child may write ONLY into its stage directory (' + rule + ')');
+  bad((t) => { t.allow.push('Write(//c/Dev/df-u18pkg/docs/other/**)'); }, /exactly the stage directory/);
+  bad((t) => { t.allow.push('Edit(//c/Dev/df-u18pkg/docs/**)'); }, /exactly the stage directory/);
+  bad((t) => { t.commit.stage = 'C:/Dev/cpilot-out/other'; }, /commit.stage/); bad((t) => { t.addDirs = t.addDirs.filter((d) => d !== 'C:/Dev/cpilot-out'); }, /commit.stage|addDirs|stay inside/);
 });
 
 test('C15. round 4: git_read.sh refuses a directory that is not a worktree top level (implicit --no-index), no raw git or cd is allowed, git_read dirs must be template addDirs', () => {

@@ -55,7 +55,7 @@ export const WILDCARD_FAMILIES = [
 export const EXACT_FAMILIES = [
   /^KEEP=1 SUITES=none IMG=ns1-base:snap bash \{CODE\}\/phase2\/scripts\/run_u18s2\.sh cf1pilot-q[0-9]+ (none|u18|u18s|both) C:\/Dev\/cpilot-iso\/work\/[a-z0-9-]+\/[A-Za-z0-9._-]+$/,
   /^docker rm -f -v cf1pilot-q[0-9]+$/,
-  /^bash -n C:\/Dev\/df-pilot-runner\/scripts\/qa\/[A-Za-z0-9._-]+\.sh$/,
+  /^bash -n C:\/Dev\/cpilot-out\/q[0-9]+\/[A-Za-z0-9._-]+\.sh$/,
   // no raw `git` at all (review 2026-11-15 round 3): a raw `git status` runs repo-local config (core.fsmonitor in a nested repo) as the owner
   /^bash \{CODE\}\/phase2\/scripts\/git_read\.sh C:\/Dev\/[A-Za-z0-9_-][A-Za-z0-9._-]* (status|rev-parse HEAD)$/,
 ];
@@ -79,6 +79,7 @@ export function validateTemplateIsolation(name, t, required = loadRequired()) {
     const c = t.commit;
     if (!c || typeof c !== 'object' || !t.addDirs.includes(c.dir)) fail('commit.dir must be one of the template addDirs');
     if (!Array.isArray(c.paths) || c.paths.length === 0 || !c.paths.every((p) => /^[A-Za-z0-9._\/-]+\/$/.test(p) && !/(^|\/)\.\.(\/|$)/.test(p) && !/(^|\/)\.git(\/|$)/.test(p))) fail('commit.paths must be repo-relative directory prefixes ending in /');
+    if (c.stage !== `C:/Dev/cpilot-out/${t.cwd}` || !t.addDirs.includes('C:/Dev/cpilot-out')) fail('commit.stage must be C:/Dev/cpilot-out/<cwd> and C:/Dev/cpilot-out must be an addDir');
     if (typeof c.message !== 'string' || c.message.length < 5 || c.message.length > 120 || /[\n\r]/.test(c.message)) fail('commit.message must be a single line of 5 to 120 characters');
   }
   for (const r of t.allow) {
@@ -101,11 +102,8 @@ export function validateTemplateIsolation(name, t, required = loadRequired()) {
       for (const v of required.editVariants) if (v.tool === tool || (tool === 'Edit' && v.tool === 'Write')) for (const p of [v.path, v.probePath].filter(Boolean)) if (pathMatch(spec, p) && !denied(p)) fail(`file allow rule ${r} would permit protected target ${v.id}`);
       const dirs = t.addDirs.map((d) => `//c/Dev/${d.slice('C:/Dev/'.length)}`);
       if (!dirs.some((d) => spec === `${d}/**` || spec.startsWith(`${d}/`))) fail(`file allow rule ${r} must stay inside the template addDirs`);
-      // writes must not be wider than what the driver may commit (review 2026-11-15, P2-3): anything else would only fail the item
-      if (t.commit && (tool === 'Write' || tool === 'Edit')) {
-        const roots = t.commit.paths.map((p) => `//c/Dev/${t.commit.dir.slice('C:/Dev/'.length)}/${p}`);
-        if (!roots.some((root) => spec.startsWith(root))) fail(`write allow rule ${r} must stay inside commit.paths`);
-      }
+      // the child never writes into a repository (round 5): with a commit block every Write/Edit must stay inside the stage directory the driver imports from
+      if (t.commit && (tool === 'Write' || tool === 'Edit') && spec !== `//c/Dev/cpilot-out/${t.cwd}/**`) fail(`write allow rule ${r} must be exactly the stage directory //c/Dev/cpilot-out/${t.cwd}/**`);
     } else fail(`unsupported allow rule form: ${r}`);
   }
 }
@@ -133,7 +131,7 @@ export function childArgs({ prompt, settingsPath, tpl }) {
 // url rewrites, credential helper; review 2026-11-15, P2-1): GIT_CONFIG_GLOBAL points at an empty file.
 export function childEnv(extra = {}) {
   const keep = ['PATH', 'Path', 'SystemRoot', 'ComSpec', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOMEDRIVE', 'HOMEPATH'];
-  const git = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.bareRepository', GIT_CONFIG_VALUE_0: 'explicit' };
+  const git = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_COUNT: '4', GIT_CONFIG_KEY_0: 'safe.bareRepository', GIT_CONFIG_VALUE_0: 'explicit', GIT_CONFIG_KEY_1: 'core.fsmonitor', GIT_CONFIG_VALUE_1: 'false', GIT_CONFIG_KEY_2: 'core.hooksPath', GIT_CONFIG_VALUE_2: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_CONFIG_KEY_3: 'core.pager', GIT_CONFIG_VALUE_3: 'cat' };
   return { ...Object.fromEntries(keep.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]])), ...git, ...extra };
 }
 
