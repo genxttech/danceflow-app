@@ -153,3 +153,43 @@ The shipping builds above are untouched. For R-6 to R-11 a second build of each 
 
 ### Emulator and stack state
 The disposable iso-qa stack (`relqa`) was torn down, the QA apps uninstalled, font scale reset to 1.0 and the emulator shut down. Existing debug builds of both packages that were on the AVD had to be uninstalled (signature mismatch).
+
+## 8. Release candidate 2 from main `157f0098` (2026-11-15)
+
+Built locally from `C:\dfr\r` at main `157f0098` (includes #533 Student `fontScale` in `configChanges`), QA-only key, one Gradle build at a time, outputs outside the repo.
+
+| | Student | Business |
+|---|---|---|
+| AAB | `C:\dfr-out\student-rc2.aab`, 99,112,922 B | `C:\dfr-out\business-rc2.aab`, 64,765,796 B |
+| versionCode / versionName | 1 / 0.1.0 | 1 / 0.1.0 |
+| targetSdk | 36 | 36 |
+| Universal APK | 146,905,146 B | 97,890,473 B |
+| Signer | QA key, SHA-256 `93:F4:E4:5E:...:F0:99` (not the debug key) | same |
+| debuggable | absent (false) | absent (false) |
+| `usesCleartextTraffic` | absent | absent |
+| 16 KB: `zipalign -c -P 16 4` | exit 0 | exit 0 |
+| 16 KB: ELF `PT_LOAD` `p_align` of every `arm64-v8a` and `x86_64` library | 46 libraries checked, 0 below 16384 | 36 libraries checked, 0 below 16384 |
+
+16 KB alignment is therefore **PASS** for both apps on these builds (stored libraries are 16 KB aligned in the APK and every 64-bit library's segments are 16 KB aligned).
+
+Lesson recorded for repeat builds: the first Business RC2 build still carried the QA-only `usesCleartextTraffic="true"` because `expo prebuild` without `--clean` keeps an edited manifest; it was caught by the manifest check, the project was regenerated with `prebuild --clean`, and the build repeated. Shipping Business builds must always follow a `--clean` prebuild (see `Android_Release_QA_Runbook.md`).
+
+### Device smokes on RC2 (QA-only HTTP variants, emulator df-api35, API 35)
+
+| Check | Result | Evidence |
+|---|---|---|
+| Student signed-in smoke (`mobile/student/scripts/qa-smoke/run.mjs`, QA release APK from `157f0098`): magic-link sign-in, `settings`, `payment-requests`, `wallet` at font 1.0 and 2.0, light and dark | **PASS 13/13** | `C:\dfr-out\qa-rc2\student-smoke\results.json` |
+| Business smoke (`mobile/business/scripts/device-smoke.js`) | **UNVERIFIED, pending re-run**: failed at "expected on screen: Today" (sign-in answered "did not match"). The copy of the script used predates the #553/#568 hardening, so this is treated as a harness result, not an app failure; the Business session re-runs its current script | `C:\dfr-out\qa-rc2\business-smoke\` |
+| R-3b: font size changed while the Student app is running (post-#533) | **UNVERIFIED on device**: the smoke applies 2.0 before the app starts; the live-change case was not re-shot on RC2 | - |
+| Android 12 and older | **UNTESTED**: no API 31/32 AVD; the system image is a download of roughly 1 GB, not fetched | - |
+
+### R8 / minified release (Student): attempted twice, UNVERIFIED
+
+Config: `bundleRelease --no-daemon -Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=768m"`, QA keystore, empty `TEMP`.
+
+1. **Attempt 1 failed in 9 min** at `:app:minifyReleaseWithR8` with *Missing classes detected*: `com.stripe.android.pushProvisioning.*` (5 classes referenced by `@stripe/stripe-react-native`; Stripe push provisioning is optional and not used). Fix, committed on this branch: `-dontwarn com.stripe.android.pushProvisioning.**` in `mobile/student/android/app/proguard-rules.pro`. This is the only R8 finding so far; R8 got past the missing-class check once the classes were declared optional, but no minified build has completed.
+2. **Attempt 2 did not complete.** After the rule was added, the build re-ran native CMake configure and compile for four ABIs and stalled in that phase for about 8 hours with roughly 4 GB RAM in use on a PC that other sessions were also using (free RAM about 2.3 GB); the coordinator stopped it. Cause not established (memory starvation is the likely one). No minified AAB or APK exists, so **size and runtime breakage are UNVERIFIED**; this is neither a pass nor an app failure.
+
+To retry: ask for a Gradle/RAM slot, run only after the native outputs are warm (same commit, no checkout in between), cap at 45 minutes with `--no-daemon` and an explicit `-Xmx`, then run the Student smoke with `ORG_GRADLE_PROJECT_android.enableMinifyInReleaseBuilds=true` and `ORG_GRADLE_PROJECT_android.enableShrinkResourcesInReleaseBuilds=true`. Until then Play delivers per-ABI splits, so the 94 MiB AAB overstates install size.
+
+Runbook for repeating all of this: `Android_Release_QA_Runbook.md`.
