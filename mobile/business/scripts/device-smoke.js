@@ -24,7 +24,10 @@ const REPO = path.resolve(__dirname, "../../..");
 const WIN = process.platform === "win32";
 // With shell:true (needed for .bat on Windows) arguments are concatenated, so a value with a space has to carry its own quotes.
 const GRADLE_JVMARGS = WIN ? '"-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m"' : "-Dorg.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=768m";
-const PASSWORD = "Walk2026qa"; // QA only, set on the two seeded users through GoTrue's admin API of the disposable stack
+// QA only, set on the two seeded users through GoTrue's admin API of the disposable stack. Lowercase and digits only on purpose: with adb "input text" a
+// capital is a shift key plus a letter, and under load the shift can be lost, which types a different password of the same length (a bullet field cannot
+// show it, so the length check passes while the server refuses the login: android-release's RC2 run ended exactly like that).
+const PASSWORD = "walk2026qa";
 
 const opts = (() => {
   try {
@@ -175,14 +178,28 @@ async function typeInto(label, text, { secret = false } = {}) {
 
 async function signIn(email) {
   await expectLabel("Sign in to your studio", { timeout: 60000 });
-  await typeInto("Email", email);
-  await typeInto("Password", PASSWORD, { secret: true });
-  hideKeyboard();
-  await sleep(800);
-  const button = lib.findNode(dump(), /^Sign in$/);
-  if (!button) throw new Error("no Sign in button");
-  tapNode(button);
-  await expectLabel(/^Today$/, { timeout: 120000 });
+  // A typed password cannot be read back (the field shows bullets), so the proof is the server's answer: if the login is refused, type both fields again, up to three times.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await typeInto("Email", email);
+    await typeInto("Password", PASSWORD, { secret: true });
+    hideKeyboard();
+    await sleep(800);
+    const button = lib.findTappable(dump(), /^Sign in$/);
+    if (!button) throw new Error("no Sign in button");
+    tapNode(button);
+    await sleep(2500); // the previous attempt's message is cleared when the button is pressed; do not read it before that render
+    const end = Date.now() + 90000;
+    while (Date.now() < end) {
+      const nodes = dump();
+      if (lib.hasLabel(nodes, /^Today$/)) return;
+      if (lib.hasLabel(nodes, "did not match")) {
+        log(`sign-in refused on attempt ${attempt}; retyping`);
+        break;
+      }
+      await sleep(1500);
+    }
+  }
+  throw new Error("the sign-in was refused three times with the credentials typed each time (a refusal, not a slow screen)");
 }
 
 // ---------------------------------------------------------------- steps
