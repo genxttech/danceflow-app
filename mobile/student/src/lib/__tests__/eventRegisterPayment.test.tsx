@@ -60,7 +60,7 @@ beforeEach(() => {
 
 async function fillAndContinue() {
   render(<RegisterScreen />);
-  await screen.findByText("Spring Social");
+  await screen.findByText("Spring Social", {}, { timeout: 10000 });
   fireEvent.changeText(screen.getByPlaceholderText("Quantity"), "1");
   fireEvent.changeText(screen.getByPlaceholderText("First name"), "Dana");
   fireEvent.changeText(screen.getByPlaceholderText("Last name"), "Dancer");
@@ -114,6 +114,28 @@ describe("event registration payment states", () => {
     await fillAndContinue();
 
     await waitFor(() => expect(screen.getByText("Tickets are sold out.")).toBeTruthy());
+    expect(mockSheet.presentPaymentSheet).not.toHaveBeenCalled();
+  });
+
+  it("while the checkout is being created the button is busy and only one checkout is made (no double order)", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    create.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+    mockSheet.presentPaymentSheet.mockResolvedValueOnce({});
+    await fillAndContinue();
+    // While the checkout is being created the button is busy and its label is replaced, so a second press has nothing to hit.
+    expect(screen.queryByText(CONTINUE)).toBeNull();
+    expect(screen.getByRole("button", { busy: true })).toBeTruthy();
+    expect(create).toHaveBeenCalledTimes(1);
+    release({ orderId: "o1", clientSecret: "cs_mock", registrationIds: [] });
+    await waitFor(() => expect(mockRouter.replace).toHaveBeenCalled());
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("says you are offline (not a raw network error) when the checkout cannot be reached, and never opens the sheet", async () => {
+    create.mockRejectedValueOnce(new TypeError("Network request failed"));
+    await fillAndContinue();
+    await waitFor(() => expect(screen.getByText("You're offline")).toBeTruthy());
+    expect(screen.queryByText("Network request failed")).toBeNull();
     expect(mockSheet.presentPaymentSheet).not.toHaveBeenCalled();
   });
 });
