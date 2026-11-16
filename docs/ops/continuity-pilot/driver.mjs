@@ -62,17 +62,27 @@ export function changedPaths(dirs) {
 // The driver's git ignores the owner's global/system git config (childEnv) and never runs hooks. The commit identity is read ONCE
 // (read-only `git config --global`, unscrubbed) and passed explicitly, so no config file can inject commands into the driver's git.
 const EMPTY_HOOKS = fs.mkdtempSync(path.join(os.tmpdir(), 'cpilot-nohooks-')); // per process: nobody can pre-populate it
+process.on('exit', () => { try { fs.rmSync(EMPTY_HOOKS, { recursive: true, force: true }); } catch { /* best effort */ } });
 const gitCfg = (k, d) => { try { return execFileSync('git', ['config', '--global', k], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000 }).trim() || d; } catch { return d; } };
 const IDENT = ['-c', 'user.name=' + gitCfg('user.name', 'Continuity Pilot'), '-c', 'user.email=' + gitCfg('user.email', 'pilot@localhost')];
 const git = (dir, args) => execFileSync('git', ['--no-replace-objects', '-C', dir, '-c', 'core.hooksPath=' + EMPTY_HOOKS, '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'commit.gpgsign=false', '-c', 'protocol.allow=never', ...IDENT, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, env: childEnv() });
-const dirty = (dir) => git(dir, ['status', '--porcelain', '-uall']).split('\n').filter((l) => l.trim()).map((l) => l.slice(3).trim().replace(/^"|"$/g, ''));
+const dirty = (dir) => { const parts = git(dir, ['status', '--porcelain', '-z', '-uall']).split('\0').filter((x) => x.length); const out = []; for (let i = 0; i < parts.length; i++) { const e = parts[i]; out.push(e.slice(3)); if (/^[RC]/.test(e.slice(0, 2))) { out.push(parts[i + 1]); i++; } } return out; }; // -z: no quoting, rename/copy entries carry both paths
 
 // Entries under the commit paths that could make git treat a directory as a repository or point outside the worktree: any name starting
 // .git (any case), a symlink/junction, an alternates file. `git status` hides some of them, so walk the disk.
 export function scanPlanted(dir, paths) {
   const found = []; let seen = 0;
-  const walk = (rel) => { let ents; try { ents = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return; }
-    for (const e of ents) { if (++seen > 50000) return; const r = rel + e.name; if (/^\.git/i.test(e.name) || e.isSymbolicLink() || /^alternates$/i.test(e.name)) found.push(r); if (e.isDirectory() && !e.isSymbolicLink()) walk(r + '/'); } };
+  // a git directory layout has no .git* name: refuse the names that make a directory a (bare) repository too (round 4)
+  const GITISH = /^(HEAD|config|commondir|gitdir|packed-refs|objects|refs|hooks|alternates|info|worktrees|modules|shallow|FETCH_HEAD|ORIG_HEAD)$/i;
+  const walk = (rel) => {
+    let ents; try { ents = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch (e) { if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return; throw new Error('cannot scan ' + rel + ': ' + e.message); } // fail closed
+    for (const e of ents) {
+      if (++seen > 50000) throw new Error('too many entries under the commit paths (scan cap 50000)'); // fail closed
+      const r = rel + e.name;
+      if (/^\.git/i.test(e.name) || e.isSymbolicLink() || GITISH.test(e.name)) found.push(r);
+      if (e.isDirectory() && !e.isSymbolicLink()) walk(r + '/');
+    }
+  };
   for (const p of paths) walk(p);
   return found;
 }
@@ -97,7 +107,7 @@ export function repoFinish(iso, base, known = []) {
   // alternates file) or a gitlink/symlink: a later `git status` in the owner's worktree would run that repo's config (core.fsmonitor)
   const planted = changed.filter((f) => f.endsWith('/') || /(^|\/)\.git[^/]*(\/|$)/i.test(f) || /objects\/info\/alternates/i.test(f));
   if (planted.length) return { ok: false, reason: 'refused: nested-repository or .git* path planted: ' + planted.slice(0, 5).join(', '), changed };
-  git(dir, ['add', '--', ...changed]);
+  git(dir, ['--literal-pathspecs', 'add', '--', ...changed]);
   const bad = git(dir, ['diff', '--cached', '--raw', '--no-renames']).split('\n').filter((l) => /^:\d{6} (\d{6}) /.test(l) && /^:\d{6} (160000|120000) /.test(l));
   if (bad.length) { try { git(dir, ['reset', '-q']); } catch { /* reported below */ } return { ok: false, reason: 'refused: gitlink or symlink staged: ' + bad.slice(0, 3).join(' | '), changed }; }
   git(dir, ['commit', '--no-verify', '-m', message]);

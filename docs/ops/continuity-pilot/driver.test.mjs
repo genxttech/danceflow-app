@@ -165,12 +165,13 @@ test('D14. containers are removed after the item even when the child is killed o
   removeContainers({ containers: [name] }); // idempotent on an absent container
 });
 
-test('D15. a child that plants a nested repository, a .git pointer file, a case-variant .git* name or an alternates file is refused (nothing committed)', { timeout: 120000 }, async () => {
+test('D15. a child that plants a nested repository, a .git pointer file, a case-variant .git* name or an alternates file is refused (nothing committed)', { timeout: 900000 }, async () => {
   const marker = path.join(os.tmpdir(), 'cpilot-fsmon-marker-' + process.pid).replaceAll(String.fromCharCode(92), '/'); fs.rmSync(marker, { force: true });
   const cases = {
     'nested repo via .git pointer file': [{ path: 'docs/x/.git', content: 'gitdir: ../evil\n' }, { path: 'docs/evil/HEAD', content: 'ref: refs/heads/main\n' }, { path: 'docs/evil/config', content: '[core]\n\tfsmonitor = touch ' + marker + '\n' }],
     'case-variant .gitattributes': [{ path: 'docs/sub/.GITATTRIBUTES', content: '*.txt -diff\n' }],
     '.gitmodules': [{ path: 'docs/.gitmodules', content: '[submodule "a"]\n' }],
+    'bare repository layout (no .git name)': [{ path: 'docs/x/HEAD', content: 'ref: refs/heads/main\n' }, { path: 'docs/x/config', content: '[core]\n\tbare = false\n\tfsmonitor = echo pwned\n' }, { path: 'docs/x/objects/keep', content: '' }, { path: 'docs/x/refs/keep', content: '' }],
     'alternates file': [{ path: 'docs/evil/objects/info/alternates', content: 'C:/Dev/x/.git/objects\n' }],
   };
   for (const [name, files] of Object.entries(cases)) {

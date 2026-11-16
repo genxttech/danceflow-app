@@ -33,6 +33,8 @@ export const EXTRA_DENY = ['Bash(*>*)', 'Bash(*>>*)', 'Bash(*$(*)', 'Bash(*`*)',
   'Bash(*.env*)', 'Bash(*.pem*)', 'Bash(*id_rsa*)', 'Bash(*credentials*)', 'Bash(*.npmrc*)', 'Bash(*.key*)',
   // commands the real harness auto-approves WITHOUT path confinement (found by the isolation test and census, 2026-11-14)
   'Bash(type *)', 'Bash(tree*)', 'Bash(du *)', 'Bash(df*)', 'Bash(readlink*)', 'Bash(realpath*)', 'Bash(basename*)', 'Bash(dirname*)',
+  // round 4: the harness auto-approves raw `git status` etc. and a child could cd into a planted bare-repo layout and run it: no raw git, no cd
+  'Bash(git)', 'Bash(git *)', 'Bash(git.exe*)', 'Bash(*git *)', 'Bash(*git.exe*)', 'Bash(cd)', 'Bash(cd *)', 'Bash(*cd *)', 'Bash(pushd*)', 'Bash(popd*)',
   // read-only docker subcommands are auto-approved for ANY container (other coordinators' stacks): the child may only exec into cf1pilot-qN
   'Bash(docker ps*)', 'Bash(docker images*)', 'Bash(docker inspect*)', 'Bash(docker logs*)', 'Bash(docker top*)', 'Bash(docker stats*)', 'Bash(docker port*)', 'Bash(docker diff*)', 'Bash(docker history*)', 'Bash(docker events*)', 'Bash(docker container *)', 'Bash(docker image *)', 'Bash(docker cp*)', 'Bash(docker run*)', 'Bash(docker network*)', 'Bash(docker volume*)'];
 export const CAPS = { maxBudgetUsd: 10, timeoutMs: 3600000 };
@@ -86,6 +88,7 @@ export function validateTemplateIsolation(name, t, required = loadRequired()) {
       const SHELL_META = /[;&|<>$`\n\\]/;
       if (SHELL_META.test(spec.endsWith(' *') ? spec.slice(0, -2) : spec)) fail(`shell metacharacter in allow rule: ${r}`);
       if (!(WILDCARD_FAMILIES.some((re) => re.test(spec)) || EXACT_FAMILIES.some((re) => re.test(spec)))) fail(`Bash allow rule outside the reviewed families: ${r}`);
+      const gr = /git_read\.sh (C:\/Dev\/[A-Za-z0-9_-][A-Za-z0-9._-]*) /.exec(spec); if (gr && !t.addDirs.includes(gr[1])) fail(`git_read.sh directory ${gr[1]} is not one of the template addDirs`);
       for (const v of required.bashVariants) if (bashMatch(resolveCode(spec), v.cmd)) fail(`allow rule ${r} would permit protected variant ${v.id}`);
     } else if (FILE_TOOL.test(r)) {
       const tool = r.slice(0, r.indexOf('(')); const spec = r.slice(r.indexOf('(') + 1, -1);
@@ -130,7 +133,7 @@ export function childArgs({ prompt, settingsPath, tpl }) {
 // url rewrites, credential helper; review 2026-11-15, P2-1): GIT_CONFIG_GLOBAL points at an empty file.
 export function childEnv(extra = {}) {
   const keep = ['PATH', 'Path', 'SystemRoot', 'ComSpec', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'HOMEDRIVE', 'HOMEPATH'];
-  const git = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
+  const git = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null', GIT_NO_REPLACE_OBJECTS: '1', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'safe.bareRepository', GIT_CONFIG_VALUE_0: 'explicit' };
   return { ...Object.fromEntries(keep.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]])), ...git, ...extra };
 }
 

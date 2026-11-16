@@ -56,7 +56,7 @@ test('C5. child settings are default-deny with the full deny list; no permissive
 
 test('C6. the deny layer blocks smuggling syntax on top of an allowed prefix', () => {
   const deny = EXTRA_DENY.map((r) => /^Bash\((.*)\)$/.exec(r)[1]);
-  const allowedCmd = 'git -C C:/Dev/df-u18pkg log --oneline -5';
+  const allowedCmd = resolveCode('bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-u18pkg log --oneline -5');
   assert.ok(!deny.some((s) => bashMatch(s, allowedCmd)), 'plain allowed command is not denied');
   for (const evil of [`${allowedCmd} && touch x`, `${allowedCmd} ; touch x`, `${allowedCmd} | tee x`, `${allowedCmd} > x`, `${allowedCmd} >> x`, `${allowedCmd} "$(id)"`, `${allowedCmd} \`id\``, `${allowedCmd} --output=x`, 'git -C C:/Dev/df-u18pkg/../studioapp log', `${allowedCmd} --exec=x`, `${allowedCmd} || touch x`, 'git -C C:/Dev/x --git-dir=C:/y log', 'docker exec cf1pilot-q1 psql < /c/secret', `${allowedCmd} & touch x`, 'git -C C:/Dev/df-u18pkg diff --no-index -- a b', 'git -C C:/Dev/df-u18pkg add --pathspec-from-file=x', 'git -C C:/Dev/df-u18pkg commit -F x', 'git -C C:/Dev/df-u18pkg commit --amend', 'git -C C:/Dev/df-u18pkg diff --ext-diff', 'git -C C:/Dev/df-u18pkg diff --textconv', 'docker exec cf1pilot-q1 psql -U postgres -h localhost -d postgres -c "\\\\! id"', 'docker exec cf1pilot-q1 psql -U postgres -h localhost -d postgres -c "copy t to program x"', 'docker exec cf1pilot-q1 psql -U postgres -h localhost -d postgres -c "select 1" -h 10.0.0.5', 'docker exec cf1pilot-q1 psql -U postgres -h localhost -d postgres postgresql://u:p@h/db', 'docker cp a b', 'docker run --rm alpine id', 'docker network ls'])
     assert.ok(deny.some((s) => bashMatch(s, evil)), evil);
@@ -188,4 +188,19 @@ test('C14. git inside the child and the driver ignores the owner global/system c
   for (const [n, t] of A) if (t.commit) for (const rule of t.allow.filter((x) => /^(Write|Edit)\(/.test(x))) { const spec = rule.slice(rule.indexOf('(') + 1, -1); assert.ok(t.commit.paths.some((p) => spec.startsWith('//c/Dev/' + t.commit.dir.slice(7) + '/' + p)), n + ': ' + rule); }
   bad((t) => { t.allow.push('Write(//c/Dev/df-u18pkg/docs/other/**)'); }, /commit\.paths/);
   bad((t) => { t.allow.push('Edit(//c/Dev/df-u18pkg/docs/**)'); }, /commit\.paths/);
+});
+
+test('C15. round 4: git_read.sh refuses a directory that is not a worktree top level (implicit --no-index), no raw git or cd is allowed, git_read dirs must be template addDirs', () => {
+  const bs = String.fromCharCode(92); const NAME = 'cpilot-test-nonrepo-' + process.pid; const d = 'C:/Dev/' + NAME; fs.rmSync(d, { recursive: true, force: true }); fs.mkdirSync(d + '/sub', { recursive: true });
+  try {
+    fs.writeFileSync(d + '/s1', 'SECRET-ONE' + String.fromCharCode(10)); fs.writeFileSync(d + '/s2', 'SECRET-TWO' + String.fromCharCode(10));
+    const script = path.join(HERE, 'phase2', 'scripts', 'git_read.sh').replaceAll(bs, '/');
+    for (const args of [['diff', '--', 's1', 's2'], ['diff', '--stat', '--', 's1', 's2'], ['status'], ['log']]) { const r = spawnSync('bash', [script, d, ...args], { encoding: 'utf8' }); assert.equal(r.status, 2, args.join(' ') + ' :: ' + r.stdout + r.stderr); assert.match(r.stderr, /refused: not a git worktree/); assert.ok(!/SECRET/.test(r.stdout + r.stderr)); }
+    // a subdirectory of a real worktree is not a top level either
+    const sub = 'C:/Dev/studioapp/docs'; const r2 = spawnSync('bash', [script, sub, 'status'], { encoding: 'utf8' }); assert.equal(r2.status, 2);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  const ded = childSettings(base(), required).permissions.deny.map((x) => /^Bash\((.*)\)$/.exec(x)?.[1]).filter(Boolean);
+  for (const cmd of ['git status', 'git -C C:/Dev/df-u18pkg status', 'git -C C:/Dev/df-u18pkg/docs/qa/x log', 'git.exe status', 'FOO=1 git status', 'cd C:/Dev/df-u18pkg', 'cd C:/Dev/df-u18pkg/docs/qa/x', 'pushd C:/Dev/df-u18pkg']) assert.ok(ded.some((s) => bashMatch(s, cmd)), 'raw git / cd must be denied: ' + cmd);
+  assert.ok(!ded.some((s) => bashMatch(s, resolveCode('bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-u18pkg status'))), 'the reviewed helper must not be denied');
+  bad((t) => { t.allow.push('Bash(bash {CODE}/phase2/scripts/git_read.sh C:/Dev/danceflow-secrets log *)'); }, /not one of the template addDirs/);
 });

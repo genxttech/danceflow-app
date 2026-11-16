@@ -17,12 +17,15 @@ refuse() { echo "refused: $1" >&2; exit 2; }
 D=$1; SUB=$2; shift 2
 [[ "$D" =~ ^C:/Dev/[A-Za-z0-9_-][A-Za-z0-9._-]*$ ]] || refuse "directory must be C:/Dev/<name>"
 [ -d "$D" ] || refuse "no such directory"
+# the directory must be the TOP LEVEL of a git worktree: in a plain directory `git diff -- a b` would fall into implicit --no-index (arbitrary file reads)
+TOP=$(git --no-pager -C "$D" -c safe.bareRepository=explicit -c core.fsmonitor=false rev-parse --show-toplevel 2>/dev/null) || refuse "not a git worktree"
+[ "$(printf %s "$TOP" | tr A-Z a-z)" = "$(printf %s "$D" | tr A-Z a-z)" ] || refuse "directory is not a worktree top level"
 FLAGS=""
 case "$SUB" in
   ls-tree)   FLAGS=" -r -t -l -d -z --name-only --name-status --full-name --full-tree --long " ;;
   show)      FLAGS=" --stat --name-only --name-status --oneline --no-patch -s --shortstat --numstat --no-color -p --summary --no-renames " ;;
   cat-file)  FLAGS=" -p -t -s -e " ;;
-  log)       FLAGS=" --oneline --stat --name-only --name-status --shortstat --numstat --no-color --decorate --graph -p --first-parent --reverse --no-merges --merges --all --no-renames " ;;
+  log)       FLAGS=" --oneline --stat --name-only --name-status --shortstat --numstat --no-color --decorate --graph -p --first-parent --reverse --no-merges --merges --no-renames " ;;
   diff)      FLAGS=" --stat --name-only --name-status --shortstat --numstat --cached --staged --no-color -p --summary --no-renames " ;;
   rev-parse) FLAGS=" --abbrev-ref --short --verify --is-inside-work-tree --is-bare-repository " ;;
   status)    FLAGS=" --short -s --porcelain --branch -b --no-renames -uall -uno " ;;
@@ -61,4 +64,4 @@ done
 TAIL=(); if [ "${#PATHS[@]}" -gt 0 ]; then TAIL=(-- "${PATHS[@]}"); else case "$SUB" in diff|show|log) TAIL=(--) ;; esac; fi
 EXTRA=(); case "$SUB" in diff|show|log) EXTRA=(--no-ext-diff --no-textconv) ;; esac
 case "$SUB" in status|diff) EXTRA+=(--ignore-submodules=all) ;; esac
-exec git --no-pager --no-replace-objects --no-optional-locks -C "$D" -c core.pager=cat -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.allow=never "$SUB" "${EXTRA[@]}" "${ARGS[@]}" "${TAIL[@]}"
+exec git --no-pager --no-replace-objects --no-optional-locks -C "$D" -c core.pager=cat -c core.fsmonitor=false -c core.hooksPath=/dev/null -c safe.bareRepository=explicit -c protocol.allow=never "$SUB" "${EXTRA[@]}" "${ARGS[@]}" "${TAIL[@]}"
