@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, StyleSheet, TextInput, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
+import { Announce } from "@/components/Announce";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { useAuth } from "@/lib/auth";
@@ -93,6 +94,7 @@ export default function SignInScreen() {
             />
           </View>
 
+          <Announce message={error ?? message} />
           {error ? (
             <AppText tone="error" accessibilityRole="alert">
               {error}

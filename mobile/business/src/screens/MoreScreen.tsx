@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { NotificationsCard } from "@/components/NotificationsCard";
@@ -134,6 +135,13 @@ export function MoreScreen() {
         ) : null}
         {allState === "confirming" || allState === "working" || allState === "failed" ? (
           <View style={styles.confirm} accessibilityRole="alert">
+            <Announce
+              message={
+                allState === "failed"
+                  ? "Other devices could not be signed out. You are still signed in here. Check your connection and try again."
+                  : "Sign out of all devices? This ends your DanceFlow sessions on every phone and browser, including this one."
+              }
+            />
             <AppText variant="lead">Sign out of all devices?</AppText>
             <AppText tone="muted">This ends your DanceFlow sessions on every phone and browser, including this one.</AppText>
             {allState === "failed" ? (
