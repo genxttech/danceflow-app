@@ -6,6 +6,7 @@ import {
 } from "@/lib/notifications/templates";
 import { resolveEventEmailBranding } from "@/lib/notifications/event-email-branding";
 import { resolveEventMerchantLine } from "@/lib/notifications/merchantIdentity";
+import { ticketCreatesLead } from "@/lib/events/leadEligibility";
 
 /**
  * Post-payment side effects for event registrations and event cart orders (studio CRM lead, organizer contact,
@@ -81,6 +82,7 @@ export async function safeCaptureStudioEventRegistrationLead(params: {
         event_id,
         studio_id,
         client_id,
+        ticket_type_id,
         attendee_first_name,
         attendee_last_name,
         attendee_email,
@@ -122,14 +124,63 @@ export async function safeCaptureStudioEventRegistrationLead(params: {
     const studioId = event.studio_id ?? typedRegistration.studio_id;
     const email = normalizeEmail(typedRegistration.attendee_email);
 
-    if (!studioId || !email) {
-      return;
-    }
-
     const firstName =
       (typedRegistration.attendee_first_name ?? "").trim() || "Event";
     const lastName =
       (typedRegistration.attendee_last_name ?? "").trim() || "Registrant";
+
+    // G-02: only ticket types the studio flagged (creates_prospect_lead) create or refresh a studio lead. Any other paid
+    // registration (spectator, vendor, staff, table, pass, ... or no ticket type) creates/links/changes NO client; the
+    // studio still gets a clearly labelled notification. Mirrors capture_event_registration_lead (SQL).
+    if (studioId) {
+      let ticketKind: string | null = null;
+      let ticketFlag: boolean | null = null;
+      if (typedRegistration.ticket_type_id) {
+        const { data: ticketType, error: ticketTypeError } =
+          await params.supabase
+            .from("event_ticket_types")
+            .select("ticket_kind, creates_prospect_lead")
+            .eq("id", typedRegistration.ticket_type_id)
+            .eq("event_id", typedRegistration.event_id)
+            .maybeSingle();
+        if (ticketTypeError) {
+          console.error(
+            "event registration CRM capture ticket lookup failed:",
+            ticketTypeError.message,
+          );
+          return;
+        }
+        ticketFlag =
+          (ticketType?.creates_prospect_lead as boolean | null | undefined) ?? null;
+        ticketKind =
+          (ticketType?.ticket_kind as string | null | undefined) ?? null;
+      }
+
+      if (!ticketCreatesLead({ ticket_kind: ticketKind, creates_prospect_lead: ticketFlag })) {
+        const { error: noticeError } = await params.supabase
+          .from("notifications")
+          .insert({
+            studio_id: studioId,
+            client_id: typedRegistration.client_id,
+            type: "event_registration",
+            title: "New event registration (not added as a lead)",
+            body: `${firstName} ${lastName} registered for ${event.name} with a "${ticketKind?.trim() || "unclassified"}" ticket. This registration was not added to Leads because this ticket type is not set to add buyers as prospective students.`,
+            dedupe_key: `event_registration_notice:${typedRegistration.id}`,
+          });
+        // 23505: the notice for this registration already exists (replay) -- idempotent success.
+        if (noticeError && noticeError.code !== "23505") {
+          console.error(
+            "event registration notice insert failed:",
+            noticeError.message,
+          );
+        }
+        return;
+      }
+    }
+
+    if (!studioId || !email) {
+      return;
+    }
 
     let clientId = typedRegistration.client_id;
 

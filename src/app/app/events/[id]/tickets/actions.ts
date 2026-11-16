@@ -7,6 +7,7 @@ import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { canManageEventTickets } from "@/lib/auth/permissions";
 import { getEventTimeZone } from "@/lib/events/eventTiming";
 import { parseTicketPricingInput } from "@/lib/events/ticketPricingInput";
+import { ticketKindMayCreateLeads } from "@/lib/events/leadEligibility";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -17,6 +18,17 @@ function getBoolean(formData: FormData, key: string) {
   const value = formData.get(key);
   if (typeof value !== "string") return false;
   return value === "true" || value === "on";
+}
+
+/**
+ * G-02 (Rule 1): the "add buyers to Leads" setting. Only kinds that may be flagged can be true (the database CHECK enforces it
+ * too). On update, a form that does not render the control (marker absent) leaves the stored flag alone unless the new
+ * kind can no longer be flagged.
+ */
+function prospectLeadFields(formData: FormData, ticketKind: string, mode: "create" | "update") {
+  if (!ticketKindMayCreateLeads(ticketKind)) return { creates_prospect_lead: false };
+  if (mode === "update" && formData.get("createsProspectLeadPresent") !== "1") return {};
+  return { creates_prospect_lead: getBoolean(formData, "createsProspectLead") };
 }
 
 function parseOptionalInteger(value: string) {
@@ -219,6 +231,7 @@ export async function createTicketTypeAction(formData: FormData) {
       name,
       description: description || null,
       ticket_kind: ticketKind,
+      ...prospectLeadFields(formData, ticketKind, "create"),
       price: pricingFields.price,
       currency,
       capacity,
@@ -319,6 +332,7 @@ export async function updateTicketTypeAction(formData: FormData) {
         name,
         description: description || null,
         ticket_kind: ticketKind,
+        ...prospectLeadFields(formData, ticketKind, "update"),
         price: pricingFields.price,
         currency,
         capacity,
