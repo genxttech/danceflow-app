@@ -95,7 +95,7 @@ async function makeDancer(service) {
   const user = await r.json();
   if (!user.id) throw new Error(`could not create the dancer: ${JSON.stringify(user).slice(0, 200)}`);
   psql(join(here, "seed.sql"), ["-v", `uid='${user.id}'`]);
-  if (cfg.events) psql(join(here, "seed-event.sql"));
+  if (cfg.events) psql(join(here, "seed-event.sql"), ["-v", `uid='${user.id}'`]);
   return async () => {
     const g = await fetch(`${base}/auth/v1/admin/generate_link`, { method: "POST", headers: h, body: JSON.stringify({ type: "magiclink", email: cfg.email }) });
     const body = await g.json();

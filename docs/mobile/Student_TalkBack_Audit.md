@@ -13,9 +13,18 @@ Run: `node mobile/student/scripts/qa-smoke/run.mjs --out <dir>` then `node mobil
 | Payment Requests: amount, studio, type, note, date, Pay Now per request, in a sensible order | PASS |
 | Settings notification switches: **six unnamed Switch nodes** (each row was a button containing a native Switch with no label, so TalkBack could stop on a nameless switch and on the row) | **FAIL, fixed in this PR** |
 | Touch targets under 44dp | Two rows reported at font 2.0 (a wallet link row 37dp, a settings row 39dp); both are rows cut off at the bottom of the screen in the dump (partly scrolled out), not undersized controls |
-| Event detail and Ticket | BLOCKED (need a seeded event and registration and the real web API; see R7 runbook) |
+| Event detail (event-detail, 1.0/2.0, light/dark; run `--events`, 2026-11-16, `C:dfr-outqa-events`) | PASS: every control named, 0 unlabelled, 4/4 renders |
+| Wallet ticket screen | NOT RUN with data: the seeded registration was invisible to the dancer (see "Ticket finding" below). The screen's screen-reader behaviour is covered by `eventTicketScreen.test.tsx` (one named stop per ticket with the code spelled out) |
 | Discover | Not in this run (the harness covers Settings, Payment Requests and Wallet); covered by the source scan in `accessibilityAudit.test.ts` |
 | One harness check, Payment Requests 1.0 dark, missed the `$40` text in the dump (timing); the same screen passed at 2.0 dark and in light, so treated as a flake | noted |
+
+## Re-check of the notification switches on device (2026-11-16, build with #560)
+
+The row-level nodes are named and report state in the real tree ("Push notifications", "Schedule updates", ... as `android.widget.Switch` with `content-desc`, correct `checked`, `enabled` false until push is on). The inner native Switch still appears in the uiautomator dump as an unnamed `NAF` node because uiautomator also lists views hidden from screen readers; it is marked `importantForAccessibility="no"`. `a11y-audit.mjs` now reports an unnamed control inside a named control as "nested", not as a failure. Whether TalkBack skips it is a gesture check, still BLOCKED.
+
+## Ticket finding (row-level security)
+
+The first `--events` run showed "No event tickets yet". Cause, proved on a throwaway stack: a buyer can read an `event_registrations` row only when `user_id = auth.uid()` (`event_registrations_self_select`), and its `event_registration_attendees` only when the registration's `user_id` or `portal_user_id` is theirs (`..._self_select`). There is no policy by `attendee_email` or by the client link, so the app's lookups by email and `client_id` return only rows RLS already allows. The seed left `user_id` null; with `user_id` set the dancer sees 1 registration and 1 attendee. The seed is fixed (`seed-event.sql` takes the account id). **Open question for web/G-02:** a registration with no `user_id` (studio-created, guest checkout before the account exists, spectator or vendor ticket bought as a guest) will not show in the Student app; confirm `user_id` is set at purchase or backfilled when the account is created or verified.
 
 ## Fix
 
