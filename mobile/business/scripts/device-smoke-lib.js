@@ -110,4 +110,18 @@ function summarize(results) {
   return { total: results.length, passed: results.length - failed.length, failed: failed.map((r) => r.name), ok: results.length > 0 && failed.length === 0 };
 }
 
-module.exports = { parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/**
+ * The activity that has the screen, from `dumpsys activity activities` ("topResumedActivity=ActivityRecord{31966dd u0 com.idanceflow.business/.MainActivity t64}"),
+ * as "package/Activity", or null when the output has no such line. Used to notice that the app lost the foreground (a launcher, a system dialog, or a crash).
+ */
+function topActivity(dumpsys) {
+  const m = /topResumedActivity=ActivityRecord\{[^ ]+ u\d+ ([\w.]+\/[\w.$]+)/.exec(dumpsys ?? "");
+  return m ? m[1] : null;
+}
+
+function isAppForeground(dumpsys, pkg) {
+  const top = topActivity(dumpsys);
+  return top !== null && top.startsWith(`${pkg}/`);
+}
+
+module.exports = { topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
