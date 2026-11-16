@@ -361,9 +361,17 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
 
   const PM_MIGRATION = join(process.cwd(), "src/lib/supabase/migrations/20261231130000_twilio_sms_price_micros.sql");
   const PM_ROLLBACK = join(process.cwd(), "src/lib/supabase/migrations/rollback/20261231130000_twilio_sms_price_micros_rollback.sql");
+  // 20270212090000 (price micros publication) calls public._tw4pm_cents, so on a chain that has it the sub-cent layer cannot be rolled back until it is rolled back first
+  // (the micros rollback refuses otherwise). It is rolled back before the sub-cent layer and re-applied after it.
+  const PUB_MIGRATION = join(process.cwd(), "src/lib/supabase/migrations/20270212090000_twilio_price_micros_publication.sql");
+  const PUB_ROLLBACK = join(process.cwd(), "src/lib/supabase/migrations/rollback/20270212090000_twilio_price_micros_publication_rollback.sql");
+  const PUB_APPLIED = () => psql("select to_regprocedure('public.tw4_price_propose_micros(text,integer,integer,text,text)') is not null") === "t";
   let hadMicros = false;
+  let hadPub = false;
   it("F3-09 (d0) a stack with the later sub-cent layer (20261231130000) rolls that layer back first, so the next two legs see this migration as the latest replacement of tw4_usage_begin", () => {
     hadMicros = MICROS_APPLIED();
+    hadPub = PUB_APPLIED();
+    if (hadPub) psqlFile(readFileSync(PUB_ROLLBACK, "utf8"));
     if (hadMicros) psqlFile(readFileSync(PM_ROLLBACK, "utf8"));
     expect(fp(BEGIN_SIG)).toBe("7e85d636");
   });
@@ -434,6 +442,10 @@ describe.skipIf(!enabled)("TW-4F F3 usage-reconciler readiness gate (real schema
       psqlFile(readFileSync(PM_MIGRATION, "utf8"));
       expect(MICROS_APPLIED()).toBe(true);
       expect(fp(BEGIN_SIG)).toBe("7d5b9675");
+    }
+    if (hadPub) {
+      psqlFile(readFileSync(PUB_MIGRATION, "utf8"));
+      expect(PUB_APPLIED()).toBe(true);
     }
   });
 });
