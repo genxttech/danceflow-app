@@ -77,9 +77,10 @@ function dump() {
 }
 /** `scroll`: the dump only lists what is on screen, so at a large text size a card below the fold is found by swiping up a few times (and back to the top afterwards). */
 async function waitFor(label, { timeout = 30000, cls, scroll = false, tappable = false } = {}) {
-  const end = Date.now() + timeout;
+  let end = Date.now() + timeout;
   while (Date.now() < end) {
-    if (state.installed) await ensureForeground(`waiting for ${String(label)}`);
+    // a relaunch (cold start, system UI wait) must not eat the time this wait was given
+    if (state.installed && (await ensureForeground(`waiting for ${String(label)}`))) end = Date.now() + timeout;
     const nodes = dump();
     const node = tappable ? lib.findTappable(nodes, label) : lib.findNode(nodes, label, { cls });
     if (node) return node;
@@ -132,7 +133,13 @@ function saveLogs(tag) {
  * fails the run with the logs saved: a flaky emulator is tolerated once, a repeating one is not.
  */
 async function ensureForeground(where) {
-  if (lib.isAppForeground(adb("shell", "dumpsys", "activity", "activities").stdout, APP)) return;
+  const isTop = () => lib.isAppForeground(adb("shell", "dumpsys", "activity", "activities").stdout, APP);
+  if (isTop()) return false;
+  // A cold start takes several seconds on a loaded emulator (run 9: the check ran 5 s after the launch and called a starting app lost): give it a grace period.
+  for (let i = 0; i < GRACE_POLLS; i++) {
+    await sleep(2000);
+    if (isTop()) return false;
+  }
   state.lostForeground = (state.lostForeground ?? 0) + 1;
   saveLogs(`lost-foreground-${state.lostForeground}`);
   log(`the app left the foreground (${where}); logs saved`);
@@ -144,7 +151,9 @@ async function ensureForeground(where) {
   await waitSystemUiStable(180000);
   launch();
   await sleep(8000);
+  return true; // relaunched: the caller's own deadline restarts
 }
+const GRACE_POLLS = 10; // 20 s
 
 function launch(coldStart = true) {
   if (coldStart) adb("shell", "am", "force-stop", APP);
