@@ -48,6 +48,18 @@ describe("wallet query scope", () => {
   });
 });
 
+describe("guest buyers (no linked studio, no client record)", () => {
+  beforeEach(() => { mockCalls.length = 0; });
+
+  it("still finds event tickets by the account email, and digital purchases by account, without any studio link", async () => {
+    await loadStudentWallet([], "Buyer@Example.test", { force: true });
+    const reg = callsFor("event_registrations");
+    expect(reg.find((c) => c.method === "eq")?.args).toEqual(["attendee_email", "buyer@example.test"]);
+    expect(reg.find((c) => c.method === "in")?.args).toEqual(["status", ["confirmed", "checked_in", "pending", "waitlisted"]]);
+    expect(callsFor("commerce_entitlements").find((c) => c.method === "eq")?.args).toEqual(["user_id", "user-1"]);
+  });
+});
+
 describe("digital access window", () => {
   const now = Date.parse("2026-11-15T12:00:00Z");
 

@@ -19,11 +19,12 @@
 | # | Item | Status |
 |---|---|---|
 | B1 | `fontScale` in MainActivity `configChanges` (live text-size change clips sign-in without it) | DONE: #533 merged (main 157f0098) with the owner's approval; the new text size applies at next launch (Android recreates the activity otherwise) |
-| B2 | Photo-library string for iOS (`app.json`, `expo-image-picker` plugin) | PR #569 prepared, NOT merged: PENDING OWNER approval on its head (protected `app.json`). Three other introspected iOS plist items for the owner are listed in `Student_iOS_Readiness.md` |
+| B2 | iOS `app.json` items | DONE (owner-approved, merged): photo-library string #569 (42f3e892), Always-location and Face ID strings removed #584 (6b5f3d23), `ios.icon` wired to the RGB icon #586 (25561fab) with the asset #580 (8037c4e5). Info.plist was verified by `expo config --type introspect` only; confirm the built plist on the first Mac/EAS iOS build |
 | B3 | Real-device checks still BLOCKED: Event detail and Ticket (seed and harness flag ready in #572; waits for the emulator slot, order android-release, Business, Student), photo upload, real push delivery, real payments, Android 12 and older (no AVD), 16 KB page size, R8 minification, EAS cloud build, TalkBack gesture walk, VoiceOver, iOS | BLOCKED (see Student_Device_QA_R7.md "Still BLOCKED") |
 | B4 | Offline ticket (cached tickets/QR at rest) | Open owner product decision (privacy/fraud); not built |
 | B5 | Evidence already green (merged: #551 smoke, #552, #554 retry states, #557 VoiceOver announce, #560 named switches + tree audit, #566 buyers without a studio, #567 access-ended wording, plus #524 to #547 earlier): sign-in, magic link cold/warm, notification wording/channel/switch, dark mode, font 1.0/2.0, Pay Now return, smoke 13/13, jest 37 suites, screen-reader names/roles/announcements (#524 to #560) | DONE |
-| B7 | In review, not merged: #572 (harness `--events` seed + ticket screen screen-reader tests, prepares the Event/Ticket device rows), #574 (checkout URL and Pay Now hardening, test-only) | OPEN, merge on green CI |
+| B7 | #572 (harness `--events` seed + ticket screen tests) and #574 (checkout URL / Pay Now hardening) | DONE (merged: 7efd1c8e, 47fc0ebc) |
+| B8 | **RC2 smoke**: Android release QA build of main 157f0098 (includes #533), signed with the QA key (not upload-ready), 13/13 PASS: sign-in plus Settings, Payment Requests and Wallet at font 1.0/2.0, light/dark. Evidence `C:dfr-outqa-rc2student-smokeesults.json` | DONE (VERIFIED) |
 | B6 | Run the one-command device smoke (`mobile/student/scripts/qa-smoke/run.mjs`) then `a11y-audit.mjs` on the exact candidate commit before upload | OPEN at candidate time |
 
 ## C. Candidate gate (all must be true)
@@ -47,3 +48,15 @@ Context: G-01 moves the client record and portal link from checkout creation to 
 | Paid but access not yet granted (PAY-WH-1 gap for digital settlement) | `app/(tabs)/wallet.tsx` has a checkout-sync card for event orders only | Webhook/RPC failure after capture | Not applicable while the app sells nothing; if purchases move to web, Wallet shows the item once the entitlement exists (pull to refresh); a "payment received, access pending" state needs a server signal |
 | Mux playback and webhook reliability | `/api/student/digital-content/[id]/playback` | Server | Player surfaces errors with a retry (#554) |
 | Web Learn/Wallet pages absent | n/a | n/a | No Student change |
+
+## E. G-01 / G-02 review against the Student app (main 4960a5dc #564, 8ce56874 #565), 2026-11-16
+
+G-01: marketplace checkout no longer creates a client or a portal link; the entitlement belongs to the buyer's account (`commerce_entitlements.user_id`, `client_id` may be null; migration `20270220090000_g01_marketplace_guest_entitlements`, created only by verified settlement). G-02: studio leads from paid event registrations only for ticket types the studio flagged (default off).
+
+What the Student app assumed, checked in code:
+- **Digital purchases and library: no client-link assumption.** `studentWallet.ts` reads `commerce_entitlements` by `user_id` (never by `client_id`); the library comes from `/api/student/digital-content`; neither joins a client or link. Guest purchases therefore appear in Wallet and Learn. Pinned by `studentWalletDigital.test.ts` and `studentWalletScope.test.ts`.
+- **One assumption found and fixed earlier (#566):** the studio name for an owned item came only from linked studios, so a guest buyer saw "Studio"; it now comes from the server library.
+- **Event tickets without a client record:** the wallet also looks registrations up by account email, so a spectator or vendor ticket with no lead and no link still shows (new test in `studentWalletScope.test.ts`, guest buyers).
+- **Studio portal screens** (Today, schedule, payment requests, packages, memberships, Lumi, self-service booking) need a real link and show their no-studio states for a guest buyer. Existing links created by old marketplace checkouts remain until the owner-gated cleanup; removing them shows the same states.
+- **Not touched by the app:** it has no marketplace checkout (A7 above). `createStudentMarketplaceCheckout` is unused, so G-01 has no live effect through the app until a buy path exists; the web purchase path now yields guest entitlements the app can already show.
+- **Still open from the app side:** refund/expiry (G-05: revoked items just disappear, expired items now say "Access ended" (#567)), and an "access pending" state if purchases move to web (needs a server signal).
