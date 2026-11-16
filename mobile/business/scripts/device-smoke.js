@@ -120,6 +120,8 @@ function saveLogs(tag) {
   try {
     fs.writeFileSync(path.join(OUT, `logcat-${tag}-crash.txt`), adb("logcat", "-b", "crash", "-d").stdout);
     fs.writeFileSync(path.join(OUT, `logcat-${tag}-main.txt`), adb("logcat", "-d", "-t", "600").stdout);
+    // Android 11+ ApplicationExitInfo: says whether the process was killed for memory, crashed, or was stopped by the user
+    fs.writeFileSync(path.join(OUT, `exit-info-${tag}.txt`), adb("shell", "dumpsys", "activity", "exit-info", APP).stdout + "\n--- lmkd/oom lines ---\n" + adb("logcat", "-d", "-t", "2000", "-s", "lowmemorykiller:*", "lmkd:*", "ActivityManager:I").stdout);
   } catch {
     /* best effort */
   }
@@ -329,7 +331,7 @@ async function bootEmulator() {
   const running = adb("devices").stdout.includes("emulator-");
   if (!running) {
     log(`booting ${opts.avd}`);
-    spawn(EMULATOR, ["-avd", opts.avd, "-no-snapshot", "-no-boot-anim", "-gpu", "swiftshader_indirect", "-memory", "2048", "-no-audio"], { detached: true, stdio: "ignore" }).unref();
+    spawn(EMULATOR, ["-avd", opts.avd, "-no-snapshot", "-no-boot-anim", "-gpu", "swiftshader_indirect", "-memory", String(opts.memory), "-no-audio"], { detached: true, stdio: "ignore" }).unref();
     state.startedEmulator = true;
     for (let i = 0; i < 80; i++) {
       if (sh("getprop sys.boot_completed") === "1") break;

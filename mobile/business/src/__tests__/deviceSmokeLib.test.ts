@@ -106,6 +106,13 @@ describe("findTappable", () => {
   });
 });
 
+describe("emulator memory", () => {
+  it("defaults to 2048 MB and takes --memory as a number", () => {
+    expect(lib.parseArgs(["--dry-run"]).memory).toBe(2048);
+    expect(lib.parseArgs(["--dry-run", "--memory", "3072"]).memory).toBe(3072);
+  });
+});
+
 describe("which activity has the screen", () => {
   const APP_TOP = "  topResumedActivity=ActivityRecord{31966dd u0 com.idanceflow.business/.MainActivity t64}\n  ResumedActivity: ActivityRecord{31966dd u0 com.idanceflow.business/.MainActivity t64}";
   const LAUNCHER_TOP = "  topResumedActivity=ActivityRecord{a1b2c3 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}";

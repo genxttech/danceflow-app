@@ -61,7 +61,7 @@ node scripts/device-smoke.js --apk C:/path/business-qa-flags.apk        # reuse 
 node scripts/device-smoke.js --build-dir C:/dfq                         # build the APK too (Gradle, about 15 minutes)
 ```
 
-`--build-dir` is a short-path worktree of this repo at the commit under test (Windows' 260-character limit breaks the native build in a long worktree path, see `docs/mobile/Local_Android_QA.md`). Other options: `--out <dir>` (default `./device-smoke-out`), `--stack-name`, `--web-port` (default 3107), `--avd` (default `df-api35`), `--keep-emulator`, `--allow-busy`.
+`--build-dir` is a short-path worktree of this repo at the commit under test (Windows' 260-character limit breaks the native build in a long worktree path, see `docs/mobile/Local_Android_QA.md`). Other options: `--memory <MB>` (emulator RAM for this boot only, default 2048; the AVD config is not edited), `--out <dir>` (default `./device-smoke-out`), `--stack-name`, `--web-port` (default 3107), `--avd` (default `df-api35`), `--keep-emulator`, `--allow-busy`.
 
 What one run does, in order:
 
@@ -84,7 +84,7 @@ Status (2026-11-15): **VERIFIED end to end: run 6 passed 18 of 18** on the Andro
 6. 18 of 18.
 7. (2026-11-16, after #589) Failed at sign-in: the app was no longer in the foreground (the launcher was showing, "no Email field"), and no log was kept, so the cause (crash, low-memory kill, or the emulator restarting the launcher) is **unconfirmed**. The script now checks that the app is the top activity before each wait and each typing attempt: the first loss saves the logcat and relaunches once, a second loss fails the run with `logcat-lost-foreground-*.txt`.
 
-On any fatal failure the run keeps `fatal.png`, `fatal.xml` and the crash and recent main logcat (`logcat-fatal-*.txt`). Reusing an APK with `--apk` only works if the new stack gets the same port, because the port is baked into the APK; otherwise use `--build-dir`.
+On any fatal failure the run keeps `fatal.png`, `fatal.xml` and the crash and recent main logcat (`logcat-fatal-*.txt`, `exit-info-*.txt`: the app's ApplicationExitInfo, which tells a low-memory kill from a crash). Reusing an APK with `--apk` only works if the new stack gets the same port, because the port is baked into the APK; otherwise use `--build-dir`.
 
 Lessons for the next device script: wait for the system to settle, not for `boot_completed`; verify typed text by reading it back; the dump holds only what is on screen; a heading and its button can share the same words.
 
