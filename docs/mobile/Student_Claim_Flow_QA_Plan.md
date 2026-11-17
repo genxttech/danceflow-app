@@ -19,7 +19,8 @@ Applied after `seed.sql` and `seed-event.sql`, with `-v uid` (Dana, `dana.dancer
 | Row | Registration | Buyer email | `user_id` | Ticket code | Case |
 |---|---|---|---|---|---|
 | c1 | `...662` | `  Dana.Dancer@Example.TEST ` (capitals, spaces) | null | QA-CLAIM-0001 | public web cart, normalisation |
-| c2 | `...663` | `dana.dancer@example.test` | null | QA-CLAIM-0002 | studio sell-tickets, "Spectator" ticket type |
+| c2 | `...663` | `dana.dancer@example.test` | null | QA-CLAIM-0002 | studio sell-tickets, "Spectator" ticket type; **excluded from the claim, must stay unclaimed and invisible** |
+| c6 | `...667` | `dana.dancer@example.test` | null | none | `registration_source` NULL (unexpected source; allowlist fails closed, must stay unclaimed); seeded only if the column allows NULL |
 | c3 | `...664` | `evan.other@example.test` (purchaser Evan) | null | QA-GIFT-0003 | GIFT: the ticket's attendee is Dana |
 | c4 | `...665` | `dana.dancer@example.test` | Evan | QA-OWNED-0004 | already owned by another account |
 | c5 | `...666` | `nobody@example.test` | null | QA-NOBODY-0005 | belongs to nobody |
@@ -30,7 +31,7 @@ Notes: `registration_source` is CHECK-limited to public_event_page, admin, impor
 
 | # | Case | Steps | Expected on screen and in the database |
 |---|---|---|---|
-| 1 | Dana, verified email, first open of Wallet after sign-in | Sign in as Dana, open Wallet, then Wallet > event tickets | The function returns 2. Tickets list shows 3 passes: QA-DANA-0001, QA-CLAIM-0001, QA-CLAIM-0002. DB: c1 and c2 have `user_id` = Dana. No error text at any point. |
+| 1 | Dana, verified email, first open of Wallet after sign-in | Sign in as Dana, open Wallet, then Wallet > event tickets | The function returns 1 (owner decision 2026-11-17: studio-sold rows are excluded from the claim). Tickets list shows 2 passes: QA-DANA-0001, QA-CLAIM-0001; QA-CLAIM-0002 (c2, studio-sold, `admin`) must NOT appear. DB: c1 has `user_id` = Dana; c2 and c6 (NULL source, if the column allows it) stay unclaimed (case 1b). No error text at any point. |
 | 2 | Gift | Same session | QA-GIFT-0003 is NOT shown to Dana (the buyer is Evan; guest attendee email is ignored). c3 `user_id` still null until Evan claims. |
 | 3 | Owned by another account | Same session | QA-OWNED-0004 NOT shown; c4 still Evan's. |
 | 4 | Nobody's row | Same session | QA-NOBODY-0005 NOT shown; c5 `user_id` still null. |
@@ -70,10 +71,10 @@ Stack: iso-qa main scenario (after #618) + LAUNCH-SEC-1C-A and the 604 function 
 | 1 | Dana, bound email, first open | PASS: tickets QA-DANA-0001, QA-CLAIM-0001, QA-CLAIM-0002; c1 and c2 owned by Dana | dana1-tickets-*.xml, claim-after-dana.json |
 | 2-4 | Gift, owned-by-Evan, nobody's | PASS: not shown to Dana; ownership unchanged | same |
 | 5 | Evan, different email | PASS: sees QA-GIFT-0003 and QA-OWNED-0004 only; c3 now Evan's | evan-tickets-*.xml, claim-after-evan.json |
-| 6 | Exactly one call per app run | UNVERIFIED on device: no reliable call counter on this stack (pg stats and statement logging stay empty for PostgREST calls). Proven by jest only (claimEventRegistrations.test.tsx) | n/a |
+| 6 | Exactly one call per app run | UNVERIFIED on device in the 2026-11-17 run (no counter then; jest only). **Counter now written, NOT YET RUN**: `claim-call-counter.sql` wraps the function and records one row per call; `--claim` asserts one call per app run for Dana, Evan and Dana after a cold restart; `--api-check` asserts 4 signed-in calls and none for anon. Becomes PASS or FAIL on the next run. | n/a |
 | 7 | Idempotence, cold restart | PASS: same three tickets, no ownership change | dana2-tickets-*.xml |
 | 8 | Unbound or unverified | PASS: the app routes an unbound user to Create your password, nothing claimed; HTTP: function returns 0 for an unbound session (status 200) | dana0-unbound-secure-account.png, claim-api results.json. An unconfirmed email cannot sign in by magic link: jest and SQL test only |
-| 9 | Function missing | PASS: only the owned ticket shows, no error text. Retry count UNVERIFIED (no counter without the function; once-per-run proven by jest) | dana3-nofn-* |
+| 9 | Function missing | PASS: only the owned ticket shows, no error text. Retry count UNVERIFIED for the missing-function case (no counter without the function); new case 9b (function raises an error) counts calls with the wrapper and expects exactly one, NOT YET RUN | dana3-nofn-* |
 | 10 | Offline | PASS in substance: airplane mode on, the tickets stay on screen, no error and no claim text (dana2-offline.png). The harness check failed only because the first pass had scrolled off screen; its pattern now accepts any ticket code | dana2-offline.png |
 | 11 | Accessibility | PASS: 0 unlabelled controls and 0 small targets in all 23 trees (font 1.0, light) | a11y-report.md. Font 2.0 and dark not run for this flow: BLOCKED |
 
@@ -82,3 +83,17 @@ Must-not-change: PASS at every step (clients, client_account_links, leads, notif
 HTTP check (function semantics, real user tokens): unbound returns 0; bound Dana returns 2; repeat returns 0; Evan returns 1; anon is denied (401); 9 of 10 rows pass, the tenth was a call counter that does not work on this stack.
 
 Findings from the runs: (1) the iso-qa baseline lacks LAUNCH-SEC-1C-A (listed unreplayable), so my_verified_email() did not exist and the 604 function errored until 1C-A was applied; the app treated that as 0, silently. (2) The Wallet found registrations only by client link and exact lower-case email, so claimed registrations with capitals/spaces or another buyer email were missing: fixed in #621. (3) The slow magic link now shows the #611 wording. (4) Not covered: font 2.0 and dark for the claim flow, real push, real payments, iOS.
+
+## Font 2.0 and dark pass (`--claim-visual`, NOT YET RUN)
+
+`node mobile/student/scripts/qa-smoke/run.mjs --claim-visual --name <n> --out <dir> [--skip-build --apk <qa apk>]` (implies `--claim`). Order: font 1.0 light, 2.0 light, 1.0 dark, 2.0 dark.
+
+Part A (Dana unbound, no verified binding yet), each look: magic link sign-in lands on **Create your password**; screenshot + tree `cv-secure-<scale>-<mode>.*`; nothing claimed (662/663 still unclaimed); no crash/ANR dialog.
+
+Part B (Dana and Evan bound), each look, 662/663 reset to unclaimed, claim-call counter reset, fresh sign-in as Dana: tickets screen shows exactly QA-DANA-0001 and QA-CLAIM-0001, never QA-CLAIM-0002 (`cv-<look>-tickets-*.xml/png`); exactly one claim call in the run; owner 662 = Dana, 663 (studio-sold) 664 666 unclaimed, 665 = Evan; no claim/linking/verifying wording and no crash; then `danceflow://wallet` loads (`cv-wallet-<look>.*`), no claim wording.
+
+Afterwards run `node mobile/student/scripts/qa-smoke/a11y-audit.mjs <out>` over the saved trees: 0 unlabelled controls and no target under 44dp at font 2.0 (case 11). Read the screenshots for clipped text at 2.0 and low contrast in dark; those two judgements are manual and not automated.
+
+## Studio-sold exclusion (owner decision 2026-11-17): harness expectations changed
+
+The harness (`--claim`, `--api-check`, `--claim-visual`) now expects: Dana's bound claim returns **1** (c1 only), c2 (663) and c6 (667) never owned by Dana, Dana's tickets are QA-DANA-0001 and QA-CLAIM-0001 only. **These expectations need the exclusion migration** (allowlist, fail closed, built by lead-integrity). Until that migration is applied on the stack, the 604 function still claims c2 and the harness will FAIL cases 1, 1b and api 1 by design; the stack setup in `stackUp()` applies only the 604 files, so add the exclusion migration file there once it is merged (record its SHA in the report). Not yet run.

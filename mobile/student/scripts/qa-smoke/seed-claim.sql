@@ -20,7 +20,8 @@ insert into event_registrations (id, event_id, studio_id, ticket_type_id, client
           '55555555-5555-4555-8555-555555555551', null, null, null, 'Dana', 'Dancer', '  Dana.Dancer@Example.TEST ',
           'confirmed', 'paid', 1, 25, 25, 'public_event_page')
   on conflict (id) do nothing;
--- c2: studio-sold ticket (sell-tickets; registration_source is CHECK-limited, so admin stands in), buyer email matches Dana exactly. Dana's claim must take it.
+-- c2: studio-sold ticket (sell-tickets; registration_source is CHECK-limited, so admin stands in), buyer email matches Dana exactly.
+-- Owner decision 2026-11-17: studio-sold rows are EXCLUDED from the verified-email claim. Dana's claim must NOT take it and her tickets/wallet must not show it.
 insert into event_registrations (id, event_id, studio_id, ticket_type_id, client_id, user_id, portal_user_id, attendee_first_name, attendee_last_name, attendee_email,
                                  status, payment_status, quantity, unit_price, total_price, registration_source)
   values ('66666666-6666-4666-8666-666666666663', '44444444-4444-4444-8444-444444444441', '11111111-1111-4111-8111-111111111111',
@@ -49,6 +50,18 @@ insert into event_registrations (id, event_id, studio_id, ticket_type_id, client
           '55555555-5555-4555-8555-555555555551', null, null, null, 'Nobody', 'Here', 'nobody@example.test',
           'confirmed', 'paid', 1, 25, 25, 'other')
   on conflict (id) do nothing;
+
+-- c6: unexpected source (registration_source NULL), buyer email matches Dana. The exclusion is an allowlist that fails closed, so this must NOT be claimed.
+-- Skipped with a notice if the baseline column is NOT NULL (then it is covered by the SQL tests of the exclusion migration only).
+do $c6$ begin
+  insert into event_registrations (id, event_id, studio_id, ticket_type_id, client_id, user_id, portal_user_id, attendee_first_name, attendee_last_name, attendee_email,
+                                   status, payment_status, quantity, unit_price, total_price, registration_source)
+    values ('66666666-6666-4666-8666-666666666667', '44444444-4444-4444-8444-444444444441', '11111111-1111-4111-8111-111111111111',
+            '55555555-5555-4555-8555-555555555551', null, null, null, 'Dana', 'Dancer', 'dana.dancer@example.test',
+            'confirmed', 'paid', 1, 25, 25, null)
+    on conflict (id) do nothing;
+exception when not_null_violation then raise notice 'c6 skipped: registration_source is NOT NULL';
+end $c6$;
 
 -- One attendee (ticket) per registration. c3's attendee is Dana (the gift recipient).
 insert into event_registration_attendees (id, registration_id, event_id, ticket_type_id, first_name, last_name, email, sort_order, ticket_code, ticket_issued_at) values

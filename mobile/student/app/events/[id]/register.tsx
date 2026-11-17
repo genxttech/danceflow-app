@@ -527,7 +527,7 @@ export default function EventRegisterScreen() {
         <AppText variant="eyebrow">Total</AppText>
         <AppText variant="title">{formatCurrency(total, currency)}</AppText>
         <AppText variant="caption">
-          After Stripe confirms payment, your tickets and QR codes will appear in Wallet.
+          After your payment is confirmed, your tickets and QR codes will appear in Wallet.
         </AppText>
       </View>
 
