@@ -4,6 +4,7 @@ import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { createClient } from "@/lib/supabase/server";
 import { reactivateDanceFlowAccount } from "@/lib/student-identity/account-security";
 import { getEmailBindingStatus } from "@/lib/auth/verifiedEmail";
+import { claimMyEventRegistrations } from "@/lib/events/claimMyEventRegistrations";
 import {
   deactivateAccountAction,
   deleteAccountAction,
@@ -711,6 +712,10 @@ export default async function AccountPage({
   await reactivateDanceFlowAccount(user);
 
   const emailBindingStatus = await getEmailBindingStatus(supabase);
+
+  // Event registrations bought as a guest or by a studio carry no user_id; claim the ones that carry this account's own
+  // verified email so they appear below. Fails closed (0) if the function is missing or the email is not verified.
+  await claimMyEventRegistrations(supabase);
 
   const { data: legalAcceptances, error: legalAcceptancesError } =
     await supabase
