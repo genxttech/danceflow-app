@@ -142,11 +142,15 @@ begin
     end if;
     select count(*) into v_n from public.studio_sms_price_credentials where status = 'active' and role = 'recovery';
     raise notice 'INFO [post] active recovery credentials = %', v_n;
-    if v_n <> 1 then
-      v_fail := array_append(v_fail, ('there is not exactly one active recovery credential')::text);
-      raise notice 'FAIL [post] exactly one active recovery credential is required (found %)', v_n;
-    else
+    -- Single-owner policy (owner decision 2026-11-10): a separate recovery key is OPTIONAL. Zero is accepted (recovery is the documented owner-level reset with a waiting period and a freeze, see
+    -- docs/twilio/TW-4F_Price_Publication_Runbook.md); more than one is never valid.
+    if v_n > 1 then
+      v_fail := array_append(v_fail, ('more than one active recovery credential')::text);
+      raise notice 'FAIL [post] at most one active recovery credential is allowed (found %)', v_n;
+    elsif v_n = 1 then
       raise notice 'PASS [post] one active recovery credential';
+    else
+      raise notice 'INFO [post] no separate recovery credential (accepted for the single-owner design; recovery is the documented owner-level reset)';
     end if;
     select count(*) into v_n from public.studio_sms_price_credentials where status = 'active' and role = 'primary';
     raise notice 'INFO [post] active primary credentials = %', v_n;
@@ -154,6 +158,10 @@ begin
       v_fail := array_append(v_fail, ('there is not exactly one active primary credential')::text);
       raise notice 'FAIL [post] exactly one active primary credential is required (found %)', v_n;
     end if;
+    -- A credential whose signature counter is still 0 after use either has not signed yet or belongs to an authenticator that does not count (clone detection by counter is then unavailable; the
+    -- database still refuses any regression once a counter has moved). Informational: the owner accepts this for a device-bound, non-exportable key.
+    select count(*) into v_n from public.studio_sms_price_credentials where status = 'active' and sign_count = 0;
+    raise notice 'INFO [post] active credentials with signature counter 0 (no clone detection by counter) = %', v_n;
     select count(*) into v_n from public.studio_sms_price_credentials where status = 'active' and proof_verified_at is null;
     if v_n > 0 then
       v_fail := array_append(v_fail, ('an active credential has no enrolment proof')::text);
