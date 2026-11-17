@@ -16,6 +16,7 @@ import {
   type StudentLearnLesson,
   type StudentLearnOverview
 } from "@/lib/studentLearn";
+import { failureMessage } from "@/lib/errorKind";
 
 const emptyOverview: StudentLearnOverview = {
   recentLessons: [],
@@ -121,9 +122,9 @@ export default function LatestRecapsScreen() {
         if (!mounted) return;
         setLinkedStudios(access.linkedStudios);
         setOverview(learnOverview);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Recaps could not be loaded yet. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Recaps could not be loaded yet. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }

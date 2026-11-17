@@ -11,6 +11,7 @@ import {
   loadStudentCurriculumAssignment,
   type StudentCurriculumDetail,
 } from "@/lib/studentCurriculum";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -66,9 +67,7 @@ export default function CurriculumAssignmentDetailScreen() {
       setAssignment(await loadStudentCurriculumAssignment(assignmentId));
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Curriculum assignment could not be loaded.",
+        friendlyMessage(error, "Curriculum assignment could not be loaded."),
       );
     } finally {
       setLoading(false);

@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { loadStudentDocuments, type StudentDocument } from "@/lib/studentDocuments";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function formatDate(value: string | null) {
   if (!value) return null;
@@ -58,9 +59,7 @@ export default function StudentDocumentsScreen() {
       setDocuments(await loadStudentDocuments());
     } catch (nextError) {
       setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "Documents could not be loaded.",
+        friendlyMessage(nextError, "Documents could not be loaded."),
       );
     } finally {
       setLoading(false);

@@ -22,6 +22,7 @@ import {
   statusLabel,
   type StudentScheduleItem
 } from "@/lib/studentSchedule";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function routeId(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -187,9 +188,7 @@ export default function AppointmentDetailScreen() {
       setConfirmationMessage("Your appointment is confirmed.");
     } catch (nextError) {
       setConfirmationMessage(
-        nextError instanceof Error
-          ? nextError.message
-          : "Appointment confirmation could not be completed."
+        friendlyMessage(nextError, "Appointment confirmation could not be completed.")
       );
     } finally {
       setConfirming(false);
@@ -212,9 +211,7 @@ export default function AppointmentDetailScreen() {
       );
     } catch (nextError) {
       setCheckinMessage(
-        nextError instanceof Error
-          ? nextError.message
-          : "Check-in could not be completed."
+        friendlyMessage(nextError, "Check-in could not be completed.")
       );
     } finally {
       setCheckingIn(false);
