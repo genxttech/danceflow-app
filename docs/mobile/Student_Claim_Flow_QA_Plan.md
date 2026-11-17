@@ -1,6 +1,6 @@
 # Student claim-flow device QA plan (claim_my_event_registrations)
 
-Status: PLAN, nothing run. The device run needs the claim migration (SQL PR 604, `20270221090000`, head may still change) applied to a throwaway iso-qa stack, plus the draft app PR 603. Rows not run stay BLOCKED, not PASSED.
+Status: EXECUTED 2026-11-17 on an iso-qa stack (see Result at the end). The device run needs the claim migration (SQL PR 604, `20270221090000`, head may still change) applied to a throwaway iso-qa stack, plus the draft app PR 603. Rows not run stay BLOCKED, not PASSED.
 
 ## What the function does (from SQL PR 604, head 169e44d5)
 
@@ -24,7 +24,7 @@ Applied after `seed.sql` and `seed-event.sql`, with `-v uid` (Dana, `dana.dancer
 | c4 | `...665` | `dana.dancer@example.test` | Evan | QA-OWNED-0004 | already owned by another account |
 | c5 | `...666` | `nobody@example.test` | null | QA-NOBODY-0005 | belongs to nobody |
 
-Limitation: ticket kind is `general_admission` for all rows (the CHECK values for other kinds were not confirmed); "spectator" is the ticket type name only.
+Notes: `registration_source` is CHECK-limited to public_event_page, admin, import, organizer_portal, other, so c2 (studio-sold) uses `admin` and c5 uses `other`. The Spectator ticket type uses ticket_kind `spectator`.
 
 ## Cases and expected results
 
@@ -60,3 +60,25 @@ Limitation: ticket kind is `general_admission` for all rows (the CHECK values fo
 
 - Gift recipients never see a gifted ticket (by design in the SQL); product to confirm that is acceptable or whether the guest attendee email should also match.
 - A signed-in user whose registration email differs from their account email (typed a different address at checkout) is not covered by this flow.
+
+## Result (2026-11-17, device run 6 of 6, evidence C:dfr-outclaim; HTTP check C:dfr-outclaim-api)
+
+Stack: iso-qa main scenario (after #618) + LAUNCH-SEC-1C-A and the 604 function and index applied from git on the disposable stack only; QA APK built from main 671dea74c (includes #603 and #621); API 35 emulator. No hosted SQL.
+
+| # | Case | Result | Evidence |
+|---|---|---|---|
+| 1 | Dana, bound email, first open | PASS: tickets QA-DANA-0001, QA-CLAIM-0001, QA-CLAIM-0002; c1 and c2 owned by Dana | dana1-tickets-*.xml, claim-after-dana.json |
+| 2-4 | Gift, owned-by-Evan, nobody's | PASS: not shown to Dana; ownership unchanged | same |
+| 5 | Evan, different email | PASS: sees QA-GIFT-0003 and QA-OWNED-0004 only; c3 now Evan's | evan-tickets-*.xml, claim-after-evan.json |
+| 6 | Exactly one call per app run | UNVERIFIED on device: no reliable call counter on this stack (pg stats and statement logging stay empty for PostgREST calls). Proven by jest only (claimEventRegistrations.test.tsx) | n/a |
+| 7 | Idempotence, cold restart | PASS: same three tickets, no ownership change | dana2-tickets-*.xml |
+| 8 | Unbound or unverified | PASS: the app routes an unbound user to Create your password, nothing claimed; HTTP: function returns 0 for an unbound session (status 200) | dana0-unbound-secure-account.png, claim-api results.json. An unconfirmed email cannot sign in by magic link: jest and SQL test only |
+| 9 | Function missing | PASS: only the owned ticket shows, no error text. Retry count UNVERIFIED (no counter without the function; once-per-run proven by jest) | dana3-nofn-* |
+| 10 | Offline | PASS in substance: airplane mode on, the tickets stay on screen, no error and no claim text (dana2-offline.png). The harness check failed only because the first pass had scrolled off screen; its pattern now accepts any ticket code | dana2-offline.png |
+| 11 | Accessibility | PASS: 0 unlabelled controls and 0 small targets in all 23 trees (font 1.0, light) | a11y-report.md. Font 2.0 and dark not run for this flow: BLOCKED |
+
+Must-not-change: PASS at every step (clients, client_account_links, leads, notifications, payments and event_registration_attendees unchanged; c3, c4 owner and c5 untouched by Dana).
+
+HTTP check (function semantics, real user tokens): unbound returns 0; bound Dana returns 2; repeat returns 0; Evan returns 1; anon is denied (401); 9 of 10 rows pass, the tenth was a call counter that does not work on this stack.
+
+Findings from the runs: (1) the iso-qa baseline lacks LAUNCH-SEC-1C-A (listed unreplayable), so my_verified_email() did not exist and the 604 function errored until 1C-A was applied; the app treated that as 0, silently. (2) The Wallet found registrations only by client link and exact lower-case email, so claimed registrations with capitals/spaces or another buyer email were missing: fixed in #621. (3) The slow magic link now shows the #611 wording. (4) Not covered: font 2.0 and dark for the claim flow, real push, real payments, iOS.
