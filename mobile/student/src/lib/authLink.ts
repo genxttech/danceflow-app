@@ -41,12 +41,15 @@ export type AuthLinkError = { code: string | null; message: string };
 
 export const LINK_EXPIRED_MESSAGE =
   "That sign-in link has expired or was already used. Request a new link to continue.";
+export const LINK_OFFLINE_MESSAGE =
+  "We could not reach DanceFlow to finish signing you in. Check your connection, then open the link again or request a new one.";
 export const LINK_FAILED_MESSAGE =
   "We could not finish signing you in from that link. Request a new link and try again.";
 
 /** Turns a provider error (code and/or message) into words for a dancer; never echoes provider text. */
 export function friendlyAuthLinkError(code: string | null | undefined, message?: string | null): string {
   const haystack = `${code ?? ""} ${message ?? ""}`.toLowerCase();
+  if (/network request failed|failed to fetch|network ?error|timed? ?out|timeout|econn|enotfound|offline/.test(haystack)) return LINK_OFFLINE_MESSAGE;
   if (/otp_expired|expired|invalid|already|used|not found/.test(haystack)) return LINK_EXPIRED_MESSAGE;
 
   return LINK_FAILED_MESSAGE;

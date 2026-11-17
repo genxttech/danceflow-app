@@ -48,7 +48,7 @@ describe("Wallet ticket screen, for a screen reader", () => {
     mockLoad.mockResolvedValueOnce({ tickets: [ticket], registrations: [] });
     render(<EventTicketsScreen />);
     const retry = await screen.findByRole("button", { name: "Try again" });
-    expect(screen.getByTestId("error-state-unknown").props.accessibilityRole).toBe("alert");
+    expect(screen.getByTestId("error-state-offline").props.accessibilityRole).toBe("alert");
     fireEvent.press(retry);
     await waitFor(() => expect(screen.getByTestId("ticket-pass")).toBeTruthy());
     expect(mockLoad).toHaveBeenCalledTimes(2);

@@ -37,3 +37,30 @@ export function friendlyMessage(error: unknown, fallback: string): string {
   if (kind === "offline" || kind === "signedOut") return `${ERROR_COPY[kind].title}. ${ERROR_COPY[kind].detail}`;
   return error instanceof Error && error.message ? error.message : fallback;
 }
+
+/**
+ * For a screen whose own wording is the message ("Payment requests could not be loaded"): the cause only
+ * replaces it when it is something the dancer must act on differently. A phone with no connection, or an ended
+ * session, never reads as "not available", "not found" or a bad credential; any other failure keeps the screen's text
+ * (the raw message is not shown).
+ */
+export function failureMessage(error: unknown, fallback: string): string {
+  const kind = classifyError(error);
+  if (kind === "offline" || kind === "signedOut") return `${ERROR_COPY[kind].title}. ${ERROR_COPY[kind].detail}`;
+  return fallback;
+}
+
+/** Sending a sign-in link: separates a bad address, too many requests and no connection from a plain failure. */
+export function signInLinkErrorMessage(error: unknown): string {
+  const kind = classifyError(error);
+  if (kind === "offline") return `${ERROR_COPY.offline.title}. ${ERROR_COPY.offline.detail}`;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 429 || /rate limit|too many|over_email_send_rate_limit|security purposes/i.test(message)) {
+    return "Too many link requests. Wait a minute, then try again.";
+  }
+  if (/unable to validate email|invalid (email|format)|email address.*invalid|is invalid/i.test(message)) {
+    return "That email address does not look right. Check it and try again.";
+  }
+  return "We could not send that link right now. Try again in a moment.";
+}

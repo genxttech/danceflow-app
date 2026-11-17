@@ -13,6 +13,7 @@ import {
   loadStudentLearnOverview,
   type StudentGroupLessonRecap
 } from "@/lib/studentLearn";
+import { failureMessage } from "@/lib/errorKind";
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -88,9 +89,9 @@ export default function GroupRecapDetailScreen() {
         if (!match) {
           setErrorMessage("This group recap could not be found.");
         }
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("This group recap could not be loaded.");
+        setErrorMessage(failureMessage(err, "This group recap could not be loaded."));
       } finally {
         if (!mounted) return;
         setLoading(false);

@@ -17,6 +17,7 @@ import {
   loadStudentWallet,
   type StudentDigitalEntitlement
 } from "@/lib/studentWallet";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function itemTypeLabel(value: string) {
   if (value === "video_series") return "Video series";
@@ -53,9 +54,7 @@ export default function DigitalPurchasesPage() {
       setItems(wallet.digitalEntitlements);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Digital purchases could not be loaded."
+        friendlyMessage(error, "Digital purchases could not be loaded.")
       );
     } finally {
       setLoading(false);

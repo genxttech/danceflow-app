@@ -90,6 +90,26 @@ describe("signing in with a password", () => {
     expect(disabled(link())).toBe(false);
   });
 
+  it.each([
+    ["React Native fetch failure", new TypeError("Network request failed")],
+    ["supabase-js retryable fetch error", Object.assign(new Error("fetch failed"), { name: "AuthRetryableFetchError", status: 0 })],
+    ["a server error", Object.assign(new Error("boom"), { status: 503 })],
+  ])("%s says the server could not be reached, not that the password was wrong", async (_name, failure) => {
+    mockAuth.signInWithPassword.mockRejectedValue(failure);
+    fill();
+    await act(async () => fireEvent.press(signIn()));
+    const alert = screen.getByRole("alert");
+    expect(alert.props.children).toBe("Can't reach DanceFlow. Check your connection and try again.");
+    expect(JSON.stringify(alert.props.children)).not.toMatch(/did not match/);
+  });
+
+  it("a 400 invalid-credentials error still says the pair did not match", async () => {
+    mockAuth.signInWithPassword.mockRejectedValue(Object.assign(new Error("Invalid login credentials"), { name: "AuthApiError", status: 400 }));
+    fill();
+    await act(async () => fireEvent.press(signIn()));
+    expect(screen.getByRole("alert").props.children).toMatch(/did not match/);
+  });
+
   it("the error is cleared when the next attempt starts", async () => {
     mockAuth.signInWithPassword.mockRejectedValueOnce(new Error("no")).mockResolvedValueOnce(undefined);
     fill();
@@ -117,6 +137,15 @@ describe("the emailed link", () => {
     const note = screen.getByText(/a sign-in link is on its way/);
     expect(note.props.children).toBe("If this email belongs to studio staff, a sign-in link is on its way. Open it on this device.");
     expect(note.props.accessibilityLiveRegion).toBe("polite");
+  });
+
+  it("an unreachable server on the email link says so instead of blaming the address", async () => {
+    mockAuth.sendSignInLink.mockRejectedValueOnce(new TypeError("Network request failed"));
+    fill("ida@example.test", "");
+    await act(async () => fireEvent.press(link()));
+    const alert = screen.getByRole("alert");
+    expect(alert.props.children).toBe("Can't reach DanceFlow. Check your connection and try again.");
+    expect(JSON.stringify(alert.props.children)).not.toMatch(/address/);
   });
 
   it("a failure is an alert that asks for a retry, and a later success replaces it", async () => {

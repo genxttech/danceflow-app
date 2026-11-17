@@ -36,6 +36,14 @@
     {
       "path": "/api/cron/sms-onboarding-purge",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/sms-usage-reconcile",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-provider-fee-lifecycle",
+      "schedule": "7 * * * *"
     }
   ]
 }

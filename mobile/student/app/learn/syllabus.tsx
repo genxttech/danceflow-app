@@ -10,6 +10,7 @@ import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { loadStudentLearnOverview, type StudentLearnOverview } from "@/lib/studentLearn";
+import { failureMessage } from "@/lib/errorKind";
 
 type StudentSyllabusSummary = {
   id: string;
@@ -97,9 +98,9 @@ export default function SyllabusScreen() {
         if (!mounted) return;
         setLinkedStudios(access.linkedStudios);
         setOverview(learnOverview);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Syllabus progress could not be loaded yet. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Syllabus progress could not be loaded yet. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }

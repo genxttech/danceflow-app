@@ -16,6 +16,7 @@ import {
   type StudentPackage,
   type StudentWallet
 } from "@/lib/studentWallet";
+import { failureMessage } from "@/lib/errorKind";
 
 function PackageCard({ item }: { item: StudentPackage }) {
   const colors = colorsForScheme(useColorScheme());
@@ -77,9 +78,9 @@ export default function PackagesScreen() {
         if (!mounted) return;
         setLinkedStudios(access.linkedStudios);
         setWallet(nextWallet);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Packages could not be loaded. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Packages could not be loaded. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }

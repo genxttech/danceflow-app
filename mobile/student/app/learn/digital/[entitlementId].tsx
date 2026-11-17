@@ -20,6 +20,7 @@ import {
   saveStudentDigitalProgress,
   type StudentDigitalContentAccess
 } from "@/lib/studentDigitalContent";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -94,9 +95,7 @@ export default function DigitalContentPlaybackScreen() {
         );
       } catch (error) {
         setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "This content could not be opened."
+          friendlyMessage(error, "This content could not be opened.")
         );
       } finally {
         setLoading(false);

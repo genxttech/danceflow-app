@@ -139,6 +139,22 @@ describe("system UI stability and ANR kills (run 8)", () => {
   });
 });
 
+describe("reusing an APK needs the build stack's keys (run 11)", () => {
+  const SECRET = "2e04d70b0bb4d72fea9fae6840fcbeb40c555257819f67ea";
+  it("reads the JWT secret from the build run's stack.json", () => {
+    expect(lib.secretFromStackJson(JSON.stringify({ TW4A_LOCAL_JWT_SECRET: SECRET }))).toBe(SECRET);
+  });
+  it("refuses a file that is not a stack.json or has no usable secret", () => {
+    expect(() => lib.secretFromStackJson("not json")).toThrow(/not a stack.json/);
+    expect(() => lib.secretFromStackJson("{}")).toThrow(/no TW4A_LOCAL_JWT_SECRET/);
+    expect(() => lib.secretFromStackJson(JSON.stringify({ TW4A_LOCAL_JWT_SECRET: "short" }))).toThrow(/no TW4A_LOCAL_JWT_SECRET/);
+  });
+  it("takes --keys-from as a value", () => {
+    expect(lib.parseArgs(["--apk", "a", "--keys-from", "s.json"]).keysFrom).toBe("s.json");
+    expect(() => lib.parseArgs(["--apk", "a", "--keys-from"])).toThrow(/needs a value/);
+  });
+});
+
 describe("emulator memory", () => {
   it("defaults to 2048 MB and takes --memory as a number", () => {
     expect(lib.parseArgs(["--dry-run"]).memory).toBe(2048);

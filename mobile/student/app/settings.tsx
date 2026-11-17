@@ -16,6 +16,7 @@ import {
   downloadDanceFlowAccountData,
   requestLoginEmailChange,
 } from "@/lib/accountControls";
+import { friendlyMessage, failureMessage } from "@/lib/errorKind";
 
 export default function SettingsScreen() {
   const { session, signOut } = useAuth();
@@ -42,8 +43,8 @@ export default function SettingsScreen() {
     try {
       const access = await getStudentAccess(userId);
       setLinkedStudios(access.linkedStudios);
-    } catch {
-      setErrorMessage("Settings could not load connected studio details.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "Settings could not load connected studio details."));
     } finally {
       setLoading(false);
     }
@@ -69,7 +70,7 @@ export default function SettingsScreen() {
     } catch (error) {
       Alert.alert(
         "Email change failed",
-        error instanceof Error ? error.message : "Try again in a moment.",
+        friendlyMessage(error, "Try again in a moment."),
       );
     } finally {
       setSecurityBusy(false);
@@ -93,7 +94,7 @@ export default function SettingsScreen() {
             } catch (error) {
               Alert.alert(
                 "Account deactivation failed",
-                error instanceof Error ? error.message : "Try again in a moment.",
+                friendlyMessage(error, "Try again in a moment."),
               );
               setSecurityBusy(false);
             }
@@ -114,7 +115,7 @@ export default function SettingsScreen() {
     } catch (error) {
       Alert.alert(
         "Data export failed",
-        error instanceof Error ? error.message : "Try again in a moment.",
+        friendlyMessage(error, "Try again in a moment."),
       );
     } finally {
       setSecurityBusy(false);

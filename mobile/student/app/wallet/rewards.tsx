@@ -17,6 +17,7 @@ import {
   type StudentRewardProgress,
   type StudentWallet,
 } from "@/lib/studentWallet";
+import { failureMessage } from "@/lib/errorKind";
 
 function rewardValueLabel(type: string, value: number | null) {
   if (type === "points") return `${Number(value ?? 0).toLocaleString()} points`;
@@ -207,9 +208,9 @@ export default function RewardsScreen() {
         { force },
       );
       setWallet(nextWallet);
-    } catch {
+    } catch (err) {
       setWallet(null);
-      setErrorMessage("Rewards could not be loaded. Try again in a moment.");
+      setErrorMessage(failureMessage(err, "Rewards could not be loaded. Try again in a moment."));
     } finally {
       setLoading(false);
     }

@@ -11,6 +11,7 @@ import {
   loadStudentCurriculumAssignments,
   type StudentCurriculumAssignment,
 } from "@/lib/studentCurriculum";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function detailHref(assignmentId: string): Href {
   return `/learn/curriculum/${assignmentId}` as Href;
@@ -39,9 +40,7 @@ export default function CurriculumAssignmentsScreen() {
       .catch((error) => {
         if (active) {
           setErrorMessage(
-            error instanceof Error
-              ? error.message
-              : "Curriculum assignments could not be loaded.",
+            friendlyMessage(error, "Curriculum assignments could not be loaded."),
           );
         }
       })

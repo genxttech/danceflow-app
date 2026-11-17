@@ -15,6 +15,7 @@ import {
   type StudentMembership,
   type StudentWallet
 } from "@/lib/studentWallet";
+import { failureMessage } from "@/lib/errorKind";
 
 function statusLabel(value: string | null | undefined) {
   return (value ?? "active").replace(/_/g, " ");
@@ -78,9 +79,9 @@ export default function MembershipsScreen() {
         if (!mounted) return;
         setLinkedStudios(access.linkedStudios);
         setWallet(nextWallet);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Memberships could not be loaded. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Memberships could not be loaded. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }

@@ -28,6 +28,7 @@ import {
   type StudentTicket,
   type StudentWallet
 } from "@/lib/studentWallet";
+import { friendlyMessage, failureMessage } from "@/lib/errorKind";
 
 const CHECKOUT_SYNC_REFRESH_LIMIT = 18;
 const CHECKOUT_SYNC_REFRESH_INITIAL_DELAY_MS = 1200;
@@ -318,11 +319,11 @@ export default function WalletScreen() {
       const nextWallet = await loadStudentWalletWithOptions(access.linkedStudios, session?.user.email ?? null, { force });
       setWallet(nextWallet);
       lastWalletLoadAtRef.current = Date.now();
-    } catch {
+    } catch (err) {
       if (checkoutSource === "event") {
         setErrorMessage(null);
       } else {
-        setErrorMessage("Your wallet could not be loaded. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Your wallet could not be loaded. Try again in a moment."));
         setWallet(null);
       }
     } finally {
@@ -345,7 +346,7 @@ export default function WalletScreen() {
         await loadWallet({ background: true, force: true });
       }
     } catch (error) {
-      setCheckoutStatusError(error instanceof Error ? error.message : "Ticket status could not be checked.");
+      setCheckoutStatusError(friendlyMessage(error, "Ticket status could not be checked."));
     }
   }
 
