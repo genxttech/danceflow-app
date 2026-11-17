@@ -199,7 +199,8 @@ const expectLabel = async (label, o) => {
 async function typeInto(label, text, { secret = false } = {}) {
   for (let attempt = 0; attempt < 4; attempt++) {
     await ensureForeground(`before typing the ${label}`);
-    const field = lib.findNode(dump(), label, { cls: "EditText" });
+    // wait for the field: right after a relaunch the screen can still be drawing (run 10 read the tree 8 s after the start and found no field)
+    const field = await waitFor(label, { cls: "EditText", timeout: 30000 });
     if (!field) throw new Error(`no ${label} field`);
     tapNode(field);
     await sleep(500);
