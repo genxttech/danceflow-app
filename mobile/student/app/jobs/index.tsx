@@ -12,6 +12,7 @@ import {
   getPublicJobPostingsForMobile,
   type PublicJobPostingItem
 } from "@/lib/publicDiscovery";
+import { failureMessage } from "@/lib/errorKind";
 
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
@@ -139,8 +140,8 @@ export default function JobsScreen() {
         latitude: current.coords.latitude,
         longitude: current.coords.longitude
       });
-    } catch {
-      setErrorMessage("We could not use your location yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not use your location yet."));
     }
   }
 

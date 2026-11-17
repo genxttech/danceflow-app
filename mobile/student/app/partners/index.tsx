@@ -712,8 +712,8 @@ export default function PartnerSearchScreen() {
 
       updateProfile((profile) => ({ ...profile, photoUrl }));
       setMessage("Photo added. Save your listing to keep it on your profile.");
-    } catch {
-      setErrorMessage("We could not upload that photo yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not upload that photo yet."));
     } finally {
       setUploadingPhoto(false);
     }
@@ -745,8 +745,8 @@ export default function PartnerSearchScreen() {
       }
 
       await loadPartnerSearch();
-    } catch {
-      setErrorMessage("We could not save your partner listing yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not save your partner listing yet."));
     } finally {
       setSaving(false);
     }
@@ -780,8 +780,8 @@ export default function PartnerSearchScreen() {
       setThreads(await loadMyPartnerThreads(user.id));
       setMessage("Connection request sent. Opening your DanceFlow conversation.");
       router.push(`/partners/${threadId}` as unknown as RouterPushTarget);
-    } catch {
-      setErrorMessage("We could not send that request yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not send that request yet."));
     } finally {
       setRequestBusyId(null);
     }
@@ -807,8 +807,8 @@ export default function PartnerSearchScreen() {
       setProfiles((current) =>
         current.map((item) => (item.id === profile.id ? { ...item, favorited } : item))
       );
-    } catch {
-      setErrorMessage("We could not save that partner profile yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not save that partner profile yet."));
     }
   }
 
@@ -836,8 +836,8 @@ export default function PartnerSearchScreen() {
                   reason: "Reported from Partner Search mobile listing"
                 });
                 setMessage("Thanks. DanceFlow will review this partner listing.");
-              } catch {
-                setErrorMessage("We could not submit that report yet.");
+              } catch (err) {
+                setErrorMessage(failureMessage(err, "We could not submit that report yet."));
               }
             })();
           }
@@ -869,8 +869,8 @@ export default function PartnerSearchScreen() {
                 setProfiles((current) => current.filter((item) => item.id !== profile.id));
                 setMessage(`${profile.displayName} has been blocked.`);
                 setThreads(await loadMyPartnerThreads(user.id));
-              } catch {
-                setErrorMessage("We could not block that dancer yet.");
+              } catch (err) {
+                setErrorMessage(failureMessage(err, "We could not block that dancer yet."));
               }
             })();
           }
@@ -896,8 +896,8 @@ export default function PartnerSearchScreen() {
         longitude: current.coords.longitude
       });
       setMessage(`Showing partner listings within ${radiusMiles} miles.`);
-    } catch {
-      setErrorMessage("We could not use your location yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not use your location yet."));
     }
   }
 

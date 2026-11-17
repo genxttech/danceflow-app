@@ -17,6 +17,7 @@ import {
   type PublicEventItem,
   type PublicStudioItem
 } from "@/lib/publicDiscovery";
+import { failureMessage } from "@/lib/errorKind";
 
 export default function FavoritesScreen() {
   const colors = colorsForScheme(useColorScheme());
@@ -50,8 +51,8 @@ export default function FavoritesScreen() {
 
       setStudios(studioRows.filter((studio) => studio.favorited));
       setEvents(eventRows.filter((event) => event.favorited));
-    } catch {
-      setMessage("We could not load your saved items yet. Please try again.");
+    } catch (err) {
+      setMessage(failureMessage(err, "We could not load your saved items yet. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -87,8 +88,8 @@ export default function FavoritesScreen() {
       } else {
         setEvents((items) => items.filter((item) => item.id !== targetId));
       }
-    } catch {
-      setMessage("We could not update your saved item yet.");
+    } catch (err) {
+      setMessage(failureMessage(err, "We could not update your saved item yet."));
     } finally {
       setBusyKey(null);
     }
