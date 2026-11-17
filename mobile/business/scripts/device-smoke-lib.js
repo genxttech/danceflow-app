@@ -178,4 +178,9 @@ function probeAnswered(output) {
   return /^HTTP\/1\.[01] \d{3}/m.test(String(output ?? "").replace(/\r/g, ""));
 }
 
-module.exports = { reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/** True when `ip -4 addr show wlan0` shows an address (the emulator's Wi-Fi joined; it does so tens of seconds after sys.boot_completed). */
+function hasWifiAddress(output) {
+  return /^\s*inet \d+\.\d+\.\d+\.\d+\//m.test(String(output ?? ""));
+}
+
+module.exports = { hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
