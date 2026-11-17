@@ -11,7 +11,10 @@
 -- that has not expired, and never writes the price list. It returns counts and request ids only. Idempotent: a second call finds nothing.
 --
 -- It does NOT change tw4_price_verify. A pending request more than 48 hours past expiry is still an anomaly: the monitor stays detect-only, and the sweep
--- is a separate scheduled act (src/app/api/cron/sms-price-sweep, not registered in vercel.json).
+-- is a separate scheduled act. A row another transaction is deciding right now (row lock held) is skipped and picked up by the next run; the function waits at most 5 seconds
+-- for any lock. Like the existing lazy expiry it writes no studio_sms_price_audit row (that table's event list has no 'expired' event; widening an immutable audit table's CHECK is
+-- out of scope): the provenance is decision_note '(swept)', decided_by null and decided_at. The first production run is irreversible (a decided request is final), so count first.
+-- (src/app/api/cron/sms-price-sweep, not registered in vercel.json).
 
 begin;
 
@@ -25,7 +28,8 @@ end $$;
 create or replace function public.tw4_price_sweep_expired()
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
-as $$
+set lock_timeout = '5s'
+as $
 declare
   v_ids uuid[];
 begin
@@ -35,7 +39,8 @@ begin
   with s as (
     update public.studio_sms_price_change_requests q
        set status = 'expired', decided_at = clock_timestamp(), decision_note = 'expired: not approved within the allowed time (swept)'
-     where q.status = 'pending' and q.expires_at <= clock_timestamp()
+     where q.id in (select x.id from public.studio_sms_price_change_requests x where x.status = 'pending' and x.expires_at <= clock_timestamp() for update skip locked)
+       and q.status = 'pending' and q.expires_at <= clock_timestamp()
     returning q.id
   )
   select coalesce(array_agg(s.id order by s.id), '{}') into v_ids from s;
@@ -48,7 +53,8 @@ grant execute on function public.tw4_price_sweep_expired() to service_role;
 
 do $$
 begin
-  if exists (select 1 from information_schema.routine_privileges where specific_schema = 'public' and routine_name = 'tw4_price_sweep_expired' and grantee in ('PUBLIC', 'anon', 'authenticated')) then
+  if has_function_privilege('anon', 'public.tw4_price_sweep_expired()', 'execute') or has_function_privilege('authenticated', 'public.tw4_price_sweep_expired()', 'execute')
+     or not has_function_privilege('service_role', 'public.tw4_price_sweep_expired()', 'execute') then
     raise exception 'price sweep postcondition failed: unexpected grants';
   end if;
 end $$;
