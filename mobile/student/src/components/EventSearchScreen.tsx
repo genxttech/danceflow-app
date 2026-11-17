@@ -1,4 +1,4 @@
-import { friendlyMessage } from "@/lib/errorKind";
+import { failureMessage, friendlyMessage } from "@/lib/errorKind";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, Share, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -128,8 +128,8 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
 
     try {
       setEvents(await getPublicEventsForMobile(userId));
-    } catch {
-      setErrorMessage("Events are not available yet. Try again in a moment.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "Events are not available yet. Try again in a moment."));
     } finally {
       setLoading(false);
     }

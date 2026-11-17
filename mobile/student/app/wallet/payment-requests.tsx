@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { failureMessage } from "@/lib/errorKind";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   formatCurrency,
@@ -79,9 +80,9 @@ export default function PaymentRequestsScreen() {
         if (!mounted.current) return;
         setLinkedStudios(access.linkedStudios);
         setWallet(nextWallet);
-      } catch {
+      } catch (err) {
         if (!mounted.current) return;
-        setErrorMessage("Payment requests could not be loaded. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Payment requests could not be loaded. Try again in a moment."));
       } finally {
         if (mounted.current && !quiet) setLoading(false);
       }

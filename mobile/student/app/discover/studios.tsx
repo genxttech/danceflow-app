@@ -1,4 +1,4 @@
-import { friendlyMessage } from "@/lib/errorKind";
+import { failureMessage, friendlyMessage } from "@/lib/errorKind";
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, Share, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -76,8 +76,8 @@ export default function DiscoverStudiosScreen() {
 
     try {
       setStudios(await getPublicStudiosForMobile(userId));
-    } catch {
-      setErrorMessage("Studios are not available yet. Try again in a moment.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "Studios are not available yet. Try again in a moment."));
     } finally {
       setLoading(false);
     }

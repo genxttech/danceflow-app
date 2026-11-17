@@ -15,6 +15,7 @@ import { LegalLinks } from "@/components/LegalLinks";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { signInLinkErrorMessage } from "@/lib/errorKind";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const danceFlowLogo = require("../../assets/danceflow-logo-primary.png");
@@ -36,8 +37,8 @@ export default function SignInScreen() {
     try {
       await continueWithEmail(email);
       setMessage("Check your email. Open the secure link to continue in DanceFlow.");
-    } catch (_err) {
-      setError("We could not send that link yet. Check your email address and try again.");
+    } catch (err) {
+      setError(signInLinkErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
