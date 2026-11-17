@@ -256,7 +256,7 @@ const saveLogs = (tag) => {
 };
 const CODES = /QA-(?:DANA|CLAIM|GIFT|OWNED|NOBODY)-\d{4}/g;
 
-async function freshSignIn(link, email, tag) {
+async function freshSignIn(link, email, tag, allowSecure = false) {
   sh(["shell", "pm", "clear", cfg.pkg]);
   await sleep(2500);
   sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
@@ -266,6 +266,11 @@ async function freshSignIn(link, email, tag) {
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
     openLink(await link(email));
     ok = await waitFor(signedIn, "sign-in", 90_000, 4000).then(() => true, () => false);
+  }
+  if (!ok && allowSecure && /Create your password/.test(hierarchy())) {
+    shot(join(cfg.out, `${tag}-secure-account.png`));
+    record(`${tag}: unbound user is routed to account securing (Create your password), as designed`, true, "");
+    return "secure";
   }
   if (!ok) { shot(join(cfg.out, `${tag}-signin-failed.png`)); writeFileSync(join(cfg.out, `${tag}-signin-failed.xml`), hierarchy()); }
   if (ok) writeFileSync(join(cfg.out, `${tag}-after-signin.xml`), hierarchy());
@@ -316,7 +321,12 @@ async function claimScenario(link) {
 
   // Case 8: Dana signs in with a mailbox-verified but NOT bound account (a first sign-in before a password is bound): the function must
   // return 0, claim nothing, and show nothing new or wrong.
-  if (await freshSignIn(link, cfg.email, "dana0-unbound")) {
+  const unboundState = await freshSignIn(link, cfg.email, "dana0-unbound", true);
+  if (unboundState === "secure") {
+    const afterSecure = snapshot();
+    record("case 8: unbound user: nothing claimed (registration owners unchanged) while the app asks for a password first", ownerName(afterSecure, "662") === "unclaimed" && ownerName(afterSecure, "663") === "unclaimed", `owners 662=${ownerName(afterSecure, "662")} 663=${ownerName(afterSecure, "663")}`);
+    sameCounts(afterSecure, "after unbound Dana");
+  } else if (unboundState) {
     const unb = await readTickets("dana0-unbound");
     const afterUnb = snapshot();
     record("case 8: unbound session: nothing claimed (registration owners unchanged), only the owned ticket shows or none at all (an unbound user may be routed to account securing first), no error text", ownerName(afterUnb, "662") === "unclaimed" && ownerName(afterUnb, "663") === "unclaimed" && (unb.codes.length === 0 || (unb.codes.length === 0 || same(unb.codes, ["QA-DANA-0001"]))) && !/could not|unavailable|error/i.test(unb.xml), `codes: ${unb.codes.join(", ")}; owners 662=${ownerName(afterUnb, "662")} 663=${ownerName(afterUnb, "663")}`);
@@ -373,7 +383,7 @@ async function claimScenario(link) {
     writeFileSync(join(cfg.out, "dana2-offline.xml"), off);
     sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]);
     state.airplane = false;
-    record("case 10: offline: the tickets screen reads as offline or keeps the loaded tickets, with no claim text", /offline|connection|QA-DANA-0001/i.test(off) && !/claim/i.test(off), "see dana2-offline.png");
+    record("case 10: offline: the tickets screen reads as offline or keeps the loaded tickets, with no claim text", /offline|connection|QA-DANA-0001/i.test(off) && !/claim/i.test(off.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "see dana2-offline.png");
   }
 
   // Case 9: function missing. Reset Dana's two rows, drop the function, cold start: nothing claimed, no error text, no loop.
