@@ -186,6 +186,24 @@ describe("which activity has the screen", () => {
   });
 });
 
+describe("emulator reachability probe", () => {
+  it("builds a plain GET to the host alias and rejects odd input", () => {
+    const cmd = lib.reachProbeCommand(56600, "/auth/v1/health");
+    expect(cmd).toContain("GET /auth/v1/health HTTP/1.0");
+    expect(cmd).toContain("nc -w 4 10.0.2.2 56600");
+    expect(() => lib.reachProbeCommand(0)).toThrow();
+    expect(() => lib.reachProbeCommand(80, "/a; rm -rf /")).toThrow();
+  });
+
+  it("any HTTP status counts as answered; silence and refusals do not", () => {
+    expect(lib.probeAnswered("HTTP/1.1 200 OK\r\ncontent-type: application/json")).toBe(true);
+    expect(lib.probeAnswered("HTTP/1.0 401 Unauthorized")).toBe(true);
+    expect(lib.probeAnswered("")).toBe(false);
+    expect(lib.probeAnswered("nc: connect failed: Connection refused")).toBe(false);
+    expect(lib.probeAnswered(undefined)).toBe(false);
+  });
+});
+
 describe("summarize", () => {
   it("passes only when something ran and everything passed", () => {
     expect(lib.summarize([]).ok).toBe(false);

@@ -44,7 +44,7 @@ function parseArgs(argv) {
 function buildPlan(opts) {
   const steps = ["preflight (emulator and Gradle/Java not in use by another session)", `stack: iso-qa --auth "${opts.stackName}", roster migration, seed, QA passwords`, `web: production next build, next start on ${opts.webPort}`];
   steps.push(opts.apk ? `apk: reuse ${opts.apk}` : `apk: expo prebuild + Gradle assembleRelease in ${opts.buildDir} (both new flags on, cleartext QA only)`);
-  steps.push(`emulator: boot ${opts.avd} if none is running, wait for the system UI to be quiet, record font scale and night mode`);
+  steps.push(`emulator: boot ${opts.avd} if none is running, wait for the system UI to be quiet, record font scale and night mode, check the emulator reaches the stack and web app on 10.0.2.2`);
   steps.push("flows: owner light 1.0, dark 1.0, dark 2.0, light 2.0, live font change, empty day, 403 and recovery, 401 and re-sign-in, instructor");
   if (opts.a11y) steps.push("a11y: also save the accessibility tree (.xml) of every check, plus sign-in, class roster, client and More; then run node scripts/a11y-audit.js <out>");
   steps.push("summary: out/summary.json, screenshots, exit code 0 only if every check passed");
@@ -163,4 +163,19 @@ function secretFromStackJson(text) {
   return secret;
 }
 
-module.exports = { secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/**
+ * What to run inside the emulator to see whether the host's service answers (run 12: the phone could not reach 10.0.2.2:<port>, and the app then said the password was wrong).
+ * A plain HTTP GET over toybox nc; the answer is judged by probeAnswered.
+ */
+function reachProbeCommand(port, urlPath = "/") {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("reachProbeCommand: bad port");
+  if (!/^\/[\w./-]*$/.test(urlPath)) throw new Error("reachProbeCommand: bad path");
+  return `printf 'GET ${urlPath} HTTP/1.0\\r\\nHost: 10.0.2.2\\r\\n\\r\\n' | nc -w 4 10.0.2.2 ${port}`;
+}
+
+/** True when the probe output starts like an HTTP response (any status: the service answered; 401/404 still means reachable). */
+function probeAnswered(output) {
+  return /^HTTP\/1\.[01] \d{3}/m.test(String(output ?? "").replace(/\r/g, ""));
+}
+
+module.exports = { reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
