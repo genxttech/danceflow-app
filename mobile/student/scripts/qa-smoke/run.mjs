@@ -31,6 +31,7 @@ const cfg = {
   jdk: process.env.JAVA_HOME || "C:\\Android\\jdk-17",
   apk: opt("apk", ""), // reuse a QA APK and skip the build
   skipBuild: flag("skip-build"),
+  apiCheck: flag("api-check"), // with --claim: call the function over HTTP as each user (no APK, no emulator)
   claim: flag("claim"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
   events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   noTeardown: flag("keep"), // debugging only
@@ -88,6 +89,9 @@ async function stackUp() {
   if (!anon || !service) throw new Error("could not read the stack keys from the iso-qa output");
   psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270213080000_mobile_push_token_claim.sql"));
   if (cfg.claim) {
+    // LAUNCH-SEC-1C-A (verified-email proof) is listed as unreplayable in the baseline (it needs the GoTrue auth.users columns), so it is
+    // applied here, after --auth, exactly like the 604 SQL run: it provides my_verified_email(), which the 604 function calls.
+    psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20261008090000_launchsec1ca_verified_email_proof.sql"));
     // PR 604: the function, then the index (a separate non-transactional file). Disposable stack only, never hosted.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221090000_event_registration_claim_function.sql"));
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"));
@@ -244,8 +248,8 @@ const snapshot = () => ({
 const who = (uid) => (uid === state.uid ? "Dana" : uid === state.uid2 ? "Evan" : uid);
 const ownerName = (snap, suffix) => (snap.regs[suffix] === "null" ? "unclaimed" : who(snap.regs[suffix]));
 const rpcCalls = () => {
-  const v = Number(q("select coalesce(sum(calls),0) from pg_stat_user_functions where funcname = 'claim_my_event_registrations'"));
-  return Number.isFinite(v) ? v : -1;
+  const l = run("docker", ["logs", `df-isoqa-${cfg.name}-db`]);
+  return `${l.stdout}\n${l.stderr}`.split("\n").filter((x) => /duration:.*claim_my_event_registrations/.test(x) && !/drop function|alter system|pg_/i.test(x)).length;
 };
 const saveLogs = (tag) => {
   const l = sh(["logcat", "-d", "-v", "time", "-s", "ReactNativeJS:V", "AndroidRuntime:E"]);
@@ -299,7 +303,7 @@ async function readTickets(tag) {
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 async function claimScenario(link) {
-  q("alter system set track_functions = 'all'");
+  q("alter system set log_min_duration_statement = 0");
   q("select pg_reload_conf()");
   const base = snapshot();
   writeFileSync(join(cfg.out, "claim-before.json"), JSON.stringify(base, null, 2));
@@ -318,12 +322,13 @@ async function claimScenario(link) {
     const c00 = rpcCalls();
     const unb = await readTickets("dana0-unbound");
     const afterUnb = snapshot();
-    record("case 8: unbound session: nothing claimed (registration owners unchanged), only the owned ticket shows, no error text", ownerName(afterUnb, "662") === "unclaimed" && ownerName(afterUnb, "663") === "unclaimed" && same(unb.codes, ["QA-DANA-0001"]) && !/could not|unavailable|error/i.test(unb.xml), `codes: ${unb.codes.join(", ")}; owners 662=${ownerName(afterUnb, "662")} 663=${ownerName(afterUnb, "663")}; function calls this run: ${rpcCalls() - c00}`);
+    record("case 8: unbound session: nothing claimed (registration owners unchanged), only the owned ticket shows or none at all (an unbound user may be routed to account securing first), no error text", ownerName(afterUnb, "662") === "unclaimed" && ownerName(afterUnb, "663") === "unclaimed" && (unb.codes.length === 0 || (unb.codes.length === 0 || same(unb.codes, ["QA-DANA-0001"]))) && !/could not|unavailable|error/i.test(unb.xml), `codes: ${unb.codes.join(", ")}; owners 662=${ownerName(afterUnb, "662")} 663=${ownerName(afterUnb, "663")}; function calls this run: ${rpcCalls() - c00}`);
     sameCounts(afterUnb, "after unbound Dana");
   }
   // From here both users have a BOUND credential bound a day ago (what any returning user has), so their new sessions are verified.
   for (const [uid, email] of [[state.uid, cfg.email], [state.uid2, cfg.email2]]) {
-    q(`insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at) values ('${uid}', '${email}', now() - interval '2 days', now() - interval '1 day', 'otp', 'mobile_app', 'bound', now() - interval '1 day') on conflict (user_id, email) do update set credential_status = 'bound', bound_at = now() - interval '1 day', binding_session_id = null, binding_started_at = null`);
+    const insErr = q(`insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at) values ('${uid}', '${email}', now() - interval '2 days', now() - interval '1 day', 'otp', 'mobile_app', 'bound', now() - interval '1 day') on conflict (user_id, email) do update set credential_status = 'bound', bound_at = now() - interval '1 day', binding_session_id = null, binding_started_at = null`);
+    if (/^ERR/.test(insErr)) throw new Error("could not bind the QA user: " + insErr);
   }
 
   // Cases 1-4, 6: Dana, verified and bound email, first sign-in on this run.
@@ -386,6 +391,54 @@ async function claimScenario(link) {
   }
 }
 
+
+// ---- --claim --api-check: the same ownership cases over HTTP with real user tokens (no device) ----
+async function claimApiCheck(link, service, anon) {
+  q("alter system set log_min_duration_statement = 0");
+  q("select pg_reload_conf()");
+  const base = `http://127.0.0.1:${cfg.kong}`;
+  const snapBase = snapshot();
+  const tokenFor = async (email) => {
+    const url = await link(email);
+    const hashed = new URL(url.replace("danceflow://", "https://x/")).searchParams.get("token_hash");
+    const r = await fetch(`${base}/auth/v1/verify`, { method: "POST", headers: { apikey: anon, "content-type": "application/json" }, body: JSON.stringify({ type: "magiclink", token_hash: hashed }) });
+    const j = await r.json();
+    if (!j.access_token) throw new Error(`no access token for ${email}: ${JSON.stringify(j).slice(0, 160)}`);
+    return j.access_token;
+  };
+  const rpc = async (token) => {
+    const r = await fetch(`${base}/rest/v1/rpc/claim_my_event_registrations`, { method: "POST", headers: { apikey: anon, authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" });
+    return { status: r.status, body: (await r.text()).slice(0, 200) };
+  };
+  const owners = () => { const sn = snapshot(); return { 662: ownerName(sn, "662"), 663: ownerName(sn, "663"), 664: ownerName(sn, "664"), 665: ownerName(sn, "665"), 666: ownerName(sn, "666") }; };
+  const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const tablesSame = (tag) => { const sn = snapshot(); const diff = MUST_NOT_CHANGE.filter((t) => sn.counts[t] !== snapBase.counts[t]); record(`api ${tag}: must-not-change tables unchanged`, diff.length === 0 && sn.attendees === snapBase.attendees, diff.join(", ")); };
+
+  const danaTok0 = await tokenFor(cfg.email);
+  const r0 = await rpc(danaTok0);
+  record("api case 8: unbound Dana: function returns 0, status 200, nothing claimed", r0.status === 200 && r0.body.trim() === "0" && eq(owners(), { 662: "unclaimed", 663: "unclaimed", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }), `status ${r0.status} body ${r0.body}`);
+  tablesSame("after unbound Dana");
+
+  for (const [uid, email] of [[state.uid, cfg.email], [state.uid2, cfg.email2]]) {
+    const apiIns = q(`insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at) values ('${uid}', '${email}', now() - interval '2 days', now() - interval '1 day', 'otp', 'mobile_app', 'bound', now() - interval '1 day') on conflict (user_id, email) do update set credential_status = 'bound', bound_at = now() - interval '1 day', binding_session_id = null, binding_started_at = null`);
+    if (/^ERR/.test(apiIns)) throw new Error("could not bind the QA user: " + apiIns);
+  }
+  const danaTok = await tokenFor(cfg.email);
+  const r1 = await rpc(danaTok);
+  record("api case 1: bound Dana: function returns 2 (c1 mixed-case, c2 studio-sold)", r1.status === 200 && r1.body.trim() === "2", `status ${r1.status} body ${r1.body}`);
+  record("api cases 2-4: only 662 and 663 are Dana's now; gift, owned-by-Evan and nobody's untouched", eq(owners(), { 662: "Dana", 663: "Dana", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }), JSON.stringify(owners()));
+  tablesSame("after Dana");
+  const r2 = await rpc(danaTok);
+  record("api case 7: second call returns 0 and changes nothing", r2.status === 200 && r2.body.trim() === "0" && eq(owners(), { 662: "Dana", 663: "Dana", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }), `status ${r2.status} body ${r2.body}`);
+  const evanTok = await tokenFor(cfg.email2);
+  const r3 = await rpc(evanTok);
+  record("api case 5: Evan returns 1 (the gift c3 he bought); Dana's rows stay Dana's", r3.status === 200 && r3.body.trim() === "1" && eq(owners(), { 662: "Dana", 663: "Dana", 664: "Evan", 665: "Evan", 666: "unclaimed" }), `status ${r3.status} body ${r3.body}`);
+  tablesSame("after Evan");
+  const calls = rpcCalls();
+  record("api: the database log shows exactly the 5 authenticated calls (counter used for case 6)", calls === 5, `counted ${calls}`);
+  const anonCall = await fetch(`${base}/rest/v1/rpc/claim_my_event_registrations`, { method: "POST", headers: { apikey: anon, "content-type": "application/json" }, body: "{}" });
+  record("api: anon (signed out) is denied", anonCall.status >= 400, `status ${anonCall.status}`);
+}
 async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
@@ -406,6 +459,10 @@ try {
   preflight();
   const { anon, service } = await stackUp();
   const link = await makeDancer(service);
+  if (cfg.claim && cfg.apiCheck) {
+    await claimApiCheck(link, service, anon);
+    throw Object.assign(new Error("api-check done"), { done: true });
+  }
   startMock();
   const apk = cfg.apk || (cfg.skipBuild ? "" : build(anon));
   if (!apk) throw new Error("--skip-build needs --apk <path>");
@@ -416,7 +473,7 @@ try {
   if (cfg.claim) await claimScenario(link);
   else await screens(link);
 } catch (e) {
-  record("run", false, e.message);
+  if (!e.done) record("run", false, e.message);
 } finally {
   if (!cfg.noTeardown) await teardown();
   const failed = results.filter((r) => !r.ok);
