@@ -215,6 +215,111 @@ select pg_temp.chk('anon is refused (permission denied)',
   pg_temp.try($q$set local role anon; select public.claim_my_event_registrations()$q$) like '%permission denied%');
 reset role;
 
+-- ---------------------------------------------------------------------------------------------------------------
+-- Order-backed registrations (PAY-WH-1 guard), purchaser vs holder boundary, studio-sold tickets, byte-level snapshot
+-- ---------------------------------------------------------------------------------------------------------------
+insert into public.clients (id, studio_id, first_name, last_name, email, status) values
+  ('00000000-0000-0000-0000-00c1a0000c01', '00000000-0000-0000-0000-00c1a0000101', 'Studio', 'Client', 'studio-client@example.test', 'lead');
+
+create or replace function pg_temp.mk_ord(p_n text, p_buyer text, p_reg_email text, p_owner uuid default null, p_status text default 'confirmed', p_pay text default 'paid')
+returns void language plpgsql as $$
+declare v_o uuid := ('00000000-0000-0000-0000-00c1a00004' || p_n)::uuid;
+begin
+  insert into public.event_orders (id, event_id, studio_id, buyer_name, buyer_email, subtotal_amount, total_amount, currency, status, payment_status, paid_at, metadata)
+  values (v_o, '00000000-0000-0000-0000-00c1a0000201', '00000000-0000-0000-0000-00c1a0000101', 'Purchaser ' || p_n, p_buyer, 10, 10, 'USD', p_status, p_pay, now(), '{"source":"event_cart_v1"}'::jsonb);
+  insert into public.event_registrations (id, order_id, event_id, studio_id, status, payment_status, quantity, unit_price, total_price, currency,
+                                          registration_source, attendee_first_name, attendee_last_name, attendee_email, user_id)
+  values (('00000000-0000-0000-0000-00c1a00005' || p_n)::uuid, v_o, '00000000-0000-0000-0000-00c1a0000201', '00000000-0000-0000-0000-00c1a0000101',
+          p_status, p_pay, 1, 10, 10, 'USD', 'public_event_page', 'Holder', p_n, p_reg_email, p_owner);
+end $$;
+
+create or replace function pg_temp.owner5(p_n text) returns uuid language sql as $$
+  select user_id from public.event_registrations where id = ('00000000-0000-0000-0000-00c1a00005' || p_n)::uuid $$;
+
+-- 11: own purchase (order buyer = holder = A);  12: gift TO A (order buyer = B, holder A);  13: gift FROM A (order buyer = A, holder B)
+-- 14: order-backed, already owned by B (A email);  15: unverified user's own order-backed purchase;  16: pending order-backed hold (A)
+select pg_temp.mk_ord('11', 'cl-a@example.test', 'cl-a@example.test');
+select pg_temp.mk_ord('12', 'cl-b@example.test', 'cl-a@example.test');
+select pg_temp.mk_ord('13', 'cl-a@example.test', 'cl-b@example.test');
+select pg_temp.mk_ord('14', 'cl-a@example.test', 'cl-a@example.test', '00000000-0000-0000-0000-00c1a0001003');
+select pg_temp.mk_ord('15', 'cl-u@example.test', 'cl-u@example.test');
+select pg_temp.mk_ord('16', 'cl-a@example.test', 'cl-a@example.test', null, 'pending', 'pending');
+-- 17: studio-sold (orderless, admin source, linked studio client, internal notes), holder A
+insert into public.event_registrations (id, event_id, studio_id, client_id, status, payment_status, quantity, unit_price, total_price, currency,
+                                        registration_source, attendee_first_name, attendee_last_name, attendee_email, notes)
+values ('00000000-0000-0000-0000-00c1a0000517', '00000000-0000-0000-0000-00c1a0000201', '00000000-0000-0000-0000-00c1a0000101',
+        '00000000-0000-0000-0000-00c1a0000c01', 'confirmed', 'paid', 1, 10, 10, 'USD', 'admin', 'Studio', 'Sold', 'cl-a@example.test',
+        'Manual ticket sale created from workspace by user staff-internal-id');
+
+create or replace function pg_temp.snap_all() returns text language plpgsql as $$
+declare t text; r text := ''; v text;
+begin
+  foreach t in array array['event_orders','payments','event_registration_attendees','commerce_entitlements','commerce_orders','clients',
+    'client_account_links','notifications','event_settlement_outbox','event_settlements','accounting_entries','marketing_unsubscribes',
+    'marketing_email_suppressions','marketing_campaign_recipients','organizer_marketing_unsubscribes','event_order_settlement_exceptions',
+    'payment_settlement_conflicts','event_ticket_types','events','studios']
+  loop
+    if to_regclass('public.' || t) is not null then
+      execute format('select coalesce(md5(string_agg(x::text, %L order by x::text)), %L) from public.%I x', ',', 'empty', t) into v;
+      r := r || t || '=' || v || ';';
+    end if;
+  end loop;
+  return r;
+end $$;
+create or replace function pg_temp.regs_minus_owner() returns text language sql as $$
+  select md5(string_agg((to_jsonb(x) - 'user_id' - 'updated_at')::text, ',' order by x.id)) from public.event_registrations x $$;
+
+create temp table t_upd as select id, updated_at from public.event_registrations;
+select pg_temp.snap_all() as snap_before \gset
+select pg_temp.regs_minus_owner() as regs_before \gset
+
+select pg_temp.claim_as('00000000-0000-0000-0000-00c1a0001002', '00000000-0000-0000-0000-00c1a000a02b') as m_u \gset
+select pg_temp.chk('unverified user: an order-backed registration with their email is not claimed', :m_u = 0 and pg_temp.owner5('15') is null, :'m_u');
+
+select pg_temp.claim_as('00000000-0000-0000-0000-00c1a0001001', '00000000-0000-0000-0000-00c1a000a01b') as m_a \gset
+select pg_temp.chk('A claims the order-backed own purchase (11), the gift held by A (12), the pending hold (16) and the studio-sold ticket (17)', :m_a = 4, :'m_a');
+select pg_temp.chk('own order-backed purchase and pending hold are claimed without tripping the PAY-WH-1 guard',
+  pg_temp.owner5('11') = '00000000-0000-0000-0000-00c1a0001001' and pg_temp.owner5('16') = '00000000-0000-0000-0000-00c1a0001001');
+select pg_temp.chk('gift: the registration holder email (A) claims it, not the purchaser by being the order buyer',
+  pg_temp.owner5('12') = '00000000-0000-0000-0000-00c1a0001001');
+select pg_temp.chk('gift the other way: A as order purchaser does not claim a registration held by another email', pg_temp.owner5('13') is null);
+select pg_temp.chk('an already-claimed order-backed row (14) is never reassigned', pg_temp.owner5('14') = '00000000-0000-0000-0000-00c1a0001003');
+select pg_temp.chk('studio-sold ticket is claimed by the holder verified email only', pg_temp.owner5('17') = '00000000-0000-0000-0000-00c1a0001001');
+
+select pg_temp.claim_as('00000000-0000-0000-0000-00c1a0001003', '00000000-0000-0000-0000-00c1a000a03b') as m_b \gset
+select pg_temp.chk('B claims only the registration held by B (13), not the order B purchased (12)',
+  :m_b = 1 and pg_temp.owner5('13') = '00000000-0000-0000-0000-00c1a0001003' and pg_temp.owner5('12') = '00000000-0000-0000-0000-00c1a0001001', :'m_b');
+
+select pg_temp.claim_as('00000000-0000-0000-0000-00c1a0001001', '00000000-0000-0000-0000-00c1a000a01b') as m_a2 \gset
+select pg_temp.chk('replay: nothing further to claim', :m_a2 = 0, :'m_a2');
+
+select pg_temp.chk('payments, orders, attendees, entitlements, clients/leads, links, notifications, settlement, accounting, marketing, tickets, events and studios are byte-identical',
+  pg_temp.snap_all() = :'snap_before');
+select pg_temp.chk('registrations: every column except user_id and updated_at is byte-identical after the claims', pg_temp.regs_minus_owner() = :'regs_before');
+select count(*) as upd_changed from public.event_registrations r join t_upd u on u.id = r.id where r.updated_at is distinct from u.updated_at \gset
+select pg_temp.chk('INFO updated_at changed on ' || :'upd_changed' || ' registration rows (non-zero means a trigger touches it)', true);
+
+-- control: the PAY-WH-1 guard trigger is installed and enabled while the claim updated ORDER-BACKED rows (the definer runs as the table owner, which the
+-- guard deliberately lets through; client roles have no UPDATE policy on their own rows, so a buyer cannot reach the guarded columns either way)
+select pg_temp.chk('PAY-WH-1 guard trigger is enabled and the claimed rows (11, 12, 16) are order-backed',
+  exists (select 1 from pg_trigger where tgrelid = 'public.event_registrations'::regclass and tgname = 'trg_paywh1_guard_order_registration_writes' and tgenabled = 'O')
+  and (select count(*) from public.event_registrations where id in ('00000000-0000-0000-0000-00c1a0000511', '00000000-0000-0000-0000-00c1a0000512', '00000000-0000-0000-0000-00c1a0000516')
+       and order_id is not null and user_id = '00000000-0000-0000-0000-00c1a0001001') = 3);
+
+do $$
+declare v_orders integer; v_clients integer; v_pay integer;
+begin
+  set local role authenticated;
+  perform pg_temp.as_user('00000000-0000-0000-0000-00c1a0001001', '00000000-0000-0000-0000-00c1a000a01b');
+  select count(*) into v_orders from public.event_orders where buyer_email <> 'cl-a@example.test';
+  select count(*) into v_clients from public.clients;
+  select count(*) into v_pay from public.payments;
+  reset role;
+  perform set_config('test.vis', v_orders || '/' || v_clients || '/' || v_pay, true);
+end $$;
+select pg_temp.chk('claimed user cannot read other purchasers orders, studio clients/leads or payments (visible orders/clients/payments)',
+  current_setting('test.vis') = '0/0/0', current_setting('test.vis'));
+
 do $$
 declare v_total integer; v_failures text;
 begin
