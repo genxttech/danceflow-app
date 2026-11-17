@@ -26,12 +26,17 @@ export class PriceChangeError extends Error {
 export type PriceChangeStatus = "pending" | "approved" | "rejected" | "expired" | "invalidated" | "applied";
 const STATUSES: readonly PriceChangeStatus[] = ["pending", "approved", "rejected", "expired", "invalidated", "applied"];
 
-export type ActivePrice = { priceId: string; kind: string; customerPriceCents: number; providerCostCents: number; description: string; createdAt: string | null };
+export { MICRO_PRICE_KINDS, isMicroPriceKind, microsToUsd, usdToMicros } from "./priceMicros";
+
+export type ActivePrice = { priceId: string; kind: string; customerPriceCents: number; providerCostCents: number; unitPriceMicros: number | null; unitCostMicros: number | null; description: string; createdAt: string | null };
 export type PriceChangeRequest = {
   requestId: string;
   kind: string;
   customerPriceCents: number;
   providerCostCents: number;
+  /** micro-dollar amounts of a per-segment proposal (both null for a whole-cent proposal) */
+  priceMicros: number | null;
+  costMicros: number | null;
   description: string;
   reason: string;
   baseCustomerPriceCents: number | null;
@@ -64,7 +69,7 @@ export type AuthzChallenge = {
   rpId: string;
   allowCredentials: string[];
   expiresInSeconds: number;
-  summary: { kind: string; scope: string; oldCustomerCents: number | null; oldProviderCents: number | null; newCustomerCents: number; newProviderCents: number; description: string; proposalVersion: number; requestId: string; hash: string };
+  summary: { kind: string; scope: string; oldCustomerCents: number | null; oldProviderCents: number | null; newCustomerCents: number; newProviderCents: number; oldPriceMicros: number | null; oldCostMicros: number | null; newPriceMicros: number | null; newCostMicros: number | null; description: string; proposalVersion: number; requestId: string; hash: string };
 };
 const B64U = /^[A-Za-z0-9_-]{1,4096}$/;
 export const isB64u = (v: unknown): v is string => typeof v === "string" && B64U.test(v);
@@ -98,7 +103,7 @@ function parseActive(v: unknown): ActivePrice[] {
     const customer = int(o?.customer_price_cents);
     const provider = int(o?.provider_cost_cents);
     if (!o || !priceId || !kind || customer === null || provider === null) continue;
-    out.push({ priceId, kind, customerPriceCents: customer, providerCostCents: provider, description: str(o.description) ?? "", createdAt: str(o.created_at) });
+    out.push({ priceId, kind, customerPriceCents: customer, providerCostCents: provider, unitPriceMicros: int(o.unit_price_micros), unitCostMicros: int(o.unit_cost_micros), description: str(o.description) ?? "", createdAt: str(o.created_at) });
   }
   return out;
 }
@@ -118,7 +123,7 @@ function parseRequests(v: unknown): PriceChangeRequest[] {
     const expiresAt = str(o?.expires_at);
     if (!o || !requestId || !status || !kind || customer === null || provider === null || !requestedBy || !requestedAt || !expiresAt) continue;
     out.push({
-      requestId, kind, customerPriceCents: customer, providerCostCents: provider, description: str(o.description) ?? "", reason: str(o.reason) ?? "",
+      requestId, kind, customerPriceCents: customer, providerCostCents: provider, priceMicros: int(o.price_micros), costMicros: int(o.cost_micros), description: str(o.description) ?? "", reason: str(o.reason) ?? "",
       baseCustomerPriceCents: int(o.base_customer_price_cents), baseProviderCostCents: int(o.base_provider_cost_cents), status, requestedBy, requestedAt, expiresAt,
       decidedBy: uuid(o.decided_by), decidedAt: str(o.decided_at), decisionNote: str(o.decision_note), appliedPriceId: uuid(o.applied_price_id), baseChanged: o.base_changed === true,
       approvalMode: o.approval_mode === "owner" ? "owner" : "team", coolingUntil: str(o.cooling_until), proposalVersion: int(o.proposal_version) ?? 1,
@@ -161,6 +166,14 @@ export class PriceChangeStore {
     return { requestId: uuid(row.request_id), replayed: row.replayed === true };
   }
 
+  /** a sub-cent per-segment price (micro-dollars); the database refuses any other kind and binds the amounts into what the hardware key signs */
+  async proposeMicros(args: { kind: string; priceMicros: number; costMicros: number; description: string; reason: string }): Promise<{ requestId: string | null; replayed: boolean }> {
+    const row = await this.call("tw4_price_propose_micros", {
+      p_kind: args.kind, p_price_micros: args.priceMicros, p_cost_micros: args.costMicros, p_description: args.description, p_reason: args.reason,
+    });
+    return { requestId: uuid(row.request_id), replayed: row.replayed === true };
+  }
+
   async approve(requestId: string, note: string): Promise<{ status: string | null; replayed: boolean }> {
     const row = await this.call("tw4_price_approve", { p_request_id: requestId, p_note: note });
     return { status: str(row.status), replayed: row.replayed === true };
@@ -187,6 +200,7 @@ export class PriceChangeStore {
     return {
       nonce, challenge, rpId, allowCredentials: ids, expiresInSeconds: int(row.expires_in_seconds) ?? 300,
       summary: { kind: str(s.kind) ?? "", scope: str(s.scope) ?? "", oldCustomerCents: int(s.old_customer_cents), oldProviderCents: int(s.old_provider_cents), newCustomerCents: newC, newProviderCents: newP,
+        oldPriceMicros: int(s.old_price_micros), oldCostMicros: int(s.old_cost_micros), newPriceMicros: int(s.new_price_micros), newCostMicros: int(s.new_cost_micros),
         description: str(s.description) ?? "", proposalVersion: int(s.proposal_version) ?? 1, requestId: str(s.request_id) ?? requestId, hash: str(s.hash) ?? "" },
     };
   }

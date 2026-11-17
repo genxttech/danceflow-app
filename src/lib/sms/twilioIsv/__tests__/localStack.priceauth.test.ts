@@ -545,7 +545,8 @@ describe.skipIf(!enabled)("D4-2 single-owner hardware-key price authorization (W
   });
 
   itSel("PA-15 rollback of 20270210100000 is fail closed: it refuses while owner-mode evidence exists; with the evidence removed (visibly, by the owner) it returns the schema to the 20270210090000 bodies, and re-applying restores everything", () => {
-    const rb = strip(migration("rollback/20270210100000_twilio_price_owner_authorization_rollback.sql"));
+    // 20270212090000 (micro-dollar publication) sits on top of this migration: its rollback runs first
+    const rb = strip(migration("rollback/20270212090000_twilio_price_micros_publication_rollback.sql")) + strip(migration("rollback/20270210100000_twilio_price_owner_authorization_rollback.sql"));
     const fwd = strip(migration("20270210100000_twilio_price_owner_authorization.sql"));
     expect(codeOf(psqlError(`begin; ${rb} rollback;`))).toBe("55000");
     const m1 = migration("20270210090000_twilio_price_dual_control.sql");
