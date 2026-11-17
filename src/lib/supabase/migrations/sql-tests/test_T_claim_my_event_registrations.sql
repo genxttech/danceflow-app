@@ -85,14 +85,14 @@ begin
 end $$;
 
 -- 01: guest web purchase, plain email;  02: other studio, mixed case + whitespace;  03: cancelled;  04: refunded
--- 05: already owned by user B (must never move);  06: other email;  07: null email;  08: unverified user's email;  09: no-proof user's email
+-- 05: already owned by user B (must never move);  06: other email;  07: blank email (column is NOT NULL);  08: unverified user's email;  09: no-proof user's email
 select pg_temp.reg('01', '01', 'confirmed', 'paid', 'cl-a@example.test');
 select pg_temp.reg('02', '02', 'confirmed', 'paid', '  CL-A@Example.Test ');
 select pg_temp.reg('03', '01', 'cancelled', 'refunded', 'cl-a@example.test');
 select pg_temp.reg('04', '01', 'refunded', 'refunded', 'cl-a@example.test');
 select pg_temp.reg('05', '01', 'confirmed', 'paid', 'cl-a@example.test', '00000000-0000-0000-0000-00c1a0001003');
 select pg_temp.reg('06', '01', 'confirmed', 'paid', 'someone-else@example.test');
-select pg_temp.reg('07', '01', 'confirmed', 'paid', null);
+select pg_temp.reg('07', '01', 'confirmed', 'paid', '   ');
 select pg_temp.reg('08', '01', 'confirmed', 'paid', 'cl-u@example.test');
 select pg_temp.reg('09', '01', 'confirmed', 'paid', 'cl-n@example.test');
 
@@ -155,7 +155,7 @@ select pg_temp.chk('claimed rows now belong to the user (incl. cancelled/refunde
   pg_temp.owner_of('01') = '00000000-0000-0000-0000-00c1a0001001' and pg_temp.owner_of('02') = '00000000-0000-0000-0000-00c1a0001001'
   and pg_temp.owner_of('03') = '00000000-0000-0000-0000-00c1a0001001' and pg_temp.owner_of('04') = '00000000-0000-0000-0000-00c1a0001001');
 select pg_temp.chk('a row owned by another account is never taken', pg_temp.owner_of('05') = '00000000-0000-0000-0000-00c1a0001003');
-select pg_temp.chk('rows with another email, a null email, or another user''s email are untouched',
+select pg_temp.chk('rows with another email, a blank email, or another user''s email are untouched',
   pg_temp.owner_of('06') is null and pg_temp.owner_of('07') is null and pg_temp.owner_of('08') is null and pg_temp.owner_of('09') is null);
 select pg_temp.chk('a guest attendee row carrying the email is not a claim key (its registration stays unclaimed, attendee unchanged)',
   pg_temp.owner_of('06') is null
