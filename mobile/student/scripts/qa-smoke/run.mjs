@@ -389,7 +389,7 @@ async function claimScenario(link) {
     writeFileSync(join(cfg.out, "dana2-offline.xml"), off);
     sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]);
     state.airplane = false;
-    record("case 10: offline: the tickets screen reads as offline or keeps the loaded tickets, with no claim text", /offline|connection|QA-DANA-0001/i.test(off) && !/claim/i.test(off.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "see dana2-offline.png");
+    record("case 10: offline: the tickets screen reads as offline or keeps the loaded tickets, with no claim text", /offline|connection|QA-(DANA|CLAIM)-000d/i.test(off) && !/claim/i.test(off.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "see dana2-offline.png");
   }
 
   // Case 9: function missing. Reset Dana's two rows, drop the function, cold start: nothing claimed, no error text, no loop.
