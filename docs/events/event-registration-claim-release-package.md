@@ -7,7 +7,9 @@ SQL -> app -> backport. Read-only checks were run on PROD (`hvsujyfbftfffxpfmlpb
 
 Legend: **[V]** verified (command or code read this session), **[A]** assumed / not provable without a write.
 
-Two separate owner gates are required (section 11): **product approval** of the behaviour, and **PROD SQL authorization** of the exact files.
+**READ SECTION 12 FIRST (2026-11-17): owner decision 1 added a third migration that excludes studio-sold rows; it supersedes the two-artifact apply plan below.**
+
+Two separate owner gates are required (section 11; wording in 12.5): **product approval** of the behaviour, and **PROD SQL authorization** of the exact files.
 
 ---------------------------------------------------------------------------------------------------------------------
 
@@ -144,3 +146,63 @@ studio-sold rows can expose studio notes on a direct query until a column-restri
 `20270221090000_event_registration_claim_function.sql` sha256 `3c873d6f...d08ec` (transaction) and then `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql`
 sha256 `20896098...3089` (standalone, CONCURRENTLY), with the read-only preflight/postflight above; and I pre-authorize their rollbacks (shas in section 7) in this order, only if a postflight
 check fails. No data change, no app deploy included." (Deploying an app with the call is a separate release step.)
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 12. UPDATE 2026-11-17 -- owner decision 1: studio-sold rows are excluded (THREE artifacts). Where this section conflicts with sections 1, 4-7, 10 and 11, **this section wins**.
+
+PR #627 (head `bf0e22cadf96f9c56cb9ebdcb79243b85363a0a2`, migration block after 20270221, Git-only) replaces the function with a **fail-closed allowlist**
+`registration_source in ('public_event_page')`. [V] The CHECK `event_registrations_source_check` allows exactly five values on PROD and DEV
+(`public_event_page, admin, import, organizer_portal, other`); column default `'public_event_page'`, NOT NULL.
+
+| Source | Written by | Claimable | Reason |
+|---|---|---|---|
+| `public_event_page` | public cart checkout, Student app checkout, competition registration RPCs (these already set `user_id`) | **yes** | buyer-originated |
+| `admin` | studio sell-tickets (`sell-tickets/actions.ts:596`) | no | owner rule: studio-sold, carries internal notes and a client link |
+| `import` | no writer found in the repo [V code]; staff bulk import | no | studio-originated |
+| `organizer_portal` | no writer found in the repo [V code] | no | **ambiguous, flagged to the owner** (organizer-created) |
+| `other` | no writer found in the repo [V code] | no | **ambiguous, flagged to the owner** |
+| NULL / any future value | -- | no | fail closed (proved in the suite by relaxing the constraints on a disposable stack) |
+
+PROD today [V]: 26 rows `public_event_page` (claimable), 11 `admin` (not claimable); `source` (free-text, not used for the decision) also has 1 `public_registration`. No admin row has a `user_id`.
+
+### 12.1 Artifacts (sha256 from git objects at PR #627 head `bf0e22ca`; **recompute at the merge commit on main before any apply**)
+
+| Order | File (under `src/lib/supabase/migrations/`) | sha256 |
+|---|---|---|
+| 1 | `20270221090000_event_registration_claim_function.sql` (604 function, unrestricted) | `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec` |
+| 2 | `20270222090000_event_registration_claim_buyer_sources_only.sql` (exclusion; create or replace) | `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487` |
+| 3 | `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql` (standalone) | `20896098d897fd55fb60a3236bad817bb582cfb2809a44f5c4a32be415d03089` |
+| rb of 2 | `rollback/20270222090000_event_registration_claim_buyer_sources_only_rollback.sql` (restores the 604 body) | `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3` |
+| rb of 1 | `rollback/20270221090000_event_registration_claim_function_rollback.sql` | `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3` |
+| rb of 3 | `rollback/20270221091000_event_registrations_unclaimed_email_index_concurrent_rollback.sql` | `9ec58f3c4b838ef3adfbd863d257d805a77b2888ca7b46036327fc482f9650e3` |
+| test | `sql-tests/test_T_claim_buyer_sources_only.sql` (37 checks, final definition) | `09379496a11a4cb153b2948b7668f3d2094446573904c7ae042da74cfd5c2a63` |
+
+### 12.2 Decision: apply all three in git order, not only the final definition
+Apply **function -> exclusion -> index**, back to back in one session, **before any app deploy**. Reason: the migration history on PROD must equal the git history (append-only; the 604 file is the
+migration of record and skipping it would desync later tooling and rollbacks), the function migration is catalog-only, and there is **no caller** in the seconds between steps 1 and 2 (live
+`release/website-embeds` has no call [V]; the main app with the call is not deployed until SQL is complete), so an unrestricted window has no way to be used. Applying only the final definition
+was rejected: it needs a hand-edited, never-reviewed file or leaves history inconsistent. (Alternative the owner may choose instead: re-issue the 604 function file with the allowlist folded in,
+before its first hosted apply; that needs a new PR and sha and was not done to keep the merged 604 files immutable.) The exclusion step is **mandatory**: if it fails or is skipped, stop; do not
+apply the index or deploy any app.
+
+### 12.3 Procedure deltas
+- Preflight (`preflight.sql`) is unchanged except it should also be read for `unclaimed_counts.unclaimed_admin_sold` (PROD 11) as the number of rows the exclusion keeps out of reach.
+- After step 1 and step 2 run `postflight.sql`: besides the earlier checks it now returns `function.has_source_allowlist` -- must be `true` after step 2 (and `false` only transiently after step 1) --
+  and `source_distribution` (counts by `registration_source`, owned vs unowned). Gate: `has_source_allowlist=true`, `owned` unchanged from the preflight (0 on PROD), `max_updated_at` unchanged.
+- `smoke_after_apply.sql` is unchanged (no-uid call returns 0). A read-only way to prove the filter without a write: `has_source_allowlist=true` plus `pg_get_functiondef` text contains `registration_source in ('public_event_page')`.
+- Rollback order: **index -> exclusion -> function**. Rolling back the exclusion alone makes studio-sold rows claimable again (the exposure the owner excluded); do that only together with
+  dropping the function or when the owner explicitly wants it. Claimed `user_id` values stay on any rollback (section 7 reasoning).
+- Verified on a disposable stack: new suite 37/37; exclusion rolled back then the original 604 suite 34/34 again; re-applied then 37/37 again; index valid.
+
+### 12.4 Exposure scan (owner request) -- findings
+1. **A studio-sold row stays `user_id IS NULL`, so `event_registrations_self_select` (`user_id = auth.uid()`) and the attendee self-select (derived from it) can never match it** [V suite + policy text on PROD].
+2. **Write paths that set `user_id` on `event_registrations`** [V code + migrations scan]: (a) Student app checkout insert (`user_id: user.id`, `public_event_page`); (b) competition registration RPCs (`p_actor_user_id`, source `public_event_page`);
+   (c) the claim function; (d) account deletion sets it NULL. The studio paths (`sell-tickets/actions.ts` insert, settlement `UPDATE ... SET client_id`, webhook/payment updates, registrations/actions.ts updates) never assign `user_id`. A linked client account does **not** copy `user_id` onto its admin-sold rows (checked: `admin_rows_with_user_id = 0` on PROD and DEV).
+3. **Policies a dancer can reach** [V on PROD]: `event_registrations_self_select` (public role, `user_id = auth.uid()`); attendees `event_registration_attendees_self_select` (via the registration) and `event_registration_attendees_self_insert` (insert allowed to authenticated; WITH CHECK not shown here -- open item to confirm in the column-restricted-read slice). `event_orders` is readable only by studio members (no dancer policy), so purchaser/order data is not exposed.
+4. **Studio-only columns on rows a dancer can own today** [V PROD column list + code]: `event_registrations` row-level select returns ALL columns: `client_id`, `organizer_contact_id`, `stripe_checkout_session_id`, `stripe_payment_intent_id`, `terminal_hold_until`, `portal_user_id`, `source`, and `notes`.
+   For an **app-bought** row the writers set `client_id = null`, `notes = buyerNotes` (buyer's own text), so those two carry nothing studio-internal. **But settlement later sets `client_id` on public-cart rows** (`UPDATE ... SET client_id` in the PAY-WH-1 settlement/G-02 lead capture): on PROD **15 of 26 `public_event_page` rows have a `client_id`** (a studio CRM record id) and 0 have notes. The attendee table exposes `checked_in_by` (staff user id), `ticket_token`, `ticket_code`. So **yes: an allowlisted, owned row can expose a studio CRM id, Stripe ids on the studio's connected account, an organizer contact id and a staff user id via a direct PostgREST query** (same as Student-app tickets today). The shipped apps select explicit safe columns and do not request these. No studio-internal free text (`notes`) is exposed for allowlisted rows (0 non-admin rows have notes on PROD [V]); staff can edit `notes` later, which is [A].
+5. Conclusion: the exclusion removes the **studio-internal notes** exposure; the **column** exposure (CRM id, Stripe/staff ids) remains for allowlisted rows and for app-bought rows that already exist today, and is the scope of the column-restricted read (issue #628).
+
+### 12.5 Owner gate wording (replaces 11b)
+"I authorize applying to PROD, in this order and in one session before any app deploy, exactly these files at the merge commit of PR #627 (shas recomputed and attached by engineering): (1) `20270221090000_event_registration_claim_function.sql` `3c873d6f...d08ec`; (2) `20270222090000_event_registration_claim_buyer_sources_only.sql` `cd38c08e...9487`; (3) `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql` `20896098...3089` (standalone); with the read-only pre/postflight; and I pre-authorize their rollbacks in the order index, exclusion, function only if a postflight check fails. I also confirm that `organizer_portal` and `other` registrations are NOT claimable. No data change; no app deploy included."
