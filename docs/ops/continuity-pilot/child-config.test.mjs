@@ -205,3 +205,14 @@ test('C15. round 4: git_read.sh refuses a directory that is not a worktree top l
   assert.ok(!ded.some((s) => bashMatch(s, resolveCode('bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-u18pkg status'))), 'the reviewed helper must not be denied');
   bad((t) => { t.allow.push('Bash(bash {CODE}/phase2/scripts/git_read.sh C:/Dev/danceflow-secrets log *)'); }, /not one of the template addDirs/);
 });
+
+test('C16. the task text cannot make the model add characters to a command: no " ." artifacts, and every concrete bracketed command is allowed and not denied', () => {
+  for (const [n, t] of A) {
+    assert.ok(!/\S \.(\s|$)/.test(t.cmd), n + ': a lone " ." after a command is exactly what got Q1 denied on 2026-11-17');
+    const cmds = [...t.cmd.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]).filter((c) => c.trim().length > 0 && !c.includes('<'));
+    const allow = t.allow.map((r) => /^Bash\((.+)\)$/.exec(resolveCode(r))?.[1]).filter(Boolean);
+    const deny = childSettings(t, required).permissions.deny.map((r) => /^Bash\((.+)\)$/.exec(r)?.[1]).filter(Boolean);
+    for (const c of cmds) { const cmd = resolveCode(c); assert.ok(allow.some((s) => bashMatch(s, cmd)), n + ': bracketed command is not allowed: ' + cmd); assert.ok(!deny.some((s) => bashMatch(s, cmd)), n + ': bracketed command is denied: ' + cmd); }
+    if (/\[/.test(t.cmd)) assert.ok(/COMMAND RULE/.test(t.cmd), n + ': bracketed commands need the rule sentence');
+  }
+});
