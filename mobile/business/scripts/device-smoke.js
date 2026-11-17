@@ -116,11 +116,30 @@ const swipeRefresh = () => adb("shell", "input", "swipe", "540", "700", "540", "
 function hideKeyboard() {
   if (/mInputShown=true/.test(adb("shell", "dumpsys", "input_method").stdout)) adb("shell", "input", "keyevent", "4");
 }
+const LOGCAT_LINES = 3000;
+
+/**
+ * Before any app step: the emulator itself must reach the stack and the web app on 10.0.2.2. A run that cannot (run 12) fails here, named, with a cause to look at
+ * (host firewall, port, stack down), instead of as a misleading sign-in failure.
+ */
+async function checkReachable() {
+  const port = Number(new URL(state.stack.TW4A_LOCAL_URL).port);
+  for (const [name, p, urlPath] of [["stack API", port, "/auth/v1/health"], ["web app", opts.webPort, "/"]]) {
+    let ok = false;
+    for (let i = 0; i < 4 && !ok; i++) {
+      ok = lib.probeAnswered(adb("shell", lib.reachProbeCommand(p, urlPath)).stdout);
+      if (!ok) await sleep(3000);
+    }
+    state.results.push(lib.makeResult(`emulator reaches the ${name} (10.0.2.2:${p})`, ok, ok ? "" : "no HTTP answer from inside the emulator; check the host firewall and that the service is up"));
+    if (!ok) throw new Error(`the emulator cannot reach the ${name} at 10.0.2.2:${p}`);
+  }
+}
+
 /** Saves the crash buffer and the recent main log: after a failure this is what tells a crash, a low-memory kill and a launcher restart apart. */
 function saveLogs(tag) {
   try {
     fs.writeFileSync(path.join(OUT, `logcat-${tag}-crash.txt`), adb("logcat", "-b", "crash", "-d").stdout);
-    fs.writeFileSync(path.join(OUT, `logcat-${tag}-main.txt`), adb("logcat", "-d", "-t", "600").stdout);
+    fs.writeFileSync(path.join(OUT, `logcat-${tag}-main.txt`), adb("logcat", "-d", "-t", String(LOGCAT_LINES)).stdout);
     // Android 11+ ApplicationExitInfo: says whether the process was killed for memory, crashed, or was stopped by the user
     fs.writeFileSync(path.join(OUT, `exit-info-${tag}.txt`), adb("shell", "dumpsys", "activity", "exit-info", APP).stdout + "\n--- lmkd/oom lines ---\n" + adb("logcat", "-d", "-t", "2000", "-s", "lowmemorykiller:*", "lmkd:*", "ActivityManager:I").stdout);
   } catch {
@@ -536,6 +555,7 @@ async function teardown() {
     await startWeb();
     const apk = buildApk();
     await bootEmulator();
+    await checkReachable();
     await flows(apk);
   } catch (error) {
     fatal = error;
