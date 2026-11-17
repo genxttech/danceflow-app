@@ -1,6 +1,6 @@
 # Google Play internal testing: upload procedure and compliance drafts
 
-Status 2026-11-14. Draft prepared by engineering. **Nothing has been uploaded or submitted.** Facts below were verified in the repo on the date shown; anything not verifiable is marked **OWNER INPUT**. Companion documents: `Android_Release_Audit.md` (build and signing), `Android_Push_Firebase_Setup.md` (FCM).
+Status 2026-11-17 (checked against main c47e3ae17, see section 11; the Business device-IDs row was corrected). Earlier status 2026-11-14. Draft prepared by engineering. **Nothing has been uploaded or submitted.** Facts below were verified in the repo on the date shown; anything not verifiable is marked **OWNER INPUT**. Companion documents: `Android_Release_Audit.md` (build and signing), `Android_Push_Firebase_Setup.md` (FCM).
 
 ## 1. Apps
 
@@ -64,7 +64,7 @@ Derived from the app code. **OWNER INPUT** items are confirmations that cannot b
 |---|---|---|---|
 | Email address | Yes | No | Account management, app functionality |
 | Name, appointment details, studio client names (user-generated/business data shown to staff) | Yes (displayed; held by the studio's backend) | No | App functionality |
-| Device IDs / push tokens | No (no push in this app today) | | |
+| Device IDs / push tokens (Expo push token) | Yes since `mobile/business/src/lib/expoPush.ts`; no token is minted until the Business app has an EAS project id (`eas init`) | Shared with Expo (push relay) and Google FCM | Notifications. Match the DanceFlow row before submitting. |
 | Location, photos, payments | No | | |
 
 ## 5. Content rating questionnaire (IARC) — suggested answers
@@ -101,3 +101,33 @@ Both apps require sign-in. Play requires working credentials or a way to obtain 
 ## 10. Store listing items still needed (OWNER INPUT)
 
 App icon 512×512, feature graphic 1024×500, at least two phone screenshots per app, short (80 chars) and full descriptions, category, contact email/website, and a distinct DanceFlow Business icon (the Business app currently has no icon asset; see audit). Existing marketing copy in `app.json` `description` fields can seed the descriptions.
+
+## 11. Release checklist and owner queue (2026-11-17, main `c47e3ae17`)
+
+Status key: PASSED = run with evidence; UNVERIFIED = not run or inconclusive; BLOCKED = needs the owner or a missing prerequisite. Evidence under `C:\dfr-out`; details in `Android_Release_Audit.md` section 9.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Release AABs build from main (both), QA-signed | PASSED | `rc3/` |
+| targetSdk 36, versionCode 1 / 0.1.0, not debuggable, no cleartext, allowBackup false | PASSED | `rc3/` |
+| 16 KB page size (both) | PASSED | `rc3/` |
+| Permissions match the Data safety and permission tables (the claim call needs no new permission or data type; the photo picker adds none) | PASSED (Business push-token row corrected in section 4) | `rc3/` |
+| Student device smoke 13/13 (unminified) | PASSED | `qa-rc3/student-smoke2` |
+| Business device smoke | UNVERIFIED (emulator could not reach the stack; environment) | `qa-rc3/business-smoke3` |
+| R8 / minified Student | build PASSED; device smoke FAILED in dark mode; do not ship minified | `qa-rc3/student-smoke-r8*` |
+| Real Play upload keystore and Play App Signing | BLOCKED (owner) | - |
+| Firebase release project and real `google-services.json` per app | BLOCKED (owner) | DEV file only |
+| Business EAS project (`eas init`) and push credentials | BLOCKED (owner) | - |
+| Production push (FCM v1 key under the production EAS projects) | UNVERIFIED | DEV delivery proven 2026-11-14 |
+| Account deletion web page timing, privacy policy URL | OWNER INPUT | section 3 |
+| Store listing assets, content rating, Data safety submission | OWNER INPUT | sections 4-8, 10 |
+| Android 12 and older, live font-size change (R-3b), EAS cloud build | UNTESTED / UNVERIFIED | - |
+
+### Owner queue, in order
+
+1. Generate the Play upload keystore (keep it and its passwords outside every repo) and create both apps in Play Console with Play App Signing; give engineering only the certificate fingerprint, never the key.
+2. Decide the Firebase release project (or confirm `danceflow-mobile-dev` is it), delete the service-account key file left in Downloads, and upload an FCM v1 key under each production EAS project.
+3. Run `eas init` in `mobile/business` (EAS project id, `expo.owner`), then store each app's `google-services.json` as the `GOOGLE_SERVICES_JSON` EAS file variable.
+4. Decide when the web account-deletion page and privacy policy URL go live (the Data safety form needs the deletion URL before submission) and confirm the A7 purchasability decision.
+5. Confirm the Data safety OWNER INPUT items (name sharing, location retention, LUMI processor, crash/diagnostics), the content rating answers and the store listing.
+6. Approve the first internal-testing build (unminified), then upload by hand per section 2.
