@@ -289,9 +289,7 @@ describe("20261211090000 RFL ops: migration shape", () => {
     expect(mig).not.toMatch(/create or replace function public\.(tw4_rfl_suspend_df|tw4_rfl_pilot_cover|_tw4rc_service_state|tw4_recurring_charge)\(/);
   });
 
-  it("is dark: the cron route is still not registered for a schedule (D6), and the migration enables no flag", () => {
-    const vercel = readFileSync(join(process.cwd(), "vercel.json"), "utf8");
-    expect(vercel).not.toContain("sms-provider-fee-lifecycle");
+  it("is dark: the migration enables no flag (the cron route is registered deliberately by the TW-4F monitoring release; the route stays 404 until its env flag is on)", () => {
     expect(mig).not.toMatch(/values \('(scan|delivery)', true/);
   });
 });

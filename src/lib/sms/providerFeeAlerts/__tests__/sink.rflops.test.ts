@@ -237,6 +237,7 @@ describe("runner + sink end to end (fakes)", () => {
     const store = {
       scanEntities: vi.fn(async () => []),
       scanEntity: vi.fn(),
+      inboundAllowanceCheck: vi.fn(async () => 0),
       inventoryGaps: vi.fn(async () => 0),
       claimAlerts: vi.fn(async () => {
         if (attempts.n >= 5) return [];   // the database bounds attempts at 5
@@ -280,7 +281,7 @@ describe("runner + sink end to end (fakes)", () => {
     const g = harness({ recipients: [owner(1)] });
     const alerts = [alert({ id: "bad", audience: "admin" }), alert({ id: "good1" }), alert({ id: "good2" })];
     const store = {
-      scanEntities: async () => [], scanEntity: vi.fn(), inventoryGaps: async () => 0,
+      scanEntities: async () => [], scanEntity: vi.fn(), inboundAllowanceCheck: async () => 0, inventoryGaps: async () => 0,
       claimAlerts: vi.fn(async () => alerts.splice(0)), finishAlert: vi.fn(async () => true),
     } as unknown as ProviderFeeLifecycleStore;
     const out = await runProviderFeeLifecycleScan(store, g.sink, { scanBegin: async () => ({ ran: true, reason: null, runId: "r" }), escalateDelivery: async () => 0, releaseAlert: async () => true, scanFinish: async () => true } as never);
