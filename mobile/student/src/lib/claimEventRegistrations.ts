@@ -18,6 +18,18 @@ import { supabase } from "@/lib/supabase";
 
 const attempts = new Map<string, Promise<number>>();
 
+/** The few fields of the auth user the pre-check reads (a Supabase User has them). */
+export type ClaimUser = { id?: string | null; email?: string | null; email_confirmed_at?: string | null } | null | undefined;
+
+/**
+ * Only a signed-in user whose email is confirmed is worth asking for. This is a cheap pre-check, not the security
+ * check: the database decides from the live session (verified and bound email) and returns 0 otherwise.
+ */
+export function claimEligibleUserId(user: ClaimUser): string | null {
+  if (!user?.id || !user.email || !user.email_confirmed_at) return null;
+  return user.id;
+}
+
 /** Tests only: forget which users were already asked. */
 export function resetClaimAttemptsForTests() {
   attempts.clear();
@@ -51,7 +63,8 @@ export function claimMyEventRegistrations(userId: string | null | undefined): Pr
  * Asks once per user (shared across screens) and calls onClaimed when the count
  * is above zero, so the screen can reload its tickets. Never blocks a load.
  */
-export function useClaimEventRegistrations(userId: string | null | undefined, onClaimed: (count: number) => void) {
+export function useClaimEventRegistrations(user: ClaimUser, onClaimed: (count: number) => void) {
+  const userId = claimEligibleUserId(user);
   const onClaimedRef = useRef(onClaimed);
 
   useEffect(() => {

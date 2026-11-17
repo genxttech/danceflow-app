@@ -126,7 +126,7 @@ export default function EventTicketsScreen() {
   }, [session?.user.email, session?.user.id, retryKey]);
 
   // Registrations linked to this account by the database after sign-in (verified email): reload once to show them.
-  useClaimEventRegistrations(session?.user.id, () => setRetryKey((key) => key + 1));
+  useClaimEventRegistrations(session?.user, () => setRetryKey((key) => key + 1));
 
   const tickets = wallet?.tickets ?? [];
   const registrations = wallet?.registrations ?? [];

@@ -4,10 +4,10 @@ import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
 const mockRpc = jest.fn();
 jest.mock("@/lib/supabase", () => ({ supabase: { rpc: (...a: unknown[]) => mockRpc(...a) } }));
 
-import { claimMyEventRegistrations, resetClaimAttemptsForTests, useClaimEventRegistrations } from "@/lib/claimEventRegistrations";
+import { claimEligibleUserId, claimMyEventRegistrations, resetClaimAttemptsForTests, useClaimEventRegistrations } from "@/lib/claimEventRegistrations";
 
-function Probe({ userId, onClaimed }: { userId: string | null; onClaimed: (n: number) => void }) {
-  useClaimEventRegistrations(userId, onClaimed);
+function Probe({ userId, onClaimed, confirmed = true, email = "d@example.test" }: { userId: string | null; onClaimed: (n: number) => void; confirmed?: boolean; email?: string | null }) {
+  useClaimEventRegistrations(userId ? { id: userId, email, email_confirmed_at: confirmed ? "2026-11-01T00:00:00Z" : null } : null, onClaimed);
   return null;
 }
 
@@ -81,5 +81,31 @@ describe("claim_my_event_registrations from the app", () => {
     resetClaimAttemptsForTests();
     mockRpc.mockResolvedValue({ data: -1, error: null });
     await expect(claimMyEventRegistrations("u1")).resolves.toBe(0);
+  });
+
+  it("an unverified-email session never calls the function (no confirmed email, or no email at all)", async () => {
+    const onClaimed = jest.fn();
+    render(<Probe userId="u1" confirmed={false} onClaimed={onClaimed} />);
+    render(<Probe userId="u2" email={null} onClaimed={onClaimed} />);
+    await Promise.resolve();
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(onClaimed).not.toHaveBeenCalled();
+    expect(claimEligibleUserId({ id: "u1", email: "a@b.test", email_confirmed_at: null })).toBeNull();
+    expect(claimEligibleUserId({ id: "u1", email: "", email_confirmed_at: "x" })).toBeNull();
+    expect(claimEligibleUserId(null)).toBeNull();
+    expect(claimEligibleUserId(undefined)).toBeNull();
+    expect(claimEligibleUserId({ id: "u1", email: "a@b.test", email_confirmed_at: "2026-11-01" })).toBe("u1");
+  });
+
+  it("a user who is unverified at first and confirmed later is then asked exactly once", async () => {
+    mockRpc.mockResolvedValue({ data: 1, error: null });
+    const onClaimed = jest.fn();
+    const view = render(<Probe userId="u1" confirmed={false} onClaimed={onClaimed} />);
+    await Promise.resolve();
+    expect(mockRpc).not.toHaveBeenCalled();
+    view.rerender(<Probe userId="u1" confirmed onClaimed={onClaimed} />);
+    await waitFor(() => expect(onClaimed).toHaveBeenCalledWith(1));
+    view.rerender(<Probe userId="u1" confirmed onClaimed={onClaimed} />);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 });

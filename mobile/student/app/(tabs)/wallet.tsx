@@ -364,7 +364,7 @@ export default function WalletScreen() {
 
   // Registrations the database linked to this account after sign-in (verified email): reload the wallet once so
   // their tickets appear. Waits (bounded) for a load already in flight instead of being skipped by its guard.
-  useClaimEventRegistrations(session?.user.id, () => {
+  useClaimEventRegistrations(session?.user, () => {
     void (async () => {
       for (let i = 0; i < 40 && walletLoadInFlightRef.current; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 250));
