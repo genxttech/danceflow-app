@@ -26,6 +26,9 @@ export default function AuthCallbackScreen() {
     type?: string | string[];
   }>();
   const [error, setError] = useState<string | null>(null);
+  // No session after 10 s and no reported link error: usually a slow or lost connection, not a bad link.
+  const [slow, setSlow] = useState(false);
+  const [waitKey, setWaitKey] = useState(0);
   // Navigate once: a second run would find the return route already taken and fall back to Today.
   const navigated = useRef(false);
 
@@ -75,9 +78,7 @@ export default function AuthCallbackScreen() {
     if (session?.access_token || loading) return;
 
     const timeout = setTimeout(() => {
-      setError(
-        "DanceFlow received the link, but Supabase did not create a session. Request a fresh link and try again.",
-      );
+      setSlow(true);
     }, 10_000);
 
     return () => clearTimeout(timeout);
@@ -88,6 +89,7 @@ export default function AuthCallbackScreen() {
     routeParams.error_code,
     routeParams.error_description,
     session?.access_token,
+    waitKey,
   ]);
 
   return (
@@ -101,6 +103,19 @@ export default function AuthCallbackScreen() {
               label="Request a new link"
               onPress={() => router.replace("/(auth)/sign-in")}
             />
+          </>
+        ) : slow ? (
+          <>
+            <AppText variant="title">This is taking longer than usual</AppText>
+            <AppText variant="caption">Check your connection and try again.</AppText>
+            <AppButton
+              label="Try again"
+              onPress={() => {
+                setSlow(false);
+                setWaitKey((key) => key + 1);
+              }}
+            />
+            <AppButton label="Request a new link" onPress={() => router.replace("/(auth)/sign-in")} variant="secondary" />
           </>
         ) : (
           <>

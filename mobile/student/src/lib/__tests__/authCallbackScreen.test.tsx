@@ -2,7 +2,7 @@ jest.mock("@react-native-async-storage/async-storage", () =>
   jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"),
 );
 
-import { act, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
 
 let mockParams: Record<string, string> = {};
@@ -98,5 +98,58 @@ describe("auth callback screen", () => {
 
     await waitFor(() => expect(mockRouter.replace).toHaveBeenCalledWith("/auth/secure-account"));
     expect(continueAfterSignIn).not.toHaveBeenCalled();
+  });
+});
+
+describe("auth callback screen, slow network (no session after 10 s)", () => {
+  afterEach(() => jest.useRealTimers());
+
+  it("says it is taking longer, with Try again, not a link problem and never a vendor name", async () => {
+    jest.useFakeTimers();
+    render(<AuthCallbackScreen />);
+    expect(screen.queryByText("This is taking longer than usual")).toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText("This is taking longer than usual")).toBeTruthy();
+    expect(screen.getByText("Check your connection and try again.")).toBeTruthy();
+    expect(screen.getByText("Try again")).toBeTruthy();
+    expect(screen.queryByText("Sign in needs another try")).toBeNull();
+    expect(screen.queryByText(/supabase/i)).toBeNull();
+  });
+
+  it("Try again goes back to Signing you in and waits again; the slow message returns only after another 10 s", () => {
+    jest.useFakeTimers();
+    render(<AuthCallbackScreen />);
+    act(() => {
+      jest.advanceTimersByTime(10_000);
+    });
+    fireEvent.press(screen.getByText("Try again"));
+    expect(screen.getByText("Signing you in")).toBeTruthy();
+    act(() => {
+      jest.advanceTimersByTime(9_000);
+    });
+    expect(screen.queryByText("This is taking longer than usual")).toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(1_500);
+    });
+    expect(screen.getByText("This is taking longer than usual")).toBeTruthy();
+  });
+
+  it("the Request a new link option is still offered", () => {
+    jest.useFakeTimers();
+    render(<AuthCallbackScreen />);
+    act(() => {
+      jest.advanceTimersByTime(10_000);
+    });
+    fireEvent.press(screen.getByText("Request a new link"));
+    expect(mockRouter.replace).toHaveBeenCalledWith("/(auth)/sign-in");
+  });
+
+  it("a real expired or used link keeps its own copy and is not replaced by the slow message", async () => {
+    mockAuth.authLinkError = "That sign-in link has expired or was already used. Request a new link to continue.";
+    render(<AuthCallbackScreen />);
+    await waitFor(() => expect(screen.getByText(/expired or was already used/)).toBeTruthy());
+    expect(screen.queryByText("This is taking longer than usual")).toBeNull();
   });
 });
