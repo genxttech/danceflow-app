@@ -127,3 +127,18 @@ passed from the client. Device: Student wallet shows a guest-purchased spectator
 6. After account deletion and re-signup with the same email: may old tickets be re-claimed? (recommend yes; they are the person's own)
 7. Also do Option D (stamp `user_id` at web checkout when the session is verified)?
 8. Release: SQL first, then app; backport to `release/website-embeds`.
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 7. Decision record
+
+- **Owner decision (relayed by the APPS coordinator, 2026-11-17): Option A is adopted** (verified-email claim function).
+- Decisions 2-8 were not yet answered. Implementation proceeds with the recommended defaults below, **pending owner confirmation**:
+  - 2: no Option C (client-link policy); later, only if wanted.
+  - 3: claim all rows, including cancelled/refunded (the app filters by status).
+  - 4: claim only by the registration **buyer's** verified email; never by guest attendee names.
+  - 5: trigger = Student wallet load and web `/account`; not at verification time.
+  - 6: re-claim after account deletion and re-signup is allowed.
+  - 7: no Option D.
+  - 8: release order is SQL first, then app, then backport to `release/website-embeds`.
+- Implementation is tracked in a separate PR (function `claim_my_event_registrations()`, separate index migration, `/account` call).
