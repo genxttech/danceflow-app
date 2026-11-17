@@ -19,7 +19,7 @@ import { safeCaptureStudioEventRegistrationLead } from "@/lib/events/settlementS
 
 const root = path.resolve(__dirname, "../../../..");
 const migration = readFileSync(
-  path.join(root, "src/lib/supabase/migrations/20270219090000_g02_event_lead_ticket_kind_gate.sql"),
+  path.join(root, "src/lib/supabase/migrations/20270219100000_g02_event_lead_ticket_kind_gate.sql"),
   "utf8",
 );
 
@@ -62,7 +62,7 @@ describe("G-02 Rule 1: explicit per-ticket-type flag", () => {
     expect(body).not.toMatch(/\bdelete\s+from\b|\btruncate\b|\bdrop\s+table\b/i);
     expect(body).not.toMatch(/\bupdate\s+public\.clients\b[^;]*\bstatus\b/i);
     const rollback = readFileSync(
-      path.join(root, "src/lib/supabase/migrations/rollback/20270219090000_g02_event_lead_ticket_kind_gate_rollback.sql"),
+      path.join(root, "src/lib/supabase/migrations/rollback/20270219100000_g02_event_lead_ticket_kind_gate_rollback.sql"),
       "utf8",
     );
     expect(rollback).toContain("drop column if exists creates_prospect_lead");

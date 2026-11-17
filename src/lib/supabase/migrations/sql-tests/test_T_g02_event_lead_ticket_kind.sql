@@ -1,6 +1,6 @@
--- G-02 -- event registration lead capture follows the per-ticket-type creates_prospect_lead setting (migration 20270219090000).
+-- G-02 -- event registration lead capture follows the per-ticket-type creates_prospect_lead setting (migration 20270219100000).
 --
--- Needs the PAY-WH-1 chain (20261116090000..20261116094000) plus 20270219090000. One transaction, synthetic fixtures only
+-- Needs the PAY-WH-1 chain (20261116090000..20261116094000) plus 20270219100000. One transaction, synthetic fixtures only
 -- (UUID block 00000000-0000-0000-0000-00a2f0XXXXXX). The final block ALWAYS raises, so nothing persists; its message is
 -- the verdict: "G-02 SQL SUITE PASS (<n> checks)" or "G-02 SQL SUITE FAIL: <failures>".
 --

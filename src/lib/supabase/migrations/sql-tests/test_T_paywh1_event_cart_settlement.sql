@@ -66,7 +66,7 @@ insert into public.events (id, studio_id, name, slug, event_type, status, visibi
 insert into public.event_ticket_types (id, event_id, name, price, currency, capacity, active, attendees_per_ticket) values
   ('00000000-0000-0000-0000-00a1f0000301', '00000000-0000-0000-0000-00a1f0000201', 'Open', 30, 'USD', null, true, 1),
   ('00000000-0000-0000-0000-00a1f0000302', '00000000-0000-0000-0000-00a1f0000201', 'Capped', 30, 'USD', 2, true, 1);
--- G-02 (20270219090000): studio lead capture follows the per-ticket-type creates_prospect_lead setting (default OFF). This suite's
+-- G-02 (20270219100000): studio lead capture follows the per-ticket-type creates_prospect_lead setting (default OFF). This suite's
 -- lead test expects a lead, so its ticket type is flagged -- only when the column exists (the suite also runs without that migration).
 do $$ begin
   if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'event_ticket_types' and column_name = 'creates_prospect_lead') then
