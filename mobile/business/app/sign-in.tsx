@@ -5,7 +5,7 @@ import { Announce } from "@/components/Announce";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { useAuth } from "@/lib/auth";
-import { signInFailureKind } from "@/lib/signInError";
+import { signInFailureKind, UNREACHABLE_MESSAGE } from "@/lib/signInError";
 import { colors, radius, space, type } from "@/theme";
 
 export default function SignInScreen() {
@@ -25,7 +25,7 @@ export default function SignInScreen() {
     } catch (failure) {
       setError(
         signInFailureKind(failure) === "unreachable"
-          ? "We could not reach DanceFlow. Check your connection and try again."
+          ? UNREACHABLE_MESSAGE
           : "That email and password did not match. Try again, or email yourself a sign-in link.",
       );
     } finally {
@@ -40,8 +40,8 @@ export default function SignInScreen() {
     try {
       await sendSignInLink(email);
       setMessage("If this email belongs to studio staff, a sign-in link is on its way. Open it on this device.");
-    } catch {
-      setError("We could not send a link right now. Check the address and try again.");
+    } catch (failure) {
+      setError(signInFailureKind(failure) === "unreachable" ? UNREACHABLE_MESSAGE : "We could not send a link right now. Check the address and try again.");
     } finally {
       setBusy(null);
     }
