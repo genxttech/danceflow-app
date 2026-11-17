@@ -13,6 +13,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { failureMessage } from "@/lib/errorKind";
 import {
   getPublicPartnerProfilesForMobile,
   setPublicFavoriteForMobile,
@@ -653,8 +654,8 @@ export default function PartnerSearchScreen() {
       setMyProfile(ownProfile);
       setProfiles(publicProfiles);
       setThreads(ownThreads);
-    } catch {
-      setErrorMessage("Partner Search is not available yet. Try again in a moment.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "Partner Search is not available yet. Try again in a moment."));
     } finally {
       setLoading(false);
     }
