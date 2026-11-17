@@ -13,8 +13,8 @@ Run: `node mobile/student/scripts/qa-smoke/run.mjs --out <dir>` then `node mobil
 | Payment Requests: amount, studio, type, note, date, Pay Now per request, in a sensible order | PASS |
 | Settings notification switches: **six unnamed Switch nodes** (each row was a button containing a native Switch with no label, so TalkBack could stop on a nameless switch and on the row) | **FAIL, fixed in this PR** |
 | Touch targets under 44dp | Two rows reported at font 2.0 (a wallet link row 37dp, a settings row 39dp); both are rows cut off at the bottom of the screen in the dump (partly scrolled out), not undersized controls |
-| Event detail (event-detail, 1.0/2.0, light/dark; run `--events`, 2026-11-16, `C:dfr-outqa-events`) | PASS: every control named, 0 unlabelled, 4/4 renders |
-| Wallet ticket screen | NOT RUN with data: the seeded registration was invisible to the dancer (see "Ticket finding" below). The screen's screen-reader behaviour is covered by `eventTicketScreen.test.tsx` (one named stop per ticket with the code spelled out) |
+| Event detail (event-detail, 1.0/2.0, light/dark; run `--events`, 2026-11-16, `C:dfr-outwallet-ticket2`) | 0 unlabelled in all 4 trees. Harness: 3 of 4 renders PASS; **event-detail-1.0-light FAIL**: the first screen opened after sign-in showed "Event unavailable / This event could not be loaded" with Try again (named, retry works as designed). Intermittent, cause not proven (suspected first deep-link open racing the fresh session); not re-run |
+| Wallet ticket screen (event-ticket, 1.0/2.0, light/dark, same run) | PASS 4/4: ticket rendered for the `user_id`-owned registration, 0 unlabelled controls, 0 small targets. Reading order of the ticket card not reviewed by TalkBack gestures (BLOCKED); jest `eventTicketScreen.test.tsx` covers one named stop per ticket |
 | Discover | Not in this run (the harness covers Settings, Payment Requests and Wallet); covered by the source scan in `accessibilityAudit.test.ts` |
 | One harness check, Payment Requests 1.0 dark, missed the `$40` text in the dump (timing); the same screen passed at 2.0 dark and in light, so treated as a flake | noted |
 
