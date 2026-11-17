@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { classifyError, failureMessage } from "@/lib/errorKind";
 import { rememberPostSignInRoute } from "@/lib/postSignInRoute";
 import {
   getPublicEventDetailForMobile,
@@ -88,14 +89,19 @@ export default function EventDetailScreen() {
           setErrorMessage(null);
           setLoading(false);
         })
-        .catch(() => {
+        .catch((caught: unknown) => {
           if (!mounted) return;
           // One quiet automatic retry: the first request right after a cold start or sign-in can fail transiently.
           if (retriesLeft > 0) {
             retryTimer = setTimeout(() => load(retriesLeft - 1), AUTO_RETRY_DELAY_MS);
             return;
           }
-          setErrorMessage("This event could not be loaded.");
+          // A connection or session problem says so; a real not-found keeps the not-found wording; anything else is "could not load, try again".
+          setErrorMessage(
+            classifyError(caught) === "notFound"
+              ? "This event could not be found."
+              : failureMessage(caught, "This event could not be loaded. Try again in a moment."),
+          );
           setLoading(false);
         });
     };
