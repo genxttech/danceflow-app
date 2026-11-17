@@ -113,8 +113,10 @@ Status key: PASSED = run with evidence; UNVERIFIED = not run or inconclusive; BL
 | 16 KB page size (both) | PASSED | `rc3/` |
 | Permissions match the Data safety and permission tables (the claim call needs no new permission or data type; the photo picker adds none) | PASSED (Business push-token row corrected in section 4) | `rc3/` |
 | Student device smoke 13/13 (unminified) | PASSED | `qa-rc3/student-smoke2` |
-| Business device smoke | UNVERIFIED (emulator could not reach the stack; environment) | `qa-rc3/business-smoke3` |
+| Business device smoke | UNVERIFIED (harness: stale baked config in the QA APK and a defective reachability probe, fixed in #631/#633; re-run needed; see audit section 9) | `qa-rc3/business-smoke3` |
 | R8 / minified Student | build PASSED; device smoke FAILED in dark mode; do not ship minified | `qa-rc3/student-smoke-r8*` |
+| Baked `EXPO_PUBLIC_*` of the shipping AABs (decoded from the final artifact) | PASSED: both AABs bake only the QA placeholders (no stack URL, no JWT, no secret); the archived R8 AAB is contaminated with a disposable-stack URL and key and must not be used | `rc3/bk/` (see audit section 9) |
+| **Before every upload:** decode the baked `EXPO_PUBLIC_*` values from the final AAB (Hermes string table of `base/assets/index.android.bundle`) and compare them with the intended release environment (production Supabase URL, production anon key, `https://idanceflow.com`, Stripe publishable `pk_live_`); reject any localhost/`10.0.2.2`/`.invalid`/stack URL, any anon key from a disposable stack, any `service_role`/`sk_`/`whsec_` string | REQUIRED STEP | audit section 9, Runbook step 1b |
 | Real Play upload keystore and Play App Signing | BLOCKED (owner) | - |
 | Firebase release project and real `google-services.json` per app | BLOCKED (owner) | DEV file only |
 | Business EAS project (`eas init`) and push credentials | BLOCKED (owner) | - |
