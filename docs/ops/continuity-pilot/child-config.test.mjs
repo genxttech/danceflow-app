@@ -119,8 +119,8 @@ test('I3. isolation report check: must pass, be fresh, match the exact configura
 test('C9. the shipped authorizations match the shipped policy and queue exactly (no stale scope hashes), and Q5 stays unauthorized', () => {
   const queue = JSON.parse(fs.readFileSync(path.join(HERE, 'phase2', 'queue.json'), 'utf8'));
   const shipped = JSON.parse(fs.readFileSync(path.join(HERE, 'phase2', 'authorizations.json'), 'utf8'));
-  assert.deepEqual(shipped, entries(queue, policy, { notAfter: '2026-11-17T00:00:00Z' }));
-  assert.deepEqual(shipped.map((a) => a.id), ['Q1', 'Q2', 'Q3', 'Q4']); assert.equal(policy.pilot.enabled, false, 'shipped inert');
+  assert.deepEqual(shipped, entries(queue, policy, { notAfter: '2026-11-17T20:00:00Z' }));
+  assert.deepEqual(shipped.map((a) => a.id), ['Q1', 'Q2', 'Q3', 'Q4']); assert.equal(policy.pilot.enabled, true, 'activation PR: enabled for exactly the owner-approved window'); assert.equal(policy.pilot.not_before, '2026-11-17T12:00:00Z'); assert.equal(policy.pilot.not_after, '2026-11-17T20:00:00Z');
   O.validatePolicy(policy, shipped);
 });
 

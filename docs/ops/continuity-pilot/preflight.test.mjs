@@ -21,14 +21,14 @@ const req = loadRequired();
 const realPolicy = JSON.parse(fs.readFileSync(path.join(HERE, 'phase2', 'policy.json'), 'utf8'));
 const realQueue = JSON.parse(fs.readFileSync(path.join(HERE, 'phase2', 'queue.json'), 'utf8'));
 const NOW = Date.parse('2026-11-14T13:00:00Z');
-const NA = '2026-11-17T00:00:00Z';
+const NA = '2026-11-17T00:00:00Z'; // synthetic test window below, independent of the real activation window
 const asRules = (a) => a.map((r) => ({ r }));
 const VERSION = '2.1.321 (Claude Code)';
 
 const reportFor = (policy, now, over = {}) => ({ ok: true, versionOk: true, at: new Date(now).toISOString(), childConfigSha: childConfigSha(policy, req), templates: Object.fromEntries(Object.entries(policy.templates).filter(([, t]) => t.class === 'A').map(([n]) => [n, { ok: true, denied: 120, allowedControls: 4 }])), ...over });
 
 function setup({ mutateCode, noCode = false, policyMut = (p) => p, authsMut = (a) => a, queueMut = (q) => q, reportMut = (r) => r, version = VERSION, now = NOW } = {}) {
-  const policy = policyMut(structuredClone({ ...realPolicy, pilot: { ...realPolicy.pilot, enabled: true } }));
+  const policy = policyMut(structuredClone({ ...realPolicy, pilot: { ...realPolicy.pilot, enabled: true, not_before: '2026-11-14T12:00:00Z', not_after: '2026-11-17T00:00:00Z' } }));
   const queue = queueMut(structuredClone(realQueue));
   const auths = authsMut(entries(queue, policy, { notAfter: NA }));
   const r = tempRemote(policy, auths, { code: !noCode, mutateCode });
