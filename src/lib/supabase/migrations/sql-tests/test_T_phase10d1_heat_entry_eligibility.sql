@@ -189,10 +189,10 @@ select pg_temp.expect_msg('division regression: an entry of another division can
 -- ============================================================================
 -- Scratched placements: a day-of state, not entry eligibility
 -- ============================================================================
--- Withdraw a placed entry through the June lifecycle workflow: its placement is scratched (status-only
+-- Scratch a placed entry through the SC1 scratch workflow (it replaced the June lifecycle RPC for API roles): its placement is scratched (status-only
 -- update of an entry that is no longer confirmed) -- that must keep working.
 select pg_temp.expect_ok('withdrawing a placed entry scratches its placement (status-only update allowed)',
-  $q$select public.change_competition_entry_lifecycle(pg_temp.u('008001'), 'withdrawn', 'Injury', 'retain')$q$);
+  $q$select public.scratch_competition_entry(pg_temp.u('008001'), pg_temp.u('00f001'), 'Injury', null)$q$);
 select pg_temp.chk('the placement of the withdrawn entry is scratched, not deleted',
   (select status from public.event_competition_heat_entries where entry_id = pg_temp.u('008001')) = 'scratched');
 select pg_temp.expect_ok('scratched placements still do not count as active floor conflicts',
@@ -203,7 +203,7 @@ select pg_temp.expect_ok('day-of status updates on placements stay allowed',
 reset role;
 select pg_temp.chk('the rule lives in the existing 10D integrity function (no second validator)',
   position('COMP10D_ENTRY_NOT_SCHEDULABLE' in pg_get_functiondef('public._comp10d_check_floor_heat_integrity()'::regprocedure)) > 0
-  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal) = 4);
+  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname not like 'sc1_%') = 4);
 select pg_temp.chk('the integrity function is not callable by API roles',
   not has_function_privilege('authenticated', 'public._comp10d_check_floor_heat_integrity()', 'EXECUTE')
   and not has_function_privilege('anon', 'public._comp10d_check_floor_heat_integrity()', 'EXECUTE'));
