@@ -90,6 +90,26 @@ describe("signing in with a password", () => {
     expect(disabled(link())).toBe(false);
   });
 
+  it.each([
+    ["React Native fetch failure", new TypeError("Network request failed")],
+    ["supabase-js retryable fetch error", Object.assign(new Error("fetch failed"), { name: "AuthRetryableFetchError", status: 0 })],
+    ["a server error", Object.assign(new Error("boom"), { status: 503 })],
+  ])("%s says the server could not be reached, not that the password was wrong", async (_name, failure) => {
+    mockAuth.signInWithPassword.mockRejectedValue(failure);
+    fill();
+    await act(async () => fireEvent.press(signIn()));
+    const alert = screen.getByRole("alert");
+    expect(alert.props.children).toBe("We could not reach DanceFlow. Check your connection and try again.");
+    expect(JSON.stringify(alert.props.children)).not.toMatch(/did not match/);
+  });
+
+  it("a 400 invalid-credentials error still says the pair did not match", async () => {
+    mockAuth.signInWithPassword.mockRejectedValue(Object.assign(new Error("Invalid login credentials"), { name: "AuthApiError", status: 400 }));
+    fill();
+    await act(async () => fireEvent.press(signIn()));
+    expect(screen.getByRole("alert").props.children).toMatch(/did not match/);
+  });
+
   it("the error is cleared when the next attempt starts", async () => {
     mockAuth.signInWithPassword.mockRejectedValueOnce(new Error("no")).mockResolvedValueOnce(undefined);
     fill();
