@@ -12,6 +12,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { useClaimEventRegistrations } from "@/lib/claimEventRegistrations";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   loadStudentWallet,
@@ -123,6 +124,9 @@ export default function EventTicketsScreen() {
       mounted = false;
     };
   }, [session?.user.email, session?.user.id, retryKey]);
+
+  // Registrations linked to this account by the database after sign-in (verified email): reload once to show them.
+  useClaimEventRegistrations(session?.user, () => setRetryKey((key) => key + 1));
 
   const tickets = wallet?.tickets ?? [];
   const registrations = wallet?.registrations ?? [];

@@ -9,6 +9,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme } from "@/constants/theme";
+import { useClaimEventRegistrations } from "@/lib/claimEventRegistrations";
 import { useAuth } from "@/lib/auth";
 import {
   getStudentEventOrderStatus,
@@ -360,6 +361,17 @@ export default function WalletScreen() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session?.user.id])
   );
+
+  // Registrations the database linked to this account after sign-in (verified email): reload the wallet once so
+  // their tickets appear. Waits (bounded) for a load already in flight instead of being skipped by its guard.
+  useClaimEventRegistrations(session?.user, () => {
+    void (async () => {
+      for (let i = 0; i < 40 && walletLoadInFlightRef.current; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      await loadWallet({ background: true, force: true });
+    })();
+  });
 
   useEffect(() => {
     if (checkoutSource !== "event" || checkoutRefreshes >= CHECKOUT_SYNC_REFRESH_LIMIT) return;
