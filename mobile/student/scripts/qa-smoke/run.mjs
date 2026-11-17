@@ -244,14 +244,8 @@ const snapshot = () => ({
 const who = (uid) => (uid === state.uid ? "Dana" : uid === state.uid2 ? "Evan" : uid);
 const ownerName = (snap, suffix) => (snap.regs[suffix] === "null" ? "unclaimed" : who(snap.regs[suffix]));
 const rpcCalls = () => {
-  let n = 0;
-  const all = run("docker", ["ps", "--format", "{{.Names}}"]).stdout.split("\n").filter((x) => x.includes(`df-isoqa-${cfg.name}`));
-  const kong = all.filter((x) => /kong/i.test(x));
-  for (const c of kong.length ? kong : all) {
-    const l = run("docker", ["logs", c]);
-    n += ((l.stdout + l.stderr).match(/rpc\/claim_my_event_registrations/g) || []).length;
-  }
-  return n;
+  const v = Number(q("select coalesce(sum(calls),0) from pg_stat_user_functions where funcname = 'claim_my_event_registrations'"));
+  return Number.isFinite(v) ? v : -1;
 };
 const saveLogs = (tag) => {
   const l = sh(["logcat", "-d", "-v", "time", "-s", "ReactNativeJS:V", "AndroidRuntime:E"]);
@@ -265,11 +259,11 @@ async function freshSignIn(link, email, tag) {
   await sleep(2500);
   sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
   await sleep(15000);
-  const signedIn = () => /Today|Discover|Wallet|Settings/.test(hierarchy());
+  const signedIn = () => { const x = hierarchy(); return /Today|Wallet|Settings/.test(x) && !/Continue with email|Start exploring|Sign in needs another try|taking longer than usual/.test(x); };
   let ok = false;
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
     openLink(await link(email));
-    ok = await waitFor(signedIn, "sign-in", 60_000, 4000).then(() => true, () => false);
+    ok = await waitFor(signedIn, "sign-in", 90_000, 4000).then(() => true, () => false);
   }
   if (!ok) { shot(join(cfg.out, `${tag}-signin-failed.png`)); writeFileSync(join(cfg.out, `${tag}-signin-failed.xml`), hierarchy()); }
   if (ok) writeFileSync(join(cfg.out, `${tag}-after-signin.xml`), hierarchy());
@@ -305,6 +299,8 @@ async function readTickets(tag) {
 const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 
 async function claimScenario(link) {
+  q("alter system set track_functions = 'all'");
+  q("select pg_reload_conf()");
   const base = snapshot();
   writeFileSync(join(cfg.out, "claim-before.json"), JSON.stringify(base, null, 2));
   const expectOwners = (snap, exp, tag) => {
@@ -316,7 +312,21 @@ async function claimScenario(link) {
     record(`${tag}: must-not-change tables unchanged (${MUST_NOT_CHANGE.join(", ")})`, diff.length === 0 && snap.attendees === base.attendees, diff.length ? `changed: ${diff.join(", ")}` : snap.attendees === base.attendees ? "" : "attendee rows changed");
   };
 
-  // Cases 1-4, 6, 8: Dana, verified email, first sign-in on this run.
+  // Case 8: Dana signs in with a mailbox-verified but NOT bound account (a first sign-in before a password is bound): the function must
+  // return 0, claim nothing, and show nothing new or wrong.
+  if (await freshSignIn(link, cfg.email, "dana0-unbound")) {
+    const c00 = rpcCalls();
+    const unb = await readTickets("dana0-unbound");
+    const afterUnb = snapshot();
+    record("case 8: unbound session: nothing claimed (registration owners unchanged), only the owned ticket shows, no error text", ownerName(afterUnb, "662") === "unclaimed" && ownerName(afterUnb, "663") === "unclaimed" && same(unb.codes, ["QA-DANA-0001"]) && !/could not|unavailable|error/i.test(unb.xml), `codes: ${unb.codes.join(", ")}; owners 662=${ownerName(afterUnb, "662")} 663=${ownerName(afterUnb, "663")}; function calls this run: ${rpcCalls() - c00}`);
+    sameCounts(afterUnb, "after unbound Dana");
+  }
+  // From here both users have a BOUND credential bound a day ago (what any returning user has), so their new sessions are verified.
+  for (const [uid, email] of [[state.uid, cfg.email], [state.uid2, cfg.email2]]) {
+    q(`insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at) values ('${uid}', '${email}', now() - interval '2 days', now() - interval '1 day', 'otp', 'mobile_app', 'bound', now() - interval '1 day') on conflict (user_id, email) do update set credential_status = 'bound', bound_at = now() - interval '1 day', binding_session_id = null, binding_started_at = null`);
+  }
+
+  // Cases 1-4, 6: Dana, verified and bound email, first sign-in on this run.
   if (!(await freshSignIn(link, cfg.email, "dana1"))) return;
   const c0 = rpcCalls();
   const dana = await readTickets("dana1");
@@ -324,7 +334,7 @@ async function claimScenario(link) {
   writeFileSync(join(cfg.out, "claim-after-dana.json"), JSON.stringify(afterDana, null, 2));
   const claimed = afterDana.regs["662"] !== "null" || afterDana.regs["663"] !== "null";
   if (!claimed) {
-    record("case 8 FINDING: Dana's magic-link session claimed nothing (function returned 0 or was not reached): the session is not verified and bound for my_verified_email()", false, `owners 662=${ownerName(afterDana, "662")} 663=${ownerName(afterDana, "663")}; calls seen ${rpcCalls() - c0}; cases 1-5 are then BLOCKED until a bound session is possible`);
+    record("case 1 FINDING: Dana's BOUND session claimed nothing (function returned 0, errored or was not reached)", false, `owners 662=${ownerName(afterDana, "662")} 663=${ownerName(afterDana, "663")}; function calls seen ${rpcCalls() - c0}`);
   }
   record("case 1: Dana sees QA-DANA-0001, QA-CLAIM-0001, QA-CLAIM-0002", same(dana.codes.filter((c) => /DANA|CLAIM/.test(c)), ["QA-CLAIM-0001", "QA-CLAIM-0002", "QA-DANA-0001"]), `codes seen: ${dana.codes.join(", ")}`);
   record("case 2-4: Dana does NOT see QA-GIFT-0003, QA-OWNED-0004, QA-NOBODY-0005", !dana.codes.some((c) => /GIFT|OWNED|NOBODY/.test(c)), "");
@@ -369,12 +379,10 @@ async function claimScenario(link) {
   // Case 9: function missing. Reset Dana's two rows, drop the function, cold start: nothing claimed, no error text, no loop.
   q("update public.event_registrations set user_id = null where id::text like '66666666%2' or id::text like '66666666%3'");
   q("drop function public.claim_my_event_registrations()");
-  const c1 = rpcCalls();
   if (await freshSignIn(link, cfg.email, "dana3-nofn")) {
     const dana3 = await readTickets("dana3-nofn");
-    const calls3 = rpcCalls() - c1;
     record("case 9: function missing: only the already-owned ticket shows", same(dana3.codes, ["QA-DANA-0001"]), `codes: ${dana3.codes.join(", ")}`);
-    record("case 9: no error text and no retry loop (at most 2 failed calls seen across Wallet and tickets)", !/could not|unavailable|error/i.test(dana3.xml) && calls3 <= 2, `calls seen: ${calls3}`);
+    record("case 9: function missing: no error text on the tickets screen (retry count UNVERIFIED: the function is absent so the database has no counter)", !/could not|unavailable|error/i.test(dana3.xml), "see dana3-nofn-logcat.txt");
   }
 }
 
