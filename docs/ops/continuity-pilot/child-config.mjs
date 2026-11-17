@@ -80,6 +80,7 @@ export function validateTemplateIsolation(name, t, required = loadRequired()) {
     if (!c || typeof c !== 'object' || !t.addDirs.includes(c.dir)) fail('commit.dir must be one of the template addDirs');
     if (!Array.isArray(c.paths) || c.paths.length === 0 || !c.paths.every((p) => /^[A-Za-z0-9._\/-]+\/$/.test(p) && !/(^|\/)\.\.(\/|$)/.test(p) && !/(^|\/)\.git(\/|$)/.test(p))) fail('commit.paths must be repo-relative directory prefixes ending in /');
     if (c.stage !== `C:/Dev/cpilot-out/${t.cwd}` || !t.addDirs.includes('C:/Dev/cpilot-out')) fail('commit.stage must be C:/Dev/cpilot-out/<cwd> and C:/Dev/cpilot-out must be an addDir');
+    if (!Array.isArray(c.files) || c.files.length === 0 || c.files.length > 10 || !c.files.every((f) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(f) && /.(md|txt|sql|json|sh|csv)$/i.test(f) && !/^(package|package-lock|tsconfig|jsconfig|CODEOWNERS)/i.test(f) && !/.config./i.test(f) && !/^.git/i.test(f))) fail('commit.files must list 1 to 10 exact output file names (flat, md/txt/sql/json/sh/csv, never package/tsconfig/config files)');
     if (typeof c.message !== 'string' || c.message.length < 5 || c.message.length > 120 || /[\n\r]/.test(c.message)) fail('commit.message must be a single line of 5 to 120 characters');
   }
   for (const r of t.allow) {

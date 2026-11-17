@@ -92,7 +92,10 @@
           "docs/qa/cf1-u18-package/"
         ],
         "message": "CF1 U18 rollback rehearsal evidence (local only, pilot Q1)",
-        "stage": "C:/Dev/cpilot-out/q1"
+        "stage": "C:/Dev/cpilot-out/q1",
+        "files": [
+          "rollback-rehearsal.md"
+        ]
       },
       "model": "sonnet",
       "timeoutMs": 3600000,
@@ -179,7 +182,10 @@
           "docs/qa/cf1-u18-package/"
         ],
         "message": "CF1 U18 tooling residual check evidence (local only, pilot Q2)",
-        "stage": "C:/Dev/cpilot-out/q2"
+        "stage": "C:/Dev/cpilot-out/q2",
+        "files": [
+          "tooling-residual-check-pilot.md"
+        ]
       },
       "model": "sonnet",
       "timeoutMs": 3600000,
@@ -187,7 +193,7 @@
     },
     "release-migration-inventory": {
       "class": "A",
-      "title": "Git-only: Competition migrations on the release branch with sha256 pins and dependency order (no hosted queries)",
+      "title": "Git-only: Competition migrations on the release branch with git blob ids and dependency order (no hosted queries)",
       "cmd": "git read-only commands (ls-tree, show, cat-file, log, rev-parse, diff) on the already-fetched origin/release/competition-cf1-app-candidate and origin/main in the df-u18pkg worktree, hashing file contents with git show piped nowhere (read them with the file tools and note the git blob ids). No fetching, no network, no database access of any kind: the comparison with PROD migration history is done by the coordinator outside the loop. Write the inventory ONLY with the Write tool into C:/Dev/cpilot-out/q3/ (the driver imports it into docs/qa/ and commits it).",
       "done": "Inventory doc C:/Dev/cpilot-out/q3/cf1-competition-migration-inventory-2026-11-14.md written with the Write tool (the driver imports it into docs/qa/ of the df-u18pkg worktree and makes the local commit): list, git blob ids, required apply order, owner-gate checklist with a \"PROD history comparison pending\" column; no hosted access",
       "worktree": "df-u18pkg",
@@ -226,7 +232,10 @@
           "docs/qa/"
         ],
         "message": "CF1 migration inventory (local only, pilot Q3)",
-        "stage": "C:/Dev/cpilot-out/q3"
+        "stage": "C:/Dev/cpilot-out/q3",
+        "files": [
+          "cf1-competition-migration-inventory-2026-11-14.md"
+        ]
       },
       "model": "sonnet",
       "timeoutMs": 3600000,
@@ -274,7 +283,11 @@
           "scripts/qa/"
         ],
         "message": "SQL suite runner proposal (local only, pilot Q4)",
-        "stage": "C:/Dev/cpilot-out/q4"
+        "stage": "C:/Dev/cpilot-out/q4",
+        "files": [
+          "run-sql-suites.sh",
+          "README-sql-suites.md"
+        ]
       },
       "model": "sonnet",
       "timeoutMs": 3600000,

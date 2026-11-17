@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as O from './orchestrator.mjs';
-import { runDriver, StreamParser, acquireDriverLock } from './driver.mjs';
+import { runDriver, StreamParser, acquireDriverLock, collectStage } from './driver.mjs';
 import { world } from './test-world.mjs';
 import { CHILD_TOOLS, EXTRA_DENY, CODE_DIR } from './child-config.mjs';
 import { removeContainers } from './driver.mjs';
@@ -114,7 +114,7 @@ function mkRepo() {
   fs.writeFileSync(dir + '/README.md', 'x'); fs.writeFileSync(dir + '/docs/.keep.md', 'k'); gitq(dir, 'add', '-A'); gitq(dir, 'commit', '-q', '-m', 'init'); return dir;
 }
 const STAGE = 'C:/Dev/cpilot-out/w';
-const tplFor = (dir, extra = {}) => ({ work: { ...world([]).policy.templates.work, cwd: 'w', addDirs: [dir, 'C:/Dev/cpilot-out'], allow: ['Read(//c/Dev/' + dir.slice(7) + '/**)', 'Write(//c/Dev/cpilot-out/w/**)'], examples: [], commit: { dir, paths: ['docs/'], message: 'pilot test commit', stage: STAGE }, cmd: 'echo {n} in {CODE}', ...extra } });
+const tplFor = (dir, extra = {}) => ({ work: { ...world([]).policy.templates.work, cwd: 'w', addDirs: [dir, 'C:/Dev/cpilot-out'], allow: ['Read(//c/Dev/' + dir.slice(7) + '/**)', 'Write(//c/Dev/cpilot-out/w/**)'], examples: [], commit: { dir, paths: ['docs/'], message: 'pilot test commit', stage: STAGE, files: ['note.md', 'more.sql', 'existing.md', 'big.md', 'a.md'] }, cmd: 'echo {n} in {CODE}', ...extra } });
 const count = (dir) => Number(gitq(dir, 'rev-list', '--count', 'HEAD').trim());
 const stageFiles = (files) => files.map((f) => ({ path: STAGE + '/' + f.path, content: f.content }));
 const one = async (files, { repoFiles = [], tweak } = {}) => { const dir = mkRepo(); const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir); const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: [...stageFiles(files), ...repoFiles.map((f) => ({ path: dir + '/' + f.path, content: f.content }))] })); return { dir, w, r, before }; };
@@ -124,11 +124,11 @@ test('D9. the DRIVER imports validated stage files as NEW files and commits them
   const dir = mkRepo(); const marker = path.join(os.tmpdir(), 'cpilot-hook-marker-' + process.pid); fs.rmSync(marker, { force: true });
   fs.writeFileSync(dir + '/.git/hooks/pre-commit', '#!/bin/sh\ntouch "' + marker.replaceAll(String.fromCharCode(92), '/') + '"\n'); try { fs.chmodSync(dir + '/.git/hooks/pre-commit', 0o755); } catch { /* windows */ }
   const w = world([{ id: 'A1', template: 'work' }], { templates: tplFor(dir) }); const before = count(dir);
-  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: stageFiles([{ path: 'note.md', content: 'evidence' }, { path: 'sub/more.sql', content: 'select 1' }]) }));
+  const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: stageFiles([{ path: 'note.md', content: 'evidence' }, { path: 'more.sql', content: 'select 1' }]) }));
   assert.equal(st(w, 'A1'), 'DONE', JSON.stringify(r)); assert.equal(count(dir), before + 1);
-  assert.equal(gitq(dir, 'log', '-1', '--format=%s').trim(), 'pilot test commit'); assert.deepEqual(gitq(dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n').sort(), ['docs/note.md', 'docs/sub/more.sql']);
+  assert.equal(gitq(dir, 'log', '-1', '--format=%s').trim(), 'pilot test commit'); assert.deepEqual(gitq(dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n').sort(), ['docs/more.sql', 'docs/note.md']);
   assert.equal(fs.existsSync(marker), false, 'the repo pre-commit hook must NOT run'); assert.equal(gitq(dir, 'status', '--porcelain').trim(), '');
-  const end = O.readLog(w.root).find((e) => e.ev === 'CHILD_END'); assert.deepEqual(end.changed.sort(), ['docs/note.md', 'docs/sub/more.sql']); assert.ok(end.commit);
+  const end = O.readLog(w.root).find((e) => e.ev === 'CHILD_END'); assert.deepEqual(end.changed.sort(), ['docs/more.sql', 'docs/note.md']); assert.ok(end.commit);
 });
 
 test('D10. stage files that are not plain new files with safe names are refused: nothing is imported or committed', { timeout: 600000 }, async () => {
@@ -188,3 +188,25 @@ test('D14. containers are removed after the item even when the child is killed o
   removeContainers({ containers: [name] }); // idempotent on an absent container
 });
 
+
+test('D16. round 6: only the exact files the template declares are imported; links, hard links, subdirectories and config-like names are refused', { timeout: 600000 }, async () => {
+  const cases = {
+    'file not declared by the template': [{ path: 'other.md', content: 'x' }], 'package.json': [{ path: 'package.json', content: '{}' }], 'subdirectory': [{ path: 'sub/note.md', content: 'x' }],
+    'declared file plus an undeclared one': [{ path: 'note.md', content: 'x' }, { path: 'extra.md', content: 'x' }],
+  };
+  for (const [name, files] of Object.entries(cases)) { const t = await one(files); assert.equal(t.r.results[0].state, 'FAILED', name); assert.match(t.r.results[0].reason, /^refused:/, name + ' :: ' + t.r.results[0].reason); untouched(t); }
+  // a hard link (nlink > 1), a symlink-free stage with a subdirectory, and a good file are judged by collectStage directly
+  { const sd = 'C:/Dev/cpilot-out/cs-' + process.pid; fs.rmSync(sd, { recursive: true, force: true }); fs.mkdirSync(sd, { recursive: true }); const outside = sd + '-outside.txt'; fs.writeFileSync(outside, 'SECRET');
+    fs.writeFileSync(sd + '/good.md', 'ok'); assert.deepEqual(collectStage(sd, ['good.md']), ['good.md']);
+    fs.linkSync(outside, sd + '/note.md'); assert.throws(() => collectStage(sd, ['good.md', 'note.md']), /more than one hard link/); fs.rmSync(sd + '/note.md');
+    fs.mkdirSync(sd + '/dir'); assert.throws(() => collectStage(sd, ['good.md']), /not a plain file/); fs.rmSync(sd, { recursive: true, force: true }); fs.rmSync(outside, { force: true }); }
+  // an untracked junction under the commit path is refused (git status does not list it, the copy would land outside the repository)
+  { const dir = mkRepo(); const outside = 'C:/Dev/cpilot-r6-outside-' + process.pid; fs.rmSync(outside, { recursive: true, force: true }); fs.mkdirSync(outside, { recursive: true });
+    const mk = spawnSync('cmd', ['/c', 'mklink', '/J', (dir + '/docs/jj').replaceAll('/', String.fromCharCode(92)), outside.replaceAll('/', String.fromCharCode(92))], { encoding: 'utf8' });
+    if (mk.status === 0) {
+      const tpl = tplFor(dir); tpl.work.commit.paths = ['docs/jj/']; const w = world([{ id: 'A1', template: 'work' }], { templates: tpl }); const before = count(dir);
+      const r = await drive(w, scenario(w, { ...lines(ev.init, ev.done()), writeFiles: stageFiles([{ path: 'note.md', content: 'x' }]) }));
+      assert.equal(r.results[0].state, 'FAILED'); assert.match(r.results[0].reason, /^refused:/); assert.deepEqual(fs.readdirSync(outside), [], 'nothing was written through the junction'); assert.equal(count(dir), before);
+    }
+    spawnSync('cmd', ['/c', 'rmdir', (dir + '/docs/jj').replaceAll('/', String.fromCharCode(92))]); fs.rmSync(outside, { recursive: true, force: true }); }
+});

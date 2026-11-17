@@ -79,25 +79,34 @@ const STAGE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/;
 const STAGE_EXT = /\.(md|txt|sql|json|sh|csv)$/i;
 const refuse = (m) => { const e = new Error('refused: ' + m); e.refused = true; return e; };
 
-// Lists the stage directory; every entry must be a plain regular file (or a plain directory) with a safe name. Throws on anything else.
-export function collectStage(stage) {
+// Lists the stage directory. FLAT only (no subdirectories), every file must be one of the names the template declares in commit.files,
+// a plain regular file with a single link and a safe name. Throws a refusal on anything else (round 6: exact expected outputs).
+export function collectStage(stage, allowed = []) {
   const files = []; let entries = 0;
-  const walk = (rel, depth) => {
-    if (depth > STAGE_LIMITS.depth) throw refuse('stage directory too deep: ' + rel);
-    for (const e of fs.readdirSync(path.join(stage, rel), { withFileTypes: true })) {
-      if (++entries > STAGE_LIMITS.entries) throw refuse('too many entries in the stage directory');
-      const r = rel ? rel + '/' + e.name : e.name; const full = path.join(stage, r); const st = fs.lstatSync(full);
-      if (st.isSymbolicLink() || !(st.isFile() || st.isDirectory())) throw refuse('stage entry is not a plain file or directory: ' + r);
-      if (!STAGE_NAME.test(e.name) || /^\.git/i.test(e.name) || GITISH.test(e.name)) throw refuse('stage entry has a forbidden name: ' + r);
-      if (st.isDirectory()) { walk(r, depth + 1); continue; }
-      if (!STAGE_EXT.test(e.name)) throw refuse('stage file type not allowed (md, txt, sql, json, sh, csv): ' + r);
-      if (st.size > STAGE_LIMITS.bytes) throw refuse('stage file too large: ' + r);
-      files.push(r); if (files.length > STAGE_LIMITS.files) throw refuse('too many stage files');
-    }
-  };
-  walk('', 0);
+  for (const e of fs.readdirSync(stage, { withFileTypes: true })) {
+    if (++entries > STAGE_LIMITS.entries) throw refuse('too many entries in the stage directory');
+    const full = path.join(stage, e.name); const st = fs.lstatSync(full);
+    if (st.isSymbolicLink() || !st.isFile()) throw refuse('stage entry is not a plain file (subdirectories, links and devices are not allowed): ' + e.name);
+    if (st.nlink !== 1) throw refuse('stage file has more than one hard link: ' + e.name);
+    if (!STAGE_NAME.test(e.name) || /^\.git/i.test(e.name) || GITISH.test(e.name)) throw refuse('stage entry has a forbidden name: ' + e.name);
+    if (!STAGE_EXT.test(e.name)) throw refuse('stage file type not allowed (md, txt, sql, json, sh, csv): ' + e.name);
+    if (!allowed.some((a) => a.toLowerCase() === e.name.toLowerCase())) throw refuse('stage file is not one of the outputs this item may produce (' + allowed.join(', ') + '): ' + e.name);
+    if (st.size > STAGE_LIMITS.bytes) throw refuse('stage file too large: ' + e.name);
+    files.push(e.name); if (files.length > STAGE_LIMITS.files) throw refuse('too many stage files');
+  }
   return files.sort();
 }
+
+// Every existing component from the repository root down to a path must be a plain directory: a junction or symlink under the commit path
+// would make the copy land outside the repository (git status does not list untracked junctions).
+function assertPlainPath(base, rel) {
+  let cur = base;
+  for (const part of rel.split('/').filter(Boolean)) {
+    cur = path.join(cur, part); let st; try { st = fs.lstatSync(cur); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
+    if (st.isSymbolicLink() || !st.isDirectory()) throw refuse('a path component is a link or not a directory: ' + rel);
+  }
+}
+const assertPlainDir = (p) => { const st = fs.lstatSync(p); if (st.isSymbolicLink() || !st.isDirectory()) throw refuse('not a plain directory: ' + p); };
 
 const snapshotRepo = (dir) => ({ head: git(dir, ['rev-parse', 'HEAD']).trim(), status: git(dir, ['status', '--porcelain', '-z', '-uall', '--ignored=matching']) });
 
@@ -107,6 +116,8 @@ export function repoPrepare(iso) {
   if (!iso.commit) return { base: null };
   const { dir, stage } = iso.commit;
   const d = dirty(dir); if (d.length) throw new Error('worktree ' + dir + ' is not clean before the item: ' + d.slice(0, 5).join(', '));
+  fs.mkdirSync(path.dirname(stage), { recursive: true }); assertPlainDir(path.dirname(stage)); assertPlainDir(dir); // never rm through a junction
+  try { if (fs.lstatSync(stage).isSymbolicLink()) throw new Error('stage is a link'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   fs.rmSync(stage, { recursive: true, force: true }); fs.mkdirSync(stage, { recursive: true });
   const snap = snapshotRepo(dir);
   return { base: snap.head, snap, stage };
@@ -116,14 +127,14 @@ export function repoPrepare(iso) {
 // files as new regular files under commit.paths[0] and make ONE local commit with hooks disabled. Returns { ok, reason, changed, commit }.
 export function repoFinish(iso, prep) {
   if (!iso.commit) return { ok: true, changed: [] };
-  const { dir, paths, message, stage } = iso.commit;
+  const { dir, paths, message, stage, files: expected = [] } = iso.commit;
   const now = snapshotRepo(dir);
   if (now.head !== prep.snap.head) return { ok: false, reason: 'child changed HEAD (it must not commit)', changed: [] };
   if (now.status !== prep.snap.status) { const a = new Set(prep.snap.status.split('\0')); const diff = now.status.split('\0').filter((x) => !a.has(x)).slice(0, 5); return { ok: false, reason: 'refused: the repository changed while the child ran (it has no write access): ' + diff.join(', '), changed: [] }; }
-  let files; try { files = collectStage(stage); } catch (e) { if (e.refused) return { ok: false, reason: e.message, changed: [] }; throw e; }
+  let files; try { assertPlainDir(stage); files = collectStage(stage, expected); } catch (e) { if (e.refused) return { ok: false, reason: e.message, changed: [] }; throw e; }
   if (!files.length) return { ok: true, changed: [], commit: null };
-  const root = path.join(dir, paths[0]); const rootSt = fs.lstatSync(root);
-  if (rootSt.isSymbolicLink() || !rootSt.isDirectory()) return { ok: false, reason: 'refused: commit path is not a plain directory: ' + paths[0], changed: [] };
+  const root = path.join(dir, paths[0]);
+  try { assertPlainDir(dir); assertPlainPath(dir, paths[0]); assertPlainDir(root); } catch (e) { if (e.refused) return { ok: false, reason: e.message, changed: [] }; throw e; }
   const rootReal = path.resolve(root) + path.sep; const rels = []; const made = [];
   for (const f of files) {
     const dest = path.resolve(root, f); if (!dest.startsWith(rootReal)) return { ok: false, reason: 'refused: stage file escapes the commit path: ' + f, changed: [] };
@@ -131,7 +142,7 @@ export function repoFinish(iso, prep) {
     rels.push(paths[0] + f);
   }
   try {
-    for (const f of files) { const dest = path.resolve(root, f); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.copyFileSync(path.join(stage, f), dest, fs.constants.COPYFILE_EXCL); made.push(dest); }
+    for (const f of files) { const dest = path.resolve(root, f); fs.writeFileSync(dest, fs.readFileSync(path.join(stage, f)), { flag: 'wx' }); made.push(dest); } // default data stream only (no NTFS alternate streams)
     git(dir, ['--literal-pathspecs', 'add', '--', ...rels]);
     const staged = git(dir, ['diff', '--cached', '--raw', '--no-renames', '-z']).split('\0').filter((x) => x.length);
     const names = staged.filter((x) => !x.startsWith(':')).sort(); const modes = staged.filter((x) => x.startsWith(':'));
@@ -150,6 +161,7 @@ export async function runChild(root, claim, { claudeCmd = DEFAULT_CLAUDE_CMD, wo
   const item = claim.item; const iso = item.iso;
   const workDir = path.join(workRoot, iso.cwd); fs.rmSync(workDir, { recursive: true, force: true }); fs.mkdirSync(workDir, { recursive: true });
   const runDir = path.join(path.dirname(workRoot), 'runs', iso.cwd); fs.rmSync(runDir, { recursive: true, force: true }); fs.mkdirSync(runDir, { recursive: true }); // not a working directory of the child
+  removeContainers(iso); // a leftover container from an earlier run must not outlive into this item
   let prep; try { prep = repoPrepare(iso); } catch (e) { O.log(root, { ev: 'CHILD_END', id: item.id, ok: false, reason: String(e.message) }); return { ok: false, reason: String(e.message), denials: [], stoppedBy: 'precondition' }; }
   const settingsPath = path.join(runDir, 'pilot-settings.json'); fs.writeFileSync(settingsPath, JSON.stringify(childSettings({ allow: iso.allow })));
   const args = childArgs({ prompt: buildPrompt(item), settingsPath, tpl: iso });

@@ -89,7 +89,7 @@ test('I1. suite construction: every protected variant, every abuse shape per exa
     assert.ok(s.some((x) => x.id.endsWith('write-outside')) && s.some((x) => x.id.endsWith('read-outside')));
     assert.ok(by((x) => x.expect === 'allowed').length >= 2, `${n}: has allowed controls`); assert.ok(by((x) => x.expect === 'denied').length > 100);
     assert.equal(new Set(s.map((x) => x.id)).size, s.length, 'probe ids are unique');
-    assert.ok(by((x) => x.canary).every((x) => /^C:\/Dev\/cpilot-iso\/(canary|outside)\//.test(x.canary) || x.tool === 'Write'), 'canaries live in scratch dirs or inside protected globs');
+    assert.ok(by((x) => x.canary).every((x) => /^C:\/Dev\/cpilot-iso\/(canary|outside)\//.test(x.canary) || x.tool === 'Write' || /-(shwrite|edit-create)/.test(x.id)), 'canaries live in scratch dirs, or are the would-be targets of write probes that must be denied');
   }
   assert.ok(abuseVariants('git -C C:/Dev/df-u18pkg status', 't').some((v) => v.id.endsWith('trav') && v.input.command.includes('/../')));
 });
