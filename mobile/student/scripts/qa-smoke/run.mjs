@@ -31,9 +31,11 @@ const cfg = {
   jdk: process.env.JAVA_HOME || "C:\\Android\\jdk-17",
   apk: opt("apk", ""), // reuse a QA APK and skip the build
   skipBuild: flag("skip-build"),
+  claim: flag("claim"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
   events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   noTeardown: flag("keep"), // debugging only
   email: "dana.dancer@example.test",
+  email2: "evan.other@example.test",
   pkg: "com.idanceflow.student",
   kong: 56600,
   mockPort: 8791,
@@ -85,6 +87,11 @@ async function stackUp() {
   const service = grab("ISO_QA_SERVICE_ROLE_KEY");
   if (!anon || !service) throw new Error("could not read the stack keys from the iso-qa output");
   psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270213080000_mobile_push_token_claim.sql"));
+  if (cfg.claim) {
+    // PR 604: the function, then the index (a separate non-transactional file). Disposable stack only, never hosted.
+    psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221090000_event_registration_claim_function.sql"));
+    psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"));
+  }
   return { anon, service };
 }
 
@@ -95,9 +102,17 @@ async function makeDancer(service) {
   const user = await r.json();
   if (!user.id) throw new Error(`could not create the dancer: ${JSON.stringify(user).slice(0, 200)}`);
   psql(join(here, "seed.sql"), ["-v", `uid='${user.id}'`]);
-  if (cfg.events) psql(join(here, "seed-event.sql"), ["-v", `uid='${user.id}'`]);
-  return async () => {
-    const g = await fetch(`${base}/auth/v1/admin/generate_link`, { method: "POST", headers: h, body: JSON.stringify({ type: "magiclink", email: cfg.email }) });
+  if (cfg.events || cfg.claim) psql(join(here, "seed-event.sql"), ["-v", `uid='${user.id}'`]);
+  state.uid = user.id;
+  if (cfg.claim) {
+    const r2 = await fetch(`${base}/auth/v1/admin/users`, { method: "POST", headers: h, body: JSON.stringify({ email: cfg.email2, email_confirm: true }) });
+    const user2 = await r2.json();
+    if (!user2.id) throw new Error(`could not create the second dancer: ${JSON.stringify(user2).slice(0, 200)}`);
+    state.uid2 = user2.id;
+    psql(join(here, "seed-claim.sql"), ["-v", `uid='${user.id}'`, "-v", `uid2='${user2.id}'`]);
+  }
+  return async (email = cfg.email) => {
+    const g = await fetch(`${base}/auth/v1/admin/generate_link`, { method: "POST", headers: h, body: JSON.stringify({ type: "magiclink", email }) });
     const body = await g.json();
     const hashed = body.hashed_token || body.properties?.hashed_token;
     if (!hashed) throw new Error("generate_link returned no token");
@@ -215,11 +230,151 @@ async function screens(link) {
   }
 }
 
+// ---- verified-email claim scenario (--claim): 604 function on a disposable stack, Dana, Evan, function missing, offline ----
+const q = (sql) => {
+  const r = run("docker", ["exec", "-i", `df-isoqa-${cfg.name}-db`, "psql", "-U", "postgres", "-d", "postgres", "-At", "-F", "|", "-c", sql]);
+  return r.status === 0 ? r.stdout.trim() : `ERR ${(r.stderr || "").slice(0, 160)}`;
+};
+const MUST_NOT_CHANGE = ["clients", "client_account_links", "leads", "notifications", "payments", "event_registration_attendees"];
+const snapshot = () => ({
+  counts: Object.fromEntries(MUST_NOT_CHANGE.map((t) => [t, q(`select count(*) from public.${t}`)])),
+  regs: Object.fromEntries(q("select right(id::text,3), coalesce(user_id::text,'null') from public.event_registrations where id::text like '66666666%' order by id").split("\n").filter(Boolean).map((l) => l.split("|"))),
+  attendees: q("select md5(string_agg(id::text||coalesce(email,'')||coalesce(registration_id::text,''), ',' order by id)) from public.event_registration_attendees"),
+});
+const who = (uid) => (uid === state.uid ? "Dana" : uid === state.uid2 ? "Evan" : uid);
+const ownerName = (snap, suffix) => (snap.regs[suffix] === "null" ? "unclaimed" : who(snap.regs[suffix]));
+const rpcCalls = () => {
+  let n = 0;
+  const names = run("docker", ["ps", "--format", "{{.Names}}"]).stdout.split("\n").filter((x) => x.includes(`df-isoqa-${cfg.name}`));
+  for (const c of names) {
+    const l = run("docker", ["logs", c]);
+    n += ((l.stdout + l.stderr).match(/claim_my_event_registrations/g) || []).length;
+  }
+  return n;
+};
+const CODES = /QA-(?:DANA|CLAIM|GIFT|OWNED|NOBODY)-\d{4}/g;
+
+async function freshSignIn(link, email, tag) {
+  sh(["shell", "pm", "clear", cfg.pkg]);
+  await sleep(2500);
+  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  await sleep(15000);
+  const signedIn = () => /Today|Discover|Wallet|Settings/.test(hierarchy());
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    openLink(await link(email));
+    ok = await waitFor(signedIn, "sign-in", 60_000, 4000).then(() => true, () => false);
+  }
+  if (!ok) { shot(join(cfg.out, `${tag}-signin-failed.png`)); writeFileSync(join(cfg.out, `${tag}-signin-failed.xml`), hierarchy()); }
+  record(`${tag}: sign-in via magic link`, ok, ok ? "" : "see the -signin-failed files");
+  return ok;
+}
+
+// Opens Wallet (where the claim runs), then the tickets screen, scrolling to collect every ticket code on it.
+async function readTickets(tag) {
+  openLink("danceflow://wallet");
+  await sleep(14000);
+  openLink("danceflow://wallet/event-tickets");
+  await sleep(8000);
+  const seen = new Set();
+  let xmlAll = "";
+  let stale = 0;
+  for (let i = 0; i < 8 && stale < 2; i++) {
+    const xml = hierarchy();
+    xmlAll += xml;
+    writeFileSync(join(cfg.out, `${tag}-tickets-${i}.xml`), xml);
+    if (i === 0) shot(join(cfg.out, `${tag}-tickets.png`));
+    const before = seen.size;
+    for (const m of xml.match(CODES) || []) seen.add(m);
+    stale = seen.size === before ? stale + 1 : 0;
+    sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+    await sleep(1500);
+  }
+  return { codes: [...seen].sort(), xml: xmlAll };
+}
+
+const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+
+async function claimScenario(link) {
+  const base = snapshot();
+  writeFileSync(join(cfg.out, "claim-before.json"), JSON.stringify(base, null, 2));
+  const expectOwners = (snap, exp, tag) => {
+    const got = { 662: ownerName(snap, "662"), 663: ownerName(snap, "663"), 664: ownerName(snap, "664"), 665: ownerName(snap, "665"), 666: ownerName(snap, "666") };
+    record(`${tag}: registration owners ${JSON.stringify(exp)}`, JSON.stringify(got) === JSON.stringify(exp), JSON.stringify(got));
+  };
+  const sameCounts = (snap, tag) => {
+    const diff = MUST_NOT_CHANGE.filter((t) => snap.counts[t] !== base.counts[t]);
+    record(`${tag}: must-not-change tables unchanged (${MUST_NOT_CHANGE.join(", ")})`, diff.length === 0 && snap.attendees === base.attendees, diff.length ? `changed: ${diff.join(", ")}` : snap.attendees === base.attendees ? "" : "attendee rows changed");
+  };
+
+  // Cases 1-4, 6, 8: Dana, verified email, first sign-in on this run.
+  if (!(await freshSignIn(link, cfg.email, "dana1"))) return;
+  const c0 = rpcCalls();
+  const dana = await readTickets("dana1");
+  const afterDana = snapshot();
+  writeFileSync(join(cfg.out, "claim-after-dana.json"), JSON.stringify(afterDana, null, 2));
+  const claimed = afterDana.regs["662"] !== "null" || afterDana.regs["663"] !== "null";
+  if (!claimed) {
+    record("case 8 FINDING: Dana's magic-link session claimed nothing (function returned 0 or was not reached): the session is not verified and bound for my_verified_email()", false, `owners 662=${ownerName(afterDana, "662")} 663=${ownerName(afterDana, "663")}; calls seen ${rpcCalls() - c0}; cases 1-5 are then BLOCKED until a bound session is possible`);
+  }
+  record("case 1: Dana sees QA-DANA-0001, QA-CLAIM-0001, QA-CLAIM-0002", same(dana.codes.filter((c) => /DANA|CLAIM/.test(c)), ["QA-CLAIM-0001", "QA-CLAIM-0002", "QA-DANA-0001"]), `codes seen: ${dana.codes.join(", ")}`);
+  record("case 2-4: Dana does NOT see QA-GIFT-0003, QA-OWNED-0004, QA-NOBODY-0005", !dana.codes.some((c) => /GIFT|OWNED|NOBODY/.test(c)), "");
+  expectOwners(afterDana, { 662: "Dana", 663: "Dana", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }, "after Dana");
+  sameCounts(afterDana, "after Dana");
+  const calls1 = rpcCalls() - c0;
+  record("case 6: exactly one claim call in Dana's first app run (Wallet, tickets, scrolling)", calls1 === 1, `calls seen in the stack logs: ${calls1}`);
+  record("no claim wording on the tickets screen", !/claim|linking your|verif/i.test(dana.xml.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "");
+
+  // Case 5: Evan, a second user with a different email, same stack and device.
+  if (await freshSignIn(link, cfg.email2, "evan")) {
+    const evan = await readTickets("evan");
+    const afterEvan = snapshot();
+    writeFileSync(join(cfg.out, "claim-after-evan.json"), JSON.stringify(afterEvan, null, 2));
+    record("case 5: Evan sees QA-GIFT-0003 and QA-OWNED-0004 and none of Dana's tickets", same(evan.codes, ["QA-GIFT-0003", "QA-OWNED-0004"]), `codes seen: ${evan.codes.join(", ")}`);
+    expectOwners(afterEvan, { 662: "Dana", 663: "Dana", 664: "Evan", 665: "Evan", 666: "unclaimed" }, "after Evan");
+    sameCounts(afterEvan, "after Evan");
+  }
+
+  // Case 6/7: Dana again after a cold restart: idempotent, nothing changes.
+  if (await freshSignIn(link, cfg.email, "dana2")) {
+    const before2 = snapshot();
+    const dana2 = await readTickets("dana2");
+    const afterDana2 = snapshot();
+    record("case 7: a second run for Dana changes no ownership (idempotent) and shows the same tickets", JSON.stringify(afterDana2.regs) === JSON.stringify(before2.regs) && same(dana2.codes.filter((c) => /DANA|CLAIM/.test(c)), ["QA-CLAIM-0001", "QA-CLAIM-0002", "QA-DANA-0001"]), `codes: ${dana2.codes.join(", ")}`);
+    sameCounts(afterDana2, "after Dana again");
+
+    // Case 10: offline. The claim has already run for Dana this app run, so this only shows the wallet's offline wording.
+    sh(["shell", "cmd", "connectivity", "airplane-mode", "enable"]);
+    state.airplane = true;
+    await sleep(4000);
+    openLink("danceflow://wallet/event-tickets");
+    await sleep(6000);
+    const off = hierarchy();
+    shot(join(cfg.out, "dana2-offline.png"));
+    writeFileSync(join(cfg.out, "dana2-offline.xml"), off);
+    sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]);
+    state.airplane = false;
+    record("case 10: offline: the tickets screen reads as offline or keeps the loaded tickets, with no claim text", /offline|connection|QA-DANA-0001/i.test(off) && !/claim/i.test(off), "see dana2-offline.png");
+  }
+
+  // Case 9: function missing. Reset Dana's two rows, drop the function, cold start: nothing claimed, no error text, no loop.
+  q("update public.event_registrations set user_id = null where id::text like '66666666%2' or id::text like '66666666%3'");
+  q("drop function public.claim_my_event_registrations()");
+  const c1 = rpcCalls();
+  if (await freshSignIn(link, cfg.email, "dana3-nofn")) {
+    const dana3 = await readTickets("dana3-nofn");
+    const calls3 = rpcCalls() - c1;
+    record("case 9: function missing: only the already-owned ticket shows", same(dana3.codes, ["QA-DANA-0001"]), `codes: ${dana3.codes.join(", ")}`);
+    record("case 9: no error text and no retry loop (at most 2 failed calls seen across Wallet and tickets)", !/could not|unavailable|error/i.test(dana3.xml) && calls3 <= 2, `calls seen: ${calls3}`);
+  }
+}
+
 async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
   quiet(() => { if (state.installed) sh(["uninstall", cfg.pkg]); });
   quiet(() => { if (state.emulator) { sh(["shell", "settings", "put", "system", "font_scale", state.prevFont && state.prevFont !== "null" ? state.prevFont : "1.0"]); sh(["shell", "cmd", "uimode", "night", "no"]); sh(["shell", "settings", "put", "global", "hide_error_dialogs", "0"]); sh(["emu", "kill"]); } });
+  quiet(() => { if (state.airplane) sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]); });
   quiet(() => state.mock?.kill());
   quiet(() => { if (state.stack) run("node", [join(repoRoot, "scripts", "qa", "iso-qa.mjs"), "down", "--name", cfg.name, "--force"], { cwd: repoRoot }); });
   quiet(() => state.restoreManifest?.());
@@ -241,7 +396,8 @@ try {
   const inst = sh(["install", "-r", apk]);
   if (!/Success/.test(inst.stdout)) throw new Error(`install failed: ${inst.stdout}${inst.stderr}`);
   state.installed = true;
-  await screens(link);
+  if (cfg.claim) await claimScenario(link);
+  else await screens(link);
 } catch (e) {
   record("run", false, e.message);
 } finally {
