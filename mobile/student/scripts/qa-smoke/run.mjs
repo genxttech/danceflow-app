@@ -245,12 +245,18 @@ const who = (uid) => (uid === state.uid ? "Dana" : uid === state.uid2 ? "Evan" :
 const ownerName = (snap, suffix) => (snap.regs[suffix] === "null" ? "unclaimed" : who(snap.regs[suffix]));
 const rpcCalls = () => {
   let n = 0;
-  const names = run("docker", ["ps", "--format", "{{.Names}}"]).stdout.split("\n").filter((x) => x.includes(`df-isoqa-${cfg.name}`));
-  for (const c of names) {
+  const all = run("docker", ["ps", "--format", "{{.Names}}"]).stdout.split("\n").filter((x) => x.includes(`df-isoqa-${cfg.name}`));
+  const kong = all.filter((x) => /kong/i.test(x));
+  for (const c of kong.length ? kong : all) {
     const l = run("docker", ["logs", c]);
-    n += ((l.stdout + l.stderr).match(/claim_my_event_registrations/g) || []).length;
+    n += ((l.stdout + l.stderr).match(/rpc\/claim_my_event_registrations/g) || []).length;
   }
   return n;
+};
+const saveLogs = (tag) => {
+  const l = sh(["logcat", "-d", "-v", "time", "-s", "ReactNativeJS:V", "AndroidRuntime:E"]);
+  writeFileSync(join(cfg.out, `${tag}-logcat.txt`), `${l.stdout}\n${l.stderr}`);
+  sh(["logcat", "-c"]);
 };
 const CODES = /QA-(?:DANA|CLAIM|GIFT|OWNED|NOBODY)-\d{4}/g;
 
@@ -266,6 +272,7 @@ async function freshSignIn(link, email, tag) {
     ok = await waitFor(signedIn, "sign-in", 60_000, 4000).then(() => true, () => false);
   }
   if (!ok) { shot(join(cfg.out, `${tag}-signin-failed.png`)); writeFileSync(join(cfg.out, `${tag}-signin-failed.xml`), hierarchy()); }
+  if (ok) writeFileSync(join(cfg.out, `${tag}-after-signin.xml`), hierarchy());
   record(`${tag}: sign-in via magic link`, ok, ok ? "" : "see the -signin-failed files");
   return ok;
 }
@@ -276,6 +283,8 @@ async function readTickets(tag) {
   await sleep(14000);
   openLink("danceflow://wallet/event-tickets");
   await sleep(8000);
+  for (let i = 0; i < 12 && /Loading tickets/.test(hierarchy()); i++) await sleep(4000);
+  saveLogs(tag);
   const seen = new Set();
   let xmlAll = "";
   let stale = 0;
