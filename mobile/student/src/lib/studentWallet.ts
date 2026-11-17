@@ -443,6 +443,34 @@ async function loadRegistrationsByClient(clientIds: string[], studioIds: string[
   return (data ?? []) as unknown as EventRegistrationRow[];
 }
 
+/**
+ * Registrations linked to this account by user_id: the buyer's own (row-level security already limits the rows to
+ * user_id = auth.uid()), including ones the database linked after sign-in by verified email (claim_my_event_registrations).
+ * The email lookup below is an exact match on the lower-cased account email, so it misses a registration whose stored
+ * email has capitals or stray spaces, or whose buyer email differs from this account's; the link by user_id does not.
+ */
+async function loadRegistrationsByUser() {
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) return [] as EventRegistrationRow[];
+
+    const { data, error } = await supabase
+      .from("event_registrations")
+      .select(registrationSelect())
+      .eq("user_id", userId)
+      .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) return [];
+    return (data ?? []) as unknown as EventRegistrationRow[];
+  } catch {
+    // Keep Wallet usable: tickets found by client link and email still load.
+    return [];
+  }
+}
+
 async function loadRegistrationsByEmail(email: string | null | undefined) {
   const normalizedEmail = email?.trim().toLowerCase();
   if (!normalizedEmail) return [] as EventRegistrationRow[];
@@ -493,7 +521,8 @@ export async function loadStudentWallet(
     rewardsResult,
     rewardProgressResult,
     clientRegistrationRows,
-    emailRegistrationRows
+    emailRegistrationRows,
+    userRegistrationRows
   ] = await Promise.all([
     clientIds.length && studioIds.length
       ? supabase
@@ -613,7 +642,8 @@ export async function loadStudentWallet(
       : Promise.resolve({ data: [], error: null }),
 
     loadRegistrationsByClient(clientIds, studioIds),
-    loadRegistrationsByEmail(accountEmail)
+    loadRegistrationsByEmail(accountEmail),
+    loadRegistrationsByUser()
   ]);
 
   if (membershipsResult.error) throw membershipsResult.error;
@@ -661,7 +691,7 @@ export async function loadStudentWallet(
       }))
     }));
 
-  const registrationRows = dedupeRegistrations([...clientRegistrationRows, ...emailRegistrationRows]);
+  const registrationRows = dedupeRegistrations([...clientRegistrationRows, ...emailRegistrationRows, ...userRegistrationRows]);
   const registrations = registrationRows.map((row) => registrationToWallet(row, linkedStudios));
   const paymentRequests = ((paymentsResult.data ?? []) as PaymentRequestRow[]).map((row) => ({
     id: row.id,
