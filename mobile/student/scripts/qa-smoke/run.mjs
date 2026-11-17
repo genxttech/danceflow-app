@@ -170,6 +170,10 @@ async function emulatorUp() {
   state.emulator = spawn(join(cfg.sdk, "emulator", "emulator.exe"), ["-avd", cfg.avd, "-no-snapshot", "-no-boot-anim", "-gpu", "swiftshader_indirect", "-memory", "2048", "-no-audio"], { stdio: "ignore", detached: false });
   await waitFor(() => sh(["shell", "getprop", "sys.boot_completed"]).stdout.trim() === "1", "the emulator to boot", 300_000);
   sh(["shell", "settings", "put", "global", "hide_error_dialogs", "1"]);
+  state.prevStay = sh(["shell", "settings", "get", "global", "stay_on_while_plugged_in"]).stdout.trim();
+  sh(["shell", "settings", "put", "global", "stay_on_while_plugged_in", "7"]);
+  sh(["shell", "svc", "power", "stayon", "true"]);
+  sh(["shell", "input", "keyevent", "224"]);
   writeFileSync(join(cfg.out, "talkback.txt"), sh(["shell", "pm", "list", "packages", "talkback"]).stdout || "TalkBack package not installed on this image");
   state.prevFont = sh(["shell", "settings", "get", "system", "font_scale"]).stdout.trim();
   const d = /(d+)s*$/.exec(sh(["shell", "wm", "density"]).stdout.trim())?.[1];
@@ -257,6 +261,7 @@ const saveLogs = (tag) => {
 const CODES = /QA-(?:DANA|CLAIM|GIFT|OWNED|NOBODY)-\d{4}/g;
 
 async function freshSignIn(link, email, tag, allowSecure = false) {
+  sh(["shell", "input", "keyevent", "224"]);
   sh(["shell", "pm", "clear", cfg.pkg]);
   await sleep(2500);
   sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
@@ -280,6 +285,7 @@ async function freshSignIn(link, email, tag, allowSecure = false) {
 
 // Opens Wallet (where the claim runs), then the tickets screen, scrolling to collect every ticket code on it.
 async function readTickets(tag) {
+  sh(["shell", "input", "keyevent", "224"]);
   openLink("danceflow://wallet");
   await sleep(14000);
   openLink("danceflow://wallet/event-tickets");
@@ -446,7 +452,7 @@ async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
   quiet(() => { if (state.installed) sh(["uninstall", cfg.pkg]); });
-  quiet(() => { if (state.emulator) { sh(["shell", "settings", "put", "system", "font_scale", state.prevFont && state.prevFont !== "null" ? state.prevFont : "1.0"]); sh(["shell", "cmd", "uimode", "night", "no"]); sh(["shell", "settings", "put", "global", "hide_error_dialogs", "0"]); sh(["emu", "kill"]); } });
+  quiet(() => { if (state.emulator) { sh(["shell", "settings", "put", "system", "font_scale", state.prevFont && state.prevFont !== "null" ? state.prevFont : "1.0"]); sh(["shell", "cmd", "uimode", "night", "no"]); sh(["shell", "settings", "put", "global", "hide_error_dialogs", "0"]); sh(["shell", "settings", "put", "global", "stay_on_while_plugged_in", state.prevStay && state.prevStay !== "null" ? state.prevStay : "0"]); sh(["shell", "svc", "power", "stayon", "false"]); sh(["emu", "kill"]); } });
   quiet(() => { if (state.airplane) sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]); });
   quiet(() => state.mock?.kill());
   quiet(() => { if (state.stack) run("node", [join(repoRoot, "scripts", "qa", "iso-qa.mjs"), "down", "--name", cfg.name, "--force"], { cwd: repoRoot }); });
