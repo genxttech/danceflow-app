@@ -5,6 +5,9 @@
  */
 export type SignInFailure = "unreachable" | "refused";
 
+/** One sentence for every sign-in path (password and email link) when the server cannot be reached. */
+export const UNREACHABLE_MESSAGE = "Can't reach DanceFlow. Check your connection and try again.";
+
 export function signInFailureKind(error: unknown): SignInFailure {
   const e = (error ?? {}) as { name?: unknown; status?: unknown; message?: unknown };
   const message = typeof e.message === "string" ? e.message : "";

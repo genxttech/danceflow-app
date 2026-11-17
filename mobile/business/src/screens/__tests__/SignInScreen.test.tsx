@@ -99,7 +99,7 @@ describe("signing in with a password", () => {
     fill();
     await act(async () => fireEvent.press(signIn()));
     const alert = screen.getByRole("alert");
-    expect(alert.props.children).toBe("We could not reach DanceFlow. Check your connection and try again.");
+    expect(alert.props.children).toBe("Can't reach DanceFlow. Check your connection and try again.");
     expect(JSON.stringify(alert.props.children)).not.toMatch(/did not match/);
   });
 
@@ -137,6 +137,15 @@ describe("the emailed link", () => {
     const note = screen.getByText(/a sign-in link is on its way/);
     expect(note.props.children).toBe("If this email belongs to studio staff, a sign-in link is on its way. Open it on this device.");
     expect(note.props.accessibilityLiveRegion).toBe("polite");
+  });
+
+  it("an unreachable server on the email link says so instead of blaming the address", async () => {
+    mockAuth.sendSignInLink.mockRejectedValueOnce(new TypeError("Network request failed"));
+    fill("ida@example.test", "");
+    await act(async () => fireEvent.press(link()));
+    const alert = screen.getByRole("alert");
+    expect(alert.props.children).toBe("Can't reach DanceFlow. Check your connection and try again.");
+    expect(JSON.stringify(alert.props.children)).not.toMatch(/address/);
   });
 
   it("a failure is an alert that asks for a retry, and a later success replaces it", async () => {
