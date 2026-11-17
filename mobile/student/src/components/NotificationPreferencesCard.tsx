@@ -183,6 +183,7 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       flexDirection: "row",
       gap: 12,
+      minHeight: 44,
       padding: 14
     },
     option: {
@@ -191,6 +192,7 @@ function createStyles(colors: ThemeColors) {
       borderTopWidth: 1,
       flexDirection: "row",
       gap: 12,
+      minHeight: 44,
       paddingVertical: 14
     },
     optionDisabled: {

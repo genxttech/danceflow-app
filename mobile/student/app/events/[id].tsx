@@ -18,6 +18,8 @@ import {
   type PublicEventDetail
 } from "@/lib/publicDiscovery";
 
+const AUTO_RETRY_DELAY_MS = 1200;
+
 type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 
 function ticketPrice(ticket: PublicEventDetail["ticketTypes"][number]) {
@@ -69,27 +71,39 @@ export default function EventDetailScreen() {
 
   useEffect(() => {
     let mounted = true;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     if (!id) return;
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading flag for a fetch keyed on the route id
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading flag for a fetch keyed on the route id and the signed-in user
     setLoading(true);
-    getPublicEventDetailForMobile(id, session?.user.id)
-      .then((detail) => {
-        if (!mounted) return;
-        setEvent(detail);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setErrorMessage("This event could not be loaded.");
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
-      });
+    // A new load (the session arriving after a sign-in deep link, or Try again) must not inherit an earlier load's error.
+    setErrorMessage(null);
+
+    const load = (retriesLeft: number) => {
+      getPublicEventDetailForMobile(id, session?.user.id)
+        .then((detail) => {
+          if (!mounted) return;
+          setEvent(detail);
+          setErrorMessage(null);
+          setLoading(false);
+        })
+        .catch(() => {
+          if (!mounted) return;
+          // One quiet automatic retry: the first request right after a cold start or sign-in can fail transiently.
+          if (retriesLeft > 0) {
+            retryTimer = setTimeout(() => load(retriesLeft - 1), AUTO_RETRY_DELAY_MS);
+            return;
+          }
+          setErrorMessage("This event could not be loaded.");
+          setLoading(false);
+        });
+    };
+    load(1);
 
     return () => {
       mounted = false;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [id, session?.user.id, retryKey]);
 

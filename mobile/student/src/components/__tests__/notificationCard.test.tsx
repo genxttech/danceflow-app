@@ -120,3 +120,17 @@ describe("notification card after a setup message", () => {
     expect(style.flexShrink).toBeUndefined();
   });
 });
+
+describe("notification rows are at least 44dp tall (a short row such as Account updates measured 39dp on device)", () => {
+  it("the master row and every category row declare minHeight 44 or more", () => {
+    mockState.pushEnabled = true;
+    render(<NotificationPreferencesCard userId="u1" />);
+    for (const name of ["Push notifications", "Schedule updates", "Event updates", "Favorites updates", "Learning updates", "Account updates", "Partner updates"]) {
+      const row = screen.queryByRole("switch", { name });
+      if (!row) continue;
+      const style = StyleSheet.flatten(typeof row.props.style === "function" ? row.props.style({ pressed: false }) : row.props.style);
+      expect(style?.minHeight ?? 0).toBeGreaterThanOrEqual(44);
+    }
+    expect(screen.getAllByRole("switch").length).toBeGreaterThanOrEqual(6);
+  });
+});
