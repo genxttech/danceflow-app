@@ -14,13 +14,14 @@ const DEFAULTS = {
   allowBusy: false,
   keepEmulator: false,
   apk: null,
+  keysFrom: null,
   buildDir: null,
 };
 
 /** `--apk <file>` skips the Gradle build; otherwise `--build-dir <short-path worktree>` builds it (see DEVICE_QA.md). */
 function parseArgs(argv) {
   const opts = { ...DEFAULTS };
-  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--memory": "memory", "--apk": "apk", "--build-dir": "buildDir" };
+  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--memory": "memory", "--apk": "apk", "--keys-from": "keysFrom", "--build-dir": "buildDir" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--dry-run") opts.dryRun = true;
@@ -146,4 +147,20 @@ function isLauncherTop(dumpsys) {
   return top !== null && /launcher/i.test(top);
 }
 
-module.exports = { systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/**
+ * An APK carries the anon key of the stack that built it, signed with that stack's random JWT secret. A fresh stack has another secret, so a reused APK is refused at
+ * sign-in with "email and password did not match" (run 11). `--keys-from <stack.json of the build run>` makes the new stack reuse the old secret.
+ */
+function secretFromStackJson(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("--keys-from: the file is not a stack.json");
+  }
+  const secret = data?.TW4A_LOCAL_JWT_SECRET;
+  if (typeof secret !== "string" || !/^[0-9a-f]{32,}$/.test(secret)) throw new Error("--keys-from: no TW4A_LOCAL_JWT_SECRET in that stack.json");
+  return secret;
+}
+
+module.exports = { secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };

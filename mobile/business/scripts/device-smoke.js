@@ -529,6 +529,8 @@ async function teardown() {
   try {
     log("preflight");
     preflight();
+    if (opts.apk && !opts.keysFrom) throw new Error("an APK holds the anon key of the stack that built it: pass --keys-from <stack.json of that build run> (or build with --build-dir)");
+    if (opts.keysFrom) process.env.ISO_QA_JWT_SECRET = lib.secretFromStackJson(fs.readFileSync(opts.keysFrom, "utf8"));
     log("stack");
     await bringUpStack();
     await startWeb();

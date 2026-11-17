@@ -401,7 +401,9 @@ async function cmdUp(scenarioName, flags, instance) {
   // the auth containers are part of the instance whether or not this run asks for them, so a leftover one from an earlier --auth run is never orphaned
   const stackContainers = [n.kong, n.rest, an.auth, an.mail, n.db];
   for (const c of stackContainers) if (dockerTry("inspect", c).ok) { assertOurs(c); assertNotForeignLive(c); }
-  const jwt = randomBytes(24).toString("hex");
+  // ISO_QA_JWT_SECRET (opt-in, hex) reuses a stack's signing secret so an app built against an earlier stack still holds a valid anon key (the Business smoke's --apk reuse)
+  const jwt = process.env.ISO_QA_JWT_SECRET ?? randomBytes(24).toString("hex");
+  if (!/^[0-9a-f]{32,}$/.test(jwt)) throw new Error("ISO_QA_JWT_SECRET must be at least 32 hex characters");
   ensureNetwork();
   const ymlPath = path.join(QA_HOME, `kong-${instance}.yml`);
   mkdirSync(QA_HOME, { recursive: true });
