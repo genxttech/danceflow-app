@@ -24,7 +24,7 @@ Applied after `seed.sql` and `seed-event.sql`, with `-v uid` (Dana, `dana.dancer
 | c4 | `...665` | `dana.dancer@example.test` | Evan | QA-OWNED-0004 | already owned by another account |
 | c5 | `...666` | `nobody@example.test` | null | QA-NOBODY-0005 | belongs to nobody |
 
-Limitation: ticket kind is `general_admission` for all rows (the CHECK values for other kinds were not confirmed); "spectator" is the ticket type name only.
+Notes: `registration_source` is CHECK-limited to public_event_page, admin, import, organizer_portal, other, so c2 (studio-sold) uses `admin` and c5 uses `other`. The Spectator ticket type uses ticket_kind `spectator`.
 
 ## Cases and expected results
 
