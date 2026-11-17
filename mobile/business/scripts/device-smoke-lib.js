@@ -165,12 +165,12 @@ function secretFromStackJson(text) {
 
 /**
  * What to run inside the emulator to see whether the host's service answers (run 12: the phone could not reach 10.0.2.2:<port>, and the app then said the password was wrong).
- * A plain HTTP GET over toybox nc; the answer is judged by probeAnswered.
+ * A plain HTTP GET over toybox nc, with stdin held open 2 s (nc half-closes at stdin EOF and Kong then drops the proxied request: empty answer); the answer is judged by probeAnswered.
  */
 function reachProbeCommand(port, urlPath = "/") {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("reachProbeCommand: bad port");
   if (!/^\/[\w./-]*$/.test(urlPath)) throw new Error("reachProbeCommand: bad path");
-  return `printf 'GET ${urlPath} HTTP/1.0\\r\\nHost: 10.0.2.2\\r\\n\\r\\n' | nc -w 4 10.0.2.2 ${port}`;
+  return `(printf 'GET ${urlPath} HTTP/1.0\\r\\nHost: 10.0.2.2\\r\\n\\r\\n'; sleep 2) | nc -w 4 10.0.2.2 ${port}`;
 }
 
 /** True when the probe output starts like an HTTP response (any status: the service answered; 401/404 still means reachable). */

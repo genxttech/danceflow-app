@@ -133,12 +133,23 @@ async function checkReachable() {
   if (!wifi) throw new Error("the emulator never got a network address");
   const port = Number(new URL(state.stack.TW4A_LOCAL_URL).port);
   for (const [name, p, urlPath] of [["stack API", port, "/auth/v1/health"], ["web app", opts.webPort, "/"]]) {
+    // Diagnosed 2026-11-17: for several minutes after a cold -no-snapshot boot the emulator's Wi-Fi flaps (address, then gone for ~2 min, then back; nc says
+    // "Network is unreachable" while it is gone). Wait up to 8 minutes for an answer, then require a second answer 15 s later so a flap is not mistaken for steady state.
     let ok = false;
-    for (let i = 0; i < 4 && !ok; i++) {
-      ok = lib.probeAnswered(adb("shell", lib.reachProbeCommand(p, urlPath)).stdout);
-      if (!ok) await sleep(3000);
+    let last = "";
+    const end = Date.now() + 8 * 60 * 1000;
+    while (Date.now() < end && !ok) {
+      const probe = () => {
+        const r = adb("shell", lib.reachProbeCommand(p, urlPath));
+        last = `${r.stdout} ${r.stderr}`.replace(/\s+/g, " ").trim().slice(0, 200);
+        return lib.probeAnswered(r.stdout);
+      };
+      if (probe()) {
+        await sleep(15000);
+        ok = probe();
+      } else await sleep(4000);
     }
-    state.results.push(lib.makeResult(`emulator reaches the ${name} (10.0.2.2:${p})`, ok, ok ? "" : "no HTTP answer from inside the emulator; check the host firewall and that the service is up"));
+    state.results.push(lib.makeResult(`emulator reaches the ${name} (10.0.2.2:${p})`, ok, ok ? "" : `no steady HTTP answer from inside the emulator within 8 min (last output: ${last || "none"})`));
     if (!ok) throw new Error(`the emulator cannot reach the ${name} at 10.0.2.2:${p}`);
   }
 }
