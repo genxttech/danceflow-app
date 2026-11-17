@@ -481,11 +481,8 @@ export default function StudentDocumentDetailScreen() {
             }}
             onError={(pdfError) => {
               console.error("Student document PDF preview failed", pdfError);
-              setError(
-                pdfError instanceof Error
-                  ? pdfError.message
-                  : `The PDF preview could not be loaded: ${String(pdfError)}`,
-              );
+              // The viewer's own message is for the log, not the dancer.
+              setError("This document could not be opened for preview. Try again in a moment.");
             }}
           />
           <View style={styles.pdfNavigation}>

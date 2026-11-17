@@ -426,7 +426,7 @@ export default function WalletScreen() {
         ? checkoutStatusError
         : checkoutOrderId
           ? "Waiting for payment confirmation and ticket issuing status."
-          : "Stripe confirmed the purchase. Ticket codes can take a moment to finish issuing, so Wallet will refresh automatically.";
+          : "Your payment went through. Ticket codes can take a moment to finish issuing, so Wallet will refresh automatically.";
 
   return (
     <Screen refreshing={loading} onRefresh={isSignedIn ? () => void loadWallet({ force: true }) : undefined}>

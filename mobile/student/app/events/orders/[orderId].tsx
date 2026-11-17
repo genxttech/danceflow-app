@@ -60,7 +60,7 @@ function statusText(order: StudentEventOrderStatus | null) {
   }
 
   return {
-    detail: "Waiting for payment confirmation from Stripe.",
+    detail: "Waiting for payment confirmation.",
     title: "Confirming payment"
   };
 }

@@ -46,3 +46,9 @@ Event/Ticket (needs a seeded event and the real web API), partner photo upload, 
 ## Verified-email claim QA (`--claim`)
 
 `node mobile/student/scripts/qa-smoke/run.mjs --claim --name stuclaim --out <dir>` applies the SQL PR 604 migrations (`20270221090000` function, `20270221091000` index) from git on the disposable stack only, creates a second dancer (Evan, `evan.other@example.test`), applies `seed-event.sql` and `seed-claim.sql`, and runs the claim scenario instead of the screen matrix: Dana signs in, opens Wallet and the tickets screen; Evan; Dana again after a cold restart (idempotence); offline; and finally the function dropped (missing-function case). Each step records the ticket codes seen, who owns each seeded registration, row counts of the must-not-change tables, and the claim calls seen in the stack logs. Plan and expected results: `docs/mobile/Student_Claim_Flow_QA_Plan.md`. Build the app from a ref that contains the claim call (`--ref origin/main` once PR 603 is merged). Hosted databases are never touched.
+
+### Claim call counter and the font 2.0 / dark pass
+
+`claim-call-counter.sql` is applied on the disposable stack by `--claim`: it renames the real function and puts a same-signature wrapper in front that inserts one row into `public.qa_claim_calls` (caller = auth.uid()) before running the real body unchanged. Cases 6 and 9b read that table. Never apply it to a hosted database.
+
+`--claim-visual` (implies `--claim`) runs the claim flow (Create-password routing for an unbound user, Wallet, tickets) at font 1.0 and 2.0 in light and dark; see `docs/mobile/Student_Claim_Flow_QA_Plan.md`.
