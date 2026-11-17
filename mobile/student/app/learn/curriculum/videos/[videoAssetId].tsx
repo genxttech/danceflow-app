@@ -9,6 +9,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { Screen } from "@/components/Screen";
 import { colorsForScheme, type ThemeColors } from "@/constants/theme";
 import { loadStudentCurriculumVideo } from "@/lib/studentCurriculum";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -57,9 +58,7 @@ export default function CurriculumVideoScreen() {
       );
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Curriculum video could not be opened.",
+        friendlyMessage(error, "Curriculum video could not be opened."),
       );
     } finally {
       setLoading(false);

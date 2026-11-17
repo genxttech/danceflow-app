@@ -14,6 +14,7 @@ import {
   type StudentSyllabusDetail,
   type StudentSyllabusStep
 } from "@/lib/studentLearn";
+import { failureMessage } from "@/lib/errorKind";
 
 function statusLabel(status: string) {
   if (status === "not_started") return "Not Started";
@@ -96,9 +97,9 @@ export default function SyllabusDetailScreen() {
         if (!mounted) return;
         setLinkedStudios(access.linkedStudios);
         setSyllabus(detail);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Syllabus details could not be loaded yet. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Syllabus details could not be loaded yet. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }

@@ -23,6 +23,7 @@ import {
   displayScheduleTitle,
   isClassScheduleItem
 } from "@/lib/studentScheduleSections";
+import { failureMessage } from "@/lib/errorKind";
 
 function SectionHeader({
   eyebrow,
@@ -150,10 +151,8 @@ export default function ScheduleClassesScreen() {
           ? await loadStudentScheduleOverview(access.linkedStudios)
           : null
       );
-    } catch {
-      setErrorMessage(
-        "Classes could not be loaded. Try again in a moment."
-      );
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "Classes could not be loaded. Try again in a moment."));
       setOverview(null);
     } finally {
       setLoading(false);

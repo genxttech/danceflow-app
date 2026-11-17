@@ -25,6 +25,7 @@ import {
   type StudentDocumentField,
   type StudentSigningValue,
 } from "@/lib/studentDocuments";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -227,9 +228,7 @@ export default function StudentDocumentDetailScreen() {
       setValues(initialValues);
     } catch (nextError) {
       setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "The document could not be loaded.",
+        friendlyMessage(nextError, "The document could not be loaded."),
       );
     } finally {
       setLoading(false);
@@ -323,9 +322,7 @@ export default function StudentDocumentDetailScreen() {
         if (!cancelled) {
           console.error("Student document PDF download failed", downloadError);
           setError(
-            downloadError instanceof Error
-              ? downloadError.message
-              : "The PDF preview could not be downloaded.",
+            friendlyMessage(downloadError, "The PDF preview could not be downloaded."),
           );
         }
       } finally {
@@ -413,9 +410,7 @@ export default function StudentDocumentDetailScreen() {
       Alert.alert("Document signed", "Your signed document is now available.");
     } catch (nextError) {
       setError(
-        nextError instanceof Error
-          ? nextError.message
-          : "The document could not be completed.",
+        friendlyMessage(nextError, "The document could not be completed."),
       );
     } finally {
       setSubmitting(false);

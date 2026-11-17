@@ -16,6 +16,7 @@ import {
   loadStudentWallet,
   type StudentWallet
 } from "@/lib/studentWallet";
+import { failureMessage } from "@/lib/errorKind";
 
 type EventScheduleItem = {
   id: string;
@@ -263,10 +264,8 @@ export default function ScheduleEventsScreen() {
           session?.user.email ?? null
         )
       );
-    } catch {
-      setErrorMessage(
-        "Events could not be loaded. Try again in a moment."
-      );
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "Events could not be loaded. Try again in a moment."));
       setWallet(null);
     } finally {
       setLoading(false);

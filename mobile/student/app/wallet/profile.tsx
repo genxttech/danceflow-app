@@ -12,6 +12,7 @@ import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, studentPassQrImageUrl, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { leaveConnectedStudio } from "@/lib/accountControls";
+import { failureMessage } from "@/lib/errorKind";
 
 function studentDisplayName(linkedStudios: LinkedStudioAccess[]) {
   const primary = linkedStudios[0];
@@ -136,9 +137,9 @@ export default function WalletProfileScreen() {
 
         if (!mounted) return;
         setLinkedStudios(access.linkedStudios);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Profile details could not be loaded. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Profile details could not be loaded. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }

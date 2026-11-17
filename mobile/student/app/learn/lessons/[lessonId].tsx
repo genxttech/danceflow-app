@@ -13,6 +13,7 @@ import {
   loadStudentLearnOverview,
   type StudentLearnLesson
 } from "@/lib/studentLearn";
+import { failureMessage } from "@/lib/errorKind";
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -62,9 +63,9 @@ export default function LessonRecapDetailScreen() {
         if (!match) {
           setErrorMessage("This lesson recap could not be found.");
         }
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("This lesson recap could not be loaded.");
+        setErrorMessage(failureMessage(err, "This lesson recap could not be loaded."));
       } finally {
         if (!mounted) return;
         setLoading(false);

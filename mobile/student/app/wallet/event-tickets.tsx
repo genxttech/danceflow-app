@@ -18,6 +18,7 @@ import {
   type StudentTicket,
   type StudentWallet
 } from "@/lib/studentWallet";
+import { failureMessage } from "@/lib/errorKind";
 
 function locationLine(ticket: StudentTicket) {
   return [ticket.venue, [ticket.city, ticket.state].filter(Boolean).join(", ")]
@@ -108,9 +109,9 @@ export default function EventTicketsScreen() {
 
         if (!mounted) return;
         setWallet(nextWallet);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Event tickets could not be loaded. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Event tickets could not be loaded. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }

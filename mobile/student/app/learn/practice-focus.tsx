@@ -15,6 +15,7 @@ import {
   type StudentLearnOverview,
   type StudentPracticeFocus
 } from "@/lib/studentLearn";
+import { failureMessage } from "@/lib/errorKind";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../../assets/lumi-avatar.png");
@@ -87,9 +88,9 @@ export default function PracticeFocusScreen() {
         if (!mounted) return;
         setLinkedStudios(access.linkedStudios);
         setOverview(learnOverview);
-      } catch {
+      } catch (err) {
         if (!mounted) return;
-        setErrorMessage("Practice focus could not be loaded yet. Try again in a moment.");
+        setErrorMessage(failureMessage(err, "Practice focus could not be loaded yet. Try again in a moment."));
       } finally {
         if (mounted) setLoading(false);
       }
