@@ -24,6 +24,7 @@ import {
   type StudioSelfServiceInstructor,
   type StudioSelfServiceSlot
 } from "@/lib/studioSelfService";
+import { friendlyMessage } from "@/lib/errorKind";
 
 type StudioSection =
   | "hub"
@@ -275,7 +276,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
         if (!mounted) return;
         setSelfServiceInstructors([]);
         setSelfServiceSlots([]);
-        setSelfServiceError(error instanceof Error ? error.message : "Could not load request slots.");
+        setSelfServiceError(friendlyMessage(error, "Could not load request slots."));
       })
       .finally(() => {
         if (!mounted) return;
@@ -363,7 +364,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
       );
       setSelfServiceSlots((current) => current.filter((item) => item.startsAt !== slot.startsAt));
     } catch (error) {
-      setSelfServiceError(error instanceof Error ? error.message : "Could not send that lesson request.");
+      setSelfServiceError(friendlyMessage(error, "Could not send that lesson request."));
     } finally {
       setRequestingSlotKey(null);
     }

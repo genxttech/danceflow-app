@@ -25,6 +25,7 @@ import {
   isLessonScheduleItem
 } from "@/lib/studentScheduleSections";
 import { loadStudentWallet, type StudentWallet } from "@/lib/studentWallet";
+import { failureMessage } from "@/lib/errorKind";
 
 type CalendarEntry = {
   id: string;
@@ -253,10 +254,8 @@ export default function ScheduleScreen() {
 
       setOverview(nextOverview);
       setWallet(nextWallet);
-    } catch {
-      setErrorMessage(
-        "Your schedule could not be loaded. Pull back in a moment and try again."
-      );
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "Your schedule could not be loaded. Pull back in a moment and try again."));
       setOverview(null);
       setWallet(null);
     } finally {

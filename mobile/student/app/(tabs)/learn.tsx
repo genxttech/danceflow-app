@@ -13,6 +13,7 @@ import {
   loadStudentLearnOverview,
   type StudentLearnOverview,
 } from "@/lib/studentLearn";
+import { failureMessage } from "@/lib/errorKind";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- Metro asset
 const lumiAvatar = require("../../assets/lumi-avatar.png");
@@ -200,12 +201,10 @@ export default function LearnScreen() {
       const learnOverview = await loadStudentLearnOverview(access.linkedStudios);
       setLinkedStudios(access.linkedStudios);
       setOverview(learnOverview);
-    } catch {
+    } catch (err) {
       setLinkedStudios([]);
       setOverview(emptyOverview);
-      setErrorMessage(
-        "Learning history could not be loaded yet. Try again in a moment."
-      );
+      setErrorMessage(failureMessage(err, "Learning history could not be loaded yet. Try again in a moment."));
     } finally {
       setLoading(false);
     }

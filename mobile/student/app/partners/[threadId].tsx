@@ -19,6 +19,7 @@ import {
   type PartnerConversationMessage,
   type PartnerConversationThread
 } from "@/lib/partnerSearch";
+import { failureMessage } from "@/lib/errorKind";
 
 function formatMessageTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -59,8 +60,8 @@ export default function PartnerThreadScreen() {
       ]);
       setThread(nextThread);
       setMessages(nextMessages);
-    } catch {
-      setErrorMessage("We could not load this DanceFlow conversation yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not load this DanceFlow conversation yet."));
     } finally {
       setLoading(false);
     }
@@ -86,8 +87,8 @@ export default function PartnerThreadScreen() {
       });
       setDraft("");
       await loadThread();
-    } catch {
-      setErrorMessage("We could not send that message yet.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not send that message yet."));
     } finally {
       setSending(false);
     }
@@ -113,8 +114,8 @@ export default function PartnerThreadScreen() {
                   userId: user.id
                 });
                 setStatusMessage("Thanks. DanceFlow will review this conversation.");
-              } catch {
-                setErrorMessage("We could not submit that report yet.");
+              } catch (err) {
+                setErrorMessage(failureMessage(err, "We could not submit that report yet."));
               }
             })();
           }
@@ -144,8 +145,8 @@ export default function PartnerThreadScreen() {
                 });
                 setStatusMessage("This dancer has been blocked.");
                 await loadThread();
-              } catch {
-                setErrorMessage("We could not block this conversation yet.");
+              } catch (err) {
+                setErrorMessage(failureMessage(err, "We could not block this conversation yet."));
               }
             })();
           }

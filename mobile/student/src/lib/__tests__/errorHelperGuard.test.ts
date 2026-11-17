@@ -10,22 +10,7 @@ import path from "path";
   UNSWEPT lists files still to move onto the helpers; it only shrinks. New screens must not be added to it.
 */
 
-const UNSWEPT: string[] = [
-  "app/(tabs)/wallet.tsx",
-  "app/discover/marketplace/index.tsx",
-  "app/discover/marketplace/[catalogItemId].tsx",
-  "app/events/orders/[orderId].tsx",
-  "app/events/[id]/register.tsx",
-  "app/settings.tsx",
-  "app/(tabs)/learn.tsx",
-  "app/(tabs)/schedule.tsx",
-  "app/favorites.tsx",
-  "app/jobs/index.tsx",
-  "app/partners/draft.tsx",
-  "app/partners/index.tsx",
-  "app/partners/[threadId].tsx",
-  "app/profile.tsx",
-];
+const UNSWEPT: string[] = [];
 
 function walk(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

@@ -17,6 +17,7 @@ import {
 } from "@/lib/eventCheckout";
 import { prepareConnectedPaymentSheet } from "@/lib/stripeConnect";
 import { isPaymentCancelled, paymentSheetError } from "@/lib/paymentSheetOutcome";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat(undefined, {
@@ -114,7 +115,7 @@ export default function EventOrderStatusScreen() {
         const nextOrder = await getStudentEventOrderStatus(orderId);
         setOrder(nextOrder);
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Checkout status could not be loaded.");
+        setErrorMessage(friendlyMessage(error, "Checkout status could not be loaded."));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -185,9 +186,7 @@ export default function EventOrderStatusScreen() {
         return;
       }
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Checkout could not be resumed.",
+        friendlyMessage(error, "Checkout could not be resumed."),
       );
     } finally {
       setResumingPayment(false);

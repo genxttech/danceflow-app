@@ -11,6 +11,7 @@ import {
   loadStudentMarketplace,
   type StudentMarketplaceItem
 } from "@/lib/studentMarketplace";
+import { friendlyMessage } from "@/lib/errorKind";
 
 
 export default function MarketplaceScreen() {
@@ -36,7 +37,7 @@ export default function MarketplaceScreen() {
         .catch((error) => {
           if (mounted) {
             setErrorMessage(
-              error instanceof Error ? error.message : "Marketplace could not be loaded."
+              friendlyMessage(error, "Marketplace could not be loaded.")
             );
           }
         })

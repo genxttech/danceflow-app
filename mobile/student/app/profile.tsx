@@ -17,6 +17,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { loadStudentProfiles, updateStudentProfile, type StudentProfile } from "@/lib/studentProfile";
+import { failureMessage } from "@/lib/errorKind";
 
 function Field({
   label,
@@ -128,8 +129,8 @@ export default function ProfileScreen() {
 
       const nextProfiles = await loadStudentProfiles(access.linkedStudios, user);
       setProfiles(nextProfiles);
-    } catch {
-      setErrorMessage("We could not load your profile yet. Try again in a moment.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not load your profile yet. Try again in a moment."));
     } finally {
       setLoading(false);
     }
@@ -151,8 +152,8 @@ export default function ProfileScreen() {
     try {
       await updateStudentProfile(selectedProfile);
       setMessage("Profile updated.");
-    } catch {
-      setErrorMessage("We could not save your changes yet. Try again in a moment.");
+    } catch (err) {
+      setErrorMessage(failureMessage(err, "We could not save your changes yet. Try again in a moment."));
     } finally {
       setSaving(false);
     }

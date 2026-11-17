@@ -26,6 +26,7 @@ import {
   type PublicEventDetail,
   type PublicEventTicketType
 } from "@/lib/publicDiscovery";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function formatCurrency(value: number, currency: string) {
   return new Intl.NumberFormat(undefined, {
@@ -334,7 +335,7 @@ export default function EventRegisterScreen() {
       if (isPaymentCancelled(error)) {
         setNoticeMessage(error.message);
       } else {
-        setErrorMessage(error instanceof Error ? error.message : "Checkout could not be started.");
+        setErrorMessage(friendlyMessage(error, "Checkout could not be started."));
       }
       setCheckoutStatusMessage(null);
     } finally {

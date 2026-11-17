@@ -13,6 +13,7 @@ import {
   loadStudentMarketplaceItem,
   type StudentMarketplaceItem
 } from "@/lib/studentMarketplace";
+import { friendlyMessage } from "@/lib/errorKind";
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -43,7 +44,7 @@ export default function MarketplaceDetailScreen() {
       })
       .catch((error) => {
         if (mounted) {
-          setErrorMessage(error instanceof Error ? error.message : "Content could not be loaded.");
+          setErrorMessage(friendlyMessage(error, "Content could not be loaded."));
         }
       })
       .finally(() => {
