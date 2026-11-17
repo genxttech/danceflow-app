@@ -158,7 +158,7 @@ async function checkReachable() {
 function saveLogs(tag) {
   try {
     fs.writeFileSync(path.join(OUT, `logcat-${tag}-crash.txt`), adb("logcat", "-b", "crash", "-d").stdout);
-    fs.writeFileSync(path.join(OUT, `logcat-${tag}-main.txt`), adb("logcat", "-d", "-t", String(LOGCAT_LINES)).stdout);
+    fs.writeFileSync(path.join(OUT, `logcat-${tag}-main.txt`), lib.dropLogNoise(adb("logcat", "-d").stdout, LOGCAT_LINES));
     // Android 11+ ApplicationExitInfo: says whether the process was killed for memory, crashed, or was stopped by the user
     fs.writeFileSync(path.join(OUT, `exit-info-${tag}.txt`), adb("shell", "dumpsys", "activity", "exit-info", APP).stdout + "\n--- lmkd/oom lines ---\n" + adb("logcat", "-d", "-t", "2000", "-s", "lowmemorykiller:*", "lmkd:*", "ActivityManager:I").stdout);
   } catch {
@@ -334,6 +334,24 @@ async function startWeb() {
   throw new Error("the web app did not come up");
 }
 
+/**
+ * Before the emulator is touched: read the Hermes string table of the APK's bundle and require this stack's URL, the web URL and this stack's anon key. Runs 7-17
+ * drove APKs that carried an older build's port (56601) and key, so the app could never reach or sign in to the stack ("Can't reach DanceFlow").
+ */
+function checkBakedConfig(apk) {
+  const dir = fs.mkdtempSync(path.join(OUT, "apk-bundle-"));
+  try {
+    const x = run("tar", ["-xf", apk, "-C", dir, "assets/index.android.bundle"]);
+    if (x.status !== 0) throw new Error(`could not read the bundle from the APK: ${x.stderr.slice(-200)}`);
+    const strings = lib.hermesStrings(fs.readFileSync(path.join(dir, "assets/index.android.bundle")));
+    const problems = lib.bakedConfigProblems(strings, { stackPort: Number(new URL(state.stack.TW4A_LOCAL_URL).port), webPort: opts.webPort, anonKey: state.stack.ISO_QA_ANON_KEY });
+    state.results.push(lib.makeResult("APK carries this run's stack URL, web URL and anon key", problems.length === 0, problems.join("; ")));
+    if (problems.length) throw new Error(`stale or foreign APK: ${problems.join("; ")}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function buildApk() {
   if (opts.apk) return path.resolve(opts.apk);
   const dir = path.join(path.resolve(opts.buildDir), "mobile/business");
@@ -343,6 +361,10 @@ function buildApk() {
     JAVA_HOME,
     ANDROID_HOME,
     CI: "1",
+    // CI=1 turns off Expo's automatic Metro cache reset, and the cache (in the temp dir) holds the inlined EXPO_PUBLIC_* values of the first build that ever ran: a later
+    // build with another stack port and key silently reused them (runs 7-17). A temp dir private to this run keeps the cache cold.
+    TEMP: path.join(OUT, "build-tmp"),
+    TMP: path.join(OUT, "build-tmp"),
     EXPO_PUBLIC_SUPABASE_URL: `http://10.0.2.2:${port}`,
     EXPO_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY,
     EXPO_PUBLIC_DANCEFLOW_WEB_URL: `http://10.0.2.2:${opts.webPort}`,
@@ -352,6 +374,7 @@ function buildApk() {
     DANCEFLOW_UPLOAD_KEY_ALIAS: process.env.DANCEFLOW_UPLOAD_KEY_ALIAS || "qa-only",
     DANCEFLOW_UPLOAD_KEY_PASSWORD: process.env.DANCEFLOW_UPLOAD_KEY_PASSWORD || "qa-only-throwaway",
   };
+  fs.mkdirSync(env.TEMP, { recursive: true });
   if (!fs.existsSync(path.join(dir, "node_modules"))) {
     log("npm ci in the build worktree");
     if (run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: dir, env }).status !== 0) throw new Error("npm ci failed in the build dir");
@@ -573,6 +596,7 @@ async function teardown() {
     await bringUpStack();
     await startWeb();
     const apk = buildApk();
+    checkBakedConfig(apk);
     await bootEmulator();
     await checkReachable();
     await flows(apk);

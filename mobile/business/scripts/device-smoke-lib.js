@@ -183,4 +183,68 @@ function hasWifiAddress(output) {
   return /^\s*inet \d+\.\d+\.\d+\.\d+\//m.test(String(output ?? ""));
 }
 
-module.exports = { hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/**
+ * The string table of a Hermes bytecode file (version 96 layout: 128-byte header, 16-byte function headers, string kinds, identifier hashes, the small string
+ * table, the overflow table, then the storage). Every EXPO_PUBLIC_* value is inlined into the JS bundle as one of these strings, so this is how a built APK is
+ * asked what server and key it carries without a device. Throws when the file is not Hermes bytecode of a layout this reads.
+ */
+function hermesStrings(buf) {
+  if (buf.length < 128 || buf.readUInt32LE(0) !== 0x03bc1fc6 || buf.readUInt32LE(4) !== 0x1f1903c1) throw new Error("not a Hermes bytecode file");
+  const version = buf.readUInt32LE(8);
+  if (version < 90 || version > 99) throw new Error(`unsupported Hermes bytecode version ${version}`);
+  const word = (o) => buf.readUInt32LE(o);
+  const functionCount = word(40);
+  const stringKindCount = word(44);
+  const identifierCount = word(48);
+  const stringCount = word(52);
+  const overflowCount = word(56);
+  const align = (n) => (n + 3) & ~3;
+  let pos = align(128 + functionCount * 16);
+  pos = align(pos + stringKindCount * 4);
+  pos = align(pos + identifierCount * 4);
+  const small = pos;
+  pos = align(pos + stringCount * 4);
+  const overflow = pos;
+  const storage = align(pos + overflowCount * 8);
+  const out = [];
+  for (let i = 0; i < stringCount; i++) {
+    const entry = word(small + i * 4);
+    const utf16 = entry & 1;
+    let offset = (entry >>> 1) & 0x7fffff;
+    let length = entry >>> 24;
+    if (length === 255) {
+      const at = overflow + offset * 8;
+      offset = word(at);
+      length = word(at + 4);
+    }
+    out.push(utf16 ? buf.subarray(storage + offset, storage + offset + length * 2).toString("utf16le") : buf.subarray(storage + offset, storage + offset + length).toString("latin1"));
+  }
+  return out;
+}
+
+/**
+ * What a QA APK must carry for this run's stack and web app: the stack URL as the emulator sees it, the web URL, and this stack's anon key. Returns the problems
+ * (empty = fine). A stale Metro cache once baked an older build's port and key (runs 7-17), so the smoke refuses an APK that disagrees with its stack.
+ */
+function bakedConfigProblems(strings, { stackPort, webPort, anonKey }) {
+  const problems = [];
+  const apiUrls = strings.filter((s) => /^http:\/\/10\.0\.2\.2:\d+$/.test(s) && s !== `http://10.0.2.2:${webPort}`);
+  if (!strings.includes(`http://10.0.2.2:${stackPort}`)) problems.push(`the APK does not carry http://10.0.2.2:${stackPort} (it carries ${[...new Set(apiUrls)].join(", ") || "no 10.0.2.2 stack URL"})`);
+  if (!strings.includes(`http://10.0.2.2:${webPort}`)) problems.push(`the APK does not carry the web URL http://10.0.2.2:${webPort}`);
+  if (!strings.includes(anonKey)) problems.push("the APK does not carry this stack's anon key (it was built for another stack)");
+  return problems;
+}
+
+/**
+ * The last `keep` lines of a logcat dump without the lines our own harness causes: every uiautomator dump logs one AccessibilityNodeInfoDumper line per hidden node,
+ * which filled the 3000-line window of smoke 17 (about 66 s of log) and left no room for the app's own errors.
+ */
+function dropLogNoise(text, keep = 3000) {
+  const lines = String(text ?? "")
+    .split(/\r?\n/)
+    .filter((line) => !/AccessibilityNodeInfoDumper|W PageIndicator: Total number of pages invalid/.test(line));
+  return lines.slice(-keep).join("\n");
+}
+
+
+module.exports = { dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
