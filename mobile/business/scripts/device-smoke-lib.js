@@ -226,12 +226,25 @@ function hermesStrings(buf) {
  * What a QA APK must carry for this run's stack and web app: the stack URL as the emulator sees it, the web URL, and this stack's anon key. Returns the problems
  * (empty = fine). A stale Metro cache once baked an older build's port and key (runs 7-17), so the smoke refuses an APK that disagrees with its stack.
  */
-function bakedConfigProblems(strings, { stackPort, webPort, anonKey }) {
+function anonKeyVerifies(token, secret) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  try {
+    const sig = require("node:crypto").createHmac("sha256", secret).update(`${parts[0]}.${parts[1]}`).digest("base64url");
+    const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    return sig === parts[2] && claims.role === "anon" && claims.exp * 1000 > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function bakedConfigProblems(strings, { stackPort, webPort, anonKey, jwtSecret }) {
   const problems = [];
   const apiUrls = strings.filter((s) => /^http:\/\/10\.0\.2\.2:\d+$/.test(s) && s !== `http://10.0.2.2:${webPort}`);
   if (!strings.includes(`http://10.0.2.2:${stackPort}`)) problems.push(`the APK does not carry http://10.0.2.2:${stackPort} (it carries ${[...new Set(apiUrls)].join(", ") || "no 10.0.2.2 stack URL"})`);
   if (!strings.includes(`http://10.0.2.2:${webPort}`)) problems.push(`the APK does not carry the web URL http://10.0.2.2:${webPort}`);
-  if (!strings.includes(anonKey)) problems.push("the APK does not carry this stack's anon key (it was built for another stack)");
+  const keyOk = strings.includes(anonKey) || (jwtSecret && strings.some((t) => t.startsWith("eyJ") && anonKeyVerifies(t, jwtSecret)));
+  if (!keyOk) problems.push("the APK does not carry this stack's anon key (it was built for another stack)");
   return problems;
 }
 
