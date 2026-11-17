@@ -61,3 +61,26 @@ describe("logcat noise", () => {
     expect(lib.dropLogNoise(undefined)).toBe("");
   });
 });
+
+describe("a reused APK's anon key is judged by its signature", () => {
+  const crypto = require("node:crypto");
+  const secret = "ab".repeat(24);
+  const sign = (claims: object, key = secret) => {
+    const head = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+    const body = Buffer.from(JSON.stringify(claims)).toString("base64url");
+    return `${head}.${body}.${crypto.createHmac("sha256", key).update(`${head}.${body}`).digest("base64url")}`;
+  };
+  const future = Math.floor(Date.now() / 1000) + 86400;
+  const base = ["http://10.0.2.2:56600", "http://10.0.2.2:3107"];
+
+  it("accepts an older key signed with this stack's secret (--keys-from)", () => {
+    const old = sign({ role: "anon", exp: future });
+    expect(lib.bakedConfigProblems([...base, old], { stackPort: 56600, webPort: 3107, anonKey: "other", jwtSecret: secret })).toEqual([]);
+  });
+
+  it("refuses a key signed by another secret, an expired key, or a non-anon key", () => {
+    for (const bad of [sign({ role: "anon", exp: future }, "cd".repeat(24)), sign({ role: "anon", exp: 1 }), sign({ role: "service_role", exp: future })]) {
+      expect(lib.bakedConfigProblems([...base, bad], { stackPort: 56600, webPort: 3107, anonKey: "other", jwtSecret: secret })).toHaveLength(1);
+    }
+  });
+});

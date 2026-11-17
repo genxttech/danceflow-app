@@ -341,10 +341,10 @@ async function startWeb() {
 function checkBakedConfig(apk) {
   const dir = fs.mkdtempSync(path.join(OUT, "apk-bundle-"));
   try {
-    const x = run("tar", ["-xf", apk, "-C", dir, "assets/index.android.bundle"]);
+    const x = run(WIN ? path.join(process.env.SystemRoot || "C:/Windows", "System32", "tar.exe") : "tar", ["-xf", apk, "-C", dir, "assets/index.android.bundle"]);
     if (x.status !== 0) throw new Error(`could not read the bundle from the APK: ${x.stderr.slice(-200)}`);
     const strings = lib.hermesStrings(fs.readFileSync(path.join(dir, "assets/index.android.bundle")));
-    const problems = lib.bakedConfigProblems(strings, { stackPort: Number(new URL(state.stack.TW4A_LOCAL_URL).port), webPort: opts.webPort, anonKey: state.stack.ISO_QA_ANON_KEY });
+    const problems = lib.bakedConfigProblems(strings, { stackPort: Number(new URL(state.stack.TW4A_LOCAL_URL).port), webPort: opts.webPort, anonKey: state.stack.ISO_QA_ANON_KEY, jwtSecret: state.stack.TW4A_LOCAL_JWT_SECRET });
     state.results.push(lib.makeResult("APK carries this run's stack URL, web URL and anon key", problems.length === 0, problems.join("; ")));
     if (problems.length) throw new Error(`stale or foreign APK: ${problems.join("; ")}`);
   } finally {
