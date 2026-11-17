@@ -19,6 +19,18 @@ cd android && gradlew bundleRelease --no-daemon
 
 Use an empty `TEMP`/`TMP` per build (Metro caches inlined `EXPO_PUBLIC_*` values), and delete `app/build/generated/assets/createBundleReleaseJsAndAssets` first. After a QA variant, regenerate the Business project with `prebuild --clean` so a QA-only cleartext edit cannot leak into the next shipping build (a non-clean prebuild keeps edited files). Record: commit, versionCode/versionName, AAB size, universal APK size (`bundletool build-apks --mode=universal`), signer fingerprint (`apksigner verify --print-certs`), `debuggable` absent and `usesCleartextTraffic` absent (`aapt2 dump xmltree --file AndroidManifest.xml`).
 
+## 1b. Decode the baked configuration from the final artifact (required before any upload or smoke)
+
+Metro inlines `EXPO_PUBLIC_*` at bundle time and, when `CI=1` (the harnesses set it) or whenever `%TEMP%\metro-cache` survives, replays an earlier build's values. Never trust the environment you exported; read what is in the artifact:
+
+```bash
+unzip -oq app.aab 'base/assets/index.android.bundle' -d chk     # for an APK: assets/index.android.bundle
+# then scan the Hermes bundle for: https?:// URLs, JWT-shaped strings (decode the payload: role must be anon, iss supabase, and the key must be the intended project's),
+# 10.0.2.2, localhost, qa-placeholder, service_role, sk_, whsec_, BEGIN PRIVATE
+```
+
+A shipping QA candidate must show only the placeholders; a release candidate for upload must show exactly the production values and nothing from a disposable stack. A smoke APK must show the stack URL and anon key of the run that is about to use it. Build every artifact with its own empty `TEMP`/`TMP` (never share one across the shipping, R8 and QA builds). Last decoded 2026-11-17 for RC3: see `Android_Release_Audit.md` section 9.
+
 ## 2. 16 KB page size
 
 On the universal APK: `zipalign -c -P 16 4 <apk>` must return 0 (stored libraries 16 KB aligned), and every `PT_LOAD` segment of every `lib/arm64-v8a` and `lib/x86_64` `.so` must have `p_align >= 16384` (a small ELF reader; run on all libraries).
