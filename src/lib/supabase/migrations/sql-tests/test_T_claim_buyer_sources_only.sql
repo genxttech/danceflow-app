@@ -254,7 +254,7 @@ values ('00000000-0000-0000-0000-00c1a0000517', '00000000-0000-0000-0000-00c1a00
 
 -- source allowlist: every other source value, NULL and an unexpected/future value, all carrying A's verified email, must stay unclaimed
 select string_agg(conname || ': ' || pg_get_constraintdef(oid), ' | ') as src_check_def from pg_constraint
-  where conrelid = 'public.event_registrations'::regclass and conname = 'event_registrations_source_check' gset
+  where conrelid = 'public.event_registrations'::regclass and conname = 'event_registrations_source_check' \gset
 select pg_temp.chk('the CHECK allows exactly five sources: public_event_page, admin, import, organizer_portal, other',
   :'src_check_def' like '%public_event_page%' and :'src_check_def' like '%admin%' and :'src_check_def' like '%import%'
   and :'src_check_def' like '%organizer_portal%' and :'src_check_def' like '%other%', :'src_check_def');
