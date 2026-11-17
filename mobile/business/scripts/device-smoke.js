@@ -123,6 +123,14 @@ const LOGCAT_LINES = 3000;
  * (host firewall, port, stack down), instead of as a misleading sign-in failure.
  */
 async function checkReachable() {
+  // Diagnosed 2026-11-17: the emulator's Wi-Fi (wlan0) joins ~20-30 s AFTER sys.boot_completed; until then every connect says "Network is unreachable".
+  let wifi = false;
+  for (let i = 0; i < 40 && !wifi; i++) {
+    wifi = lib.hasWifiAddress(adb("shell", "ip", "-4", "addr", "show", "wlan0").stdout);
+    if (!wifi) await sleep(3000);
+  }
+  state.results.push(lib.makeResult("emulator Wi-Fi has an address", wifi, wifi ? "" : "wlan0 never got an address within 2 minutes of boot"));
+  if (!wifi) throw new Error("the emulator never got a network address");
   const port = Number(new URL(state.stack.TW4A_LOCAL_URL).port);
   for (const [name, p, urlPath] of [["stack API", port, "/auth/v1/health"], ["web app", opts.webPort, "/"]]) {
     let ok = false;

@@ -204,6 +204,15 @@ describe("emulator reachability probe", () => {
   });
 });
 
+describe("emulator Wi-Fi address", () => {
+  it("is true only when wlan0 shows an inet address", () => {
+    expect(lib.hasWifiAddress("16: wlan0: <UP>\n    inet 10.0.2.16/24 brd 10.0.2.255 scope global wlan0")).toBe(true);
+    expect(lib.hasWifiAddress("16: wlan0: <NO-CARRIER,UP> mtu 1500 qdisc noqueue state DOWN")).toBe(false);
+    expect(lib.hasWifiAddress("")).toBe(false);
+    expect(lib.hasWifiAddress(undefined)).toBe(false);
+  });
+});
+
 describe("summarize", () => {
   it("passes only when something ran and everything passed", () => {
     expect(lib.summarize([]).ok).toBe(false);
