@@ -5,6 +5,7 @@ import { Announce } from "@/components/Announce";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { useAuth } from "@/lib/auth";
+import { signInFailureKind } from "@/lib/signInError";
 import { colors, radius, space, type } from "@/theme";
 
 export default function SignInScreen() {
@@ -21,8 +22,12 @@ export default function SignInScreen() {
     setMessage(null);
     try {
       await signInWithPassword(email, password);
-    } catch {
-      setError("That email and password did not match. Try again, or email yourself a sign-in link.");
+    } catch (failure) {
+      setError(
+        signInFailureKind(failure) === "unreachable"
+          ? "We could not reach DanceFlow. Check your connection and try again."
+          : "That email and password did not match. Try again, or email yourself a sign-in link.",
+      );
     } finally {
       setBusy(null);
     }
