@@ -193,3 +193,41 @@ Config: `bundleRelease --no-daemon -Pandroid.enableMinifyInReleaseBuilds=true -P
 To retry: ask for a Gradle/RAM slot, run only after the native outputs are warm (same commit, no checkout in between), cap at 45 minutes with `--no-daemon` and an explicit `-Xmx`, then run the Student smoke with `ORG_GRADLE_PROJECT_android.enableMinifyInReleaseBuilds=true` and `ORG_GRADLE_PROJECT_android.enableShrinkResourcesInReleaseBuilds=true`. Until then Play delivers per-ABI splits, so the 94 MiB AAB overstates install size.
 
 Runbook for repeating all of this: `Android_Release_QA_Runbook.md`.
+
+## 9. Release candidate 3 from main `c47e3ae17` (2026-11-17)
+
+Built locally from `C:\dfr\r` at main `c47e3ae17` (#622; includes Student #611-#622, Business #608/#610, #605, the iOS config PRs and #618), QA-only key, one Gradle build at a time, nothing uploaded, no production credentials. Outputs in `C:\dfr-out\rc3\`. Main had moved to `31f096789` by the time the smokes ran; the later commits (#623-#626) touch four Student wallet/event screens, tests and docs only, so the AABs below are one small step behind main.
+
+| | Student | Business |
+|---|---|---|
+| AAB | `student-rc3.aab`, 99,116,570 B | `business-rc3.aab`, 64,766,173 B |
+| versionCode / versionName | 1 / 0.1.0 (`app.json`) | 1 / 0.1.0 (`app.json`) |
+| targetSdk / compileSdk | 36 / 36 | 36 / 36 |
+| Universal APK | 146,905,146 B | 97,890,473 B |
+| Signer | QA key SHA-256 `93:F4:E4:5E:...:F0:99` (not the debug key) | same |
+| `debuggable` / `usesCleartextTraffic` | absent / absent | absent / absent |
+| `allowBackup` | false | false |
+| 16 KB: `zipalign -c -P 16 4` | exit 0 | exit 0 |
+| 16 KB: ELF `PT_LOAD` `p_align` | 46 libraries, 0 below 16384 | 36 libraries, 0 below 16384 |
+| Release signing guard | stands (fails without `DANCEFLOW_UPLOAD_*` unless `EAS_BUILD=true`); unchanged in this range, negative test not re-run | same (config plugin) |
+| Permissions in the built APK | location (coarse/fine), `POST_NOTIFICATIONS`, plus library permissions (INTERNET, VIBRATE, WAKE_LOCK, RECEIVE_BOOT_COMPLETED, USE_BIOMETRIC/USE_FINGERPRINT, network and wifi state, FCM `c2dm.RECEIVE`, launcher badge permissions). `CAMERA`, `RECORD_AUDIO`, `SYSTEM_ALERT_WINDOW`, external storage are absent. The new `expo-image-picker` plugin adds none. | INTERNET, VIBRATE, RECEIVE_BOOT_COMPLETED, `POST_NOTIFICATIONS`, network state, WAKE_LOCK, USE_BIOMETRIC/USE_FINGERPRINT, `READ_APP_BADGE`; the blocked ones are absent |
+
+Lockfiles did not change since RC2. The `app.json` changes since RC2 are the iOS icon (both apps) and the Student `expo-secure-store`, `expo-location` and `expo-image-picker` plugin options (iOS strings; no Android manifest effect).
+
+### RC3 results
+
+| Check | Result | Evidence |
+|---|---|---|
+| Student release AAB build | **PASSED** (11 m 35 s) | `C:\dfr\rc3-student.log` |
+| Business release AAB build | **PASSED** | `C:\dfr\rc3-business.log` |
+| Manifest, SDK, signer, 16 KB (both) | **PASSED** (table above) | `C:\dfr-out\rc3\` |
+| Student signed-in smoke on the unminified QA variant (df-api35, API 35): magic-link sign-in, settings, payment-requests, wallet, font 1.0 and 2.0, light and dark | **PASSED 13/13** | `C:\dfr-out\qa-rc3\student-smoke2\` |
+| Student R8 build (`-Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true`) | **PASSED to build** in 10 m 7 s; AAB 91,178,013 B (7.9 MB smaller than unminified) | `C:\dfr\rc3-r8-student.log`, `C:\dfr-out\rc3\student-rc3-r8.aab` |
+| Student smoke on the R8 QA variant | **FAILED, not ready**: sign-in and every light-mode step pass; dark-mode steps show a blank screen (run 1: 2 of 13 failed; run 2: 6 of 13, every dark step). The unminified build passed all dark steps in the same session. Cause not diagnosed (an R8 rule, or a night-mode recreation problem that only shows when minified). | `C:\dfr-out\qa-rc3\student-smoke-r8\`, `student-smoke-r8b\` (blank `*.xml` hierarchies) |
+| Business device smoke | **BLOCKED / UNVERIFIED**. Run 1 failed in the harness (`next build` needs the full repo `node_modules`, which the scratch worktree lacks). Run 2 reached the sign-in screen and showed "Can't reach DanceFlow" with correct credentials. Run 3, with the #625 reachability check: "no HTTP answer from inside the emulator" at `10.0.2.2:56600`. So this is a host/emulator networking problem, not an app result; the Student smoke reached its own stack earlier in the same session. | `C:\dfr-out\qa-rc3\business-smoke\`, `business-smoke2\`, `business-smoke3\` |
+| Student smoke harness on current main | iso-qa refuses scenario `main` on `origin/main` because #620 added `20270219090000_twilio_price_request_sweep.sql`, which `scripts/qa/scenarios.json` does not list. Worked around with the supported `ISO_QA_REF_MAIN=c47e3ae17`; the real fix is a manifest entry (not mine). | `C:\dfr-out\qa-rc3\student-smoke.log` |
+| R-3b: live font-size change on the Student release build | **UNVERIFIED on device** (not re-shot) | - |
+| Android 12 and older | **UNTESTED** (no API 31/32 AVD) | - |
+| EAS cloud build behaviour | **UNVERIFIED** (no cloud build run) | - |
+
+Recommendation: the first Play release should be the **unminified** AAB (the one smoked 13/13). Do not ship R8 until the dark-mode blank screen is diagnosed (logcat of the minified QA build, then a keep rule or a night-mode fix).
