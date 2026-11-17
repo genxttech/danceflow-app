@@ -91,3 +91,6 @@
 /scripts/hosted/ @genxttech
 /scripts/qa/tw4f/ @genxttech
 /scripts/tw4-validation/ @genxttech
+
+# --- Continuity pilot: orchestrator code, policy and owner authorizations (the trust root of the pilot; changes need owner approval) ---
+/docs/ops/continuity-pilot/ @genxttech

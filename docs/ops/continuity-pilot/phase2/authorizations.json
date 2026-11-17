@@ -1,0 +1,42 @@
+[
+  {
+    "id": "Q1",
+    "template": "u18-rollback-rehearsal",
+    "params": {},
+    "deps": [],
+    "scope_sha": "68898801fc617691a5243f0de82d0f73ff045f36e297cf8bbdfb1d52ec6e2312",
+    "by": "owner",
+    "not_after": "2026-11-17T00:00:00Z"
+  },
+  {
+    "id": "Q2",
+    "template": "u18-tooling-residual-check",
+    "params": {},
+    "deps": [
+      "Q1"
+    ],
+    "scope_sha": "fe5f579d328f4f539e9aa478575329dc3570e613ecb998a2857b1542e2ffe11e",
+    "by": "owner",
+    "not_after": "2026-11-17T00:00:00Z"
+  },
+  {
+    "id": "Q3",
+    "template": "release-migration-inventory",
+    "params": {},
+    "deps": [],
+    "scope_sha": "013cee9d0cb969c27400f21deb4becd18d41ab54514c910caecdf8e44441ffc3",
+    "by": "owner",
+    "not_after": "2026-11-17T00:00:00Z"
+  },
+  {
+    "id": "Q4",
+    "template": "sql-suite-runner-script",
+    "params": {},
+    "deps": [
+      "Q2"
+    ],
+    "scope_sha": "6f7ef0bc11b7f6f54631139a121391fe62b11a51bd3642d1c1d99f8785594ac9",
+    "by": "owner",
+    "not_after": "2026-11-17T00:00:00Z"
+  }
+]
