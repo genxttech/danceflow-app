@@ -53,17 +53,17 @@ describe("Event detail load right after a sign-in deep link", () => {
 
   it("an error from the load before the session arrived is cleared when the signed-in load succeeds", async () => {
     // First load (no session) fails twice (initial + the automatic retry), so the error state shows.
-    mockDetail.mockRejectedValueOnce(new Error("401"));
-    mockDetail.mockRejectedValueOnce(new Error("401"));
+    mockDetail.mockRejectedValueOnce(new Error("Network request failed"));
+    mockDetail.mockRejectedValueOnce(new Error("Network request failed"));
     const view = render(<EventDetailScreen />);
-    expect(await screen.findByText("Event unavailable", {}, { timeout: 8000 })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Try again" }, { timeout: 8000 })).toBeTruthy();
 
     // The session arrives (sign-in finishes): the reload succeeds and must replace the stale error.
     mockSession = { user: { id: "u1", email: "d@example.test" } };
     mockDetail.mockResolvedValue(detail);
     view.rerender(<EventDetailScreen />);
     expect(await screen.findByText("QA Social Dance Night", {}, { timeout: 8000 })).toBeTruthy();
-    expect(screen.queryByText("Event unavailable")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("a persistent failure still ends in the error state, with Try again, after exactly one automatic retry", async () => {
@@ -72,5 +72,29 @@ describe("Event detail load right after a sign-in deep link", () => {
     expect(await screen.findByText("Event unavailable", {}, { timeout: 8000 })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     await waitFor(() => expect(mockDetail).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("Event detail failure wording", () => {
+  it("a connection failure says offline, not that the event was not found", async () => {
+    mockDetail.mockRejectedValue(new Error("Network request failed"));
+    render(<EventDetailScreen />);
+    expect(await screen.findByText(/offline/i, {}, { timeout: 8000 })).toBeTruthy();
+    expect(screen.queryByText(/could not be found/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it("a server error says it could not be loaded, try again, not 'not found'", async () => {
+    mockDetail.mockRejectedValue(Object.assign(new Error("Internal server error"), { status: 500 }));
+    render(<EventDetailScreen />);
+    expect(await screen.findByText(/could not be loaded/i, {}, { timeout: 8000 })).toBeTruthy();
+    expect(screen.queryByText(/could not be found/i)).toBeNull();
+  });
+
+  it("a real not-found (no such event) keeps the not-found text", async () => {
+    mockDetail.mockResolvedValue(null);
+    render(<EventDetailScreen />);
+    expect(await screen.findByText(/could not be found/i, {}, { timeout: 8000 })).toBeTruthy();
+    expect(screen.getByText("Event unavailable")).toBeTruthy();
   });
 });
