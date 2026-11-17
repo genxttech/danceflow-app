@@ -247,10 +247,8 @@ const snapshot = () => ({
 });
 const who = (uid) => (uid === state.uid ? "Dana" : uid === state.uid2 ? "Evan" : uid);
 const ownerName = (snap, suffix) => (snap.regs[suffix] === "null" ? "unclaimed" : who(snap.regs[suffix]));
-const rpcCalls = () => {
-  const l = run("docker", ["logs", `df-isoqa-${cfg.name}-db`]);
-  return `${l.stdout}\n${l.stderr}`.split("\n").filter((x) => /duration:.*claim_my_event_registrations/.test(x) && !/drop function|alter system|pg_/i.test(x)).length;
-};
+const dbLog = () => { const l = run("docker", ["logs", `df-isoqa-${cfg.name}-db`]); return `${l.stdout}\n${l.stderr}`; };
+const rpcCalls = () => dbLog().split("\n").filter((x) => /claim_my_event_registrations/.test(x) && !/drop function|alter system|create (or replace )?function|grant |revoke |owner to/i.test(x)).length;
 const saveLogs = (tag) => {
   const l = sh(["logcat", "-d", "-v", "time", "-s", "ReactNativeJS:V", "AndroidRuntime:E"]);
   writeFileSync(join(cfg.out, `${tag}-logcat.txt`), `${l.stdout}\n${l.stderr}`);
@@ -319,10 +317,9 @@ async function claimScenario(link) {
   // Case 8: Dana signs in with a mailbox-verified but NOT bound account (a first sign-in before a password is bound): the function must
   // return 0, claim nothing, and show nothing new or wrong.
   if (await freshSignIn(link, cfg.email, "dana0-unbound")) {
-    const c00 = rpcCalls();
     const unb = await readTickets("dana0-unbound");
     const afterUnb = snapshot();
-    record("case 8: unbound session: nothing claimed (registration owners unchanged), only the owned ticket shows or none at all (an unbound user may be routed to account securing first), no error text", ownerName(afterUnb, "662") === "unclaimed" && ownerName(afterUnb, "663") === "unclaimed" && (unb.codes.length === 0 || (unb.codes.length === 0 || same(unb.codes, ["QA-DANA-0001"]))) && !/could not|unavailable|error/i.test(unb.xml), `codes: ${unb.codes.join(", ")}; owners 662=${ownerName(afterUnb, "662")} 663=${ownerName(afterUnb, "663")}; function calls this run: ${rpcCalls() - c00}`);
+    record("case 8: unbound session: nothing claimed (registration owners unchanged), only the owned ticket shows or none at all (an unbound user may be routed to account securing first), no error text", ownerName(afterUnb, "662") === "unclaimed" && ownerName(afterUnb, "663") === "unclaimed" && (unb.codes.length === 0 || (unb.codes.length === 0 || same(unb.codes, ["QA-DANA-0001"]))) && !/could not|unavailable|error/i.test(unb.xml), `codes: ${unb.codes.join(", ")}; owners 662=${ownerName(afterUnb, "662")} 663=${ownerName(afterUnb, "663")}`);
     sameCounts(afterUnb, "after unbound Dana");
   }
   // From here both users have a BOUND credential bound a day ago (what any returning user has), so their new sessions are verified.
@@ -333,20 +330,18 @@ async function claimScenario(link) {
 
   // Cases 1-4, 6: Dana, verified and bound email, first sign-in on this run.
   if (!(await freshSignIn(link, cfg.email, "dana1"))) return;
-  const c0 = rpcCalls();
   const dana = await readTickets("dana1");
   const afterDana = snapshot();
   writeFileSync(join(cfg.out, "claim-after-dana.json"), JSON.stringify(afterDana, null, 2));
   const claimed = afterDana.regs["662"] !== "null" || afterDana.regs["663"] !== "null";
   if (!claimed) {
-    record("case 1 FINDING: Dana's BOUND session claimed nothing (function returned 0, errored or was not reached)", false, `owners 662=${ownerName(afterDana, "662")} 663=${ownerName(afterDana, "663")}; function calls seen ${rpcCalls() - c0}`);
+    record("case 1 FINDING: Dana's BOUND session claimed nothing (function returned 0, errored or was not reached)", false, `owners 662=${ownerName(afterDana, "662")} 663=${ownerName(afterDana, "663")}`);
   }
   record("case 1: Dana sees QA-DANA-0001, QA-CLAIM-0001, QA-CLAIM-0002", same(dana.codes.filter((c) => /DANA|CLAIM/.test(c)), ["QA-CLAIM-0001", "QA-CLAIM-0002", "QA-DANA-0001"]), `codes seen: ${dana.codes.join(", ")}`);
   record("case 2-4: Dana does NOT see QA-GIFT-0003, QA-OWNED-0004, QA-NOBODY-0005", !dana.codes.some((c) => /GIFT|OWNED|NOBODY/.test(c)), "");
   expectOwners(afterDana, { 662: "Dana", 663: "Dana", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }, "after Dana");
   sameCounts(afterDana, "after Dana");
-  const calls1 = rpcCalls() - c0;
-  record("case 6: exactly one claim call in Dana's first app run (Wallet, tickets, scrolling)", calls1 === 1, `calls seen in the stack logs: ${calls1}`);
+  log("case 6 (exactly one call per app run): UNVERIFIED on device, no reliable call counter on this stack (pg stats and statement logging stay empty for PostgREST calls); the once-per-run rule is proven by jest only");
   record("no claim wording on the tickets screen", !/claim|linking your|verif/i.test(dana.xml.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "");
 
   // Case 5: Evan, a second user with a different email, same stack and device.
@@ -434,8 +429,6 @@ async function claimApiCheck(link, service, anon) {
   const r3 = await rpc(evanTok);
   record("api case 5: Evan returns 1 (the gift c3 he bought); Dana's rows stay Dana's", r3.status === 200 && r3.body.trim() === "1" && eq(owners(), { 662: "Dana", 663: "Dana", 664: "Evan", 665: "Evan", 666: "unclaimed" }), `status ${r3.status} body ${r3.body}`);
   tablesSame("after Evan");
-  const calls = rpcCalls();
-  record("api: the database log shows exactly the 5 authenticated calls (counter used for case 6)", calls === 5, `counted ${calls}`);
   const anonCall = await fetch(`${base}/rest/v1/rpc/claim_my_event_registrations`, { method: "POST", headers: { apikey: anon, "content-type": "application/json" }, body: "{}" });
   record("api: anon (signed out) is denied", anonCall.status >= 400, `status ${anonCall.status}`);
 }
