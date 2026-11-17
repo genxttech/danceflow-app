@@ -29,7 +29,7 @@ create or replace function public.tw4_price_sweep_expired()
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 set lock_timeout = '5s'
-as $
+as $$
 declare
   v_ids uuid[];
 begin
