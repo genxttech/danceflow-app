@@ -1,4 +1,4 @@
-import { PRICE_KIND_TEXT, type PriceChangeOverview, type PriceChangeRequest } from "@/lib/sms/priceChange";
+import { PRICE_KIND_TEXT, microsToUsd, type PriceChangeOverview, type PriceChangeRequest } from "@/lib/sms/priceChange";
 import { priceApprove, priceFreeze, pricePropose, priceReject, priceReportCompromise, priceRevise } from "./priceChangeActions";
 import PriceAuthorize from "./PriceAuthorize";
 import PriceCredentials from "./PriceCredentials";
@@ -10,6 +10,9 @@ import { buttonClass, dangerButtonClass, dollars, Disclosure, inputClass, labelC
  * An approval is bound to the exact amounts and the price that was active when the proposal was made; if that price has changed, or 24 hours pass, the proposal is void.
  * Amounts appear in dollars in this administrator panel only. Nothing here calls Twilio or Stripe, or moves money.
  */
+
+/** a per-segment price shows its exact micro-dollar amount ($0.017); every other price is whole cents */
+const amount = (cents: number | null, micros: number | null) => (micros !== null ? microsToUsd(micros) : dollars(cents));
 
 const STATUS_TEXT: Record<string, string> = {
   pending: "waiting for a second administrator", approved: "approved", applied: "approved and in effect", rejected: "rejected or withdrawn", expired: "expired", invalidated: "invalidated",
@@ -29,20 +32,20 @@ function Compare({ r, current }: { r: PriceChangeRequest; current: PriceChangeOv
       <tbody>
         <tr>
           <th scope="row" className="pr-3 font-semibold">Active when proposed</th>
-          <td className="pr-3">{dollars(r.baseCustomerPriceCents)}</td>
-          <td>{dollars(r.baseProviderCostCents)}</td>
+          <td className="pr-3">{current && !r.baseChanged ? amount(current.customerPriceCents, current.unitPriceMicros) : dollars(r.baseCustomerPriceCents)}</td>
+          <td>{current && !r.baseChanged ? amount(current.providerCostCents, current.unitCostMicros) : dollars(r.baseProviderCostCents)}</td>
         </tr>
         {current && r.baseChanged ? (
           <tr>
             <th scope="row" className="pr-3 font-semibold">Active now</th>
-            <td className="pr-3">{dollars(current.customerPriceCents)}</td>
-            <td>{dollars(current.providerCostCents)}</td>
+            <td className="pr-3">{amount(current.customerPriceCents, current.unitPriceMicros)}</td>
+            <td>{amount(current.providerCostCents, current.unitCostMicros)}</td>
           </tr>
         ) : null}
         <tr>
           <th scope="row" className="pr-3 font-semibold">Proposed</th>
-          <td className="pr-3 font-semibold">{dollars(r.customerPriceCents)}</td>
-          <td className="font-semibold">{dollars(r.providerCostCents)}</td>
+          <td className="pr-3 font-semibold">{amount(r.customerPriceCents, r.priceMicros)}</td>
+          <td className="font-semibold">{amount(r.providerCostCents, r.costMicros)}</td>
         </tr>
       </tbody>
     </table>
@@ -71,7 +74,7 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
             <ul className="space-y-1">
               {overview.active.map((a) => (
                 <li key={a.priceId} className="text-xs text-slate-800">
-                  {PRICE_KIND_TEXT[a.kind] ?? a.kind}: customer {dollars(a.customerPriceCents)} · provider cost {dollars(a.providerCostCents)} · {a.description}
+                  {PRICE_KIND_TEXT[a.kind] ?? a.kind}: customer {amount(a.customerPriceCents, a.unitPriceMicros)} · provider cost {amount(a.providerCostCents, a.unitCostMicros)} · {a.description}
                 </li>
               ))}
             </ul>
@@ -94,7 +97,7 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
                       <div className="space-y-2">
                         <p className="text-xs text-slate-700">Single-owner proposal, version {r.proposalVersion}. Mandatory cooling-off until {stamp(r.coolingUntil)}; it never publishes by itself. After that, authorize from a SEPARATE sign-in with your hardware key.</p>
                         {mine ? <PriceAuthorize requestId={r.requestId} /> : <p className="text-xs font-semibold text-amber-900">Only the owner who proposed this change can authorize it.</p>}
-                        {mine ? (
+                        {mine && r.priceMicros === null ? (
                           <form action={priceRevise} className="space-y-2">
                             <input type="hidden" name="requestId" value={r.requestId} />
                             <p className="text-xs text-slate-700">Changing the proposal voids this one and every signature over it, and restarts the 24-hour cooling-off.</p>
@@ -145,12 +148,12 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
                 </select>
               </label>
               <label className={labelClass}>
-                New customer price in dollars (for example 2.00)
-                <input name="customerUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,2})?" className={inputClass} />
+                New customer price in dollars (for example 2.00; a per-segment message price takes up to six decimals, for example 0.017)
+                <input name="customerUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,6})?" className={inputClass} />
               </label>
               <label className={labelClass}>
                 DanceFlow provider cost in dollars (what Twilio is expected to charge; internal, never shown to studios)
-                <input name="providerUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,2})?" className={inputClass} />
+                <input name="providerUsd" required inputMode="decimal" pattern="[0-9]{1,5}(\.[0-9]{1,6})?" className={inputClass} />
               </label>
               <label className={labelClass}>
                 Description (3 to 200 characters)
@@ -185,7 +188,7 @@ export default function PriceChanges({ overview, adminId, notice = null, error =
             <ul className="space-y-2">
               {decided.map((r) => (
                 <li key={r.requestId} className="rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-800">
-                  {PRICE_KIND_TEXT[r.kind] ?? r.kind} · {dollars(r.baseCustomerPriceCents)} to {dollars(r.customerPriceCents)} · {STATUS_TEXT[r.status]} · proposed {stamp(r.requestedAt)} by{" "}
+                  {PRICE_KIND_TEXT[r.kind] ?? r.kind} · {dollars(r.baseCustomerPriceCents)} to {amount(r.customerPriceCents, r.priceMicros)} · {STATUS_TEXT[r.status]} · proposed {stamp(r.requestedAt)} by{" "}
                   {r.requestedBy === adminId ? "you" : shortId(r.requestedBy)}
                   {r.decidedBy ? ` · decided by ${r.decidedBy === adminId ? "you" : shortId(r.decidedBy)} ${stamp(r.decidedAt)}` : ""}
                   {r.decisionNote ? ` · ${r.decisionNote}` : ""}
