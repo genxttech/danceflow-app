@@ -35,7 +35,7 @@ describe("no catch-all: a connection problem never reads as a credential, permis
   });
 
   it("a server outage (5xx wrapped as AuthRetryableFetchError) is not called offline", () => {
-    for (const status of [500, 502, 503, 504, 522]) {
+    for (const status of [500, 501, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529, 530]) {
       expect(signInLinkErrorMessage(authError("AuthRetryableFetchError", undefined, status))).toBe("We could not send that link right now. Try again in a moment.");
       expect(friendlyAuthLinkError(authError("AuthRetryableFetchError", undefined, status))).toBe(LINK_FAILED_MESSAGE);
     }
@@ -47,11 +47,17 @@ describe("no catch-all: a connection problem never reads as a credential, permis
   });
 
   it("an auth link that really expired keeps its wording (verify and code-exchange failures, redirect codes)", () => {
-    for (const code of ["otp_expired", "flow_state_expired", "flow_state_not_found"]) {
+    for (const code of ["otp_expired", "flow_state_expired", "flow_state_not_found", "user_not_found", "validation_failed"]) {
       expect(friendlyAuthLinkError(authError("AuthApiError", code, 403))).toBe(LINK_EXPIRED_MESSAGE);
       expect(friendlyAuthLinkError(code)).toBe(LINK_EXPIRED_MESSAGE);
     }
     expect(friendlyAuthLinkError("access_denied")).toBe(LINK_EXPIRED_MESSAGE);
+  });
+
+  it("validation_failed is a bad address on the SEND path only; on the link-open path it is a dead link", () => {
+    expect(signInLinkErrorMessage(authError("AuthApiError", "validation_failed", 422))).toMatch(/does not look right/);
+    expect(friendlyAuthLinkError(authError("AuthApiError", "validation_failed", 422))).toBe(LINK_EXPIRED_MESSAGE);
+    expect(signInLinkErrorMessage(authError("AuthApiError", "user_not_found", 404))).toMatch(/right now/);
   });
 
   it("any other link failure keeps the generic wording", () => {
