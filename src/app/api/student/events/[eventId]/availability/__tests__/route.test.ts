@@ -85,6 +85,10 @@ function seed() {
     { id: "r06", ticket_type_id: T_LIMITED, quantity: 1, status: "pending", payment_status: "pending", order_id: "o-cancelled" },
     { id: "r07", ticket_type_id: T_PAIR, quantity: 2, status: "confirmed", payment_status: "paid", order_id: null },
     { id: "r08", ticket_type_id: T_PRIVATE, quantity: 3, status: "confirmed", payment_status: "paid", order_id: null },
+    // orderless pending rows: a live terminal (card reader) hold reserves capacity like the trigger says, an expired one does not
+    { id: "r10", ticket_type_id: T_LIMITED, quantity: 1, status: "pending", payment_status: "pending", order_id: null, terminal_hold_until: future },
+    { id: "r11", ticket_type_id: T_LIMITED, quantity: 2, status: "pending", payment_status: "pending", order_id: null, terminal_hold_until: past },
+    { id: "r12", ticket_type_id: T_LIMITED, quantity: 2, status: "pending", payment_status: "pending", order_id: null, terminal_hold_until: null },
   ];
 }
 
@@ -100,12 +104,12 @@ describe("GET /api/student/events/[eventId]/availability", () => {
     const res = await call(EVENT);
     expect(res.status).toBe(200);
     const body = await res.json();
-    // T_LIMITED: r01 2 + r02 live hold 1 + r05 1 = 4 used (expired hold, cancelled, cancelled-order hold are free) -> 6 left of 10
+    // T_LIMITED: r01 2 + r02 live hold 1 + r05 1 + r10 live terminal hold 1 = 5 used (expired holds, cancelled, cancelled-order hold, orderless row without a hold are free) -> 5 left of 10
     // T_PAIR: 2 tickets x 2 admissions = 4 used -> 6 left of 10; T_FREE unlimited; inactive ticket omitted
     expect(body).toEqual({
       eventId: EVENT,
       tickets: [
-        { ticketTypeId: T_LIMITED, capacity: 10, remaining: 6, soldOut: false },
+        { ticketTypeId: T_LIMITED, capacity: 10, remaining: 5, soldOut: false },
         { ticketTypeId: T_PAIR, capacity: 10, remaining: 6, soldOut: false },
         { ticketTypeId: T_FREE, capacity: null, remaining: null, soldOut: false },
       ],
@@ -122,7 +126,7 @@ describe("GET /api/student/events/[eventId]/availability", () => {
     const text = JSON.stringify(await (await call(EVENT)).json());
     expect(text).toBe(
       `{"eventId":"${EVENT}","tickets":[` +
-        `{"ticketTypeId":"${T_LIMITED}","capacity":10,"remaining":6,"soldOut":false},` +
+        `{"ticketTypeId":"${T_LIMITED}","capacity":10,"remaining":5,"soldOut":false},` +
         `{"ticketTypeId":"${T_PAIR}","capacity":10,"remaining":6,"soldOut":false},` +
         `{"ticketTypeId":"${T_FREE}","capacity":null,"remaining":null,"soldOut":false}]}`,
     );

@@ -8,8 +8,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
+import { createRequire } from "node:module";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const reach = createRequire(import.meta.url)("./reachability.js"); // Wi-Fi/reach preflight + baked-config check (shared helpers with the Business smoke)
 const repoRoot = resolve(here, "..", "..", "..", "..");
 
 const args = process.argv.slice(2);
@@ -103,6 +105,7 @@ async function stackUp() {
   const grab = (k) => (text.match(new RegExp(`${k}["']?\\s*[=:]\\s*["']?([A-Za-z0-9._-]+)`)) || [])[1];
   const anon = grab("ISO_QA_ANON_KEY");
   const service = grab("ISO_QA_SERVICE_ROLE_KEY");
+  state.jwtSecret = grab("TW4A_LOCAL_JWT_SECRET") || null;
   if (!anon || !service) throw new Error("could not read the stack keys from the iso-qa output");
   psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270213080000_mobile_push_token_claim.sql"));
   if (cfg.claim) {
@@ -192,6 +195,50 @@ function build(anon) {
   writeFileSync(join(cfg.out, "gradle.log"), `${g.stdout}\n${g.stderr}`);
   if (g.status !== 0 || !existsSync(apkPath)) throw new Error("the Gradle build failed (see gradle.log in the output folder)");
   return apkPath;
+}
+
+/**
+ * Before the emulator is touched: the APK's Hermes bundle must carry THIS run's stack URL, mock web URL and anon key. A stale APK (reused with --apk, or a
+ * stale Metro cache) otherwise fails at sign-in with a misleading "could not reach DanceFlow".
+ */
+function checkBakedConfig(apk, anon) {
+  const dir = join(os.tmpdir(), `smoke-bundle-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  try {
+    const tar = process.platform === "win32" ? join(process.env.SystemRoot || "C:/Windows", "System32", "tar.exe") : "tar";
+    const x = run(tar, ["-xf", apk, "-C", dir, "assets/index.android.bundle"]);
+    if (x.status !== 0) throw new Error(`could not read the JS bundle from the APK: ${(x.stderr || "").slice(-200)}`);
+    const strings = reach.hermesStrings(readFileSync(join(dir, "assets", "index.android.bundle")));
+    const problems = reach.studentBakedConfigProblems(strings, { stackPort: cfg.kong, mockPort: cfg.mockPort, anonKey: anon, jwtSecret: state.jwtSecret || undefined });
+    // The URLs are hard requirements (a stale port can never reach the stack). The anon key is only a warning: it is sent as the apikey header, the
+    // iso-qa gateway does not validate it, and magic-link sign-in works with a key from another stack (reused APKs ran green); a key mismatch is recorded, not fatal.
+    const keyProblems = problems.filter((p) => /anon key/.test(p));
+    const urlProblems = problems.filter((p) => !/anon key/.test(p));
+    record("APK carries this run's stack URL and mock web URL", urlProblems.length === 0, urlProblems.join("; "));
+    if (keyProblems.length) record("APK anon key differs from this stack (warning only: reused APK; magic-link sign-in does not need it)", true, keyProblems.join("; "));
+    if (urlProblems.length) throw new Error(`stale or foreign APK: ${urlProblems.join("; ")}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * After the emulator is up and before any sign-in: its own network must reach the stack and the mock web API on 10.0.2.2. The emulator's Wi-Fi joins tens
+ * of seconds after sys.boot_completed and can flap for a few minutes after a cold boot, so this waits (Wi-Fi address up to 2 min, then a steady HTTP answer
+ * up to 8 min, confirmed by a second answer 15 s later). If it never answers, the run fails here with a named reason instead of as a sign-in failure.
+ */
+async function checkReachable() {
+  const wifi = await reach.waitForWifiAddress({ probe: () => sh(["shell", "ip", "-4", "addr", "show", "wlan0"]).stdout, sleep });
+  record("emulator Wi-Fi has an address", wifi.ok, wifi.ok ? `after ${wifi.tries} check(s)` : "wlan0 never got an address within 2 minutes of boot");
+  if (!wifi.ok) throw new Error("the emulator never got a network address");
+  for (const [name, port, urlPath] of [["stack API", cfg.kong, "/auth/v1/health"], ["mock web API", cfg.mockPort, "/"]]) {
+    const answer = await reach.waitForSteadyAnswer({
+      probe: () => { const r = sh(["shell", reach.reachProbeCommand(port, urlPath)]); return `${r.stdout} ${r.stderr}`; },
+      sleep,
+    });
+    record(`emulator reaches the ${name} (10.0.2.2:${port})`, answer.ok, answer.ok ? "" : `no steady HTTP answer from inside the emulator within 8 min (last output: ${reach.oneLine(answer.last)})`);
+    if (!answer.ok) throw new Error(`the emulator cannot reach the ${name} at 10.0.2.2:${port}`);
+  }
 }
 
 async function emulatorUp() {
@@ -568,10 +615,12 @@ try {
   startMock();
   const apk = cfg.apk || (cfg.skipBuild ? "" : build(anon));
   if (!apk) throw new Error("--skip-build needs --apk <path>");
+  checkBakedConfig(apk, anon);
   await emulatorUp();
   const inst = sh(["install", "-r", apk]);
   if (!/Success/.test(inst.stdout)) throw new Error(`install failed: ${inst.stdout}${inst.stderr}`);
   state.installed = true;
+  await checkReachable();
   if (cfg.claimVisual) await claimVisualScenario(link);
   else if (cfg.claim) await claimScenario(link);
   else await screens(link);
