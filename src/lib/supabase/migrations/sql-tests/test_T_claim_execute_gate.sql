@@ -18,7 +18,7 @@ begin
   execute format('set local role %I', p_role);
   perform set_config('request.jwt.claims', '', true);
   begin
-    v := public.claim_my_event_registrations();
+    execute 'select public.claim_my_event_registrations()' into v; -- dynamic: a cached plpgsql expression would skip the EXECUTE check after the first role switch
     reset role;
     return 'ok:' || v;
   exception when others then
@@ -37,8 +37,8 @@ select pg_temp.chk('no grant to public, anon or service_role in either state',
   and not exists (select 1 from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where p.oid = to_regprocedure('public.claim_my_event_registrations()') and a.grantee = 0));
 select pg_temp.chk('the owner (postgres) can always execute', has_function_privilege('postgres', 'public.claim_my_event_registrations()', 'execute'));
 select pg_temp.chk('ACL grantees: ' || :'expect',
-  (select coalesce(array_agg(distinct pg_get_userbyid(a.grantee) order by pg_get_userbyid(a.grantee)), '{}') from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where p.oid = to_regprocedure('public.claim_my_event_registrations()'))
-  = case :'expect' when 'active' then array['authenticated', 'postgres'] else array['postgres'] end::text[],
+  (select coalesce(array_agg(distinct pg_get_userbyid(a.grantee)::text order by pg_get_userbyid(a.grantee)::text), '{}') from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where p.oid = to_regprocedure('public.claim_my_event_registrations()'))
+  = case :'expect' when 'active' then array['authenticated', 'postgres'] else array['postgres'] end,
   (select array_agg(distinct pg_get_userbyid(a.grantee)::text)::text from pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where p.oid = to_regprocedure('public.claim_my_event_registrations()')));
 select pg_temp.chk('authenticated execute privilege matches the state',
   has_function_privilege('authenticated', 'public.claim_my_event_registrations()', 'execute') = (:'expect' = 'active'));
