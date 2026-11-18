@@ -1,6 +1,6 @@
 # Google Play internal testing: upload procedure and compliance drafts
 
-Status 2026-11-17 (checked against main c47e3ae17, see section 11; the Business device-IDs row was corrected). Earlier status 2026-11-14. Draft prepared by engineering. **Nothing has been uploaded or submitted.** Facts below were verified in the repo on the date shown; anything not verifiable is marked **OWNER INPUT**. Companion documents: `Android_Release_Audit.md` (build and signing), `Android_Push_Firebase_Setup.md` (FCM).
+Status 2026-11-17 (re-checked against main 20e5bacdb (RC4), see section 11; the Business device-IDs row was corrected). Earlier status 2026-11-14. Draft prepared by engineering. **Nothing has been uploaded or submitted.** Facts below were verified in the repo on the date shown; anything not verifiable is marked **OWNER INPUT**. Companion documents: `Android_Release_Audit.md` (build and signing), `Android_Push_Firebase_Setup.md` (FCM).
 
 ## 1. Apps
 
@@ -133,3 +133,18 @@ Status key: PASSED = run with evidence; UNVERIFIED = not run or inconclusive; BL
 4. Decide when the web account-deletion page and privacy policy URL go live (the Data safety form needs the deletion URL before submission) and confirm the A7 purchasability decision.
 5. Confirm the Data safety OWNER INPUT items (name sharing, location retention, LUMI processor, crash/diagnostics), the content rating answers and the store listing.
 6. Approve the first internal-testing build (unminified), then upload by hand per section 2.
+
+
+### RC4 update (main `20e5bacdb`, 2026-11-18)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Release AABs build from main (both) with a private `TEMP`; QA-signed | PASSED | `rc4/` |
+| Baked `EXPO_PUBLIC_*` decoded from each final AAB (Student, Business, Student R8): placeholders only, no JWT, no secret, no stack URL | PASSED (required pre-upload step; re-run on the real release artifact against the production values) | audit section 10 |
+| targetSdk 36, v1/0.1.0, not debuggable, no cleartext, allowBackup false, blocked permissions absent, 16 KB | PASSED | `rc4/` |
+| Business device smoke | PASSED 22/22 | `qa-rc4/business-smoke` |
+| Student device smoke (unminified) | PASSED 13/13 on the third attempt (one transient sign-in connection failure, one stack-guard refusal; see audit section 10) | `qa-rc4/student-smoke3` |
+| R8 / minified Student | PASSED: build with `:app:minifyReleaseWithR8` (91.2 MB vs 99.1 MB) and smoke 13/13 on a forced-R8 QA APK. The first release can still be the unminified AAB; R8 is a candidate, not yet the default | `qa-rc4/student-smoke-r8`, `rc4/student-rc4-r8.aab` |
+| Signing guard negative test; R-3b live font change; Android 12 and older; EAS cloud build | UNVERIFIED / UNTESTED | - |
+
+The RC3 rows above that call R8 "FAILED in dark mode" are superseded: that smoke was unminified (audit section 9 correction). The owner queue above is unchanged.
