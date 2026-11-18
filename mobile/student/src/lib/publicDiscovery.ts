@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { effectiveTicketPrice } from "./ticketPricing";
 import { UserFacingError } from "@/lib/userFacingError";
 
@@ -355,12 +356,6 @@ type TicketTypeRow = {
   sort_order?: number | null;
 };
 
-type TicketCapacityRegistrationRow = {
-  ticket_type_id: string | null;
-  quantity: number | null;
-  event_ticket_types?: { attendees_per_ticket: number | null } | { attendees_per_ticket: number | null }[] | null;
-};
-
 /** CI-A: the shared effective-price rule (identical copy of the web rule; early bird strictly before its cutoff). */
 function activeTicketPrice(ticket: TicketTypeRow, nowMs: number) {
   const pricing = effectiveTicketPrice(ticket, nowMs);
@@ -374,63 +369,42 @@ function activeTicketPrice(ticket: TicketTypeRow, nowMs: number) {
   };
 }
 
-function admissionCountFor(row: TicketCapacityRegistrationRow) {
-  const ticketType = firstJoin(row.event_ticket_types);
-  const admitsPerTicket = Math.max(1, Number(ticketType?.attendees_per_ticket ?? 1) || 1);
-  return Math.max(1, Number(row.quantity ?? 1) || 1) * admitsPerTicket;
-}
+type TicketAvailabilityResponse = {
+  eventId?: string;
+  tickets?: Array<{ ticketTypeId?: string; capacity?: number | null; remaining?: number | null; soldOut?: boolean }>;
+};
 
-async function loadTicketAdmissionCounts(ticketTypeIds: string[]) {
-  if (!ticketTypeIds.length) return new Map<string, number>();
+/**
+ * Admission spots left per ticket type, from the web API (counted server-side with the same rule as the capacity trigger:
+ * paid or confirmed, plus live checkout holds). A dancer can only read their own registrations, so counting here would
+ * overstate what is left. Returns null, never a guess, when there is no signed-in session, the event is not available, the
+ * request is rate limited, offline or the answer is malformed: the screen then shows no count and the checkout says
+ * "Only N spots remain" if it is needed.
+ */
+export async function loadTicketAvailability(eventId: string): Promise<Map<string, number | null> | null> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (!data?.session) return null;
 
-  const [confirmedResult, heldResult] = await Promise.all([
-    supabase
-      .from("event_registrations")
-      .select("ticket_type_id, quantity, event_ticket_types ( attendees_per_ticket )")
-      .in("ticket_type_id", ticketTypeIds)
-      .or("payment_status.eq.paid,status.in.(confirmed,checked_in,attended)"),
-    supabase
-      .from("event_registrations")
-      .select(
-        `
-        ticket_type_id,
-        quantity,
-        event_ticket_types (
-          attendees_per_ticket
-        ),
-        event_orders!inner (
-          status,
-          payment_status,
-          expires_at
-        )
-      `
-      )
-      .in("ticket_type_id", ticketTypeIds)
-      .eq("status", "pending")
-      .eq("payment_status", "pending")
-      .eq("event_orders.status", "pending")
-      .eq("event_orders.payment_status", "pending")
-      .gt("event_orders.expires_at", new Date().toISOString())
-  ]);
+    const response = await danceflowApiFetch<TicketAvailabilityResponse>(`/api/student/events/${encodeURIComponent(eventId)}/availability`);
+    if (!response || !Array.isArray(response.tickets)) return null;
 
-  if (confirmedResult.error) throw confirmedResult.error;
-  if (heldResult.error) throw heldResult.error;
-
-  const counts = new Map<string, number>();
-  for (const row of [
-    ...((confirmedResult.data ?? []) as TicketCapacityRegistrationRow[]),
-    ...((heldResult.data ?? []) as TicketCapacityRegistrationRow[])
-  ]) {
-    if (!row.ticket_type_id) continue;
-    counts.set(row.ticket_type_id, (counts.get(row.ticket_type_id) ?? 0) + admissionCountFor(row));
+    const remaining = new Map<string, number | null>();
+    for (const ticket of response.tickets) {
+      if (!ticket || typeof ticket.ticketTypeId !== "string") return null;
+      if (ticket.soldOut === true) remaining.set(ticket.ticketTypeId, 0);
+      else if (typeof ticket.remaining === "number" && Number.isFinite(ticket.remaining)) remaining.set(ticket.ticketTypeId, Math.max(0, Math.floor(ticket.remaining)));
+      else remaining.set(ticket.ticketTypeId, null); // unlimited
+    }
+    return remaining;
+  } catch {
+    return null;
   }
-
-  return counts;
 }
 
-function remainingAdmissionSpotsFor(ticket: TicketTypeRow, reservedAdmissionCount: number) {
-  if (ticket.capacity == null) return null;
-  return Math.max(0, Number(ticket.capacity) - reservedAdmissionCount);
+function remainingAdmissionSpotsFor(availability: Map<string, number | null> | null, ticketTypeId: string) {
+  if (!availability) return null;
+  return availability.get(ticketTypeId) ?? null;
 }
 
 type EventDocumentRequirementRow = {
@@ -958,7 +932,7 @@ export async function getPublicEventDetailForMobile(
   if (!event || !eventRow) return null;
 
   const ticketRows = (ticketsResult.data ?? []) as TicketTypeRow[];
-  const admissionCounts = await loadTicketAdmissionCounts(ticketRows.map((ticket) => ticket.id));
+  const availability = await loadTicketAvailability(eventId);
 
   const pricingNowMs = Date.now();
   const ticketTypes = ticketRows.map((ticket) => {
@@ -977,7 +951,7 @@ export async function getPublicEventDetailForMobile(
       regularPrice: activePrice.regularPrice,
       currency: ticket.currency ?? "USD",
       capacity: ticket.capacity,
-      remainingAdmissionSpots: remainingAdmissionSpotsFor(ticket, admissionCounts.get(ticket.id) ?? 0),
+      remainingAdmissionSpots: remainingAdmissionSpotsFor(availability, ticket.id),
       active: ticket.active === true && priceable,
       saleStartsAt: ticket.sale_starts_at,
       saleEndsAt: ticket.sale_ends_at,
