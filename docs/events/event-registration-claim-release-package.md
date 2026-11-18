@@ -7,7 +7,7 @@ SQL -> app -> backport. Read-only checks were run on PROD (`hvsujyfbftfffxpfmlpb
 
 Legend: **[V]** verified (command or code read this session), **[A]** assumed / not provable without a write.
 
-**SECTION 14 (2026-11-18 owner hold + corrections) SUPERSEDES SECTION 13.6; read 14 first. Then:** **READ SECTION 13 (FINAL, main b0d51695) FIRST, then 12. Earlier note (2026-11-17): owner decision 1 added a third migration that excludes studio-sold rows; it supersedes the two-artifact apply plan below.**
+**SECTION 14.9-14.11 (FINAL at main 487257e6) is the single authoritative authorization; read it first. Sections 12-13 and 14.1-14.8 are background.** Then: **READ SECTION 13 (FINAL, main b0d51695) FIRST, then 12. Earlier note (2026-11-17): owner decision 1 added a third migration that excludes studio-sold rows; it supersedes the two-artifact apply plan below.**
 
 Two separate owner gates are required (section 11; wording in 12.5): **product approval** of the behaviour, and **PROD SQL authorization** of the exact files.
 
@@ -367,3 +367,67 @@ Postflight now also reports `dancer_read` (views and their columns, view grants,
 1. Gate 1 SQL authorization (steps 1-4) with the shas recomputed at the merge commit (engineering will provide the block after the PR merges).
 2. Gate 2 (cutover) later, after the readers are released; plus the Student build/compat decision (14.3).
 3. Still open from before: `organizer_portal` and `other` are not claimable (confirm), gift semantics (holder vs purchaser).
+
+### 14.9 FINAL at main `487257e6dd24042fe33b519d7540455f47677873` (PR #647 merged) -- the single authoritative authorization. Where 14.5-14.8 and earlier sections differ, this subsection wins.
+
+Docs only. Nothing applied. Everything below was recomputed from git objects at `487257e6` (not a working tree).
+
+**Hashes (all equal to the 14.5 values; no file changed in the merge).**
+| Gate | Step | Apply file (under `src/lib/supabase/migrations/`) | sha256 |
+|---|---|---|---|
+| 1 | 1 | `20270221090000_event_registration_claim_function.sql` | `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec` |
+| 1 | 2 | `20270222090000_event_registration_claim_buyer_sources_only.sql` | `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487` |
+| 1 | 3 | `20270222091000_event_registrations_unclaimed_email_index.sql` | `0d6bf93df2973c937b1852c83866a7849ff080929d7519bd7be78ed37fe06fb5` |
+| 1 | 4 | `20270222092000_dancer_event_registration_views.sql` | `45544f920c9ceea4d19ee0c28db63a3148788d6fe129a6b9784c4ab9ab7009cb` |
+| 2 | 5 | `20270222093000_dancer_direct_read_policies_cutover.sql` | `5c41c91e23606d34e4e3782d2db98804740990d39a96527225f586dea654cde8` |
+
+| Rollback (under `rollback/`) | sha256 |
+|---|---|
+| `20270222093000_dancer_direct_read_policies_cutover_rollback.sql` (undoes step 5) | `d95c73735ebe1ab663212fc2cd1e4d6fa1407c3818b7038356148512f3038992` |
+| `20270222092000_dancer_event_registration_views_rollback.sql` (undoes step 4) | `0ea32ec8db0fe37d9756a2711651fee527c82dc719ca231d02dd3ceab2ff4841` |
+| `20270222091000_event_registrations_unclaimed_email_index_rollback.sql` (undoes step 3) | `8cee163391da78d33d1d3a5984551f274641eeb362fe2412f4358a948e768dad` |
+| `20270222090000_event_registration_claim_buyer_sources_only_rollback.sql` (undoes step 2; restores the step-1 body) | `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3` |
+| `20270221090000_event_registration_claim_function_rollback.sql` (undoes step 1) | `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3` |
+Suites (not applied): `test_T_dancer_column_restricted_read.sql` `a9addd19...510c` (22 checks), `test_T_claim_buyer_sources_only.sql` `0879411c...88ff` (37), `test_T_claim_my_event_registrations.sql` `6c54cc6e...4404` (34).
+**Version checks at `487257e6` [V]:** no duplicate 14-digit migration versions under `src/lib/supabase/migrations/`; the retired `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql` and its rollback are **absent** from the tree; G-02 is `20270219100000`; `20270219090000` is Twilio's only.
+
+**Fresh read-only checks (sb.sh; `preflight.sql` + `postflight.sql`, the "before" state).**
+| Time (UTC) | Host | Result |
+|---|---|---|
+| 2026-11-18T12:45:21Z | PROD `hvsujyfbftfffxpfmlpb` | claim function, index, views all absent; prerequisites present; 0 invalid indexes; 37 registrations (11 `admin`, 26 `public_event_page`), **0 owned**, 37 unclaimed; 3 bound identities, **0 rows match a bound identity**; dancer self policies present: `event_registrations_self_select`, `event_registration_attendees_self_select`, `event_registration_attendees_self_insert`; policy counts 11 (registrations) / 10 (attendees); table-level SELECT held by anon and authenticated on the three tables; views `{}` |
+| 2026-11-18T12:45:29Z | DEV `epdrtzcydvnoidwrepqz` | same absent/present picture; 35 registrations (2 `admin` 0 owned, 33 `public_event_page` 14 owned); 0 bound identities; same three self policies; views `{}` |
+
+**What each gate changes (for existing Student builds and the web).**
+- **Gate 1 (steps 1-4) is additive.** It adds the claim function, the exclusion, a partial index and two read-only views; it removes nothing. Existing Student builds keep reading `event_registrations` / `event_registration_attendees` through the existing dancer policies and see no change. Nothing calls the claim function until an app that contains the call (web `/account` from #604, later Student) runs; so no row changes at Gate 1 (`owned` stays 0). The web readers of #648 read the views and therefore **must not be deployed before step 4 is applied**.
+- **Gate 2 (step 5) removes direct dancer access.** After it, an installed Student build (or any client) that still reads the base tables gets **zero rows with no error**: the wallet's event tickets and registrations list and the ticket screen/QR are empty; memberships, packages, payments, rewards and digital purchases are unaffected (source: `docs/mobile/Student_Dancer_Views_Cutover_Note.md` on draft PR #649). Builds that read `my_event_registrations` / `my_event_registration_attendees` are unaffected. Event capacity ("N spots left" / "Sold out") already comes from the availability API (#650/#651/#652), independent of Gate 2.
+
+**Gate 1: order and per-step postflight.** Each step is one `prod-apply` of a file copied from git at `487257e6` into a scratch directory, with its full sha256; run `postflight.sql` (read-only) after each step and stop on any deviation:
+`bash C:/Users/mcurt/danceflow-ops/sb.sh prod-apply <scratch>/<file>.sql <64-hex sha256>`
+| After step | Required postflight |
+|---|---|
+| 1 function | `function`: present, 0 args, returns integer, `security_definer=true`, owner `postgres`, `config` has `search_path=""`, `authenticated_exec=true`, `anon_exec=false`, `service_role_exec=false`, `public_grants=0`; `has_source_allowlist=false` (transient); `unclaimed_counts.owned=0`, `max_updated_at` unchanged |
+| 2 exclusion | `has_source_allowlist=true`, grants unchanged; `source_distribution`: admin 11 owned 0, public_event_page 26 owned 0; **if not true, stop: do not apply 3 or 4 and deploy nothing** |
+| 3 index | `index.valid=true`, `ready=true`, definition contains `lower(btrim(attendee_email))` and `WHERE ((user_id IS NULL) AND (attendee_email IS NOT NULL))`; `invalid_indexes_on_table=0` |
+| 4 views | `dancer_read.views`: `my_event_registrations` = exactly the **20** columns `id, event_id, ticket_type_id, studio_id, user_id, status, payment_status, attendee_first_name, attendee_last_name, attendee_email, attendee_phone, quantity, unit_price, total_price, total_amount, currency, checked_in_at, cancelled_at, created_at, updated_at`; `my_event_registration_attendees` = exactly the **15** columns `id, registration_id, event_id, ticket_type_id, first_name, last_name, email, phone, attendee_role, sort_order, waiver_signed_at, checked_in_at, ticket_code, ticket_issued_at, created_at`; `view_reloptions`: owner `postgres`, `options` = `["security_barrier=true"]` and **no** `security_invoker` (owner-rights views, by design); `view_grants`: `authenticated_select_regs=true`, `anon_select_regs=false`, `authenticated_write_regs=false`; `dancer_self_policies` still lists all **three** (Gate 1 removes no policy); `policy_count_event_registrations=11` and `policy_count_event_registration_attendees=10` (unchanged); `table_level_select_grants` unchanged; `unclaimed_counts.owned=0` |
+End of Gate 1: `owned` is still 0 and `max_updated_at` unchanged on PROD (the migrations contain no data statement). **No app deploy is part of Gate 1.**
+
+**Between the gates (not SQL; separate decisions):** (a) Web readers PR #648 deployed to PROD (needs step 4 applied first) and the new Student build that reads the views released and seen reading them (PR #649 merges only after step 4 is on PROD); (b) a device/HTTP claim check on a **disposable stack** only (14.6 / 13.7); (c) confirmation that old Student builds are out of users' hands or that the loss of tickets on old builds is accepted.
+
+**Gate 2: order and prerequisites.** Prerequisites (all must hold): Gate 1 applied and its postflight clean; #648 live on PROD; a Student build that reads the views is live and has been seen reading them; the owner's decision on old Student builds (above). Apply `20270222093000_dancer_direct_read_policies_cutover.sql` (sha above) with `sb.sh prod-apply`. Postflight: `dancer_read.dancer_self_policies = []`; `policy_count_event_registrations=10` and `policy_count_event_registration_attendees=8` (11 and 10 minus the three dropped); views and grants unchanged; staff/organizer policies still present. Smoke: a signed-in dancer on a view-reading build still sees tickets (device/HTTP on DEV or a disposable stack; no PROD write by engineering).
+
+**Rollback order (only on a failed postflight, or when the owner says so): 5 -> 4 -> 3 -> 2 -> 1.** Each file with its sha above: cutover rollback (restores the three policies exactly as captured from PROD on 2026-11-18), views rollback, index rollback, exclusion rollback, function rollback. Never roll back the views while the cutover is applied (dancers would have no read path). Claimed `user_id` values stay on any rollback (section 7).
+
+**Owner decisions still open (do not block Gate 1):** `organizer_portal` and `other` not claimable (confirm); holder vs purchaser for gifts; Student old-build handling (Gate 2); the Student draft #649 merges only after Gate 1 is on PROD.
+
+### 14.10 Ready-to-paste owner authorization -- GATE 1 (supersedes every earlier block; this is the only valid one)
+"I authorize applying to PROD (`hvsujyfbftfffxpfmlpb`), in this order, in one session, **before any app deploy**, exactly these four files taken from main `487257e6dd24042fe33b519d7540455f47677873`:
+(1) `20270221090000_event_registration_claim_function.sql` sha256 `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec`;
+(2) `20270222090000_event_registration_claim_buyer_sources_only.sql` sha256 `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487`;
+(3) `20270222091000_event_registrations_unclaimed_email_index.sql` sha256 `0d6bf93df2973c937b1852c83866a7849ff080929d7519bd7be78ed37fe06fb5`;
+(4) `20270222092000_dancer_event_registration_views.sql` sha256 `45544f920c9ceea4d19ee0c28db63a3148788d6fe129a6b9784c4ab9ab7009cb`.
+Engineering runs the read-only preflight before and `postflight.sql` after each step, and stops without applying the next step if `owned` changes, `has_source_allowlist` is not true after step 2, the index is invalid, or the views' column lists, grants (authenticated select only) or the three dancer policies differ from section 14.9.
+I pre-authorize these rollbacks, in the order (4), (3), (2), (1), only if a postflight check fails: `20270222092000_..._rollback.sql` sha256 `0ea32ec8db0fe37d9756a2711651fee527c82dc719ca231d02dd3ceab2ff4841`; `20270222091000_..._rollback.sql` sha256 `8cee163391da78d33d1d3a5984551f274641eeb362fe2412f4358a948e768dad`; `20270222090000_..._rollback.sql` sha256 `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3`; `20270221090000_..._rollback.sql` sha256 `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3`.
+I confirm `organizer_portal` and `other` registrations are NOT claimable, and that this gate is additive (it removes no dancer policy, so existing Student builds are unaffected). The cutover (`20270222093000`) is NOT included and needs a separate authorization. No data change; no app deploy included."
+
+### 14.11 Gate 2 authorization (request only after the prerequisites in 14.9 hold)
+"I authorize applying to PROD, after Gate 1 and after web PR #648 and a view-reading Student build are live, exactly `20270222093000_dancer_direct_read_policies_cutover.sql` sha256 `5c41c91e23606d34e4e3782d2db98804740990d39a96527225f586dea654cde8` from main `487257e6dd24042fe33b519d7540455f47677873`, with the read-only postflight (`dancer_self_policies = []`, policy counts 10 and 8), and I pre-authorize its rollback `d95c73735ebe1ab663212fc2cd1e4d6fa1407c3818b7038356148512f3038992` only if a check fails. I understand that Student builds that still read the base tables will show no event tickets after this step."
