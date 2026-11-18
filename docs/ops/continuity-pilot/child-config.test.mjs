@@ -205,3 +205,32 @@ test('C15. round 4: git_read.sh refuses a directory that is not a worktree top l
   assert.ok(!ded.some((s) => bashMatch(s, resolveCode('bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-u18pkg status'))), 'the reviewed helper must not be denied');
   bad((t) => { t.allow.push('Bash(bash {CODE}/phase2/scripts/git_read.sh C:/Dev/danceflow-secrets log *)'); }, /not one of the template addDirs/);
 });
+
+test('C16. the task text cannot make the model add characters to a command: every command is bracketed, every concrete or instantiated bracketed command is allowed and not denied, and appended text is never allowed', () => {
+  for (const [n, t] of A) {
+    assert.ok(!/\S \.(\s|$)/.test(t.cmd), n + ': a lone " ." after a command is exactly what got Q1 denied on 2026-11-17');
+    assert.ok(/COMMAND RULE/.test(t.cmd) && /placeholder/.test(t.cmd), n + ': the rule sentence (brackets and placeholders) is required');
+    const allowRaw = t.allow.map((r) => /^Bash\((.+)\)$/.exec(r)?.[1]).filter(Boolean);
+    const allow = allowRaw.map((r) => resolveCode(r));
+    const deny = childSettings(t, required).permissions.deny.map((r) => /^Bash\((.+)\)$/.exec(r)?.[1]).filter(Boolean);
+    // 1. an exact (no wildcard) allowed command that appears in the text must appear ONLY inside brackets
+    for (const spec of allowRaw.filter((s) => !s.endsWith(' *') && !s.includes('*'))) if (t.cmd.includes(spec)) assert.ok(t.cmd.includes('[' + spec + ']'), n + ': command appears unbracketed: ' + spec);
+    // 2. every bracketed command (placeholders instantiated with concrete values) is allowed and not denied; appended text never is
+    const raw = [...t.cmd.matchAll(/\[([^\]]+)\]/g)].map((m) => m[1]).filter((c) => c.trim().length > 0 && !/^ ?$/.test(c));
+    assert.ok(raw.length >= 1, n + ': at least one bracketed command');
+    const inst = (c) => { const outs = []; for (const role of ['supabase_admin', 'postgres']) outs.push(c.replaceAll('<role>', role).replaceAll('<worktree>', 'df-u18s').replaceAll('<pgvar>', 'PGPASSWORD').replaceAll('<path>', 'src/lib/supabase/migrations/rollback/x').replaceAll('<one SQL statement>', 'select 1')); return outs; };
+    let concrete = 0;
+    for (const c of raw) for (const one of inst(c)) {
+      const cmd = resolveCode(one); assert.ok(!/<[^>]*>/.test(cmd), n + ': an uninstantiated placeholder remains: ' + c); concrete++;
+      assert.ok(allow.some((s) => bashMatch(s, cmd)), n + ': bracketed command is not allowed: ' + cmd); assert.ok(!deny.some((s) => bashMatch(s, cmd)), n + ': bracketed command is denied: ' + cmd);
+      for (const extra of [' .', ' extra', '.', ' ; id']) assert.ok(!allow.some((s) => bashMatch(s, cmd + extra)) || /\*$/.test(allowRaw.find((s) => bashMatch(resolveCode(s), cmd + extra)) ?? ''), n + ': appended text must not be allowed by an exact rule: ' + JSON.stringify(extra) + ' on ' + cmd);
+    }
+    assert.ok(concrete >= 1);
+    // the evidence the DONE WHEN text asks for must be obtainable with an allowed command, and no unbracketed raw git command may appear
+    if (/rev-parse HEAD/.test(t.done)) assert.ok(/[bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-u18[a-z]* rev-parse HEAD]/.test(t.cmd) && /Raw git is not available/.test(t.cmd), n + ': DONE WHEN asks for git rev-parse HEAD but the text gives no allowed command for it');
+    assert.ok(!/(^|[^_w/.-])git (-C|status|log|show|diff|rev-parse|ls-tree|cat-file)/.test(t.cmd.replace(/[[^]]*]/g, '')), n + ': an unbracketed raw git command appears in the text');
+    assert.ok(/refused:/.test(t.cmd) && /600000/.test(t.cmd), n + ': refusal and runner-timeout guidance');
+  }
+  // the old Q1 text is caught: a command followed by a lone dot
+  assert.ok(/\S \.(\s|$)/.test('x chain.out . Apply'));
+});
