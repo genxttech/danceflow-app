@@ -226,6 +226,10 @@ test('C16. the task text cannot make the model add characters to a command: ever
       for (const extra of [' .', ' extra', '.', ' ; id']) assert.ok(!allow.some((s) => bashMatch(s, cmd + extra)) || /\*$/.test(allowRaw.find((s) => bashMatch(resolveCode(s), cmd + extra)) ?? ''), n + ': appended text must not be allowed by an exact rule: ' + JSON.stringify(extra) + ' on ' + cmd);
     }
     assert.ok(concrete >= 1);
+    // the evidence the DONE WHEN text asks for must be obtainable with an allowed command, and no unbracketed raw git command may appear
+    if (/rev-parse HEAD/.test(t.done)) assert.ok(/[bash {CODE}/phase2/scripts/git_read.sh C:/Dev/df-u18[a-z]* rev-parse HEAD]/.test(t.cmd) && /Raw git is not available/.test(t.cmd), n + ': DONE WHEN asks for git rev-parse HEAD but the text gives no allowed command for it');
+    assert.ok(!/(^|[^_w/.-])git (-C|status|log|show|diff|rev-parse|ls-tree|cat-file)/.test(t.cmd.replace(/[[^]]*]/g, '')), n + ': an unbracketed raw git command appears in the text');
+    assert.ok(/refused:/.test(t.cmd) && /600000/.test(t.cmd), n + ': refusal and runner-timeout guidance');
   }
   // the old Q1 text is caught: a command followed by a lone dot
   assert.ok(/\S \.(\s|$)/.test('x chain.out . Apply'));
