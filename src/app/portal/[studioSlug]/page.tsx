@@ -919,7 +919,7 @@ export default async function PortalHomePage({
       .limit(10),
 
     supabase
-      .from("my_event_registrations")
+      .from("event_registrations")
       .select(
         `
         id,
@@ -943,6 +943,7 @@ export default async function PortalHomePage({
       `,
       )
       .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
       .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
       .order("created_at", { ascending: false })
       .limit(6),
@@ -1063,7 +1064,7 @@ export default async function PortalHomePage({
 
   if (registrationIds.length) {
     const { data: eventTickets, error: eventTicketsError } = await supabase
-      .from("my_event_registration_attendees")
+      .from("event_registration_attendees")
       .select(
         "id, registration_id, event_id, first_name, last_name, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at",
       )

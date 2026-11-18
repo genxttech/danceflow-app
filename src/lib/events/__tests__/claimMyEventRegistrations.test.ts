@@ -39,7 +39,7 @@ describe("/account wiring", () => {
     const page = read("src/app/account/page.tsx");
     expect(page).toContain('import { claimMyEventRegistrations } from "@/lib/events/claimMyEventRegistrations"');
     const claim = page.indexOf("await claimMyEventRegistrations(supabase)");
-    const list = page.indexOf('.from("my_event_registrations")');
+    const list = page.indexOf('.from("event_registrations")');
     expect(claim).toBeGreaterThan(-1);
     expect(claim).toBeLessThan(list);
   });

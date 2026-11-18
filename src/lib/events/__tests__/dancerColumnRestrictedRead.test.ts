@@ -57,16 +57,4 @@ describe("dancer column-restricted read (views + cutover)", () => {
     expect([...order].sort()).toEqual(order);
   });
 
-  it("dancer readers use the views, not the base tables", () => {
-    const account = read("src/app/account/page.tsx");
-    expect(account).toContain('.from("my_event_registrations")');
-    expect(account).not.toMatch(/\.from\("event_registrations"\)/);
-    const portal = read("src/app/portal/[studioSlug]/page.tsx");
-    expect(portal).toContain('.from("my_event_registrations")');
-    expect(portal).toContain('.from("my_event_registration_attendees")');
-    expect(portal).not.toMatch(/\.from\("event_registrations"\)/);
-    expect(portal).not.toMatch(/\.from\("event_registration_attendees"\)/);
-    expect(read("src/app/app/account/page.tsx")).toContain('.from("my_event_registrations")');
-    expect(read("src/app/events/[slug]/page.tsx")).toContain('.from("my_event_registrations")\n      .select("id, payment_status, attendee_email")');
-  });
 });

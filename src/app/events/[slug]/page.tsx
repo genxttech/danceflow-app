@@ -1370,7 +1370,7 @@ export default async function PublicEventDetailPage({
 
   if (query.registration) {
     const { data } = await supabase
-      .from("my_event_registrations")
+      .from("event_registrations")
       .select("id, payment_status, attendee_email")
       .eq("id", query.registration)
       .eq("event_id", typedEvent.id)
