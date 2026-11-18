@@ -46,6 +46,8 @@ Each script starts its own iso-qa stack, builds a QA release APK with cleartext 
 
 ## 4. R8 / minified release
 
+**Gotcha:** bash cannot `export ORG_GRADLE_PROJECT_android.enableMinifyInReleaseBuilds=true` (a name with dots is not a valid identifier, and the export fails silently). Use `env "ORG_GRADLE_PROJECT_android.enableMinifyInReleaseBuilds=true" "ORG_GRADLE_PROJECT_android.enableShrinkResourcesInReleaseBuilds=true" node ...`, then **check the smoke's `gradle.log` for `:app:minifyReleaseWithR8`**; without that line the run was not minified (the RC3 "R8 smoke" was not).
+
 Build with `-Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true`, compare AAB and APK size with the unminified build, then rerun the Student smoke with `ORG_GRADLE_PROJECT_android.enableMinifyInReleaseBuilds=true` and `ORG_GRADLE_PROJECT_android.enableShrinkResourcesInReleaseBuilds=true` in the environment and report breakage.
 
 ## 5. Android 12 and older

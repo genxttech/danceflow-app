@@ -269,6 +269,7 @@ const SCREENS = [
   ...(cfg.events
     ? [
         { id: "event-detail", link: "danceflow://events/44444444-4444-4444-8444-444444444441", expect: /QA Social Dance Night/ },
+        { id: "event-availability", link: "danceflow://events/44444444-4444-4444-8444-444444444441", expect: /3 admission spots left/ },
         { id: "event-ticket", link: "danceflow://wallet/event-tickets", expect: /QA Social Dance Night|QA-DANA-0001|Dana/ },
       ]
     : []),
