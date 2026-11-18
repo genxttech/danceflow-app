@@ -35,6 +35,8 @@ const cfg = {
   claimVisual: flag("claim-visual"), // implies --claim: the claim flow (create-password routing, Wallet, tickets) at font 1.0/2.0 x light/dark
   claim: flag("claim") || flag("claim-visual"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
   events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
+  viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
+  cutover: flag("cutover"), // with --claim: also apply the dancer cutover (drop the direct dancer read policies), as after Gate 2
   noTeardown: flag("keep"), // debugging only
   email: "dana.dancer@example.test",
   email2: "evan.other@example.test",
@@ -78,6 +80,20 @@ function psql(sqlFile, vars = []) {
   if (r.status !== 0) throw new Error(`psql failed: ${(r.stderr || r.stdout).slice(0, 400)}`);
 }
 
+// A migration file read from git (never the working tree): the first ref that has it.
+function migrationFromGit(file) {
+  for (const ref of [cfg.viewsRef, "origin/main", "origin/claude/claim-column-restricted-read"].filter(Boolean)) {
+    const r = run("git", ["-C", repoRoot, "show", `${ref}:src/lib/supabase/migrations/${file}`]);
+    if (r.status === 0 && r.stdout) { log(`applying ${file} from ${ref}`); return r.stdout; }
+  }
+  throw new Error(`migration ${file} not found at any ref (try --views-ref <ref>)`);
+}
+
+function psqlText(sql, what) {
+  const r = run("docker", ["exec", "-i", `df-isoqa-${cfg.name}-db`, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], { input: sql });
+  if (r.status !== 0) throw new Error(`psql failed for ${what}: ${(r.stderr || r.stdout).slice(0, 400)}`);
+}
+
 async function stackUp() {
   log("starting the local stack (about 5 minutes)");
   const r = run("node", [join(repoRoot, "scripts", "qa", "iso-qa.mjs"), "up", "main", "--name", cfg.name, "--auth"], { cwd: repoRoot });
@@ -93,11 +109,16 @@ async function stackUp() {
     // LAUNCH-SEC-1C-A (verified-email proof) is listed as unreplayable in the baseline (it needs the GoTrue auth.users columns), so it is
     // applied here, after --auth, exactly like the 604 SQL run: it provides my_verified_email(), which the 604 function calls.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20261008090000_launchsec1ca_verified_email_proof.sql"));
-    // PR 604: the function, then the index (a separate non-transactional file). Disposable stack only, never hosted.
+    // PR 604: the function. Disposable stack only, never hosted.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221090000_event_registration_claim_function.sql"));
-    psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"));
     // PR 627: the FINAL function (allowlist: only registration_source public_event_page claims; admin, NULL and unknown sources never do). Replaces the 604 body.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270222090000_event_registration_claim_buyer_sources_only.sql"));
+    // PR 647: the plain transactional index (replaces the retired CONCURRENTLY file 20270221091000) and the dancer views my_event_registrations /
+    // my_event_registration_attendees. Taken from a git ref (--views-ref, then origin/main, then the 647 branch) because they may not be on main yet.
+    // The cutover (--cutover) also drops the direct dancer read policies, so the app can only read through the views, as after Gate 2.
+    for (const file of ["20270222091000_event_registrations_unclaimed_email_index.sql", "20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) {
+      psqlText(migrationFromGit(file), file);
+    }
     // Call counter (case 6): the real function is renamed and a thin wrapper with the SAME name, signature and grants is put in front of it.
     // The wrapper records one row per call (who called, when) and then runs the real body unchanged. PostgREST, pg_stat_user_functions and
     // statement logging gave no usable count on this stack; a row written by the call itself cannot be missed. Disposable stack only.

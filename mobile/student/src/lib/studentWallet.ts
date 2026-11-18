@@ -427,25 +427,10 @@ function registrationToWallet(row: EventRegistrationRow, linkedStudios: LinkedSt
   };
 }
 
-async function loadRegistrationsByClient(clientIds: string[], studioIds: string[]) {
-  if (!clientIds.length || !studioIds.length) return [] as EventRegistrationRow[];
-
-  const { data, error } = await supabase
-    .from("event_registrations")
-    .select(registrationSelect())
-    .in("studio_id", studioIds)
-    .in("client_id", clientIds)
-    .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
-    .order("created_at", { ascending: false })
-    .limit(20);
-
-  if (error) throw error;
-  return (data ?? []) as unknown as EventRegistrationRow[];
-}
-
 /**
- * Registrations linked to this account by user_id: the buyer's own (row-level security already limits the rows to
- * user_id = auth.uid()), including ones the database linked after sign-in by verified email (claim_my_event_registrations).
+ * Registrations linked to this account by user_id: the buyer's own (the my_event_registrations view only returns rows with
+ * user_id = auth.uid(), and only the columns a dancer may see; the base table is not readable by a dancer after the
+ * cutover), including ones the database linked after sign-in by verified email (claim_my_event_registrations).
  * The email lookup below is an exact match on the lower-cased account email, so it misses a registration whose stored
  * email has capitals or stray spaces, or whose buyer email differs from this account's; the link by user_id does not.
  */
@@ -456,7 +441,7 @@ async function loadRegistrationsByUser() {
     if (!userId) return [] as EventRegistrationRow[];
 
     const { data, error } = await supabase
-      .from("event_registrations")
+      .from("my_event_registrations")
       .select(registrationSelect())
       .eq("user_id", userId)
       .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
@@ -476,7 +461,7 @@ async function loadRegistrationsByEmail(email: string | null | undefined) {
   if (!normalizedEmail) return [] as EventRegistrationRow[];
 
   const { data, error } = await supabase
-    .from("event_registrations")
+    .from("my_event_registrations")
     .select(registrationSelect())
     .eq("attendee_email", normalizedEmail)
     .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
@@ -520,7 +505,6 @@ export async function loadStudentWallet(
     paymentsResult,
     rewardsResult,
     rewardProgressResult,
-    clientRegistrationRows,
     emailRegistrationRows,
     userRegistrationRows
   ] = await Promise.all([
@@ -641,7 +625,6 @@ export async function loadStudentWallet(
           .limit(100)
       : Promise.resolve({ data: [], error: null }),
 
-    loadRegistrationsByClient(clientIds, studioIds),
     loadRegistrationsByEmail(accountEmail),
     loadRegistrationsByUser()
   ]);
@@ -691,7 +674,7 @@ export async function loadStudentWallet(
       }))
     }));
 
-  const registrationRows = dedupeRegistrations([...clientRegistrationRows, ...emailRegistrationRows, ...userRegistrationRows]);
+  const registrationRows = dedupeRegistrations([...emailRegistrationRows, ...userRegistrationRows]);
   const registrations = registrationRows.map((row) => registrationToWallet(row, linkedStudios));
   const paymentRequests = ((paymentsResult.data ?? []) as PaymentRequestRow[]).map((row) => ({
     id: row.id,
@@ -755,7 +738,7 @@ export async function loadStudentWallet(
 
   if (registrationIds.length) {
     const { data, error } = await supabase
-      .from("event_registration_attendees")
+      .from("my_event_registration_attendees")
       .select(
         "id, registration_id, event_id, first_name, last_name, email, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at"
       )
