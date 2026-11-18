@@ -7,7 +7,7 @@ SQL -> app -> backport. Read-only checks were run on PROD (`hvsujyfbftfffxpfmlpb
 
 Legend: **[V]** verified (command or code read this session), **[A]** assumed / not provable without a write.
 
-**READ SECTION 12 FIRST (2026-11-17): owner decision 1 added a third migration that excludes studio-sold rows; it supersedes the two-artifact apply plan below.**
+**READ SECTION 13 (FINAL, main b0d51695) FIRST, then 12. Earlier note (2026-11-17): owner decision 1 added a third migration that excludes studio-sold rows; it supersedes the two-artifact apply plan below.**
 
 Two separate owner gates are required (section 11; wording in 12.5): **product approval** of the behaviour, and **PROD SQL authorization** of the exact files.
 
@@ -206,3 +206,75 @@ apply the index or deploy any app.
 
 ### 12.5 Owner gate wording (replaces 11b)
 "I authorize applying to PROD, in this order and in one session before any app deploy, exactly these files at the merge commit of PR #627 (shas recomputed and attached by engineering): (1) `20270221090000_event_registration_claim_function.sql` `3c873d6f...d08ec`; (2) `20270222090000_event_registration_claim_buyer_sources_only.sql` `cd38c08e...9487`; (3) `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql` `20896098...3089` (standalone); with the read-only pre/postflight; and I pre-authorize their rollbacks in the order index, exclusion, function only if a postflight check fails. I also confirm that `organizer_portal` and `other` registrations are NOT claimable. No data change; no app deploy included."
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 13. FINAL 2026-11-18 -- package finalized at main `b0d516956fbc664c626188c73e96f84fb32497ee` (PRs #627 and #630 merged). Where this section conflicts with earlier ones, **this section wins**.
+
+Docs only. Nothing applied. Every hash below was computed from git objects at `b0d51695` (not a working tree) and equals the value in 12.1 (the files did not change in the merge).
+
+### 13.1 Final artifacts and exact order (files under `src/lib/supabase/migrations/`)
+
+| Step | Apply file | sha256 | Rollback file (under `rollback/`) | rollback sha256 |
+|---|---|---|---|---|
+| 1 (transaction) | `20270221090000_event_registration_claim_function.sql` | `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec` | `20270221090000_event_registration_claim_function_rollback.sql` | `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3` |
+| 2 (transaction) | `20270222090000_event_registration_claim_buyer_sources_only.sql` | `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487` | `20270222090000_event_registration_claim_buyer_sources_only_rollback.sql` | `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3` |
+| 3 (standalone, CONCURRENTLY) | `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql` | `20896098d897fd55fb60a3236bad817bb582cfb2809a44f5c4a32be415d03089` | `20270221091000_event_registrations_unclaimed_email_index_concurrent_rollback.sql` | `9ec58f3c4b838ef3adfbd863d257d805a77b2888ca7b46036327fc482f9650e3` |
+
+Reference (not applied): `sql-tests/test_T_claim_my_event_registrations.sql` `6c54cc6ea958953416e559e9033fdad35da7905bfac02990de53ba6ea8d64404` (34 checks, step-1 definition);
+`sql-tests/test_T_claim_buyer_sources_only.sql` `09379496a11a4cb153b2948b7668f3d2094446573904c7ae042da74cfd5c2a63` (37 checks, final definition).
+
+**Apply order:** 1 -> postflight -> 2 -> postflight -> 3 -> postflight -> smoke, one session, before any app deploy. If step 2 fails or is skipped, stop (never apply 3, never deploy an app).
+**Rollback order (only if a postflight check fails):** index (3) -> exclusion (2) -> function (1). Rolling back 2 alone re-opens studio-sold rows to claiming; do that only together with step 1's rollback.
+Apply command shape: `bash C:/Users/mcurt/danceflow-ops/sb.sh prod-apply <file copied from git at b0d51695> <full sha256>` from a scratch directory.
+
+### 13.2 Fresh read-only preflight (sb.sh; `preflight.sql` now also reports `source_distribution`, `source_check`, `of_which_allowlisted`)
+
+| Check | PROD (`hvsujyfbftfffxpfmlpb`), 2026-11-18T00:11:09Z | DEV (`epdrtzcydvnoidwrepqz`), 2026-11-18T00:11:12Z |
+|---|---|---|
+| claim function present | **absent** | **absent** |
+| unclaimed-email index present | **absent** | **absent** |
+| exclusion (allowlist) present | absent (function absent) | absent (function absent) |
+| prerequisites (`my_verified_email`, `record_email_proof_web`, `complete_email_binding`, `email_binding_status`, `verified_email_identities`, `auth_email_change_markers`, `auth.sessions`) | all present | all present |
+| `my_verified_email` | security definer, owner postgres, `search_path=""`, authenticated exec yes, anon no | same |
+| invalid indexes on `event_registrations` | 0 | 0 |
+| `event_registrations_source_check` | exactly `public_event_page, admin, import, organizer_portal, other` | same |
+| registrations total / unclaimed / **owned** | 37 / 37 / **0** | 35 / 21 / 14 (all `public_event_page`, app-bought) |
+| by `registration_source` (total, owned) | `admin` 11 (0), `public_event_page` 26 (0) | `admin` 2 (0), `public_event_page` 33 (14) |
+| unclaimed order-backed / distinct emails | 26 / 24 | 19 / 9 |
+| table size | 312 kB | 376 kB |
+| bound identities | 3 | 0 |
+| rows matching a bound identity now | **0** (0 allowlisted, 0 admin) | 0 |
+| rows whose email equals any existing account email (info only; a claim needs a bound proof) | 10 rows / 5 accounts | 11 rows / 2 accounts |
+| `event_registrations` triggers (all enabled) | `set_event_registrations_updated_at`, `trg_set_updated_at_event_registrations`, `sync_competition_entries_from_registration`, `trg_enforce_event_ticket_capacity_holds`, `trg_event_registrations_stripe_identity_guard`, `trg_paywh1_guard_order_registration_writes` | same |
+| `self_select` policy | `(user_id = auth.uid())` | same |
+
+Meaning: applying the three files changes **no row** on PROD (nothing calls the function until an app does), and the first claim happens only after a bound user signs in on a build that calls it.
+The apply gate stays: `owned = 0` and `max_updated_at` unchanged after each step.
+
+### 13.3 Version collisions and PROD history [V]
+- At `b0d51695`: every migration version under `src/lib/supabase/migrations/` listed and `uniq -d` over the 14-digit prefixes -> **no duplicates**. G-02 is now `20270219100000` (PR #630, not applied anywhere).
+- 20270219090000 is Twilio's `twilio_price_request_sweep` only: `tw4_price_sweep_expired()` exists on PROD (applied 2026-11-17T08:49:16Z per `ops.log`, sha `13d9d569...faed`). PROD has **no** `supabase_migrations` schema (applies are logged in `ops.log`, not in a history table); G-02's column, constraint and flag logic are absent on both hosts.
+
+### 13.4 Owner decisions (one remaining)
+Product approval was given (Option A; decision 1: studio-sold excluded). The one remaining decision is the **PROD SQL authorization** in 13.6 (exact files and hashes), including the fallback in 13.5. It also records that `organizer_portal` and `other` are **not claimable** (the allowlist is `public_event_page` only; NULL and any future value are not claimable either).
+Not required for this authorization, tracked elsewhere: column-restricted read (issue #628), backport to `release/website-embeds`, app deploy (separate release step).
+
+### 13.5 CREATE INDEX CONCURRENTLY fallback [A]
+Whether `supabase db query -f` runs the standalone file inside an implicit transaction is unproven. If step 3 fails with SQLSTATE `25001`, **nothing is created** and steps 1-2 stay valid (the index is performance-only; the table is ~312 kB). Wording to include in the authorization:
+"If step 3 fails with 25001, I authorize engineering to prepare (not apply) a new plain `create index if not exists` file for `public.event_registrations_unclaimed_email_idx` through a PR, and I will authorize its sha256 separately."
+Engineering does not improvise a different statement on PROD.
+
+### 13.6 Ready-to-paste owner authorization (PROD SQL)
+"I authorize applying to PROD (`hvsujyfbftfffxpfmlpb`), in this order, in one session, **before any app deploy**, exactly these files taken from main `b0d516956fbc664c626188c73e96f84fb32497ee`:
+(1) `20270221090000_event_registration_claim_function.sql` sha256 `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec`;
+(2) `20270222090000_event_registration_claim_buyer_sources_only.sql` sha256 `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487`;
+(3) `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql` sha256 `20896098d897fd55fb60a3236bad817bb582cfb2809a44f5c4a32be415d03089` (standalone).
+Engineering runs the read-only `preflight.sql` before, and `postflight.sql` after each step; it stops without applying the next step if `owned` changes, `has_source_allowlist` is not true after step 2, or the index is invalid.
+I pre-authorize these rollbacks, in the order index, exclusion, function, only if a postflight check fails: (3) `20270221091000_..._rollback.sql` sha256 `9ec58f3c4b838ef3adfbd863d257d805a77b2888ca7b46036327fc482f9650e3`; (2) `20270222090000_..._rollback.sql` sha256 `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3`; (1) `20270221090000_..._rollback.sql` sha256 `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3`.
+I confirm `organizer_portal` and `other` registrations are NOT claimable. If step 3 fails with 25001, the fallback in section 13.5 applies. No data change; no app deploy included."
+
+### 13.7 Post-apply verification plan (disposable stack only; no PROD writes)
+1. PROD read-only: `postflight.sql` -> function present, `has_source_allowlist=true`, grants as in section 6, index valid, `owned = 0`, `max_updated_at` unchanged; `smoke_after_apply.sql` -> 0 / null uid.
+2. Student device/HTTP claim check on a **disposable iso-qa stack** (the Student session's `--claim` / `--api-check` harness, one stack at a time, android-release rules): a bound user with a matching `public_event_page` registration sees it in the wallet and `/account`, a second call returns 0; an `admin` row with the same email stays unclaimed; an anon call is denied; a call without a JWT errors.
+3. After the app deploy, the first natural claim is visible only as `owned > 0` in a read-only postflight, and the same user sees the ticket. Engineering writes nothing to PROD.
