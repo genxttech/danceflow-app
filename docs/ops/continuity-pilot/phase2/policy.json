@@ -2,8 +2,8 @@
   "pilot": {
     "enabled": true,
     "coordinator": "COMPETITION",
-    "not_before": "2026-11-17T12:00:00Z",
-    "not_after": "2026-11-17T20:00:00Z",
+    "not_before": "2026-11-18T12:00:00Z",
+    "not_after": "2026-11-18T20:00:00Z",
     "maxHours": 4,
     "maxWakeups": 10,
     "maxClaims": 4,
