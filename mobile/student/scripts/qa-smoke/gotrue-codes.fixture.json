@@ -1,0 +1,141 @@
+{
+  "capturedAt": "2026-11-18T02:58:12.979Z",
+  "source": "disposable iso-qa stack (GoTrue behind Kong), supabase-js flowType pkce, 2026-11-17; name/status/code only, no message text",
+  "rows": [
+    {
+      "id": "verify-first-use",
+      "call": "auth.verifyOtp",
+      "name": null,
+      "status": null,
+      "code": null,
+      "ok": true,
+      "note": "control: a fresh link must succeed"
+    },
+    {
+      "id": "verify-used-link",
+      "call": "auth.verifyOtp",
+      "name": "AuthApiError",
+      "status": 403,
+      "code": "otp_expired",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "verify-unknown-token",
+      "call": "auth.verifyOtp",
+      "name": "AuthApiError",
+      "status": 403,
+      "code": "otp_expired",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "verify-empty-token",
+      "call": "auth.verifyOtp",
+      "name": "AuthApiError",
+      "status": 400,
+      "code": "validation_failed",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "verify-bad-type",
+      "call": "auth.verifyOtp",
+      "name": "AuthApiError",
+      "status": 400,
+      "code": "validation_failed",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "exchange-no-verifier",
+      "call": "auth.exchangeCodeForSession",
+      "name": "AuthPKCECodeVerifierMissingError",
+      "status": 400,
+      "code": "pkce_code_verifier_not_found",
+      "ok": false,
+      "note": "client-side, never reaches GoTrue"
+    },
+    {
+      "id": "exchange-invalid-code",
+      "call": "auth.exchangeCodeForSession",
+      "name": "AuthApiError",
+      "status": 404,
+      "code": "flow_state_not_found",
+      "ok": false,
+      "note": "verifier stored, code unknown"
+    },
+    {
+      "id": "send-bad-email-no-at",
+      "call": "auth.signInWithOtp",
+      "name": "AuthApiError",
+      "status": 400,
+      "code": "validation_failed",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "send-bad-email-empty",
+      "call": "auth.signInWithOtp",
+      "name": "AuthApiError",
+      "status": 400,
+      "code": "validation_failed",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "send-bad-email-spaces",
+      "call": "auth.signInWithOtp",
+      "name": "AuthApiError",
+      "status": 400,
+      "code": "validation_failed",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "send-bad-email-no-domain",
+      "call": "auth.signInWithOtp",
+      "name": "AuthApiError",
+      "status": 400,
+      "code": "validation_failed",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "send-no-user-create-off",
+      "call": "auth.signInWithOtp",
+      "name": "AuthApiError",
+      "status": 422,
+      "code": "otp_disabled",
+      "ok": false,
+      "note": ""
+    },
+    {
+      "id": "reset-no-user",
+      "call": "auth.resetPasswordForEmail",
+      "name": null,
+      "status": null,
+      "code": null,
+      "ok": true,
+      "note": ""
+    },
+    {
+      "id": "verify-deleted-user-link",
+      "call": "auth.verifyOtp",
+      "name": "AuthApiError",
+      "status": 403,
+      "code": "otp_expired",
+      "ok": false,
+      "note": "user deleted before verify"
+    },
+    {
+      "id": "send-repeat-2",
+      "call": "auth.signInWithOtp",
+      "name": "AuthApiError",
+      "status": 429,
+      "code": "over_email_send_rate_limit",
+      "ok": false,
+      "note": "same address"
+    }
+  ]
+}
