@@ -50,7 +50,9 @@ export const LINK_FAILED_MESSAGE =
 // Codes the auth server uses for a link that cannot be used any more (expired, already used, unknown or stale flow).
 // `access_denied` is the redirect’s generic `error` value that accompanies them; this app has no other flow that
 // could produce it, so it reads as an unusable link too.
-const UNUSABLE_LINK_CODES = new Set(["otp_expired", "flow_state_expired", "flow_state_not_found", "access_denied"]);
+// `user_not_found` (the account behind the link is gone) and `validation_failed` (the token is malformed or rejected) kept the
+// "expired or already used" wording before codes were used, and a dancer with a dead link should be told to request a new one.
+const UNUSABLE_LINK_CODES = new Set(["otp_expired", "flow_state_expired", "flow_state_not_found", "user_not_found", "validation_failed", "access_denied"]);
 
 /**
  * Turns a failed link into words for a dancer; never echoes provider text. Takes the caught error (or, for an
