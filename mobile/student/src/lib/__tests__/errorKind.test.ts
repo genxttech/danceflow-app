@@ -1,4 +1,5 @@
 import { classifyError } from "@/lib/errorKind";
+import { UserFacingError } from "@/lib/userFacingError";
 
 describe("classifyError", () => {
   it.each([
@@ -33,7 +34,8 @@ describe("friendlyMessage", () => {
   });
 
   it("keeps the server's own wording, and falls back when there is none", () => {
-    expect(friendlyMessage(new Error("That time was just taken."), "x")).toBe("That time was just taken.");
+    expect(friendlyMessage(new UserFacingError("That time was just taken."), "x")).toBe("That time was just taken.");
+    expect(friendlyMessage(new Error("That time was just taken."), "x")).toBe("x");
     expect(friendlyMessage(undefined, "Could not submit the request.")).toBe("Could not submit the request.");
     expect(friendlyMessage(new Error(""), "Could not submit the request.")).toBe("Could not submit the request.");
   });

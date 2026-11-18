@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { UserFacingError } from "@/lib/userFacingError";
 
 const webUrl = process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL;
 
@@ -57,7 +58,7 @@ async function getAccessToken(forceRefresh = false) {
   } = await supabase.auth.refreshSession();
 
   if (refreshError && !isRefreshRefusal(refreshError)) {
-    throw new Error("We could not reach DanceFlow. Check your connection and try again.");
+    throw new UserFacingError("We could not reach DanceFlow. Check your connection and try again.");
   }
   if (refreshError || !refreshedSession?.access_token) {
     return endExpiredSession();
@@ -105,11 +106,12 @@ export async function danceflowApiFetch<T>(
   }
 
   if (!response.ok) {
-    throw new Error(payload?.error ?? "DanceFlow request failed. Please try again.");
+    // The API's own `error` text is written for people (for example "That time was just taken").
+    throw new UserFacingError(payload?.error ?? "DanceFlow request failed. Please try again.");
   }
 
   if (!payload) {
-    throw new Error("DanceFlow returned an unexpected response. Please try again.");
+    throw new UserFacingError("DanceFlow returned an unexpected response. Please try again.");
   }
 
   return payload;

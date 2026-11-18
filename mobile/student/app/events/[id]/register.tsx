@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Linking, StyleSheet, TextInput, useColorScheme, View } from "react-native";
+import { UserFacingError } from "@/lib/userFacingError";
 import { type Href, useLocalSearchParams, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
@@ -207,15 +208,15 @@ export default function EventRegisterScreen() {
       );
 
       if (!buyerFirstName.trim() || !buyerLastName.trim()) {
-        throw new Error("Enter your first and last name.");
+        throw new UserFacingError("Enter your first and last name.");
       }
 
       if (selectedTickets.length === 0) {
-        throw new Error("Select at least one ticket.");
+        throw new UserFacingError("Select at least one ticket.");
       }
 
       if (trimmedAdditionalNames.some((name) => !name)) {
-        throw new Error("Add all additional attendee names.");
+        throw new UserFacingError("Add all additional attendee names.");
       }
 
       const returnUrl = eventCheckoutReturnUrl();
@@ -324,7 +325,7 @@ export default function EventRegisterScreen() {
       }
 
       if (!result.checkoutUrl) {
-        throw new Error("Checkout could not be started.");
+        throw new UserFacingError("Checkout could not be started.");
       }
 
       await Linking.openURL(

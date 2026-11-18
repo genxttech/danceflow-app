@@ -1,5 +1,6 @@
 import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { type LinkedStudioAccess } from "@/lib/studentAccess";
+import { UserFacingError } from "@/lib/userFacingError";
 
 export type StudentProfile = {
   clientId: string;
@@ -94,7 +95,7 @@ export async function loadStudentProfiles(
 
 export async function updateStudentProfile(profile: StudentProfile) {
   if (!profile.isAccountProfile) {
-    throw new Error(
+    throw new UserFacingError(
       "Studio-specific records are managed separately from your DanceFlow profile.",
     );
   }

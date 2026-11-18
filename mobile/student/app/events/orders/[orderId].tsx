@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Linking, StyleSheet, useColorScheme, View } from "react-native";
+import { UserFacingError } from "@/lib/userFacingError";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
@@ -165,7 +166,7 @@ export default function EventOrderStatusScreen() {
         return;
       }
 
-      throw new Error("Payment could not be resumed.");
+      throw new UserFacingError("Payment could not be resumed.");
     },
     [initPaymentSheet, loadOrder, orderId, presentPaymentSheet],
   );

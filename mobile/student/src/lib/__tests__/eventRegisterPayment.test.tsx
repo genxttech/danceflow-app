@@ -10,6 +10,8 @@ jest.mock("@react-native-async-storage/async-storage", () =>
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
+import { UserFacingError } from "@/lib/userFacingError";
+import { PAYMENT_NOT_COMPLETED_MESSAGE } from "@/lib/paymentSheetOutcome";
 
 const mockSheet = { initPaymentSheet: jest.fn(), presentPaymentSheet: jest.fn() };
 const mockRouter = { replace: jest.fn(), push: jest.fn() };
@@ -96,7 +98,8 @@ describe("event registration payment states", () => {
     await fillAndContinue();
 
     await waitFor(() => expect(screen.getByText("Checkout needs attention")).toBeTruthy());
-    expect(screen.getByText("Your card was declined.")).toBeTruthy();
+    expect(screen.getByText(PAYMENT_NOT_COMPLETED_MESSAGE)).toBeTruthy();
+    expect(screen.queryByText("Your card was declined.")).toBeNull(); // the SDK text is never shown
     expect(mockRouter.replace).not.toHaveBeenCalled();
     expect(confirmStudentEventOrder).not.toHaveBeenCalled();
   });
@@ -110,7 +113,7 @@ describe("event registration payment states", () => {
   });
 
   it("surfaces a checkout that could not be created without opening the sheet", async () => {
-    create.mockRejectedValueOnce(new Error("Tickets are sold out."));
+    create.mockRejectedValueOnce(new UserFacingError("Tickets are sold out.")); // the web API's own wording
     await fillAndContinue();
 
     await waitFor(() => expect(screen.getByText("Tickets are sold out.")).toBeTruthy());

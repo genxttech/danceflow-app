@@ -1,5 +1,6 @@
 import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { supabase } from "@/lib/supabase";
+import { UserFacingError } from "@/lib/userFacingError";
 
 // Partner messaging tables are not in the generated client types.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -318,7 +319,7 @@ export async function requestPartnerConnection({
   const cleanMessage = message.trim();
 
   if (!cleanMessage) {
-    throw new Error("Add a message first.");
+    throw new UserFacingError("Add a message first.");
   }
 
   const result = await danceflowApiFetch<{ messageId: string; threadId: string }>(
@@ -370,7 +371,7 @@ export async function loadPartnerThread(threadId: string, userId: string) {
   if (error) throw error;
 
   if (data.requester_user_id !== userId && data.partner_user_id !== userId) {
-    throw new Error("You do not have access to this conversation.");
+    throw new UserFacingError("You do not have access to this conversation.");
   }
 
   return rowToThread(data as PartnerConversationThreadRow);
@@ -414,7 +415,7 @@ export async function sendPartnerThreadMessage({
   const cleanBody = body.trim();
 
   if (!cleanBody) {
-    throw new Error("Add a message first.");
+    throw new UserFacingError("Add a message first.");
   }
 
   await danceflowApiFetch<{ messageId: string; threadId: string }>(
@@ -463,7 +464,7 @@ export async function blockPartnerThread({
     thread.requesterUserId === userId ? thread.partnerUserId : thread.requesterUserId;
 
   if (blockedUserId !== otherUserId) {
-    throw new Error("You can only block the other dancer in this conversation.");
+    throw new UserFacingError("You can only block the other dancer in this conversation.");
   }
 
   const { error } = await supabase.rpc("block_partner_user", {
