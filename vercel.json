@@ -52,6 +52,10 @@
     {
       "path": "/api/cron/sms-price-monitor-watchdog",
       "schedule": "37 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-price-sweep",
+      "schedule": "23 * * * *"
     }
   ]
 }
