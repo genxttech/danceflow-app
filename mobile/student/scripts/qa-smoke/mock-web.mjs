@@ -27,6 +27,9 @@ http
       res.writeHead(200, { "content-type": "image/png" });
       return res.end(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
     }
+    // PR 650 shape: admissions left per ticket type, counted server-side. A limited ticket (3 of 10 left) so the event screen shows "3 admission spots left".
+    if (/^\/api\/student\/events\/[0-9a-f-]{36}\/availability$/.test(url.pathname))
+      return json(res, 200, { eventId: url.pathname.split("/")[4], tickets: [{ ticketTypeId: "55555555-5555-4555-8555-555555555551", capacity: 10, remaining: 3, soldOut: false }] });
     return json(res, 404, { error: "not mocked" });
   })
   .listen(8791, "0.0.0.0", () => console.log("mock web on 8791"));
