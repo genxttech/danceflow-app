@@ -53,6 +53,8 @@ insert into event_registrations (id, event_id, studio_id, ticket_type_id, client
 
 -- c6: unexpected source (registration_source NULL), buyer email matches Dana. The exclusion is an allowlist that fails closed, so this must NOT be claimed.
 -- Skipped with a notice if the baseline column is NOT NULL (then it is covered by the SQL tests of the exclusion migration only).
+-- Disposable stack only: relax the NOT NULL so the NULL-source row can exist (the claim must still ignore it).
+alter table event_registrations alter column registration_source drop not null;
 do $c6$ begin
   insert into event_registrations (id, event_id, studio_id, ticket_type_id, client_id, user_id, portal_user_id, attendee_first_name, attendee_last_name, attendee_email,
                                    status, payment_status, quantity, unit_price, total_price, registration_source)

@@ -96,6 +96,8 @@ async function stackUp() {
     // PR 604: the function, then the index (a separate non-transactional file). Disposable stack only, never hosted.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221090000_event_registration_claim_function.sql"));
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"));
+    // PR 627: the FINAL function (allowlist: only registration_source public_event_page claims; admin, NULL and unknown sources never do). Replaces the 604 body.
+    psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270222090000_event_registration_claim_buyer_sources_only.sql"));
     // Call counter (case 6): the real function is renamed and a thin wrapper with the SAME name, signature and grants is put in front of it.
     // The wrapper records one row per call (who called, when) and then runs the real body unchanged. PostgREST, pg_stat_user_functions and
     // statement logging gave no usable count on this stack; a row written by the call itself cannot be missed. Disposable stack only.
@@ -258,7 +260,9 @@ const who = (uid) => (uid === state.uid ? "Dana" : uid === state.uid2 ? "Evan" :
 const ownerName = (snap, suffix) => (snap.regs[suffix] === "null" ? "unclaimed" : who(snap.regs[suffix]));
 // Calls the app made to the claim function, counted by the wrapper in claim-call-counter.sql (all callers, or one user).
 const claimCalls = (uid) => Number(q(`select count(*) from public.qa_claim_calls${uid ? ` where caller = '${uid}'` : ""}`));
-const resetClaimCalls = () => q("truncate public.qa_claim_calls");
+const resetClaimCalls = () => { q("truncate public.qa_claim_calls"); q("select setval('public.qa_claim_attempts', 1, false)"); };
+// Attempts survive a rollback (the raising function of case 9b), unlike the rows of qa_claim_calls.
+const claimAttempts = () => Number(q("select case when is_called then last_value else 0 end from public.qa_claim_attempts"));
 const saveLogs = (tag) => {
   const l = sh(["logcat", "-d", "-v", "time", "-s", "ReactNativeJS:V", "AndroidRuntime:E"]);
   writeFileSync(join(cfg.out, `${tag}-logcat.txt`), `${l.stdout}\n${l.stderr}`);
@@ -361,7 +365,7 @@ async function claimScenario(link) {
   record("case 2-4: Dana does NOT see QA-GIFT-0003, QA-OWNED-0004, QA-NOBODY-0005", !dana.codes.some((c) => /GIFT|OWNED|NOBODY/.test(c)), "");
   expectOwners(afterDana, { 662: "Dana", 663: "unclaimed", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }, "after Dana");
   sameCounts(afterDana, "after Dana");
-  record("case 1b: studio-sold c2 (663) and null-source c6 (667, only if the column allows null) stay unclaimed", ownerName(afterDana, "663") === "unclaimed" && [undefined, "unclaimed"].includes(ownerName(afterDana, "667")), `663=${ownerName(afterDana, "663")} 667=${ownerName(afterDana, "667")}`);
+  record("case 1b: studio-sold c2 (663) and null-source c6 (667, NULL registration_source) stay unclaimed", ownerName(afterDana, "663") === "unclaimed" && ownerName(afterDana, "667") === "unclaimed", `663=${ownerName(afterDana, "663")} 667=${ownerName(afterDana, "667")}`);
   record("case 6: Dana's first app run called the claim function exactly once (counted by the wrapper)", claimCalls(state.uid) === 1, `calls: ${claimCalls(state.uid)}`);
   record("no claim wording on the tickets screen", !/claim|linking your|verif/i.test(dana.xml.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "");
 
@@ -397,16 +401,16 @@ async function claimScenario(link) {
     writeFileSync(join(cfg.out, "dana2-offline.xml"), off);
     sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]);
     state.airplane = false;
-    record("case 10: offline: the tickets screen reads as offline or keeps the loaded tickets, with no claim text", /offline|connection|QA-(DANA|CLAIM)-000d/i.test(off) && !/claim/i.test(off.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "see dana2-offline.png");
+    record("case 10: offline: the tickets screen reads as offline or keeps the loaded tickets, with no claim text", /offline|connection|QA-(DANA|CLAIM)-000[0-9]/i.test(off) && !/claim/i.test(off.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "see dana2-offline.png");
   }
 
   // Case 9b: the function raises an error. The app must show nothing about it and must not retry in a loop (one call per run).
   q("update public.event_registrations set user_id = null where id::text like '66666666%2' or id::text like '66666666%3'");
-  q("create or replace function public.claim_my_event_registrations() returns integer language plpgsql security definer set search_path = '' as $f$ begin insert into public.qa_claim_calls(caller) values (auth.uid()); raise exception 'qa: claim failed on purpose'; end $f$");
+  q("create or replace function public.claim_my_event_registrations() returns integer language plpgsql security definer set search_path = '' as $f$ begin perform nextval('public.qa_claim_attempts'); raise exception 'qa: claim failed on purpose'; end $f$");
   resetClaimCalls();
   if (await freshSignIn(link, cfg.email, "dana3-fnerr")) {
     const dana3e = await readTickets("dana3-fnerr");
-    const callsErr = claimCalls(state.uid);
+    const callsErr = claimAttempts();
     record("case 9b: function raises: only the already-owned ticket shows", same(dana3e.codes, ["QA-DANA-0001"]), `codes: ${dana3e.codes.join(", ")}`);
     record("case 9b: function raises: no error text on the tickets screen", !/could not|unavailable|error|failed on purpose/i.test(dana3e.xml), "see dana3-fnerr-logcat.txt");
     record("case 9b: function raises: exactly one call in the app run (no retry loop)", callsErr === 1, `calls: ${callsErr}`);

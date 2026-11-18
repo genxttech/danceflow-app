@@ -84,7 +84,7 @@ HTTP check (function semantics, real user tokens): unbound returns 0; bound Dana
 
 Findings from the runs: (1) the iso-qa baseline lacks LAUNCH-SEC-1C-A (listed unreplayable), so my_verified_email() did not exist and the 604 function errored until 1C-A was applied; the app treated that as 0, silently. (2) The Wallet found registrations only by client link and exact lower-case email, so claimed registrations with capitals/spaces or another buyer email were missing: fixed in #621. (3) The slow magic link now shows the #611 wording. (4) Not covered: font 2.0 and dark for the claim flow, real push, real payments, iOS.
 
-## Font 2.0 and dark pass (`--claim-visual`, NOT YET RUN)
+## Font 2.0 and dark pass (`--claim-visual`, RUN 2026-11-17: 36/36 PASS, see Result 2)
 
 `node mobile/student/scripts/qa-smoke/run.mjs --claim-visual --name <n> --out <dir> [--skip-build --apk <qa apk>]` (implies `--claim`). Order: font 1.0 light, 2.0 light, 1.0 dark, 2.0 dark.
 
@@ -97,3 +97,17 @@ Afterwards run `node mobile/student/scripts/qa-smoke/a11y-audit.mjs <out>` over 
 ## Studio-sold exclusion (owner decision 2026-11-17): harness expectations changed
 
 The harness (`--claim`, `--api-check`, `--claim-visual`) now expects: Dana's bound claim returns **1** (c1 only), c2 (663) and c6 (667) never owned by Dana, Dana's tickets are QA-DANA-0001 and QA-CLAIM-0001 only. **These expectations need the exclusion migration** (allowlist, fail closed, built by lead-integrity). Until that migration is applied on the stack, the 604 function still claims c2 and the harness will FAIL cases 1, 1b and api 1 by design; the stack setup in `stackUp()` applies only the 604 files, so add the exclusion migration file there once it is merged (record its SHA in the report). Not yet run.
+
+## Result 2 (2026-11-17, FINAL function: 604 + 627 allowlist, evidence C:\dfr-out\qa-claim627)
+
+Stack: iso-qa main (scenarios.json synced in #639) + LAUNCH-SEC-1C-A, 20270221090000, 20270221091000 and **20270222090000 (627, only registration_source public_event_page claims)** applied from git on the disposable stack only (main b0d516956), then the call counter wrapper. QA APK built from main b0d516956 (release build, cleartext to the stack); API 35 emulator. Hosted databases untouched. On the disposable stack registration_source is made nullable so the NULL-source row c6 (667) can exist.
+
+| Run | Result | Evidence |
+|---|---|---|
+| HTTP check (`--claim --api-check`) | 10/10 PASS: unbound returns 0; bound Dana returns 1 (c1 only); 663 studio-sold stays unclaimed; second call 0; Evan 1; anon 401; counter saw exactly the 4 signed-in calls | api/ |
+| Device claim (`--claim`) | **28/28 PASS** (earlier attempts 26/28 and 27/28 were harness defects, fixed: 9b counted rows that roll back with the raising function, now a sequence; case 10 pattern typo) | device3/ |
+| Font 2.0 + dark (`--claim-visual`) | **36/36 PASS**: unbound routing to Create your password, bound Dana tickets and Wallet at 1.0/2.0 x light/dark, one claim call per app run, no claim wording | visual/ |
+
+Case results on the final function: 1 Dana sees QA-DANA-0001 and QA-CLAIM-0001, not QA-CLAIM-0002 (studio-sold): PASS. 1b studio-sold (663) and NULL-source (667) unclaimed: PASS. 2-4 gift, owned-by-Evan, nobody-owned untouched: PASS. 5 Evan: PASS. 6 exactly one call per app run (Dana first run, Evan, Dana cold restart): PASS via the counter. 7 idempotent: PASS. 8 unbound claims nothing: PASS. 9 function missing: PASS (no error text; retry count not measurable without the function). 9b function raises: PASS (no error text, exactly 1 attempt). 10 offline: PASS (tickets kept, no claim text). 11 accessibility: PASS (a11y-audit over the claim-visual trees at 1.0/2.0 light/dark: 0 unnamed controls, 0 small targets, 0 repeated labels in every row). Must-not-change tables unchanged at every step.
+
+Not covered (still UNVERIFIED): registration_source values import, organizer_portal and other on device (covered by the SQL tests of 627, not by this harness); updated_at on claimed rows; production behaviour.
