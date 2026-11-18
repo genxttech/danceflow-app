@@ -1,4 +1,5 @@
 import type { EmailOtpType } from "@supabase/supabase-js";
+import { authErrorFacts } from "@/lib/errorKind";
 
 /*
   What the app accepts from an incoming authentication link: a PKCE code or an
@@ -46,11 +47,21 @@ export const LINK_OFFLINE_MESSAGE =
 export const LINK_FAILED_MESSAGE =
   "We could not finish signing you in from that link. Request a new link and try again.";
 
-/** Turns a provider error (code and/or message) into words for a dancer; never echoes provider text. */
-export function friendlyAuthLinkError(code: string | null | undefined, message?: string | null): string {
-  const haystack = `${code ?? ""} ${message ?? ""}`.toLowerCase();
-  if (/network request failed|failed to fetch|network ?error|timed? ?out|timeout|econn|enotfound|offline/.test(haystack)) return LINK_OFFLINE_MESSAGE;
-  if (/otp_expired|expired|invalid|already|used|not found/.test(haystack)) return LINK_EXPIRED_MESSAGE;
+// Codes the auth server uses for a link that cannot be used any more (expired, already used, unknown or stale flow).
+// `access_denied` is the redirect’s generic `error` value that accompanies them; this app has no other flow that
+// could produce it, so it reads as an unusable link too.
+const UNUSABLE_LINK_CODES = new Set(["otp_expired", "flow_state_expired", "flow_state_not_found", "access_denied"]);
+
+/**
+ * Turns a failed link into words for a dancer; never echoes provider text. Takes the caught error (or, for an
+ * error the auth server redirected back with, its code string) and decides from the error’s code and its
+ * connection-failure kind only, never from the vendor’s message wording.
+ */
+export function friendlyAuthLinkError(error: unknown): string {
+  if (typeof error === "string") return UNUSABLE_LINK_CODES.has(error) ? LINK_EXPIRED_MESSAGE : LINK_FAILED_MESSAGE;
+  const { code, network } = authErrorFacts(error);
+  if (network) return LINK_OFFLINE_MESSAGE;
+  if (code !== null && UNUSABLE_LINK_CODES.has(code)) return LINK_EXPIRED_MESSAGE;
 
   return LINK_FAILED_MESSAGE;
 }
@@ -68,7 +79,7 @@ export function parseAuthLinkError(url: string): AuthLinkError | null {
     const code = read("error_code");
     if (!error && !code) return null;
 
-    return { code, message: friendlyAuthLinkError(code ?? error, read("error_description")) };
+    return { code, message: friendlyAuthLinkError(code ?? error) };
   } catch {
     return null;
   }

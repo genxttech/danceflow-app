@@ -65,6 +65,6 @@ describe("parseAuthLinkError", () => {
   });
 
   it("falls back to a generic sentence for an unknown failure", () => {
-    expect(friendlyAuthLinkError("server_error", "boom")).toMatch(/could not finish signing you in/);
+    expect(friendlyAuthLinkError("server_error")).toMatch(/could not finish signing you in/);
   });
 });
