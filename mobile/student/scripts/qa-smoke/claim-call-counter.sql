@@ -11,6 +11,9 @@ create table if not exists public.qa_claim_calls (
   at timestamptz not null default now(),
   caller uuid
 );
+-- A sequence is NOT rolled back with the transaction: when the function raises, the table row above disappears with the rollback, but the attempt is still counted here (case 9b).
+create sequence if not exists public.qa_claim_attempts;
+revoke all on sequence public.qa_claim_attempts from public, anon, authenticated, service_role;
 -- not reachable by app roles
 revoke all on table public.qa_claim_calls from public, anon, authenticated, service_role;
 revoke all on sequence public.qa_claim_calls_id_seq from public, anon, authenticated, service_role;
@@ -25,6 +28,7 @@ security definer
 set search_path = ''
 as $$
 begin
+  perform nextval('public.qa_claim_attempts');
   insert into public.qa_claim_calls (caller) values (auth.uid());
   return public.qa_claim_my_event_registrations_impl();
 end;
