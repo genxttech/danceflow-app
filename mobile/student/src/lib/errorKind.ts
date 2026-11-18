@@ -87,7 +87,8 @@ export function failureMessage(error: unknown, fallback: string): string {
 /**
  * Structured facts about an auth failure, read from the error’s fields only (never its message text):
  * the auth server’s `code`, the HTTP `status`, and whether it was a connection failure. supabase-js wraps a failed
- * fetch (no response at all) as AuthRetryableFetchError with status 0; a bare fetch failure is a TypeError.
+ * fetch (no response at all) as AuthRetryableFetchError with status 0; a bare fetch failure is a TypeError. The same
+ * class also wraps a 5xx answer from the server (status 500-530): that is an outage, not a missing connection.
  */
 export function authErrorFacts(error: unknown): { code: string | null; status: number | null; network: boolean } {
   if (error == null || typeof error !== "object") return { code: null, status: null, network: false };
@@ -95,7 +96,7 @@ export function authErrorFacts(error: unknown): { code: string | null; status: n
   return {
     code: typeof code === "string" ? code : null,
     status: typeof status === "number" ? status : null,
-    network: name === "AuthRetryableFetchError" || status === 0 || error instanceof TypeError
+    network: status === 0 || error instanceof TypeError
   };
 }
 

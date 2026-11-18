@@ -34,6 +34,13 @@ describe("no catch-all: a connection problem never reads as a credential, permis
     expect(signInLinkErrorMessage(undefined)).toMatch(/right now/i);
   });
 
+  it("a server outage (5xx wrapped as AuthRetryableFetchError) is not called offline", () => {
+    for (const status of [500, 502, 503, 504, 522]) {
+      expect(signInLinkErrorMessage(authError("AuthRetryableFetchError", undefined, status))).toBe("We could not send that link right now. Try again in a moment.");
+      expect(friendlyAuthLinkError(authError("AuthRetryableFetchError", undefined, status))).toBe(LINK_FAILED_MESSAGE);
+    }
+  });
+
   it("an auth link that fails on the network is not 'expired or already used'", () => {
     expect(friendlyAuthLinkError(networkFailure())).toBe(LINK_OFFLINE_MESSAGE);
     expect(friendlyAuthLinkError(new TypeError("fetch failed"))).toBe(LINK_OFFLINE_MESSAGE);
