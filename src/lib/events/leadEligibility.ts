@@ -2,7 +2,7 @@
  * G-02 (owner decision A1, "Rule 1") -- a paid event registration creates a studio CRM lead only when the studio has
  * explicitly flagged the registration's ticket type (event_ticket_types.creates_prospect_lead, default false).
  *
- * The database enforces the same rule: capture_event_registration_lead (migration 20270219090000) reads the flag, and a
+ * The database enforces the same rule: capture_event_registration_lead (migration 20270219100000) reads the flag, and a
  * CHECK makes the flag impossible for every kind except general_admission. A test pins the two together.
  * Pending owner decisions (A3: vip/other flaggable?) change ONLY LEAD_FLAGGABLE_TICKET_KINDS and the SQL CHECK.
  */
