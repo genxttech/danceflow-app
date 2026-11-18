@@ -30,6 +30,35 @@ export const ERROR_COPY: Record<Exclude<ErrorKind, "unknown">, { title: string; 
 };
 
 /**
+ * The auth server's error CODES (and a 429 status) a dancer can act on, as sentences this app wrote. Keyed by
+ * `error.code` / `status` only, never by matching the vendor's message text, so provider wording changes cannot
+ * leak through and an unknown code still uses the screen's own fallback.
+ */
+const RATE_LIMITED = "Too many attempts. Wait a minute and try again.";
+const LINK_EXPIRED = "That link has expired. Request a new one.";
+const AUTH_CODE_COPY: Record<string, string> = {
+  weak_password: "Choose a longer password with a mix of letters and numbers.",
+  same_password: "Choose a password you have not used before.",
+  otp_expired: LINK_EXPIRED,
+  flow_state_expired: LINK_EXPIRED,
+  over_request_rate_limit: RATE_LIMITED,
+  over_email_send_rate_limit: RATE_LIMITED,
+  over_sms_send_rate_limit: RATE_LIMITED,
+  email_not_confirmed: "Confirm your email first. Check your inbox for the link, or request a new one.",
+  invalid_credentials: "That email or password does not look right. Check it and try again.",
+  email_address_invalid: "That email address does not look right. Check it and try again."
+};
+
+/** App-authored text for a known auth error code or a 429 status; null for anything else. */
+export function authErrorCopy(error: unknown): string | null {
+  if (error == null || typeof error !== "object") return null;
+  const { code, status } = error as { code?: unknown; status?: unknown };
+  if (typeof code === "string" && Object.prototype.hasOwnProperty.call(AUTH_CODE_COPY, code)) return AUTH_CODE_COPY[code];
+  if (status === 429) return RATE_LIMITED;
+  return null;
+}
+
+/**
  * One-line text for a screen's inline message. Offline and signed-out failures read the same everywhere
  * ("Network request failed" never reaches a dancer). Any other caught text is shown ONLY when the error is a
  * UserFacingError (wording the app or the DanceFlow web API wrote for people, for example "That time was just
@@ -39,7 +68,8 @@ export const ERROR_COPY: Record<Exclude<ErrorKind, "unknown">, { title: string; 
 export function friendlyMessage(error: unknown, fallback: string): string {
   const kind = classifyError(error);
   if (kind === "offline" || kind === "signedOut") return `${ERROR_COPY[kind].title}. ${ERROR_COPY[kind].detail}`;
-  return isUserFacingError(error) && error.message ? error.message : fallback;
+  if (isUserFacingError(error) && error.message) return error.message;
+  return authErrorCopy(error) ?? fallback;
 }
 
 /**
