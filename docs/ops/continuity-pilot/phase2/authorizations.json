@@ -4,7 +4,7 @@
     "template": "u18-rollback-rehearsal",
     "params": {},
     "deps": [],
-    "scope_sha": "1e36f8ce4966cf472cca72ec559dc7062ee9d1d2570caf6e58875dec3b404e5d",
+    "scope_sha": "493240f19f5d72b34c07378a0c61a0f721479c8229911207dbb40b08f227c291",
     "by": "owner",
     "not_after": "2026-11-17T20:00:00Z"
   },
@@ -24,7 +24,7 @@
     "template": "release-migration-inventory",
     "params": {},
     "deps": [],
-    "scope_sha": "6610356fbfc073e5f3c3a3fea424947e00d0f05e6407df15a26fc80db7f8c281",
+    "scope_sha": "f928873c3d5d54cc132f68859d83a6774d486fafc0d5210806fe3578c5f19cb0",
     "by": "owner",
     "not_after": "2026-11-17T20:00:00Z"
   },
