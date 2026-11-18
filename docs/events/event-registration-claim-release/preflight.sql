@@ -37,7 +37,8 @@ select jsonb_build_object(
       from public.event_registrations) t),
   'would_match_bound_identity_now', (select to_jsonb(t) from (select
       count(*) as registrations, count(distinct v.user_id) as distinct_accounts,
-      count(*) filter (where er.registration_source = 'admin') as of_which_admin_sold
+      count(*) filter (where er.registration_source = 'admin') as of_which_admin_sold,
+      count(*) filter (where er.registration_source in ('public_event_page')) as of_which_allowlisted
       from public.event_registrations er
       join public.verified_email_identities v on v.credential_status = 'bound' and v.bound_at is not null and lower(btrim(er.attendee_email)) = v.email
       where er.user_id is null and er.attendee_email is not null and btrim(er.attendee_email) <> '') t),
@@ -46,5 +47,7 @@ select jsonb_build_object(
       from public.event_registrations er
       join auth.users u on lower(btrim(u.email)) = lower(btrim(er.attendee_email))
       where er.user_id is null and er.attendee_email is not null and btrim(er.attendee_email) <> '') t),
+  'source_distribution', (select coalesce(jsonb_agg(jsonb_build_object('source', registration_source, 'total', n, 'owned', o) order by registration_source), '[]'::jsonb) from (select registration_source, count(*) n, count(*) filter (where user_id is not null) o from public.event_registrations group by 1) x),
+  'source_check', (select jsonb_agg(pg_get_constraintdef(oid)) from pg_constraint where conrelid = 'public.event_registrations'::regclass and conname = 'event_registrations_source_check'),
   'bound_identities', (select count(*) from public.verified_email_identities where credential_status = 'bound')
 ) as preflight;
