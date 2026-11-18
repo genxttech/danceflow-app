@@ -76,3 +76,39 @@ describe("source guard", () => {
     expect(body).not.toMatch(/instanceof Error/);
   });
 });
+
+describe("friendlyMessage: known auth error codes become app-authored sentences", () => {
+  // The vendor message text is deliberately unrelated: only the CODE decides.
+  const authError = (code: string, status = 422) => Object.assign(new Error("vendor wording that must never render " + code), { code, status });
+
+  it.each([
+    ["weak_password", "Choose a longer password with a mix of letters and numbers."],
+    ["same_password", "Choose a password you have not used before."],
+    ["otp_expired", "That link has expired. Request a new one."],
+    ["flow_state_expired", "That link has expired. Request a new one."],
+    ["over_request_rate_limit", "Too many attempts. Wait a minute and try again."],
+    ["over_email_send_rate_limit", "Too many attempts. Wait a minute and try again."],
+    ["over_sms_send_rate_limit", "Too many attempts. Wait a minute and try again."],
+    ["email_not_confirmed", "Confirm your email first. Check your inbox for the link, or request a new one."],
+    ["invalid_credentials", "That email or password does not look right. Check it and try again."],
+    ["email_address_invalid", "That email address does not look right. Check it and try again."],
+  ])("code %s", (code, text) => {
+    expect(friendlyMessage(authError(code), FALLBACK)).toBe(text);
+  });
+
+  it("a 429 status without a known code reads as too many attempts", () => {
+    expect(friendlyMessage(Object.assign(new Error("slow down"), { status: 429 }), FALLBACK)).toBe("Too many attempts. Wait a minute and try again.");
+  });
+
+  it("an unknown code, or no code, still uses the screen's fallback and never the vendor text", () => {
+    expect(friendlyMessage(authError("some_new_vendor_code"), FALLBACK)).toBe(FALLBACK);
+    expect(friendlyMessage(new Error("Password should be at least 6 characters."), FALLBACK)).toBe(FALLBACK);
+    expect(friendlyMessage({ code: "constructor" }, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("the copy never names a vendor", () => {
+    for (const code of ["weak_password", "same_password", "otp_expired", "over_request_rate_limit", "email_not_confirmed", "invalid_credentials"]) {
+      expect(friendlyMessage(authError(code), FALLBACK)).not.toMatch(/supabase|stripe|twilio|firebase|expo|fcm/i);
+    }
+  });
+});
