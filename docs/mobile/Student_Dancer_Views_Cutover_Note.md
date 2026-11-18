@@ -27,4 +27,4 @@ Options:
 - (A) Web API aggregate: `GET /api/student/events/[eventId]/availability` computing admission counts with the service role (same rule the checkout route applies), called through `danceflowApiFetch`. No SQL, no migration gate; needs a web deploy before the Student build that uses it. Recommended.
 - (B) A SECURITY DEFINER aggregate RPC `public_event_ticket_admission_counts(ticket_type_ids)` returning counts only. Needs a migration (protected path, owner gate).
 - (C) Stop showing the count and let checkout say "Only N spots remain" (already returned by the checkout route). No server change; loses the pre-checkout hint and "Sold out".
-Not changed here: option A or B needs a server change that is outside `mobile/student`.
+DECIDED 2026-11-18: option A. The route GET /api/student/events/{eventId}/availability is on main (PR 650) and publicDiscovery uses it (PR 651, merged c32e4f340): no count, never a guess, on no session/401/404/429/500/offline/malformed. Independent of the views cutover.
