@@ -749,7 +749,7 @@ export default async function AccountPage({
       .order("created_at", { ascending: false }),
 
     supabase
-      .from("event_registrations")
+      .from("my_event_registrations")
       .select("id, event_id, status, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
