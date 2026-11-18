@@ -4,7 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * Per-ticket-type availability for ONE event, counted with the service role so it reflects every registration (not just the caller's).
  * The counting rule is the one the database enforces in public.enforce_event_ticket_capacity_holds() (the student checkout mirrors it):
  * an admission is consumed by a registration that is paid, or confirmed/checked_in/attended, or a pending registration held by a still-live
- * pending order (order pending/pending and expires_at null or in the future). One registration uses quantity * attendees_per_ticket admissions.
+ * pending order (order pending/pending and expires_at null or in the future), or an orderless pending/pending registration whose terminal_hold_until
+ * is still in the future (a card-reader hold). One registration uses quantity * attendees_per_ticket admissions.
  * Returns ONLY ids and numbers: no registration, attendee, order or email data.
  */
 
@@ -20,7 +21,7 @@ export type EventAvailability = { eventId: string; tickets: TicketAvailability[]
 const PAGE = 1000;
 const COUNTED_STATUSES = new Set(["confirmed", "checked_in", "attended"]);
 
-type RegistrationRow = { ticket_type_id: string | null; quantity: number | null; status: string | null; payment_status: string | null; order_id: string | null };
+type RegistrationRow = { ticket_type_id: string | null; quantity: number | null; status: string | null; payment_status: string | null; order_id: string | null; terminal_hold_until: string | null };
 type OrderRow = { id: string; status: string | null; payment_status: string | null; expires_at: string | null };
 type PageResult<T> = { data: T[] | null; error: { message: string } | null };
 
@@ -65,7 +66,7 @@ export async function loadEventAvailability(admin: SupabaseClient, eventId: stri
       (from, to) =>
         admin
           .from("event_registrations")
-          .select("ticket_type_id, quantity, status, payment_status, order_id")
+          .select("ticket_type_id, quantity, status, payment_status, order_id, terminal_hold_until")
           .in("ticket_type_id", limitedIds)
           .order("id", { ascending: true })
           .range(from, to) as unknown as PromiseLike<PageResult<RegistrationRow>>,
@@ -90,7 +91,8 @@ export async function loadEventAvailability(admin: SupabaseClient, eventId: stri
       const counted =
         r.payment_status === "paid" ||
         (r.status != null && COUNTED_STATUSES.has(r.status)) ||
-        (r.status === "pending" && r.payment_status === "pending" && r.order_id != null && liveOrders.has(r.order_id));
+        (r.status === "pending" && r.payment_status === "pending" && r.order_id != null && liveOrders.has(r.order_id)) ||
+        (r.status === "pending" && r.payment_status === "pending" && r.order_id == null && r.terminal_hold_until != null && new Date(r.terminal_hold_until).getTime() > now.getTime());
       if (!counted) continue;
       const units = Math.max(1, Number(r.quantity ?? 1) || 1) * (perTicket.get(r.ticket_type_id) ?? 1);
       used.set(r.ticket_type_id, (used.get(r.ticket_type_id) ?? 0) + units);
