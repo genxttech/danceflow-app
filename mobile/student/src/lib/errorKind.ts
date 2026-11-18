@@ -84,16 +84,35 @@ export function failureMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Sending a sign-in link: separates a bad address, too many requests and no connection from a plain failure. */
+/**
+ * Structured facts about an auth failure, read from the error’s fields only (never its message text):
+ * the auth server’s `code`, the HTTP `status`, and whether it was a connection failure. supabase-js wraps a failed
+ * fetch (no response at all) as AuthRetryableFetchError with status 0; a bare fetch failure is a TypeError.
+ */
+export function authErrorFacts(error: unknown): { code: string | null; status: number | null; network: boolean } {
+  if (error == null || typeof error !== "object") return { code: null, status: null, network: false };
+  const { code, status, name } = error as { code?: unknown; status?: unknown; name?: unknown };
+  return {
+    code: typeof code === "string" ? code : null,
+    status: typeof status === "number" ? status : null,
+    network: name === "AuthRetryableFetchError" || status === 0 || error instanceof TypeError
+  };
+}
+
+const RATE_LIMIT_CODES = new Set(["over_request_rate_limit", "over_email_send_rate_limit", "over_sms_send_rate_limit"]);
+const BAD_EMAIL_CODES = new Set(["email_address_invalid", "validation_failed"]);
+
+/**
+ * Sending a sign-in link: separates a bad address, too many requests and no connection from a plain failure.
+ * Decided by the error’s code, status and connection-failure kind only, never by the vendor’s message wording.
+ */
 export function signInLinkErrorMessage(error: unknown): string {
-  const kind = classifyError(error);
-  if (kind === "offline") return `${ERROR_COPY.offline.title}. ${ERROR_COPY.offline.detail}`;
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  const status = (error as { status?: number } | null)?.status;
-  if (status === 429 || /rate limit|too many|over_email_send_rate_limit|security purposes/i.test(message)) {
+  const { code, status, network } = authErrorFacts(error);
+  if (network) return `${ERROR_COPY.offline.title}. ${ERROR_COPY.offline.detail}`;
+  if (status === 429 || (code !== null && RATE_LIMIT_CODES.has(code))) {
     return "Too many link requests. Wait a minute, then try again.";
   }
-  if (/unable to validate email|invalid (email|format)|email address.*invalid|is invalid/i.test(message)) {
+  if (code !== null && BAD_EMAIL_CODES.has(code)) {
     return "That email address does not look right. Check it and try again.";
   }
   return "We could not send that link right now. Try again in a moment.";

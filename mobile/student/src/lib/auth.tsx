@@ -118,8 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await handleAuthUrl(url);
       } catch (error: unknown) {
-        const code = (error as { code?: string } | null)?.code;
-        setAuthLinkError(friendlyAuthLinkError(code, error instanceof Error ? error.message : null));
+        setAuthLinkError(friendlyAuthLinkError(error));
         console.warn(
           "DanceFlow could not process the incoming authentication link:",
           error instanceof Error ? error.message : error,
