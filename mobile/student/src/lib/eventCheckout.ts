@@ -1,4 +1,5 @@
 import { danceflowApiFetch } from "@/lib/danceflowApi";
+import { UserFacingError } from "@/lib/userFacingError";
 
 const CHECKOUT_CREATE_TIMEOUT_MS = 25000;
 const CHECKOUT_CONFIRM_TIMEOUT_MS = 15000;
@@ -49,11 +50,11 @@ export function assertSafeEventCheckoutUrl(
   try {
     parsed = new URL(trimmed);
   } catch {
-    throw new Error("The secure checkout link was invalid.");
+    throw new UserFacingError("The secure checkout link was invalid.");
   }
 
   if (parsed.protocol !== "https:") {
-    throw new Error("The secure checkout link was blocked.");
+    throw new UserFacingError("The secure checkout link was blocked.");
   }
 
   return parsed.toString();
@@ -71,7 +72,7 @@ async function withTimeout<T>(
     return await request(controller.signal);
   } catch (error) {
     if ((error as { name?: string } | null)?.name === "AbortError") {
-      throw new Error(errorMessage);
+      throw new UserFacingError(errorMessage);
     }
 
     throw error;

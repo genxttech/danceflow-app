@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { effectiveTicketPrice } from "./ticketPricing";
+import { UserFacingError } from "@/lib/userFacingError";
 
 const DANCE_CATEGORY_LABELS: Record<string, string> = {
   ballroom: "Ballroom",
@@ -74,7 +75,7 @@ export async function setPublicFavoriteForMobile({
   userId?: string | null;
 }) {
   if (!userId) {
-    throw new Error("Sign in to save favorites.");
+    throw new UserFacingError("Sign in to save favorites.");
   }
 
   const idColumn =

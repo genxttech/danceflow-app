@@ -1,4 +1,4 @@
-import { isPaymentCancelled, PAYMENT_CANCELLED_MESSAGE, paymentSheetError } from "@/lib/paymentSheetOutcome";
+import { isPaymentCancelled, PAYMENT_CANCELLED_MESSAGE, PAYMENT_NOT_COMPLETED_MESSAGE, paymentSheetError } from "@/lib/paymentSheetOutcome";
 
 describe("paymentSheetError", () => {
   it("keeps a cancel distinguishable from a failure", () => {
@@ -7,9 +7,9 @@ describe("paymentSheetError", () => {
     expect(cancelled.message).toBe(PAYMENT_CANCELLED_MESSAGE);
   });
 
-  it("passes the sheet's own message for a failure, with a fallback", () => {
-    expect(paymentSheetError({ code: "Failed", message: "Card declined." }).message).toBe("Card declined.");
-    expect(paymentSheetError({ code: "Failed" }).message).toBe("Payment was not completed.");
+  it("a failure shows plain wording, never the sheet's own developer text", () => {
+    expect(paymentSheetError({ code: "Failed", message: "Card declined. req_abc123" }).message).toBe(PAYMENT_NOT_COMPLETED_MESSAGE);
+    expect(paymentSheetError({ code: "Failed" }).message).toBe(PAYMENT_NOT_COMPLETED_MESSAGE);
     expect(isPaymentCancelled(paymentSheetError(undefined))).toBe(false);
   });
 });
