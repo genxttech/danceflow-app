@@ -2,12 +2,12 @@
   "pilot": {
     "enabled": true,
     "coordinator": "COMPETITION",
-    "not_before": "2026-11-18T12:00:00Z",
-    "not_after": "2026-11-18T20:00:00Z",
-    "maxHours": 4,
-    "maxWakeups": 10,
+    "not_before": "2026-11-19T12:00:00Z",
+    "not_after": "2026-11-19T16:00:00Z",
+    "maxHours": 2,
+    "maxWakeups": 2,
     "maxClaims": 4,
-    "maxCalls": 60,
+    "maxCalls": 12,
     "claimTtlMs": 3600000,
     "maxAttempts": 2
   },
