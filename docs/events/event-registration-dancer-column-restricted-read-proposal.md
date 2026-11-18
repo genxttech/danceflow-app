@@ -1,6 +1,6 @@
 # Proposal: column-restricted read of a dancer's own event registrations (Rule 3)
 
-Status: **PROPOSAL ONLY. No migration, no code in this PR.** 2026-11-17. UPDATE: the owner approved the interim filter (option b); it is implemented as a fail-closed allowlist in PR #627. This document is now the next bounded slice, tracked in issue #628. The exposure scan (section 12.4 of the release package) found that allowlisted rows can still expose studio CRM ids and Stripe/staff ids on a direct query; those are in scope here. Follows PR #604 (claim function) and its verification note: a claimed studio-sold row
+Status: **IMPLEMENTED IN GIT 2026-11-18 (option a: dancer views + policy cutover; not applied anywhere; see release package section 14).** Original proposal 2026-11-17. UPDATE: the owner approved the interim filter (option b); it is implemented as a fail-closed allowlist in PR #627. This document is now the next bounded slice, tracked in issue #628. The exposure scan (section 12.4 of the release package) found that allowlisted rows can still expose studio CRM ids and Stripe/staff ids on a direct query; those are in scope here. Follows PR #604 (claim function) and its verification note: a claimed studio-sold row
 exposes **every column** to its owner on a direct query, including studio-internal `notes` and `client_id`.
 
 ## 1. The problem [V = verified in code or read-only on PROD]

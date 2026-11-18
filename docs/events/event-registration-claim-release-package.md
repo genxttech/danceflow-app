@@ -7,7 +7,7 @@ SQL -> app -> backport. Read-only checks were run on PROD (`hvsujyfbftfffxpfmlpb
 
 Legend: **[V]** verified (command or code read this session), **[A]** assumed / not provable without a write.
 
-**READ SECTION 13 (FINAL, main b0d51695) FIRST, then 12. Earlier note (2026-11-17): owner decision 1 added a third migration that excludes studio-sold rows; it supersedes the two-artifact apply plan below.**
+**SECTION 14 (2026-11-18 owner hold + corrections) SUPERSEDES SECTION 13.6; read 14 first. Then:** **READ SECTION 13 (FINAL, main b0d51695) FIRST, then 12. Earlier note (2026-11-17): owner decision 1 added a third migration that excludes studio-sold rows; it supersedes the two-artifact apply plan below.**
 
 Two separate owner gates are required (section 11; wording in 12.5): **product approval** of the behaviour, and **PROD SQL authorization** of the exact files.
 
@@ -265,7 +265,7 @@ Whether `supabase db query -f` runs the standalone file inside an implicit trans
 "If step 3 fails with 25001, I authorize engineering to prepare (not apply) a new plain `create index if not exists` file for `public.event_registrations_unclaimed_email_idx` through a PR, and I will authorize its sha256 separately."
 Engineering does not improvise a different statement on PROD.
 
-### 13.6 Ready-to-paste owner authorization (PROD SQL)
+### 13.6 Ready-to-paste owner authorization (PROD SQL) -- SUPERSEDED by section 14 (owner hold 2026-11-18); DO NOT USE
 "I authorize applying to PROD (`hvsujyfbftfffxpfmlpb`), in this order, in one session, **before any app deploy**, exactly these files taken from main `b0d516956fbc664c626188c73e96f84fb32497ee`:
 (1) `20270221090000_event_registration_claim_function.sql` sha256 `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec`;
 (2) `20270222090000_event_registration_claim_buyer_sources_only.sql` sha256 `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487`;
@@ -278,3 +278,92 @@ I confirm `organizer_portal` and `other` registrations are NOT claimable. If ste
 1. PROD read-only: `postflight.sql` -> function present, `has_source_allowlist=true`, grants as in section 6, index valid, `owned = 0`, `max_updated_at` unchanged; `smoke_after_apply.sql` -> 0 / null uid.
 2. Student device/HTTP claim check on a **disposable iso-qa stack** (the Student session's `--claim` / `--api-check` harness, one stack at a time, android-release rules): a bound user with a matching `public_event_page` registration sees it in the wallet and `/account`, a second call returns 0; an `admin` row with the same email stays unclaimed; an anon call is denied; a call without a JWT errors.
 3. After the app deploy, the first natural claim is visible only as `owned > 0` in a read-only postflight, and the same user sees the ticket. Engineering writes nothing to PROD.
+
+---------------------------------------------------------------------------------------------------------------------
+
+## 14. OWNER HOLD + CORRECTIONS 2026-11-18 -- this section SUPERSEDES section 13.6 (the section-13.6 authorization block is **SUPERSEDED, do not use it**). Where this section conflicts with 12 and 13, **this section wins**.
+
+Reason: the owner held the claim PROD SQL until (1) the exposure was measured as actual database access (not app behaviour), (2) a column-restricted dancer read exists before the claim RPC is activated, and (3) the index/ordering question was settled. Docs and Git only; nothing applied anywhere; all measurements below were taken on disposable iso-qa stacks (DB-only) and with read-only `sb.sh prod-read`.
+
+### 14.1 What a dancer receives TODAY (claimed `public_event_page` row, role `authenticated`, direct `select *`) [V on a disposable stack built from PROD's policies; policy text read from PROD]
+
+| Surface | Result |
+|---|---|
+| `event_registrations` own row (`user_id = auth.uid()`, policy `event_registrations_self_select`, roles {public}) | **all 32 columns**: id, event_id, ticket_type_id, studio_id, `user_id`, **`client_id`** (studio CRM id), status, attendee_* (first, last, email, phone), quantity, unit_price, total_price, currency, `registration_source`, `source`, **`notes`** (studio text), checked_in_at, cancelled_at, created_at, updated_at, payment_status, total_amount, **`portal_user_id`**, **`stripe_checkout_session_id`**, **`stripe_payment_intent_id`**, promoted_from_waitlist_at, waitlist_notified_at, **`order_id`**, **`organizer_contact_id`**, **`terminal_hold_until`** |
+| `event_registration_attendees` own tickets (`..._self_select`) | all 18 columns, including **`checked_in_by`** (staff user id), **`ticket_token`**, ticket_code |
+| `event_registration_attendees` INSERT (`..._self_insert`, WITH CHECK = owns the registration) | **allowed** (a dancer can insert attendee rows with a chosen `ticket_code`, `ticket_token`, `checked_in_at`; on the stack the only thing that stopped the test insert was the ticket-capacity trigger "already has every ticket it paid for"). A claim extends this to claimed rows. |
+| `event_registrations` UPDATE/DELETE | no dancer policy: the UPDATE statement runs and changes 0 rows [V] |
+| `event_orders` | 0 rows (readable only by studio members) [V] |
+| `clients` (also through an embed from the registration's `client_id`) | 0 rows [V]; `clients` policies need studio membership or a portal link to that client |
+| other dancers' rows | none [V] |
+| table-level grants on PROD | anon and authenticated hold ALL privileges (incl. SELECT) on all three tables at **table level**; there are no column-level grants. A column-level REVOKE does nothing while the table-level grant exists, and staff, organizers and dancers all use the `authenticated` role, so column privileges cannot separate them. [V PROD `information_schema.table_privileges`] |
+
+So the exposure was real: internal fields **were readable by a dancer through a direct query** (and for app-bought rows already today, not only after a claim). What those fields are worth: `client_id`/`organizer_contact_id`/`order_id` are ids of rows the dancer cannot read; `notes` is studio text on studio-sold rows (excluded from the claim) and the buyer's own text on app-bought rows; the Stripe ids belong to the dancer's own payment on the studio's connected account; `ticket_token`/`checked_in_by` are a credential and a staff id; the attendee INSERT is the only write path and is the integrity concern.
+
+PROD policy text quoted (read-only, 2026-11-18):
+- `event_registrations_self_select` (SELECT, {public}): `(user_id = auth.uid())`
+- `event_registration_attendees_self_select` (SELECT, {authenticated}): `EXISTS (SELECT 1 FROM event_registrations er WHERE er.id = event_registration_attendees.registration_id AND (er.user_id = auth.uid() OR er.portal_user_id = auth.uid()))`
+- `event_registration_attendees_self_insert` (INSERT, {authenticated}) WITH CHECK: the same EXISTS expression.
+- Staff/organizer policies (unchanged by this work): `event_registrations_select` / `_staff_select` (studio roles via `events.studio_id`, platform admin, organizer users), `_update`, `_staff_update`, `_insert`, `_staff_insert`, `_delete`, `_staff_delete`, the two "Organizer users can ..." policies; attendees: `_staff_select/_update/_insert`, `_studio_member_manage`, `_studio_member_select`, `_service_role_all`, and the two "Organizer users ..." policies. RLS is enabled (not forced) on all three tables.
+
+Who legitimately reads these tables, and as which client:
+- **Staff / organizer web** (about 40 files under `src/app/app/**`, `src/app/platform/**`): user-JWT client, studio/organizer policies. **Unchanged.**
+- **Dancer reads (must move):** web `/account` (`src/app/account/page.tsx`), `/app/account` summary (`src/app/app/account/page.tsx`), the client portal page (`src/app/portal/[studioSlug]/page.tsx`: registrations + attendees), the public event page's retry-registration lookup (`src/app/events/[slug]/page.tsx`), and the Student app (`mobile/student/src/lib/studentWallet.ts` registrations + attendees; `publicDiscovery.ts` capacity counts).
+- Server/service-role code (checkout, webhook, settlement, student orders API, account export/delete, Lumi): service role bypasses RLS. **Unchanged.**
+
+### 14.2 Design (implemented in Git; option (a) of the proposal)
+Dancers read their own rows only through two views with an explicit column list; the three direct dancer policies are then removed. Column-level grants were rejected (shared `authenticated` role would break staff).
+- `public.my_event_registrations`: id, event_id, ticket_type_id, studio_id, user_id, status, payment_status, attendee_first_name, attendee_last_name, attendee_email, attendee_phone, quantity, unit_price, total_price, total_amount, currency, checked_in_at, cancelled_at, created_at, updated_at; `where user_id = auth.uid()`.
+- `public.my_event_registration_attendees`: id, registration_id, event_id, ticket_type_id, first_name, last_name, email, phone, attendee_role, sort_order, waiver_signed_at, checked_in_at, ticket_code, ticket_issued_at, created_at; rows of registrations the caller owns (`user_id` or legacy `portal_user_id`, same rule as the old policy).
+- Not exposed to dancers any more: client_id, organizer_contact_id, stripe_checkout_session_id, stripe_payment_intent_id, terminal_hold_until, portal_user_id, source, registration_source, notes, order_id, promoted_from_waitlist_at, waitlist_notified_at, checked_in_by, ticket_token.
+- Views: owner rights (not security_invoker), `security_barrier`, `revoke all ... from public, anon, authenticated; grant select ... to authenticated`; no write privileges. PostgREST embeds work through them (`my_event_registrations?select=...,events(...),event_ticket_types(...)` verified over HTTP on the stack).
+- Cutover drops `event_registrations_self_select`, `event_registration_attendees_self_select` and `event_registration_attendees_self_insert`. The self-insert is **removed, not replaced** (web and Student checkouts insert attendees with the service role, so nothing legitimate needs it).
+- Verified over PostgREST/HTTP with a real user JWT on the stack: direct `event_registrations?select=*`, `...?select=id,clients(first_name)`, `event_registration_attendees?select=*` and `event_orders` return `[]`; both views return only the own safe columns; the anon key gets 401/42501 on the views.
+
+### 14.3 Readers that must move (all merged BEFORE the cutover is applied)
+Web (App-authored PR, non-protected paths): `src/app/account/page.tsx` (`my_event_registrations`), `src/app/app/account/page.tsx`, `src/app/portal/[studioSlug]/page.tsx` (registrations + attendees; the old `client_id` filter cannot exist on the view, so the list is "my registrations at this studio"), `src/app/events/[slug]/page.tsx` (retry lookup).
+**Student (not touched here, route to the Student session):** `mobile/student/src/lib/studentWallet.ts` lines about 434/459/479 `from("event_registrations")` -> `from("my_event_registrations")` (same select list: it already selects only safe columns incl. `events(...)` and `event_ticket_types(attendees_per_ticket)`), and about 758 `from("event_registration_attendees")` -> `from("my_event_registration_attendees")` (select list unchanged: it requests no `checked_in_by`/`ticket_token`). `publicDiscovery.ts` ~388/393 reads per-ticket-type counts of ALL registrations as the signed-in user (under RLS that is only the user's own rows, a pre-existing under-count); after the cutover it returns nothing for a dancer, so capacity for the Student discovery screen should come from an existing public/server count or the Student session decides. Also update the claim QA harness/docs that name the retired index file `20270221091000_event_registrations_unclaimed_email_index_concurrent` (`mobile/student/scripts/qa-smoke/run.mjs`, README, `docs/mobile/Student_Claim_Flow_QA_Plan.md`) to the new version `20270222091000_event_registrations_unclaimed_email_index`.
+**Compatibility risk:** an installed Student app build that still reads the base tables loses its wallet when the cutover is applied. Therefore: SQL views (additive) -> readers merged and released (web deploy, Student build in the hands of users or confirmed not yet distributed) -> only then the cutover. The claim function itself needs none of this and may be released first; the cutover is a separate owner gate.
+
+### 14.4 Runner semantics and the index (item 3) [V local, A for the hosted API]
+- `sb.sh` runs `supabase db query --linked -f <file>` after checking the project ref, the sha256 (apply) and wrapping reads in `begin transaction read only ... rollback`. Its help says the linked path goes through the Management API; `--debug` shows only the pooler URL, so how that endpoint sends a multi-statement file is **not observable without a hosted write**. `ops.log` has no CONCURRENTLY apply (nothing to learn from precedent).
+- Local reproduction on a disposable Postgres (same SQL sent as the simple-query shapes a runner can use): single statement in autocommit -> `create index concurrently` **succeeds**; one string with two statements (`select 1; create index concurrently ...`) -> **`CREATE INDEX CONCURRENTLY cannot run inside a transaction block` (SQLSTATE 25001)**; wrapped in an explicit `begin; ... commit;` -> same 25001. A file containing leading comments + one statement sent as one string succeeds. So whether the retired file worked depended on an unobservable runner detail.
+- **Resolution:** the CONCURRENTLY file `20270221091000_event_registrations_unclaimed_email_index_concurrent.sql` (+ rollback) is **retired (deleted) in the new PR**. A plain, transactional `20270222091000_event_registrations_unclaimed_email_index.sql` (`create index if not exists ... where user_id is null and attendee_email is not null`, own `begin/commit`, brief SHARE lock on a ~312 kB table) replaces it and sorts after the exclusion, so **migration-history order equals apply order**: 20270221090000 function, 20270222090000 exclusion, 20270222091000 index, 20270222092000 views, 20270222093000 cutover. No hosted object references the old version [V]: the index is absent on PROD and DEV (preflight), and PROD has no migration history table (ops.log only), DEV history is stale (latest 20261014090519).
+- The CONCURRENTLY fallback wording of 13.5 is no longer needed.
+
+### 14.5 Final artifacts (sha256 from the working tree at the time of writing; **recompute from git at the merge commit before any apply**)
+| Order | Gate | File (under `src/lib/supabase/migrations/`) | sha256 |
+|---|---|---|---|
+| 1 | Gate 1 (claim) | `20270221090000_event_registration_claim_function.sql` | `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec` |
+| 2 | Gate 1 | `20270222090000_event_registration_claim_buyer_sources_only.sql` | `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487` |
+| 3 | Gate 1 | `20270222091000_event_registrations_unclaimed_email_index.sql` | `0d6bf93df2973c937b1852c83866a7849ff080929d7519bd7be78ed37fe06fb5` |
+| 4 | Gate 1 (additive; must precede any reader that uses the views) | `20270222092000_dancer_event_registration_views.sql` | `45544f920c9ceea4d19ee0c28db63a3148788d6fe129a6b9784c4ab9ab7009cb` |
+| 5 | **Gate 2 (cutover), only after readers are released** | `20270222093000_dancer_direct_read_policies_cutover.sql` | `5c41c91e23606d34e4e3782d2db98804740990d39a96527225f586dea654cde8` |
+| rb 5 | | `rollback/20270222093000_dancer_direct_read_policies_cutover_rollback.sql` | `d95c73735ebe1ab663212fc2cd1e4d6fa1407c3818b7038356148512f3038992` |
+| rb 4 | | `rollback/20270222092000_dancer_event_registration_views_rollback.sql` | `0ea32ec8db0fe37d9756a2711651fee527c82dc719ca231d02dd3ceab2ff4841` |
+| rb 3 | | `rollback/20270222091000_event_registrations_unclaimed_email_index_rollback.sql` | `8cee163391da78d33d1d3a5984551f274641eeb362fe2412f4358a948e768dad` |
+| rb 2 | | `rollback/20270222090000_event_registration_claim_buyer_sources_only_rollback.sql` | `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3` |
+| rb 1 | | `rollback/20270221090000_event_registration_claim_function_rollback.sql` | `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3` |
+| suite | | `sql-tests/test_T_dancer_column_restricted_read.sql` (22 checks) | `a9addd19b8cfc645d73c55397587034554e1529121a0ce575ed6a0621963510c` |
+| suite | | `sql-tests/test_T_claim_buyer_sources_only.sql` (37 checks; reads via the view when it exists) | `0879411cae328031f6c9eb452829ff079509d40cafbc0cafb15b84f455ff88bf` |
+| suite | | `sql-tests/test_T_claim_my_event_registrations.sql` (34 checks, step-1 definition) | `6c54cc6ea958953416e559e9033fdad35da7905bfac02990de53ba6ea8d64404` |
+The retired `20270221091000_...concurrent.sql` (`20896098...3089`) and its rollback (`9ec58f3c...50e3`) must NOT be applied (deleted in the PR).
+
+**Apply order:** Gate 1 = steps 1, 2, 3, 4 in one session (each its own transaction), `postflight.sql` after each, before any app deploy; then web readers and the Student build; then Gate 2 = step 5 and `postflight.sql` (`dancer_self_policies` must be `[]`).
+**Rollback order:** 5 -> 4 -> 3 -> 2 -> 1 (cutover first restores the three direct policies exactly; views next; index; exclusion; function). Rolling back step 4 while step 5 is applied would leave dancers with neither path, so never.
+**Owner gates:** Gate 1 and Gate 2 are two separate authorizations; Gate 2's authorization is requested only after the readers are released and verified. Merging the protected migration PR needs the owner's GitHub approval on the exact head (CODEOWNERS); the app/readers PR is not protected.
+
+### 14.6 Evidence on a disposable stack built from the NEW head (colq2, DB-only, torn down afterwards) [V]
+Built from 1C-A + the five claim/dancer migrations, then: new suite **PASS 22/22**; 37-check suite **PASS 37/37** with the cutover applied (it reads through the view); cutover, views, index, exclusion rolled back in that order and the 34-check suite **PASS 34/34** on the step-1 definition; function rolled back and everything re-applied in order -> 37/37 and 22/22 again; re-applying steps 3-5 a second time is a no-op (idempotent) and the final state check is `fn=true allowlist=true idx=true views=true selfpol=0`. The ownership, gift, unbound, studio-sold, NULL-source and byte-identical-snapshot checks live in the 37- and 34-check suites; the 22-check suite adds: exact view column lists and no banned column, grants (authenticated select only, no write, no anon), dancer A sees exactly the one claimed row and its ticket, no other dancer's row, direct table reads return 0, attendee forge insert denied by RLS, views refuse insert/update/delete, anon denied, no-sub authenticated sees nothing, studio staff unchanged (all columns, update, insert, attendee update, event_orders), other-studio staff see nothing, service_role unchanged, PAY-WH-1/Stripe/capacity-hold triggers still present and enabled, claim function and index intact. The PAY-WH-1 settlement suite itself needs its own migration chain and was **not** re-run here (no migration in this package touches those functions or triggers).
+
+### 14.7 Fresh read-only checks (sb.sh)
+| Time (UTC) | Host | Result |
+|---|---|---|
+| 2026-11-18T03:52:11Z | PROD | function/index absent; prerequisites present; 0 invalid indexes; 37 registrations (11 admin, 26 public_event_page), **0 owned**; 3 bound identities, **0 rows match a bound identity**; `source_check` = five values; the three dancer self policies present, no views |
+| 2026-11-18T03:52:16Z | DEV | function/index absent; prerequisites present; 35 registrations (2 admin 0 owned, 33 public_event_page 14 owned); 0 bound identities |
+Postflight now also reports `dancer_read` (views and their columns, view grants, the three self policies, table-level grants, policy counts) and was validated read-only on PROD in its "before" state.
+
+### 14.8 Remaining owner decisions
+1. Gate 1 SQL authorization (steps 1-4) with the shas recomputed at the merge commit (engineering will provide the block after the PR merges).
+2. Gate 2 (cutover) later, after the readers are released; plus the Student build/compat decision (14.3).
+3. Still open from before: `organizer_portal` and `other` are not claimable (confirm), gift semantics (holder vs purchaser).
