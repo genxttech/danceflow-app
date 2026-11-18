@@ -127,6 +127,10 @@ async function stackUp() {
     // statement logging gave no usable count on this stack; a row written by the call itself cannot be missed. Disposable stack only.
     psql(join(here, "claim-call-counter.sql"));
   }
+  if (!cfg.claim && (cfg.cutover || flag("views"))) {
+    // The screen matrix (--events) with the dancer views (and, with --cutover, the direct dancer read policies dropped): the Wallet must still show the tickets.
+    for (const file of ["20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) psqlText(migrationFromGit(file), file);
+  }
   return { anon, service };
 }
 
@@ -497,6 +501,43 @@ async function claimScenario(link) {
 
 
 // ---- --claim --api-check: the same ownership cases over HTTP with real user tokens (no device) ----
+// The dancer views (PR 647) over PostgREST with Dana's user JWT: only her own rows and the safe columns, embeds work, studio-sold and NULL-source rows are absent,
+// and (with --cutover) the base tables return nothing and the attendee self-insert is refused.
+const REG_VIEW_COLS = ["id", "event_id", "ticket_type_id", "studio_id", "user_id", "status", "payment_status", "attendee_first_name", "attendee_last_name", "attendee_email", "attendee_phone", "quantity", "unit_price", "total_price", "total_amount", "currency", "checked_in_at", "cancelled_at", "created_at", "updated_at"];
+const ATT_VIEW_COLS = ["id", "registration_id", "event_id", "ticket_type_id", "first_name", "last_name", "email", "phone", "attendee_role", "sort_order", "waiver_signed_at", "checked_in_at", "ticket_code", "ticket_issued_at", "created_at"];
+async function viewsApiChecks(base, anon, token) {
+  const get = async (path) => {
+    const r = await fetch(`${base}/rest/v1/${path}`, { headers: { apikey: anon, authorization: `Bearer ${token}` } });
+    let body = null;
+    try { body = await r.json(); } catch { /* not json */ }
+    return { status: r.status, body };
+  };
+  const tag = cfg.cutover ? "views+cutover" : "views";
+  const regs = await get("my_event_registrations?select=*&order=id");
+  const regIds = Array.isArray(regs.body) ? regs.body.map((r) => r.id) : [];
+  const regCols = new Set(Array.isArray(regs.body) ? regs.body.flatMap((r) => Object.keys(r)) : []);
+  record(`api ${tag}: my_event_registrations returns exactly Dana's own rows (661 bought in the app, 662 claimed web cart); no studio-sold (663), NULL-source (667), gift (664), Evan's (665) or nobody's (666)`, regs.status === 200 && same(regIds.map((i) => i.slice(-3)), ["661", "662"]), `status ${regs.status} ids ${regIds.map((i) => i.slice(-3)).join(",")}`);
+  record(`api ${tag}: my_event_registrations exposes only the safe columns (no client_id, notes, stripe ids, registration_source, order_id, portal_user_id)`, regs.status === 200 && [...regCols].every((c) => REG_VIEW_COLS.includes(c)), `extra: ${[...regCols].filter((c) => !REG_VIEW_COLS.includes(c)).join(",") || "none"}`);
+  const embed = await get("my_event_registrations?select=id,events(name,slug),event_ticket_types(attendees_per_ticket)");
+  const row = Array.isArray(embed.body) ? embed.body[0] : null;
+  record(`api ${tag}: embeds events(...) and event_ticket_types(...) work through the view`, embed.status === 200 && !!row && !!row.events && !!row.event_ticket_types, `status ${embed.status} ${JSON.stringify(row).slice(0, 160)}`);
+  const atts = await get("my_event_registration_attendees?select=*&order=ticket_code");
+  const codes = Array.isArray(atts.body) ? atts.body.map((a) => a.ticket_code).filter(Boolean).sort() : [];
+  const attCols = new Set(Array.isArray(atts.body) ? atts.body.flatMap((a) => Object.keys(a)) : []);
+  record(`api ${tag}: my_event_registration_attendees returns exactly Dana's tickets (QA-CLAIM-0001, QA-DANA-0001)`, atts.status === 200 && same(codes, ["QA-CLAIM-0001", "QA-DANA-0001"]), `status ${atts.status} codes ${codes.join(",")}`);
+  record(`api ${tag}: attendee view has no ticket_token or checked_in_by`, atts.status === 200 && [...attCols].every((c) => ATT_VIEW_COLS.includes(c)), `extra: ${[...attCols].filter((c) => !ATT_VIEW_COLS.includes(c)).join(",") || "none"}`);
+  const baseRegs = await get("event_registrations?select=id");
+  const baseAtts = await get("event_registration_attendees?select=id");
+  const baseN = (r) => (Array.isArray(r.body) ? r.body.length : -1);
+  if (cfg.cutover) {
+    record("api cutover: direct reads of event_registrations and event_registration_attendees return nothing for a dancer", baseRegs.status === 200 && baseN(baseRegs) === 0 && baseAtts.status === 200 && baseN(baseAtts) === 0, `regs ${baseN(baseRegs)} attendees ${baseN(baseAtts)}`);
+    const forge = await fetch(`${base}/rest/v1/event_registration_attendees`, { method: "POST", headers: { apikey: anon, authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ registration_id: regIds[0], first_name: "Forged", last_name: "Ticket", ticket_code: "QA-FORGED-0001" }) });
+    record("api cutover: a dancer can no longer insert an attendee row (self-insert policy removed)", forge.status >= 400, `status ${forge.status}`);
+  } else {
+    record("api Gate 1 (views only): the base tables still return Dana's own rows, so installed builds keep working until the cutover", baseRegs.status === 200 && baseN(baseRegs) >= 1 && baseAtts.status === 200 && baseN(baseAtts) >= 1, `regs ${baseN(baseRegs)} attendees ${baseN(baseAtts)}`);
+  }
+}
+
 async function claimApiCheck(link, service, anon) {
   const base = `http://127.0.0.1:${cfg.kong}`;
   const snapBase = snapshot();
@@ -532,6 +573,7 @@ async function claimApiCheck(link, service, anon) {
   tablesSame("after Dana");
   const r2 = await rpc(danaTok);
   record("api case 7: second call returns 0 and changes nothing", r2.status === 200 && r2.body.trim() === "0" && eq(owners(), { 662: "Dana", 663: "unclaimed", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }), `status ${r2.status} body ${r2.body}`);
+  await viewsApiChecks(base, anon, danaTok);
   const evanTok = await tokenFor(cfg.email2);
   const r3 = await rpc(evanTok);
   record("api case 5: Evan returns 1 (the gift c3 he bought); Dana's rows stay Dana's", r3.status === 200 && r3.body.trim() === "1" && eq(owners(), { 662: "Dana", 663: "unclaimed", 664: "Evan", 665: "Evan", 666: "unclaimed" }), `status ${r3.status} body ${r3.body}`);
