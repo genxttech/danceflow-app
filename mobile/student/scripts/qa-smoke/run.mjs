@@ -35,7 +35,9 @@ const cfg = {
   skipBuild: flag("skip-build"),
   apiCheck: flag("api-check"), // with --claim: call the function over HTTP as each user (no APK, no emulator)
   claimVisual: flag("claim-visual"), // implies --claim: the claim flow (create-password routing, Wallet, tickets) at font 1.0/2.0 x light/dark
-  claim: flag("claim") || flag("claim-visual"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
+  claimWithheld: flag("claim-withheld"), // implies --claim: Gate 1 as on PROD (20270222090500 revokes execute): the claim RPC must answer 42501 and the app stays silent and fail-closed
+  claim: flag("claim") || flag("claim-visual") || flag("claim-withheld"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
+  realWeb: flag("real-web"), // serve the app's web API with the repo's REAL Next.js routes (next dev on the mock port, pointed at this stack) instead of mock-web.mjs; QA only, the stack's service key never leaves this PC
   events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
   cutover: flag("cutover"), // with --claim: also apply the dancer cutover (drop the direct dancer read policies), as after Gate 2
@@ -126,6 +128,8 @@ async function stackUp() {
     // The wrapper records one row per call (who called, when) and then runs the real body unchanged. PostgREST, pg_stat_user_functions and
     // statement logging gave no usable count on this stack; a row written by the call itself cannot be missed. Disposable stack only.
     psql(join(here, "claim-call-counter.sql"));
+    // Gate 1 as applied on PROD: execute withheld from every client role (applied AFTER the counter wrapper so the wrapper is the revoked object).
+    if (cfg.claimWithheld) psqlText(migrationFromGit("20270222090500_claim_function_execute_withheld.sql"), "20270222090500_claim_function_execute_withheld.sql");
   }
   if (!cfg.claim && (cfg.cutover || flag("views"))) {
     // The screen matrix (--events) with the dancer views (and, with --cutover, the direct dancer read policies dropped): the Wallet must still show the tickets.
@@ -157,6 +161,38 @@ async function makeDancer(service) {
     if (!hashed) throw new Error("generate_link returned no token");
     return `danceflow://auth/callback?token_hash=${hashed}&type=magiclink`;
   };
+}
+
+/**
+ * --real-web: the repo's own Next.js routes against the disposable stack (the real GET /api/student/events/{id}/availability, studio-links, profile).
+ * next dev, not a production build: one route compiles on first use, so it is warmed here before the emulator boots. The ticket type gets capacity 4
+ * (one seeded paid registration of quantity 1) so the real route must answer remaining 3. Teardown kills the whole process tree.
+ */
+async function startRealWeb(anon, service, link) {
+  q("update public.event_ticket_types set capacity = 4 where id = '55555555-5555-4555-8555-555555555551'");
+  const nextBin = join(repoRoot, "node_modules", "next", "dist", "bin", "next");
+  const env = { ...process.env, NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:" + cfg.kong, NEXT_PUBLIC_SUPABASE_ANON_KEY: anon, SUPABASE_SERVICE_ROLE_KEY: service };
+  const child = spawn(process.execPath, [nextBin, "dev", "-p", String(cfg.mockPort), "-H", "0.0.0.0"], { cwd: repoRoot, env, stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  child.stdout.on("data", (d) => { out += d; });
+  child.stderr.on("data", (d) => { out += d; });
+  state.mock = { kill: () => { try { run("taskkill", ["/PID", String(child.pid), "/T", "/F"]); } catch { /* gone */ } writeFileSync(join(cfg.out, "real-web.log"), out); } };
+  const base = "http://127.0.0.1:" + cfg.mockPort;
+  const eventUrl = base + "/api/student/events/44444444-4444-4444-8444-444444444441/availability";
+  const up = await waitFor(async () => { try { const r = await fetch(eventUrl); return r.status === 401; } catch { return false; } }, "the real web API (next dev) to answer 401 on the availability route without a session", 240_000, 5000).then(() => true, () => false);
+  record("real web: next dev serves the availability route (401 without a session)", up, up ? "" : out.slice(-400));
+  if (!up) throw new Error("the real web API did not start");
+  const verifyUrl = new URL((await link(cfg.email)).replace("danceflow://", "https://x/")).searchParams.get("token_hash");
+  const v = await (await fetch("http://127.0.0.1:" + cfg.kong + "/auth/v1/verify", { method: "POST", headers: { apikey: anon, "content-type": "application/json" }, body: JSON.stringify({ type: "magiclink", token_hash: verifyUrl }) })).json();
+  const auth = { authorization: "Bearer " + v.access_token };
+  const r = await fetch(eventUrl, { headers: auth });
+  const text = (await r.text()).slice(0, 400);
+  let j = null; try { j = JSON.parse(text); } catch { /* record below */ }
+  const t = j?.tickets?.[0];
+  record("real web: GET availability as the signed-in dancer returns 200 with capacity 4 and remaining 3", r.status === 200 && t?.capacity === 4 && t?.remaining === 3 && t?.soldOut === false && j.tickets.length === 1, r.status + " " + text);
+  record("real web: the response carries no registration, attendee, order or email data", !/@|ticket_code|first_name|attendee|order/i.test(text.replace(/"eventId"|"ticketTypeId"/g, "")), "");
+  // Warm the other routes the app calls so the first screen is not a cold compile.
+  for (const path of ["/api/student/studio-links", "/api/student/profile"]) { try { await fetch(base + path, { headers: auth }); } catch { /* warm only */ } }
 }
 
 function startMock() {
@@ -255,13 +291,64 @@ async function emulatorUp() {
   sh(["shell", "input", "keyevent", "224"]);
   writeFileSync(join(cfg.out, "talkback.txt"), sh(["shell", "pm", "list", "packages", "talkback"]).stdout || "TalkBack package not installed on this image");
   state.prevFont = sh(["shell", "settings", "get", "system", "font_scale"]).stdout.trim();
-  const d = /(d+)s*$/.exec(sh(["shell", "wm", "density"]).stdout.trim())?.[1];
+  const d = /(\d+)\s*$/.exec(sh(["shell", "wm", "density"]).stdout.trim())?.[1];
   if (d) writeFileSync(join(cfg.out, "density.txt"), d); // px per 160 dpi, for the touch-target check
 }
 
+/*
+  Emulator System UI ANR ("System UI isn't responding", package android). RC5 lost three smokes to it right after boot while another build was
+  starving the PC of RAM. It is the emulator's system process, not the app, so: (1) before anything else wait until the guest is quiet (load average),
+  (2) when the dialog shows anyway, capture what the system knows (load, memory, top, ApplicationExitInfo of com.android.systemui, ANR lines of logcat)
+  into <out>/systemui-anr-N-diag.txt BEFORE touching it, then tap "Wait" on the dialog. It is counted and reported in results.json, never hidden.
+*/
+state.anrDismissed = 0;
+/** Host free RAM and the biggest process groups, into <out>/host-memory-<tag>.txt (a System UI ANR on the emulator is classified against this). */
+function hostMemory(tag) {
+  const ps = "$os=Get-CimInstance Win32_OperatingSystem; 'Free {0:N1} GB of {1:N1} GB' -f ($os.FreePhysicalMemory/1MB),($os.TotalVisibleMemorySize/1MB); Get-Process | Group-Object Name | % { [pscustomobject]@{Name=$_.Name;N=$_.Count;MB=[int](($_.Group|Measure-Object WorkingSet64 -Sum).Sum/1MB)} } | Sort MB -Desc | Select -First 8 | Format-Table -Auto | Out-String";
+  const r = spawnSync("powershell", ["-NoProfile", "-Command", ps], { encoding: "utf8" });
+  const text = String(r.stdout ?? "").trim();
+  writeFileSync(join(cfg.out, "host-memory-" + tag + ".txt"), text);
+  log("host memory (" + tag + "): " + text.split("\n")[0]);
+}
+function captureDiag(tag) {
+  const parts = [
+    ["date", ["shell", "date"]],
+    ["loadavg", ["shell", "cat", "/proc/loadavg"]],
+    ["meminfo", ["shell", "head", "-n", "6", "/proc/meminfo"]],
+    ["top", ["shell", "top", "-n", "1", "-b", "-m", "12"]],
+    ["exit-info systemui", ["shell", "dumpsys", "activity", "exit-info", "com.android.systemui"]],
+    ["anr in logcat", ["shell", "logcat", "-d", "-b", "all", "-t", "400", "-v", "time", "ActivityManager:W", "*:S"]],
+  ];
+  const text = parts.map(([name, a]) => { const r = sh(a); return "=== " + name + " ===\n" + r.stdout + (r.stderr ? "\n" + r.stderr : ""); }).join("\n");
+  writeFileSync(join(cfg.out, tag + "-diag.txt"), text);
+}
+const hasSystemUiAnr = (xml) => /System UI isn't responding/i.test(xml);
+function dismissSystemUiAnr(xml) {
+  const m = /<node[^>]*text="Wait"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+  state.anrDismissed++;
+  captureDiag("systemui-anr-" + state.anrDismissed);
+  if (m) sh(["shell", "input", "tap", String(Math.round((+m[1] + +m[3]) / 2)), String(Math.round((+m[2] + +m[4]) / 2))]);
+  else sh(["shell", "input", "keyevent", "4"]);
+}
+/** Waits until the guest is quiet: a 1-minute load average below the CPU count for two checks 10 s apart (max 4 min). Never fails the run. */
+async function settleSystemUi() {
+  const cpus = Math.max(1, parseInt(sh(["shell", "nproc"]).stdout.trim(), 10) || 2);
+  let quiet = 0, last = "";
+  for (let i = 0; i < 24 && quiet < 2; i++) {
+    last = sh(["shell", "cat", "/proc/loadavg"]).stdout.trim();
+    quiet = parseFloat(last.split(" ")[0]) < cpus ? quiet + 1 : 0;
+    if (quiet < 2) await sleep(10000);
+  }
+  log("System UI settle: " + (quiet >= 2 ? "quiet" : "still busy after 4 min") + " (loadavg " + last + ", " + cpus + " CPUs)");
+  state.settle = { quiet: quiet >= 2, loadavg: last, cpus };
+}
 const hierarchy = () => {
-  sh(["shell", "uiautomator", "dump", "/sdcard/ui.xml"]);
-  return sh(["exec-out", "cat", "/sdcard/ui.xml"]).stdout;
+  for (let tries = 0; ; tries++) {
+    sh(["shell", "uiautomator", "dump", "/sdcard/ui.xml"]);
+    const xml = sh(["exec-out", "cat", "/sdcard/ui.xml"]).stdout;
+    if (!hasSystemUiAnr(xml) || tries >= 3) return xml;
+    dismissSystemUiAnr(xml);
+  }
 };
 const shot = (file) => {
   const r = spawnSync(adb, ["exec-out", "screencap", "-p"], { maxBuffer: 64 << 20 });
@@ -631,6 +718,42 @@ async function claimVisualScenario(link) {
   }
 }
 
+async function claimWithheldScenario(link, anon) {
+  const crashed = (x) => /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(x);
+  const base = "http://127.0.0.1:" + cfg.kong;
+  // HTTP: the RPC as Dana (bound) must be refused with permission denied (42501), and must claim nothing.
+  for (const [uid, email] of [[state.uid, cfg.email], [state.uid2, cfg.email2]]) {
+    const insErr = q(`insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at) values ('${uid}', '${email}', now() - interval '2 days', now() - interval '1 day', 'otp', 'mobile_app', 'bound', now() - interval '1 day') on conflict (user_id, email) do update set credential_status = 'bound', bound_at = now() - interval '1 day', binding_session_id = null, binding_started_at = null`);
+    if (/^ERR/.test(insErr)) throw new Error("could not bind the QA user: " + insErr);
+  }
+  const url = await link(cfg.email);
+  const hashed = new URL(url.replace("danceflow://", "https://x/")).searchParams.get("token_hash");
+  const v = await (await fetch(base + "/auth/v1/verify", { method: "POST", headers: { apikey: anon, "content-type": "application/json" }, body: JSON.stringify({ type: "magiclink", token_hash: hashed }) })).json();
+  const r = await fetch(base + "/rest/v1/rpc/claim_my_event_registrations", { method: "POST", headers: { apikey: anon, authorization: "Bearer " + v.access_token, "content-type": "application/json" }, body: "{}" });
+  const body = (await r.text()).slice(0, 200);
+  record("withheld: the claim RPC as a bound signed-in user is refused with 42501 (permission denied)", r.status === 403 && /42501/.test(body), "status " + r.status + " " + body);
+  let sn = snapshot();
+  record("withheld: nothing claimed by the refused call (662 and 663 still unclaimed)", ownerName(sn, "662") === "unclaimed" && ownerName(sn, "663") === "unclaimed", "");
+  // Device: the app's silent fail-closed behaviour.
+  for (const c of [{ tag: "1.0-light", night: false, scale: "1.0" }, { tag: "2.0-dark", night: true, scale: "2.0" }]) {
+    sh(["shell", "cmd", "uimode", "night", c.night ? "yes" : "no"]);
+    sh(["shell", "settings", "put", "system", "font_scale", c.scale]);
+    await sleep(3000);
+    if (!(await freshSignIn(link, cfg.email, "wh-dana-" + c.tag))) continue;
+    const d = await readTickets("wh-" + c.tag);
+    record("withheld " + c.tag + ": Dana sees only the ticket she already owns (QA-DANA-0001); the claimable guest ticket is NOT linked", same(d.codes, ["QA-DANA-0001"]), "codes: " + d.codes.join(", "));
+    record("withheld " + c.tag + ": no error or claim wording and no crash on the tickets screen", !/claim|linking your|verif|could not|unavailable|error|denied|42501/i.test(d.xml.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")) && !crashed(d.xml), "");
+    openLink("danceflow://wallet");
+    await sleep(8000);
+    const w = hierarchy();
+    writeFileSync(join(cfg.out, "wh-wallet-" + c.tag + ".xml"), w);
+    shot(join(cfg.out, "wh-wallet-" + c.tag + ".png"));
+    record("withheld " + c.tag + ": Wallet loads, no crash, no error wording", /Wallet/i.test(w) && !crashed(w) && !/claim|linking your|could not|denied|42501/i.test(w.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "");
+    sn = snapshot();
+    record("withheld " + c.tag + ": owners unchanged after the app run (662, 663 unclaimed)", ownerName(sn, "662") === "unclaimed" && ownerName(sn, "663") === "unclaimed", "");
+  }
+}
+
 async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
@@ -655,21 +778,28 @@ try {
     await claimApiCheck(link, service, anon);
     throw Object.assign(new Error("api-check done"), { done: true });
   }
-  startMock();
+  if (cfg.realWeb) await startRealWeb(anon, service, link);
+  else startMock();
   const apk = cfg.apk || (cfg.skipBuild ? "" : build(anon));
   if (!apk) throw new Error("--skip-build needs --apk <path>");
   checkBakedConfig(apk, anon);
+  hostMemory("before-boot");
   await emulatorUp();
+  await settleSystemUi();
+  hostMemory("after-settle");
   const inst = sh(["install", "-r", apk]);
   if (!/Success/.test(inst.stdout)) throw new Error(`install failed: ${inst.stdout}${inst.stderr}`);
   state.installed = true;
   await checkReachable();
-  if (cfg.claimVisual) await claimVisualScenario(link);
+  if (cfg.claimWithheld) await claimWithheldScenario(link, anon);
+  else if (cfg.claimVisual) await claimVisualScenario(link);
   else if (cfg.claim) await claimScenario(link);
   else await screens(link);
 } catch (e) {
   if (!e.done) record("run", false, e.message);
 } finally {
+  if (state.anrDismissed) record("System UI ANR dialog (emulator environment, not the app) dismissed with Wait", true, state.anrDismissed + " time(s); see systemui-anr-*-diag.txt; settle: " + JSON.stringify(state.settle ?? null));
+  try { hostMemory("end"); } catch {}
   if (!cfg.noTeardown) await teardown();
   const failed = results.filter((r) => !r.ok);
   writeFileSync(join(cfg.out, "results.json"), JSON.stringify(results, null, 2));
