@@ -279,3 +279,34 @@ Signing guard (release builds fail without `DANCEFLOW_UPLOAD_*` unless `EAS_BUIL
 | R-3b live font-size change; Android 12 and older; EAS cloud build | **UNVERIFIED / UNTESTED** (unchanged) | - |
 
 Correction to RC3: the RC3 R8 *build* ran R8 (its Gradle log has the task) but its AAB was contaminated by a shared-`TEMP` Metro cache (section 9); the RC3 "R8 smoke" was unminified and its failures are not R8 evidence. RC4 supersedes both: R8 builds and passes the Student smoke.
+## 11. Release candidate 5 from main `8535bedc2` (2026-11-18)
+
+Built from `C:\dfr\r` at main `8535bedc2` (Student wallet reads the dancer views, #649; the commit title still says "DRAFT, DO NOT MERGE before the SQL views are applied on PROD", which the coordinator reports as now satisfied: Gate 1 applied on PROD). QA-only key, one Gradle build at a time, a private empty `TEMP` per build, `CI` unset, nothing uploaded, no production credentials. Outputs in `C:\dfr-out\rc5\`, smoke evidence in `C:\dfr-out\qa-rc5\`. Main has moved on since (#665 at the time of this PR); no mobile build input changed between `20e5bacdb` and `8535bedc2` (lockfiles, `app.json`, `android/`, plugins, `package.json` identical).
+
+| | Student | Business |
+|---|---|---|
+| AAB | `student-rc5.aab`, 99,116,880 B, SHA-256 `1d1ad9550a5bde681499044f9cdea91867028b9bb866262eaac40780246283b5` | `business-rc5.aab`, 64,766,173 B, SHA-256 `db03e882a80de2cc73e9d6110f3e133adf08a2b138e7dd0a710240a3016f0a5d` |
+| versionCode / versionName / targetSdk | 1 / 0.1.0 / 36 | 1 / 0.1.0 / 36 |
+| Signer | QA key SHA-256 `93:F4:E4:5E:...:F0:99` (not the debug key) | same |
+| debuggable / cleartext / allowBackup | absent / absent / false | absent / absent / false |
+| Blocked permissions (CAMERA, RECORD_AUDIO, SYSTEM_ALERT_WINDOW, external storage) | absent | absent |
+| 16 KB `zipalign -c -P 16 4` / ELF `p_align` | exit 0 / 46 libs, 0 below 16384 | exit 0 / 36 libs, 0 below |
+| **Baked `EXPO_PUBLIC_*` decoded from the final AAB** | `https://qa-placeholder.invalid`, placeholder anon key, `https://idanceflow.com`; 0 JWT-shaped strings; no `10.0.2.2`, `56600`/`56601`, `service_role`, `sk_`/`pk_`/`whsec_`, private key | same | 
+
+Build, manifest, SDK, 16 KB and baked-config checks: **PASSED** for both. Signing guard: unchanged; negative test not re-run.
+
+### RC5 device smokes: BLOCKED (emulator System UI ANR), not an app result
+
+The three smokes were run once each on harness-booted emulators (Student 13/13 matrix, Student `--events` with the dancer views from main refs, Business). All three were derailed by the same emulator fault, not by the app:
+
+| Smoke | Result | Evidence |
+|---|---|---|
+| Student 13/13 matrix | **BLOCKED**: preflights PASS (APK carries this run's stack and mock-web URLs, emulator Wi-Fi address, emulator reaches the stack API and the mock web API), then sign-in did not complete because the screen shows Android's "System UI isn't responding" dialog (`sign-in-failed.xml`), 4 of 6 steps passed | `qa-rc5\student-smoke` |
+| Student `--events` (wallet reading the views) | **BLOCKED**: same System UI ANR dialog at sign-in, 4 of 6 steps passed. The events and views assertions were never reached. | `qa-rc5\student-events` |
+| Business smoke | **BLOCKED**: preflights PASS (APK stack/web URL and anon key, Wi-Fi, stack API, web app); the run failed with "no Email field" while the harness logged "system UI still unstable". | `qa-rc5\business-smoke` |
+
+A re-run on an emulator I booted myself and pre-warmed (Google Messages disabled, as in RC2) was refused by the harnesses ("An emulator is already running", needs `--force` / `--allow-busy`). Adding those flags was not allowed in this session, so it was not run; the emulator was shut down and Google Messages re-enabled. The Student wallet-reads-the-views check on a stack with the views applied is therefore **UNVERIFIED for RC5**. Whoever owns the device slot should re-run the three smokes (Student matrix, `--events`, Business) on RC5 or on the same commit, ideally after a longer emulator settle time or with an approved `--force` on a pre-warmed emulator. For RC4 (`20e5bacdb`, section 10) the same three smokes passed, so there is no evidence of an app regression, only no RC5 device evidence.
+
+Not re-run this round: R8 (RC4's R8 AAB and forced-R8 Student smoke stand for `20e5bacdb`), R-3b live font change, Android 12 and older, EAS cloud build: **UNVERIFIED / UNTESTED**.
+
+Owner queue unchanged (Play upload keystore and Play App Signing; Firebase release project and key rotation; `eas init` for Business and `GOOGLE_SERVICES_JSON`; account-deletion page and privacy URL timing, A7; Data safety inputs, rating and listing; approve the first internal-testing build and upload by hand). Before any upload, decode the baked `EXPO_PUBLIC_*` values from the actual release artifact and compare with the production environment (Runbook step 1b).

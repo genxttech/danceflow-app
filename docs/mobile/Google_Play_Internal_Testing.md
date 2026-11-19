@@ -148,3 +148,6 @@ Status key: PASSED = run with evidence; UNVERIFIED = not run or inconclusive; BL
 | Signing guard negative test; R-3b live font change; Android 12 and older; EAS cloud build | UNVERIFIED / UNTESTED | - |
 
 The RC3 rows above that call R8 "FAILED in dark mode" are superseded: that smoke was unminified (audit section 9 correction). The owner queue above is unchanged.
+### RC5 update (main `8535bedc2`, 2026-11-18)
+
+Build, manifest, targetSdk 36, 16 KB and baked-config decode: PASSED for both AABs (SHA-256 in `Android_Release_Audit.md` section 11). Device smokes (Student matrix, Student `--events` with the dancer views, Business): BLOCKED by an emulator System UI ANR, so the wallet-reads-the-views check is UNVERIFIED on RC5; RC4 smokes passed (section 10). Owner queue unchanged.
