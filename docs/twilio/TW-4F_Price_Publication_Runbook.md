@@ -36,7 +36,7 @@ A micro-dollar proposal is not revised: withdraw it (Withdraw proposal) and prop
 ## D. Verification after publication
 
 1. `select public.tw4_price_verify()` returns `ok: true` with no `price_unattested` or `request_anomaly` entries.
-2. Six active rows in `studio_sms_price_list`; `sms_usage` shows `unit_price_micros = 17000`, `sms_inbound` `13000`; cents columns are the ceilings (2 and 2).
+2. Six active rows in `studio_sms_price_list`; `sms_usage` shows `unit_price_micros = 17000`, `sms_inbound` `15500`; cents columns are the ceilings (2 and 2).
 3. `studio_sms_price_audit` has a `proposed`, `challenge_issued`, `authorized` and `published` event per kind; the monitoring feed carries the same events.
 4. Billing, sending and every SMS flag remain OFF. Publishing prices does not enable anything.
 

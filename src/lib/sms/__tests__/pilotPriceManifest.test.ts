@@ -20,7 +20,7 @@ describe("ConfiDance pilot price manifest (data only; nothing is published by it
   it("the per-segment kinds are micro-dollars equal to the approved rates; the fixed-fee kinds are whole cents", () => {
     const by = Object.fromEntries(manifest.prices.map((p) => [p.kind, p]));
     expect(by.sms_usage.priceMicros).toBe(17000);
-    expect(by.sms_inbound.priceMicros).toBe(13000);
+    expect(by.sms_inbound.priceMicros).toBe(15500);
     for (const p of manifest.prices) {
       if (isMicroPriceKind(p.kind)) {
         expect(p.unit).toBe("micro-dollars");

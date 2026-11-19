@@ -17,12 +17,20 @@
       "order": 2,
       "kind": "sms_inbound",
       "unit": "micro-dollars",
-      "priceMicros": 13000,
+      "priceMicros": 15500,
       "costMicros": 10205,
-      "priceUsd": "0.013",
+      "priceUsd": "0.0155",
       "costUsd": "0.010205",
       "description": "Inbound text message, per segment (carrier fees included)",
-      "reason": "Owner-approved provisional inbound rate for the ConfiDance pilot; expected provider cost is the blended Twilio base rate plus published inbound carrier fees (Verizon and other inbound carrier fees are blank on the October 2026 price page)."
+      "reason": "Owner decision 2026-11-18: inbound priced for the public carrier-fee reading. Expected provider cost 0.010205 is the blend (base 0.0083 + AT&T 0.0035 x28% + T-Mobile/US Cellular 0.0025 x37% + Verizon 0 x35%); worst carrier (AT&T) is 0.0118, still 19.8% net margin at 0.0155.",
+      "costBasis": {
+        "expectedBlendUsd": "0.010205",
+        "worstCarrierUsd": "0.0118",
+        "expectedNetMargin": "30.1%",
+        "worstCarrierNetMargin": "19.8%",
+        "method": "net margin = 0.959 (after 4.1% Stripe) minus cost/price",
+        "note": "costMicros stays the expected blend for consistency with sms_usage; the worst-carrier case is protected by the price, not by a higher cost field. Twilio ticket 30376594 says no inbound 10DLC surcharge; the public page lists AT&T 0.0035 and T-Mobile/US Cellular 0.0025, so the price covers the public reading."
+      }
     },
     {
       "order": 3,
