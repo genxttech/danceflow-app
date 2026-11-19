@@ -102,6 +102,14 @@ describe("relay loop", () => {
     expect(stats.retried).toBe(1);
   });
 
+  it("a poison event that always fails is given up on after five attempts and does not stall the events behind it", async () => {
+    const h = harness(() => [event("evt_bad", 1001), event("evt_ok", 1002)], ({ id }) => (id === "evt_bad" ? 503 : 200), { maxPolls: 8 });
+    const stats = await h.run();
+    expect(h.delivered.filter((d) => d.id === "evt_bad")).toHaveLength(5);
+    expect(h.delivered.filter((d) => d.id === "evt_ok")).toHaveLength(1);
+    expect(stats).toMatchObject({ gaveUp: 1, serverErrors: 5 });
+  });
+
   it("a 4xx is counted and not retried", async () => {
     const h = harness(() => [event("evt_1", 1001)], () => 400);
     const stats = await h.run();

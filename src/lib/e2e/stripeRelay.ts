@@ -21,8 +21,7 @@ export type RelayEvent = { id: string; type: string; created: number; account?: 
 
 /**
  * The exact body that is delivered for an event. Deterministic for a given event and account, so a second delivery of the same
- * event is byte-identical (the app's claim keys on the event id and stores a payload hash; a different body for the same id
- * would be a different test).
+ * event is byte-identical (the app's claim keys on the event id alone, so any re-delivery is acknowledged as already processed; byte-identity just keeps a replay a faithful copy).
  */
 export function buildDeliveryBody(event: RelayEvent, account: string): string {
   return JSON.stringify({ ...event, account: event.account ?? account });
@@ -66,7 +65,7 @@ export async function deliverEvent(input: {
 }
 
 export type RelayStats = {
-  polls: number; listed: number; delivered: number; okResponses: number; clientErrors: number; serverErrors: number; paused: number; retried: number; stoppedBy: "maxPolls" | "signal";
+  polls: number; listed: number; delivered: number; okResponses: number; clientErrors: number; serverErrors: number; paused: number; retried: number; gaveUp: number; stoppedBy: "maxPolls" | "signal";
 };
 
 export type RelayDeps = {
@@ -91,7 +90,16 @@ export async function runRelay(input: {
 }): Promise<RelayStats> {
   const { deps } = input;
   const seen = new Set<string>();
-  const stats: RelayStats = { polls: 0, listed: 0, delivered: 0, okResponses: 0, clientErrors: 0, serverErrors: 0, paused: 0, retried: 0, stoppedBy: "maxPolls" };
+  const attempts = new Map<string, number>();
+  // A poison event must not stall every later event for the rest of the run: after this many failed deliveries it is given up on, counted and logged (the test that needed it fails on its own evidence).
+  const maxAttemptsPerEvent = 5;
+  const failed = (event: RelayEvent) => {
+    const n = (attempts.get(event.id) ?? 0) + 1;
+    attempts.set(event.id, n);
+    stats.retried += 1;
+    if (n >= maxAttemptsPerEvent) { seen.add(event.id); stats.gaveUp += 1; deps.log(`relay: giving up on ${event.type} ${event.id} after ${n} failed deliveries`); }
+  };
+  const stats: RelayStats = { polls: 0, listed: 0, delivered: 0, okResponses: 0, clientErrors: 0, serverErrors: 0, paused: 0, retried: 0, gaveUp: 0, stoppedBy: "maxPolls" };
   // Stripe's `created` has one-second resolution and delivery is not instantaneous: look back a little, `seen` removes duplicates.
   const lookbackSeconds = 30;
   let newestSeen = input.startedAtSeconds;
@@ -113,11 +121,11 @@ export async function runRelay(input: {
         result = await deliverEvent({ url: input.url, secret: input.secret, event, account: input.account, post: deps.post, nowSeconds: deps.nowSeconds });
       } catch (error) {
         deps.log(`relay: delivery of ${event.type} failed (${error instanceof Error ? error.message.slice(0, 120) : "error"}); will retry`);
-        stats.retried += 1;
+        failed(event);
         break;
       }
       stats.delivered += 1;
-      if (result.status >= 500) { stats.serverErrors += 1; stats.retried += 1; deps.log(`relay: ${event.type} ${event.id} -> ${result.status} (will retry)`); break; }
+      if (result.status >= 500) { stats.serverErrors += 1; failed(event); deps.log(`relay: ${event.type} ${event.id} -> ${result.status} (will retry)`); break; }
       seen.add(event.id);
       if (event.created > newestSeen) newestSeen = event.created;
       if (result.status >= 400) { stats.clientErrors += 1; deps.log(`relay: ${event.type} ${event.id} -> ${result.status}`); } else stats.okResponses += 1;

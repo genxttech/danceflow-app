@@ -149,6 +149,7 @@ test.describe("Stripe failure handling and settlement integrity", () => {
     // The buyer retries with a good card on the same session and it settles once.
     const paid = await payCheckoutSession(stripe, ACCOUNT, sessionId);
     expect([paid.status, paid.payment_status]).toEqual(["complete", "paid"]);
+    // ASSUMPTION: a declined first attempt leaves the session payable (Stripe keeps a Checkout Session open after a card decline).
     await expect.poll(async () => (await orderFor(sessionId))?.payment_status, { timeout: 90_000, intervals: [1_000] }).toBe("paid");
     const settled = await orderFor(sessionId);
     expect(await countPaid(settled!.id as string)).toBe(1);
@@ -159,6 +160,7 @@ test.describe("Stripe failure handling and settlement integrity", () => {
 
   test("F2 abandoned checkout: an expired session releases the pending registration and never confirms an entry", async ({ browser }) => {
     const { sessionId } = await startCheckout(browser, "expire", [{ leader: { firstName: "Gus", lastName: "Abandon" }, follower: { firstName: "Hana", lastName: "Expire" } }]);
+    // ASSUMPTION: the order and the cart already exist (linked to the session) while the session is open, before any webhook.
     const before = await readCompetitionRegistrations(config, event.id);
     const orderBefore = before.orders.find((order) => order.stripe_checkout_session_id === sessionId);
     const cartBefore = before.carts.find((cart) => cart.order_id === orderBefore?.id);
@@ -185,6 +187,7 @@ test.describe("Stripe failure handling and settlement integrity", () => {
     expect(firstPaid, "F1 must have produced a paid order").toBeTruthy();
     const completed = (await eventsMentioning(firstPaid!.startedAt, [firstPaid!.sessionId])).filter((item) => item.type === "checkout.session.completed");
     expect(completed.length, "Stripe holds the checkout.session.completed event for the paid session").toBeGreaterThan(0);
+    // The app's claim keys on the event id, so this holds whether the original delivery came from the relay or from `stripe listen`.
     const target = completed[0];
     const before = await readOrderMoney(config, event.id, firstPaid!.orderId);
 

@@ -5,6 +5,7 @@
  * Reads the connected account's events with the TEST key and POSTs each, signed with the local connect secret, to the local app's
  * webhook route. Run it next to the app for the duration of the acceptance run; stop it with SIGTERM.
  *
+ * Note: while the pause file exists the loop idles without spending polls, so the job timeout (not CF1_RELAY_MAX_POLLS) bounds a stuck pause; the spec removes the file in finally/afterAll.
  * Environment (nothing is logged or written except counters):
  *   E2E_STRIPE_TEST_SECRET_KEY         sk_test_/rk_test_ (the same key the harness uses)
  *   E2E_STRIPE_TEST_CONNECTED_ACCOUNT  acct_...
