@@ -54,6 +54,11 @@ const COPY: Record<StaffErrorKind, Copy> = {
     body: "This appointment is gone, moved, or is not yours to view.",
     testID: "error-not-found",
   },
+  rate_limited: {
+    title: "Too many requests",
+    body: "DanceFlow is getting a lot of requests from this device. Try again in a moment.",
+    testID: "error-rate-limited",
+  },
   unavailable: {
     title: "Temporarily unavailable",
     body: "DanceFlow could not load this right now. Check your connection and try again in a moment.",
