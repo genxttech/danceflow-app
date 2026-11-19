@@ -10,7 +10,7 @@ name: Competition Stripe TEST canary
 # Cost: about 12 TEST API requests, $0 (TEST mode, no real money), one $1 TEST charge left on the sandbox account.
 # Output: the job summary shows step names, the connected-account state and Stripe's error fields; never the key.
 #
-# STATUS: INERT until CF1_PINNED_COMMIT is real. Same environment, same approval, same MERGE ORDER rule as competition-stripe-test-acceptance.yml:
+# STATUS: the pin is real (PR 683 merge commit); the run still cannot start until the owner enters the sandbox key as the environment secret (the guard refuses an empty or non-TEST key) AND approves the deployment. Same environment, same approval, same MERGE ORDER rule as competition-stripe-test-acceptance.yml:
 # the environment `competition-stripe-test` (owner = only reviewer, admin bypass OFF, deployment branches = main only, secret entered LAST) must be correct
 # BEFORE this file is merged. Trigger: workflow_dispatch ONLY.
 run-name: Competition Stripe TEST canary @ ${{ github.sha }}
@@ -42,7 +42,7 @@ jobs:
       BASH_ENV: ""
       ENV: ""
       # The code under test: a full commit id on release/website-embeds that contains scripts/qa/cf1-stripe-guard.ts. The owner approves THIS value.
-      CF1_PINNED_COMMIT: "PLACEHOLDER_REPLACE_WITH_RELEASE_COMMIT_SHA"
+      CF1_PINNED_COMMIT: "799681ed5fec464c0a71b4a172c545a9bef249b0"
       CF1_RELEASE_BRANCH: "release/website-embeds"
       CF1_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
       E2E_STRIPE_TEST_CONNECTED_ACCOUNT: "acct_1UZibNRCFiaIzL1V"
