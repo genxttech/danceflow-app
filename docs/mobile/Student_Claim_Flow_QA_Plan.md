@@ -111,3 +111,23 @@ Stack: iso-qa main (scenarios.json synced in #639) + LAUNCH-SEC-1C-A, 2027022109
 Case results on the final function: 1 Dana sees QA-DANA-0001 and QA-CLAIM-0001, not QA-CLAIM-0002 (studio-sold): PASS. 1b studio-sold (663) and NULL-source (667) unclaimed: PASS. 2-4 gift, owned-by-Evan, nobody-owned untouched: PASS. 5 Evan: PASS. 6 exactly one call per app run (Dana first run, Evan, Dana cold restart): PASS via the counter. 7 idempotent: PASS. 8 unbound claims nothing: PASS. 9 function missing: PASS (no error text; retry count not measurable without the function). 9b function raises: PASS (no error text, exactly 1 attempt). 10 offline: PASS (tickets kept, no claim text). 11 accessibility: PASS (a11y-audit over the claim-visual trees at 1.0/2.0 light/dark: 0 unnamed controls, 0 small targets, 0 repeated labels in every row). Must-not-change tables unchanged at every step.
 
 Not covered (still UNVERIFIED): registration_source values import, organizer_portal and other on device (covered by the SQL tests of 627, not by this harness); updated_at on claimed rows; production behaviour.
+
+## Update 2026-11-18: column-restricted dancer read (PR 647) — harness changed, NOT YET RUN
+
+The retired CONCURRENTLY index file `20270221091000_event_registrations_unclaimed_email_index_concurrent` is replaced by the plain `20270222091000_event_registrations_unclaimed_email_index`. `run.mjs --claim` now applies, from git, the function `20270221090000`, the exclusion `20270222090000`, the plain index `20270222091000` and the dancer views `20270222092000` (the last two from the PR 647 ref: `--views-ref <ref>`, default `origin/main` then the 647 branch); `--cutover` also applies `20270222093000`. The Wallet now reads `my_event_registrations` and `my_event_registration_attendees` (see `Student_Dancer_Views_Cutover_Note.md`). Result 2 above was run before this change (base tables, retired index) and is historical.
+To run when the slot and 647 allow (BLOCKED until then, not PASSED): `--claim --api-check`, device `--claim`, `--claim-visual`, each once without and once with `--cutover`; expect the same 28/28 and 36/36, with tickets read through the views and the embeds (`events`, `event_ticket_types`) intact.
+
+## Result 3 (2026-11-18): dancer views and cutover (PR 647 merged, main 487257e6d; Student build from draft PR 649 head 9141ca5d4), evidence C:\dfr-out\qa-views
+
+Disposable stacks from main refs only: main scenario + claim chain + `20270222091000` index + `20270222092000` views, second pass also `20270222093000` cutover. APK built from the 649 head (wallet reads `my_event_registrations` / `my_event_registration_attendees`), baked-config and Wi-Fi/steady-reachability preflight PASS on every run.
+
+| Run | Result |
+|---|---|
+| `--events --cutover` matrix (wallet, tickets, event detail, availability line "3 admission spots left", 1.0/2.0 x light/dark) | **29/29 PASS** with the cutover applied |
+| `--claim --api-check` with views | **16/16 PASS**: Dana's views return exactly her own rows (661, 662) and tickets (QA-CLAIM-0001, QA-DANA-0001); no studio-sold 663, NULL-source 667, gift 664, Evan's 665, nobody's 666; safe columns only (no client_id, notes, stripe ids, registration_source, order_id, ticket_token, checked_in_by); embeds `events(...)` and `event_ticket_types(...)` work through the view; base tables still return her own rows (Gate 1 breaks installed builds on nothing) |
+| `--claim --api-check --cutover` | **17/17 PASS**: same view results; direct reads of `event_registrations` and `event_registration_attendees` return nothing for a dancer; the attendee self-insert is refused |
+| device `--claim` with views | **33/33 PASS** |
+| device `--claim --cutover` (new build) | **33/33 PASS** (an earlier attempt failed at `adb install`, "Broken pipe" from the package service right after boot, not the app; evidence kept as `device-cutover-install-failed`) |
+| device `--claim --cutover` with the OLD build (main 39fdcde71, base-table reads) | **27/33, the 6 failures are the expected compatibility proof**: sign-in, claim (ownership still updated: 662 Dana), isolation and must-not-change cases pass, but the tickets screen shows NO ticket codes for Dana (cases 1, 5, 7, 10, 9b, 9) |
+
+UNVERIFIED / not run: `--claim-visual` with views; the `import`, `organizer_portal` and `other` sources on device (SQL tests of 627); production behaviour.

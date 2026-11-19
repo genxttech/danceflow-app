@@ -37,6 +37,8 @@ const cfg = {
   claimVisual: flag("claim-visual"), // implies --claim: the claim flow (create-password routing, Wallet, tickets) at font 1.0/2.0 x light/dark
   claim: flag("claim") || flag("claim-visual"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
   events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
+  viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
+  cutover: flag("cutover"), // with --claim: also apply the dancer cutover (drop the direct dancer read policies), as after Gate 2
   noTeardown: flag("keep"), // debugging only
   email: "dana.dancer@example.test",
   email2: "evan.other@example.test",
@@ -80,6 +82,20 @@ function psql(sqlFile, vars = []) {
   if (r.status !== 0) throw new Error(`psql failed: ${(r.stderr || r.stdout).slice(0, 400)}`);
 }
 
+// A migration file read from git (never the working tree): the first ref that has it.
+function migrationFromGit(file) {
+  for (const ref of [cfg.viewsRef, "origin/main", "origin/claude/claim-column-restricted-read"].filter(Boolean)) {
+    const r = run("git", ["-C", repoRoot, "show", `${ref}:src/lib/supabase/migrations/${file}`]);
+    if (r.status === 0 && r.stdout) { log(`applying ${file} from ${ref}`); return r.stdout; }
+  }
+  throw new Error(`migration ${file} not found at any ref (try --views-ref <ref>)`);
+}
+
+function psqlText(sql, what) {
+  const r = run("docker", ["exec", "-i", `df-isoqa-${cfg.name}-db`, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], { input: sql });
+  if (r.status !== 0) throw new Error(`psql failed for ${what}: ${(r.stderr || r.stdout).slice(0, 400)}`);
+}
+
 async function stackUp() {
   log("starting the local stack (about 5 minutes)");
   const r = run("node", [join(repoRoot, "scripts", "qa", "iso-qa.mjs"), "up", "main", "--name", cfg.name, "--auth"], { cwd: repoRoot });
@@ -96,15 +112,24 @@ async function stackUp() {
     // LAUNCH-SEC-1C-A (verified-email proof) is listed as unreplayable in the baseline (it needs the GoTrue auth.users columns), so it is
     // applied here, after --auth, exactly like the 604 SQL run: it provides my_verified_email(), which the 604 function calls.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20261008090000_launchsec1ca_verified_email_proof.sql"));
-    // PR 604: the function, then the index (a separate non-transactional file). Disposable stack only, never hosted.
+    // PR 604: the function. Disposable stack only, never hosted.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221090000_event_registration_claim_function.sql"));
-    psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"));
     // PR 627: the FINAL function (allowlist: only registration_source public_event_page claims; admin, NULL and unknown sources never do). Replaces the 604 body.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270222090000_event_registration_claim_buyer_sources_only.sql"));
+    // PR 647: the plain transactional index (replaces the retired CONCURRENTLY file 20270221091000) and the dancer views my_event_registrations /
+    // my_event_registration_attendees. Taken from a git ref (--views-ref, then origin/main, then the 647 branch) because they may not be on main yet.
+    // The cutover (--cutover) also drops the direct dancer read policies, so the app can only read through the views, as after Gate 2.
+    for (const file of ["20270222091000_event_registrations_unclaimed_email_index.sql", "20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) {
+      psqlText(migrationFromGit(file), file);
+    }
     // Call counter (case 6): the real function is renamed and a thin wrapper with the SAME name, signature and grants is put in front of it.
     // The wrapper records one row per call (who called, when) and then runs the real body unchanged. PostgREST, pg_stat_user_functions and
     // statement logging gave no usable count on this stack; a row written by the call itself cannot be missed. Disposable stack only.
     psql(join(here, "claim-call-counter.sql"));
+  }
+  if (!cfg.claim && (cfg.cutover || flag("views"))) {
+    // The screen matrix (--events) with the dancer views (and, with --cutover, the direct dancer read policies dropped): the Wallet must still show the tickets.
+    for (const file of ["20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) psqlText(migrationFromGit(file), file);
   }
   return { anon, service };
 }
@@ -476,6 +501,43 @@ async function claimScenario(link) {
 
 
 // ---- --claim --api-check: the same ownership cases over HTTP with real user tokens (no device) ----
+// The dancer views (PR 647) over PostgREST with Dana's user JWT: only her own rows and the safe columns, embeds work, studio-sold and NULL-source rows are absent,
+// and (with --cutover) the base tables return nothing and the attendee self-insert is refused.
+const REG_VIEW_COLS = ["id", "event_id", "ticket_type_id", "studio_id", "user_id", "status", "payment_status", "attendee_first_name", "attendee_last_name", "attendee_email", "attendee_phone", "quantity", "unit_price", "total_price", "total_amount", "currency", "checked_in_at", "cancelled_at", "created_at", "updated_at"];
+const ATT_VIEW_COLS = ["id", "registration_id", "event_id", "ticket_type_id", "first_name", "last_name", "email", "phone", "attendee_role", "sort_order", "waiver_signed_at", "checked_in_at", "ticket_code", "ticket_issued_at", "created_at"];
+async function viewsApiChecks(base, anon, token) {
+  const get = async (path) => {
+    const r = await fetch(`${base}/rest/v1/${path}`, { headers: { apikey: anon, authorization: `Bearer ${token}` } });
+    let body = null;
+    try { body = await r.json(); } catch { /* not json */ }
+    return { status: r.status, body };
+  };
+  const tag = cfg.cutover ? "views+cutover" : "views";
+  const regs = await get("my_event_registrations?select=*&order=id");
+  const regIds = Array.isArray(regs.body) ? regs.body.map((r) => r.id) : [];
+  const regCols = new Set(Array.isArray(regs.body) ? regs.body.flatMap((r) => Object.keys(r)) : []);
+  record(`api ${tag}: my_event_registrations returns exactly Dana's own rows (661 bought in the app, 662 claimed web cart); no studio-sold (663), NULL-source (667), gift (664), Evan's (665) or nobody's (666)`, regs.status === 200 && same(regIds.map((i) => i.slice(-3)), ["661", "662"]), `status ${regs.status} ids ${regIds.map((i) => i.slice(-3)).join(",")}`);
+  record(`api ${tag}: my_event_registrations exposes only the safe columns (no client_id, notes, stripe ids, registration_source, order_id, portal_user_id)`, regs.status === 200 && [...regCols].every((c) => REG_VIEW_COLS.includes(c)), `extra: ${[...regCols].filter((c) => !REG_VIEW_COLS.includes(c)).join(",") || "none"}`);
+  const embed = await get("my_event_registrations?select=id,events(name,slug),event_ticket_types(attendees_per_ticket)");
+  const row = Array.isArray(embed.body) ? embed.body[0] : null;
+  record(`api ${tag}: embeds events(...) and event_ticket_types(...) work through the view`, embed.status === 200 && !!row && !!row.events && !!row.event_ticket_types, `status ${embed.status} ${JSON.stringify(row).slice(0, 160)}`);
+  const atts = await get("my_event_registration_attendees?select=*&order=ticket_code");
+  const codes = Array.isArray(atts.body) ? atts.body.map((a) => a.ticket_code).filter(Boolean).sort() : [];
+  const attCols = new Set(Array.isArray(atts.body) ? atts.body.flatMap((a) => Object.keys(a)) : []);
+  record(`api ${tag}: my_event_registration_attendees returns exactly Dana's tickets (QA-CLAIM-0001, QA-DANA-0001)`, atts.status === 200 && same(codes, ["QA-CLAIM-0001", "QA-DANA-0001"]), `status ${atts.status} codes ${codes.join(",")}`);
+  record(`api ${tag}: attendee view has no ticket_token or checked_in_by`, atts.status === 200 && [...attCols].every((c) => ATT_VIEW_COLS.includes(c)), `extra: ${[...attCols].filter((c) => !ATT_VIEW_COLS.includes(c)).join(",") || "none"}`);
+  const baseRegs = await get("event_registrations?select=id");
+  const baseAtts = await get("event_registration_attendees?select=id");
+  const baseN = (r) => (Array.isArray(r.body) ? r.body.length : -1);
+  if (cfg.cutover) {
+    record("api cutover: direct reads of event_registrations and event_registration_attendees return nothing for a dancer", baseRegs.status === 200 && baseN(baseRegs) === 0 && baseAtts.status === 200 && baseN(baseAtts) === 0, `regs ${baseN(baseRegs)} attendees ${baseN(baseAtts)}`);
+    const forge = await fetch(`${base}/rest/v1/event_registration_attendees`, { method: "POST", headers: { apikey: anon, authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ registration_id: regIds[0], first_name: "Forged", last_name: "Ticket", ticket_code: "QA-FORGED-0001" }) });
+    record("api cutover: a dancer can no longer insert an attendee row (self-insert policy removed)", forge.status >= 400, `status ${forge.status}`);
+  } else {
+    record("api Gate 1 (views only): the base tables still return Dana's own rows, so installed builds keep working until the cutover", baseRegs.status === 200 && baseN(baseRegs) >= 1 && baseAtts.status === 200 && baseN(baseAtts) >= 1, `regs ${baseN(baseRegs)} attendees ${baseN(baseAtts)}`);
+  }
+}
+
 async function claimApiCheck(link, service, anon) {
   const base = `http://127.0.0.1:${cfg.kong}`;
   const snapBase = snapshot();
@@ -511,6 +573,7 @@ async function claimApiCheck(link, service, anon) {
   tablesSame("after Dana");
   const r2 = await rpc(danaTok);
   record("api case 7: second call returns 0 and changes nothing", r2.status === 200 && r2.body.trim() === "0" && eq(owners(), { 662: "Dana", 663: "unclaimed", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }), `status ${r2.status} body ${r2.body}`);
+  await viewsApiChecks(base, anon, danaTok);
   const evanTok = await tokenFor(cfg.email2);
   const r3 = await rpc(evanTok);
   record("api case 5: Evan returns 1 (the gift c3 he bought); Dana's rows stay Dana's", r3.status === 200 && r3.body.trim() === "1" && eq(owners(), { 662: "Dana", 663: "unclaimed", 664: "Evan", 665: "Evan", 666: "unclaimed" }), `status ${r3.status} body ${r3.body}`);
