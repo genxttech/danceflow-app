@@ -32,12 +32,15 @@ export function eventIsPubliclyListed(event: { status?: string | null; visibilit
 
 async function pageAll<T>(fetchPage: (from: number, to: number) => PromiseLike<PageResult<T>>): Promise<T[]> {
   const out: T[] = [];
-  for (let from = 0; ; from += PAGE) {
+  // Advance by the rows actually returned and stop only on an empty page: if the API layer caps a response below PAGE (PostgREST max-rows),
+  // a short page is not the last page, and stepping by PAGE would skip rows and under-count (overstating spots left).
+  for (let from = 0; ; ) {
     const { data, error } = await fetchPage(from, from + PAGE - 1);
     if (error) throw new Error(error.message);
     const rows = data ?? [];
+    if (!rows.length) return out;
     out.push(...rows);
-    if (rows.length < PAGE) return out;
+    from += rows.length;
   }
 }
 
