@@ -10,6 +10,7 @@ import {
   isWorkspaceAccessAllowedStatus,
 } from "@/lib/auth/studio";
 import { isPlatformAdmin } from "@/lib/auth/permissions";
+import { checkRateLimit, getIpFromRequest, rateLimitKey } from "@/lib/security/rate-limit";
 import { getDanceFlowAccountStatus } from "@/lib/student-identity/account-security";
 
 /**
@@ -32,12 +33,22 @@ export type StaffApiErrorCode =
   | "role_not_permitted"
   | "not_found"
   | "not_markable"
+  | "rate_limited"
   | "service_unavailable";
 
 const STAFF_API_HEADERS = { "Cache-Control": "private, no-store" };
 
-export function staffApiError(code: StaffApiErrorCode, message: string, status: number) {
-  return NextResponse.json({ error: message, code }, { status, headers: STAFF_API_HEADERS });
+export function staffApiError(code: StaffApiErrorCode, message: string, status: number, extraHeaders: Record<string, string> = {}) {
+  return NextResponse.json({ error: message, code }, { status, headers: { ...STAFF_API_HEADERS, ...extraHeaders } });
+}
+
+// Generous on purpose (the app makes a handful of calls per screen): the limits stop a loop or a stolen token from driving the ~6 sequential round trips each request costs,
+// not normal use. In memory per server instance, like the other public routes (src/lib/security/rate-limit.ts).
+export const STAFF_API_IP_LIMIT = { limit: 600, windowMs: 60_000 };
+export const STAFF_API_USER_LIMIT = { limit: 240, windowMs: 60_000 };
+
+function staffApiRateLimited(result: ReturnType<typeof checkRateLimit>) {
+  return staffApiError("rate_limited", "Too many requests. Try again in a moment.", 429, result.headers);
 }
 
 export function staffApiJson(body: unknown) {
@@ -86,6 +97,10 @@ function isTransientAuthFailure(error: { status?: number; name?: string }) {
 }
 
 async function resolveStaffUser(request: Request): Promise<GuardFailure | ({ ok: true } & StaffApiUser)> {
+  const ip = getIpFromRequest(request);
+  const ipLimit = checkRateLimit(rateLimitKey("staff-api", "ip", ip), STAFF_API_IP_LIMIT);
+  if (!ipLimit.allowed) return { ok: false, response: staffApiRateLimited(ipLimit) };
+
   const token = extractAuthorizationBearerToken(request);
   if (!token) {
     return { ok: false, response: staffApiError("unauthenticated", "Authentication required.", 401) };
@@ -108,6 +123,9 @@ async function resolveStaffUser(request: Request): Promise<GuardFailure | ({ ok:
     ok: false as const,
     response: staffApiError("account_inactive", "This account is not active.", 403),
   });
+
+  const userLimit = checkRateLimit(rateLimitKey("staff-api", "user", user.id), STAFF_API_USER_LIMIT);
+  if (!userLimit.allowed) return { ok: false, response: staffApiRateLimited(userLimit) };
 
   if (isBanned(user)) return inactive();
 
