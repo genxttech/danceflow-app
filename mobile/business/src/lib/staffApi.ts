@@ -121,6 +121,8 @@ export type StaffApiErrorCode =
   | "service_unavailable"
   /** 409: the record is not in a state that allows this write (e.g. a cancelled class, or outside the marking window). */
   | "not_markable"
+  /** 429: the server's per-device or per-account limit; `Retry-After` says when to try again. The request was refused before any work, so nothing was applied. */
+  | "rate_limited"
   /** Client-side: no response at all (offline, DNS, TLS). */
   | "network_error"
   /** Client-side: a response that is not the contract's JSON. */
@@ -131,6 +133,8 @@ export class StaffApiError extends Error {
     readonly status: number,
     readonly code: StaffApiErrorCode,
     message: string,
+    /** Seconds from a 429's Retry-After header, when it sent a usable one. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "StaffApiError";
@@ -147,6 +151,7 @@ export type StaffErrorKind =
   | "not_permitted"
   | "not_found"
   | "not_markable"
+  | "rate_limited"
   | "unavailable"
   | "client_bug";
 
@@ -161,6 +166,7 @@ const KNOWN_CODES: readonly StaffApiErrorCode[] = [
   "not_found",
   "service_unavailable",
   "not_markable",
+  "rate_limited",
 ];
 
 /** The server's `code` decides; the status is only a fallback for a body without one. */
@@ -173,6 +179,7 @@ function codeFor(status: number, raw: unknown): StaffApiErrorCode {
   if (status === 400) return "invalid_request";
   if (status === 403) return "not_a_member";
   if (status === 409) return "not_markable";
+  if (status === 429) return "rate_limited";
   if (status >= 500) return "service_unavailable";
   return "unexpected_response";
 }
@@ -213,6 +220,8 @@ export function staffErrorKind(error: unknown): StaffErrorKind {
       return "not_found";
     case "not_markable":
       return "not_markable";
+    case "rate_limited":
+      return "rate_limited";
     case "invalid_request":
       return "client_bug";
     case "service_unavailable":
@@ -230,7 +239,21 @@ export type StaffApiOptions = {
   /** Refreshes the session and returns the new access token, or null if it cannot. */
   refreshAccessToken: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
+  /** Waits between a 429 and its one automatic retry. Injected so tests do not sleep. */
+  sleepImpl?: (ms: number) => Promise<void>;
 };
+
+/** A 429 whose Retry-After is this short or shorter is waited out once, for a read. Anything longer is shown to the person instead of stalling a screen. */
+export const MAX_AUTO_RETRY_AFTER_SECONDS = 5;
+/** The longest Retry-After the client will report back, so a bad header cannot promise an hour. */
+const MAX_REPORTED_RETRY_AFTER_SECONDS = 120;
+
+/** Retry-After as whole seconds (the server sends delta-seconds), or undefined when absent or unusable. */
+export function parseRetryAfterSeconds(value: string | null | undefined): number | undefined {
+  if (!value || !/^\d{1,6}$/.test(value.trim())) return undefined;
+  const seconds = Number(value.trim());
+  return seconds > 0 ? Math.min(seconds, MAX_REPORTED_RETRY_AFTER_SECONDS) : undefined;
+}
 
 /*
   SLICE 2 (client lookup and attendance), final contract: docs/mobile/Staff_API_Contract.md on claude/staff-api-slice2
@@ -431,6 +454,7 @@ type RequestOptions = { method?: "GET" | "PUT"; body?: unknown; headers?: Record
 export function createStaffApi(options: StaffApiOptions): StaffApi {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const doFetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
+  const sleep = options.sleepImpl ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   async function send(path: string, token: string, request: RequestOptions) {
     try {
@@ -455,11 +479,25 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     if (!token) throw new StaffApiError(401, "unauthenticated", "Sign in to continue.");
 
     let response = await send(path, token, request);
+    let refreshed: string | null = null;
 
     if (response.status === 401) {
-      const refreshed = await options.refreshAccessToken().catch(() => null);
+      refreshed = await options.refreshAccessToken().catch(() => null);
       if (!refreshed) throw new StaffApiError(401, "unauthenticated", "Sign in to continue.");
       response = await send(path, refreshed, request);
+    }
+
+    let retryAfterSeconds: number | undefined;
+    if (response.status === 429) {
+      retryAfterSeconds = parseRetryAfterSeconds(response.headers?.get?.("Retry-After"));
+      // A 429 is refused before any work, so resending is safe. Only a read waits and retries on its own, once, and only for a short wait:
+      // a write (a row that is saving) is left to the person's next tap, which keeps one mark = one action.
+      const isRead = (request.method ?? "GET") === "GET";
+      if (isRead && retryAfterSeconds !== undefined && retryAfterSeconds <= MAX_AUTO_RETRY_AFTER_SECONDS) {
+        await sleep(retryAfterSeconds * 1000);
+        response = await send(path, refreshed ?? token, request);
+        if (response.status === 429) retryAfterSeconds = parseRetryAfterSeconds(response.headers?.get?.("Retry-After"));
+      }
     }
 
     let body: unknown = null;
@@ -471,7 +509,7 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
 
     if (!response.ok) {
       const { code, message } = readErrorBody(body);
-      throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.");
+      throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.", retryAfterSeconds);
     }
 
     if (body === null || typeof body !== "object") {

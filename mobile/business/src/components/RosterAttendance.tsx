@@ -47,6 +47,8 @@ function saveErrorText(error: unknown) {
       return "Not saved. This dancer is no longer on the roster.";
     case "not_markable":
       return "Not saved. This class can't be marked right now (cancelled, or outside the marking window).";
+    case "rate_limited":
+      return "Not saved. Too many requests. Try again in a moment.";
     default:
       return "Not saved. Check your connection and try again.";
   }
