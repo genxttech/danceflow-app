@@ -7,20 +7,16 @@
 // <vercel-files.json> is the body of GET https://api.vercel.com/v6/deployments/<dpl_id>/files?teamId=<team> saved to disk by the operator who holds
 // the Vercel credential (this script never reads a token and never touches the network). Entries are nested {name, type, uid, children}; a file's
 // uid is the sha1 of its raw content, which is NOT the git blob id (git hashes "blob <size>\0" + content), so this script re-hashes every git blob.
+// The real response wraps the source in one root directory ("src") and has a top-level build-output directory ("out"); both are handled.
 // Expected result: identical except that .gitignore files are absent from the deployment (the Vercel CLI skips them). Anything else exits 1.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-
-const [ref, second] = process.argv.slice(2);
-if (!ref || !second) {
-  console.error("usage: web-r1-tree-identity.mjs <git-ref> <vercel-files.json | --selftest>");
-  process.exit(2);
-}
+import { pathToFileURL } from "node:url";
 
 const sha1 = (buf) => createHash("sha1").update(buf).digest("hex");
 
-function gitTree(r) {
+export function gitTree(r) {
   const out = execFileSync("git", ["ls-tree", "-r", "-z", "--full-tree", r], { maxBuffer: 1 << 28 }).toString("utf8");
   const files = [];
   const skipped = [];
@@ -58,7 +54,7 @@ function flattenVercel(nodes, prefix = "", into = new Map()) {
   return into;
 }
 
-function syntheticTree(map) {
+export function syntheticTree(map) {
   const root = [];
   for (const [p, uid] of map) {
     if (p === ".gitignore" || p.endsWith("/.gitignore")) continue;
@@ -74,29 +70,46 @@ function syntheticTree(map) {
   return root;
 }
 
-const { map: gitMap, skipped } = gitTree(ref);
-const treeJson = second === "--selftest" ? syntheticTree(gitMap) : JSON.parse(readFileSync(second, "utf8"));
-const vercel = flattenVercel(Array.isArray(treeJson) ? treeJson : (treeJson.files ?? treeJson.tree ?? []));
-
-const missing = [];
-const mismatched = [];
-for (const [p, h] of gitMap) {
-  if (!vercel.has(p)) missing.push(p);
-  else if (vercel.get(p) !== h) mismatched.push(p);
+export function compareTrees(gitMap, treeJson) {
+  const nodes = Array.isArray(treeJson) ? treeJson : (treeJson.files ?? treeJson.tree ?? []);
+  // The real API response has a build-output directory "out" at the top level (not source) and wraps the source in a root directory ("src").
+  const gitHasOut = [...gitMap.keys()].some((p) => p.startsWith("out/"));
+  const top = nodes.filter((n) => gitHasOut || !(n.type === "directory" && n.name === "out"));
+  const raw = flattenVercel(top);
+  let vercel = raw;
+  let unwrapped = null;
+  const dirs = top.filter((n) => n.type === "directory");
+  if (top.length === 1 && dirs.length === 1) {
+    const inner = flattenVercel(dirs[0].children ?? []);
+    const hits = (m) => [...gitMap.keys()].filter((p) => m.has(p)).length;
+    // Unwrap a single root directory only when that matches the git tree better than the raw paths do.
+    if (hits(inner) > hits(raw)) {
+      vercel = inner;
+      unwrapped = dirs[0].name;
+    }
+  }
+  const missing = [];
+  const mismatched = [];
+  for (const [p, h] of gitMap) {
+    if (!vercel.has(p)) missing.push(p);
+    else if (vercel.get(p) !== h) mismatched.push(p);
+  }
+  const extra = [...vercel.keys()].filter((p) => !gitMap.has(p));
+  const unexpectedMissing = missing.filter((p) => p !== ".gitignore" && !p.endsWith("/.gitignore"));
+  const ok = unexpectedMissing.length === 0 && extra.length === 0 && mismatched.length === 0 && vercel.size > 0;
+  return { ok, unwrappedRootDirectory: unwrapped, gitFiles: gitMap.size, vercelFiles: vercel.size, missingFromDeployment: missing, extraInDeployment: extra, contentMismatch: mismatched };
 }
-const extra = [...vercel.keys()].filter((p) => !gitMap.has(p));
-const unexpectedMissing = missing.filter((p) => p !== ".gitignore" && !p.endsWith("/.gitignore"));
 
-console.log(JSON.stringify({
-  ref,
-  gitFiles: gitMap.size,
-  vercelFiles: vercel.size,
-  skippedNonBlobOrSymlink: skipped,
-  missingFromDeployment: missing,
-  extraInDeployment: extra,
-  contentMismatch: mismatched,
-}, null, 2));
-
-const ok = unexpectedMissing.length === 0 && extra.length === 0 && mismatched.length === 0 && vercel.size > 0;
-console.log(ok ? "TREE IDENTITY: PASS (only .gitignore files absent)" : "TREE IDENTITY: FAIL");
-process.exit(ok ? 0 : 1);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const [ref, second] = process.argv.slice(2);
+  if (!ref || !second) {
+    console.error("usage: web-r1-tree-identity.mjs <git-ref> <vercel-files.json | --selftest>");
+    process.exit(2);
+  }
+  const { map: gitMap, skipped } = gitTree(ref);
+  const treeJson = second === "--selftest" ? syntheticTree(gitMap) : JSON.parse(readFileSync(second, "utf8"));
+  const { ok, ...report } = compareTrees(gitMap, treeJson);
+  console.log(JSON.stringify({ ref, skippedNonBlobOrSymlink: skipped, ...report }, null, 2));
+  console.log(ok ? "TREE IDENTITY: PASS (only .gitignore files absent)" : "TREE IDENTITY: FAIL");
+  process.exit(ok ? 0 : 1);
+}
