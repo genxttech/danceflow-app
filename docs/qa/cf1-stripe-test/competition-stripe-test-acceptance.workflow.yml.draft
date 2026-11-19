@@ -33,7 +33,7 @@ jobs:
       # TEST ids (not credentials). The guard refuses PLACEHOLDER values.
       CF1_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
       CF1_EXPECT_CONNECTED_ACCT: "acct_1UZibNRCFiaIzL1V"
-      CF1_STRIPE_CALL_CAP: "600"
+      CF1_RELAY_MAX_POLLS: "1500"   # the relay's own request budget; there is no total Stripe call cap (see the package, section 2)
       # TODO pins reviewed under code-owner approval: package.json, package-lock.json, tsconfig.json, the e2e tree, the relay script, the evidence tooling.
       CF1_PIN_E2E_TREE: "TODO_PLACEHOLDER"
       CF1_PIN_PACKAGE_LOCK_SHA256: "TODO_PLACEHOLDER"
@@ -91,7 +91,7 @@ jobs:
           E2E_BASE_URL: http://localhost:3000
         run: |
           # TODO: NODE_OPTIONS heap 6 GB; next build && next start (not next dev); generate STRIPE_CONNECT_WEBHOOK_SECRET/STRIPE_WEBHOOK_SECRET per run (openssl rand);
-          # start scripts/qa/cf1-stripe-relay.ts (events.list on the connected account -> signed POST /api/payments/webhook; replay mode for duplicate/out-of-order tests; call cap CF1_STRIPE_CALL_CAP);
+          # start scripts/qa/cf1-stripe-relay.ts (events.list on the connected account -> signed POST /api/payments/webhook; replay mode for duplicate/out-of-order tests; poll budget CF1_RELAY_MAX_POLLS);
           # npx playwright test e2e/tests/competition-full-event.spec.ts e2e/tests/competition-stripe-failure-settlement.spec.ts --workers=1 (JSON reporter to a path OUTSIDE the checkout)
           echo "TODO"
 
