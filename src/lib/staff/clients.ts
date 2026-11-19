@@ -23,6 +23,10 @@ export type ClientListItem = { id: string; firstName: string; lastName: string; 
 
 type Cursor = { l: string; f: string; i: string };
 
+// A cursor is data a client sends back: its id must be a UUID and its names bounded, so a hand-made one is a 400, never a failing query (503).
+const MAX_CURSOR_NAME = 200;
+const CURSOR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function encodeCursor(item: { lastName: string; firstName: string; id: string }) {
   return Buffer.from(JSON.stringify({ l: item.lastName, f: item.firstName, i: item.id } satisfies Cursor)).toString("base64url");
 }
@@ -31,7 +35,14 @@ export function decodeCursor(value: string | null): Cursor | null | "invalid" {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<Cursor>;
-    if (typeof parsed.l === "string" && typeof parsed.f === "string" && typeof parsed.i === "string" && parsed.i.length <= 64) {
+    if (
+      typeof parsed.l === "string" &&
+      typeof parsed.f === "string" &&
+      typeof parsed.i === "string" &&
+      parsed.l.length <= MAX_CURSOR_NAME &&
+      parsed.f.length <= MAX_CURSOR_NAME &&
+      CURSOR_UUID.test(parsed.i)
+    ) {
       return { l: parsed.l, f: parsed.f, i: parsed.i };
     }
   } catch {

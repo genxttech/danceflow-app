@@ -62,6 +62,21 @@ async function displayNameFor(params: {
   return `${first ?? ""} ${last ?? ""}`.trim() || null;
 }
 
+/**
+ * The write has already committed when the name is looked up (database triggers such as the package credit deduction have run), so a failed lookup
+ * (for example the roster-names function missing on a database) must not turn a committed write into a 503: the name is simply null.
+ */
+async function displayNameForAfterWrite(params: Parameters<typeof displayNameFor>[0]) {
+  try {
+    return await displayNameFor(params);
+  } catch (failure) {
+    console.error("Staff API attendance name lookup failed after the write", {
+      message: failure instanceof Error ? failure.message : String(failure),
+    });
+    return null;
+  }
+}
+
 export async function markClassAttendance(params: {
   supabase: SupabaseClient;
   studioId: string;
@@ -124,6 +139,8 @@ export async function markClassAttendance(params: {
         // The same timestamps markClassAttendedAction / markClassNoShowAction set.
         checkedInAt: status === "attended" ? now : null,
         markedAttendedAt: status === "attended" ? now : null,
+        // Notes written on the web stay: this write changes the status and the timestamps only.
+        preserveNotes: true,
       });
     } catch (failure) {
       if (isCancelledClassAttendanceError(failure)) return { ok: false, reason: "not_markable" };
@@ -138,7 +155,7 @@ export async function markClassAttendance(params: {
     ok: true,
     attendee: {
       clientId,
-      displayName: await displayNameFor({ supabase, scope, studioId, appointmentId, clientId }),
+      displayName: await displayNameForAfterWrite({ supabase, scope, studioId, appointmentId, clientId }),
       status: current.status,
       updatedAt: toIsoUtc(current.updated_at),
     },
