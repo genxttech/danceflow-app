@@ -15,6 +15,19 @@ Marks: **V** = verified from code, a document or recorded run output (source cit
 
 **V: there is no server-side kill switch for the staff API.** No `process.env` read exists in `src/app/api/staff`, `src/lib/staff` or `src/lib/auth/staffApiAuth.ts` (grep, 2026-11-18). The only switches are in the app build (flags, section 4) and removing the app from testers. Server rollback is promoting the previous web deployment (section 8).
 
+## 1a. Gate G-B0: staff API on the live line (status 2026-11-19)
+
+| Item | Status |
+|---|---|
+| Live web line | `release/website-embeds` `ab9f3449` (R+1, `www` dpl_FZb1Jsjn..., live 2026-11-19T17:14:26Z). **V:** `GET /api/staff/me` on `www.idanceflow.com` returns an HTML 404 (2026-11-19; a control route that exists, `/api/student/events/<id>/availability`, answers JSON 401), so the staff API is **not live**. |
+| Backport | draft PR #673: one commit on `ab9f3449`, byte-identical to main `cb3a0311` for 30 files (8 routes, guard, libs, tests). Node 20 CI run 44593579060 (SHA-pinned workflow on `claude/ci-verify-staff3`, DO NOT MERGE): 623 files / 9951 tests passed, 0 failed (live base 9770 + the 181 staff tests). **Not merged, not promoted: G-B0 is OPEN.** |
+| Server limits | #674 (merged): 600/min per IP before the token is read, 240/min per user id after. 429 `{error, code: "rate_limited"}` with `Retry-After`. Per server instance, in memory. |
+| SQL | none for owner, admin and front desk. Instructors need the two Phase A files (`20260905160000`, `20260905160100`) and `20270214120000`; **they are not part of this release, so do not invite an instructor-role tester** (`Instructor_RPC_Gap_Impact.md`). |
+
+**App 429 handling (#679, merged):** a read that gets a 429 with `Retry-After` of 5 seconds or less waits and retries once; a longer wait is shown ("Too many requests", Try again); an attendance mark is never resent on its own ("Not saved. Too many requests. Try again in a moment."). A tester who sees this should wait, not retry in a loop; record it as a note, not a failure, unless it appears in normal use.
+
+**Owner checklist before the first internal-testing upload:** a Google Play developer account with the Business app created; `eas init` for the Business project (EAS project id) if EAS builds are used; `GOOGLE_SERVICES_JSON` (Firebase) only if push is wanted (push is out of scope for this test); the upload keystore and Play App Signing; the `danceflow-business://auth/callback` Auth allow-list entry; a real owner or front-desk test login; and the **instructor warning**: no instructor-role tester until the Phase A SQL is applied.
+
 ## 2. What a studio owner or instructor can do today
 
 "On" = the screen is in the default build (`mobile/business/src/lib/features.ts:18`, `ENABLED_BY_DEFAULT = ["clients", "attendance"]`). "Flag" = off unless `EXPO_PUBLIC_STAFF_FEATURES` names it at build time (`features.ts:7-17`). Roles served: studio owner, admin, front desk, instructor (`src/lib/navigation.ts`, `SERVED_ROLES`); independent instructors and organizer roles get "Not available for your role", platform admins "Use DanceFlow on the web" (`Business_Release_Readiness.md` section 3; `Staff_API_Contract.md` error table).
