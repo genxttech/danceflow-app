@@ -14,6 +14,7 @@ const T_PRIVATE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 
 const db: Record<string, Row[]> = {};
 let pageCalls = 0;
+let maxRows = Number.POSITIVE_INFINITY; // emulates an API-layer max-rows cap lower than the requested page
 
 // A small chainable fake covering exactly the query shapes the loader uses: select / eq / in / order / range / maybeSingle.
 function table(name: string) {
@@ -23,7 +24,7 @@ function table(name: string) {
   const run = () => {
     let rows = (db[name] ?? []).filter((r) => filters.every((f) => f(r)));
     if (orderCol) rows = [...rows].sort((a, b) => String(a[orderCol as string]).localeCompare(String(b[orderCol as string])));
-    if (range) { pageCalls += 1; rows = rows.slice(range[0], range[1] + 1); }
+    if (range) { pageCalls += 1; rows = rows.slice(range[0], Math.min(range[1] + 1, range[0] + maxRows)); }
     return rows;
   };
   const q: Record<string, unknown> = {
@@ -58,6 +59,7 @@ const past = new Date(Date.now() - 3600_000).toISOString();
 function seed() {
   for (const k of Object.keys(db)) delete db[k];
   pageCalls = 0;
+  maxRows = Number.POSITIVE_INFINITY;
   db.events = [
     { id: EVENT, status: "published", visibility: "public" },
     { id: EVENT_PRIVATE, status: "published", visibility: "private" },
@@ -162,5 +164,14 @@ describe("GET /api/student/events/[eventId]/availability", () => {
     const body = await (await call(EVENT)).json();
     expect(body.tickets.find((t: { ticketTypeId: string }) => t.ticketTypeId === T_PAIR)).toEqual({ ticketTypeId: T_PAIR, capacity: 5000, remaining: 5000 - 2300 * 2, soldOut: false });
     expect(pageCalls).toBeGreaterThanOrEqual(3);
+  });
+
+  it("still counts every registration when the API caps a response below the page size (max-rows 100, 250 rows)", async () => {
+    maxRows = 100;
+    const many = Array.from({ length: 250 }, (_, i) => ({ id: `c${String(i).padStart(5, "0")}`, ticket_type_id: T_PAIR, quantity: 1, status: "confirmed", payment_status: "paid", order_id: null }));
+    db.event_registrations = [...(db.event_registrations as Row[]).filter((r) => r.ticket_type_id !== T_PAIR), ...many];
+    db.event_ticket_types = (db.event_ticket_types as Row[]).map((t) => (t.id === T_PAIR ? { ...t, capacity: 1000 } : t));
+    const body = await (await call(EVENT)).json();
+    expect(body.tickets.find((x: { ticketTypeId: string }) => x.ticketTypeId === T_PAIR)).toEqual({ ticketTypeId: T_PAIR, capacity: 1000, remaining: 1000 - 250 * 2, soldOut: false });
   });
 });
