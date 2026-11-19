@@ -51,7 +51,7 @@ const JAVA_HOME = process.env.JAVA_HOME || (WIN ? "C:\\Android\\jdk-17" : "");
 const ADB = path.join(ANDROID_HOME, "platform-tools", WIN ? "adb.exe" : "adb");
 const EMULATOR = path.join(ANDROID_HOME, "emulator", WIN ? "emulator.exe" : "emulator");
 
-const state = { stack: null, seed: null, webProc: null, startedEmulator: false, installed: false, original: { font: "1.0", night: "no" }, results: [] };
+const state = { anrDismissed: 0, stack: null, seed: null, webProc: null, startedEmulator: false, installed: false, original: { font: "1.0", night: "no" }, results: [] };
 const log = (m) => console.log(`[smoke] ${m}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -64,12 +64,39 @@ const sh = (cmd) => adb("shell", cmd).stdout.replace(/\r/g, "").trim();
 const psql = (sql) => run("docker", ["exec", "-i", `df-isoqa-${opts.stackName}-db`, "psql", "-U", "postgres", "-At", "-q", "-v", "ON_ERROR_STOP=1", "-c", sql]);
 
 // ---------------------------------------------------------------- device helpers
+/** Host free RAM and the biggest process groups into <out>/host-memory-<tag>.txt: a System UI ANR on the emulator is classified against this (environmental vs harness). */
+function hostMemory(tag) {
+  const ps = "$os=Get-CimInstance Win32_OperatingSystem; 'Free {0:N1} GB of {1:N1} GB' -f ($os.FreePhysicalMemory/1MB),($os.TotalVisibleMemorySize/1MB); Get-Process | Group-Object Name | % { [pscustomobject]@{Name=$_.Name;N=$_.Count;MB=[int](($_.Group|Measure-Object WorkingSet64 -Sum).Sum/1MB)} } | Sort MB -Desc | Select -First 8 | Format-Table -Auto | Out-String";
+  try {
+    const r = WIN ? run("powershell", ["-NoProfile", "-Command", ps]) : run("sh", ["-c", "free -m; ps aux --sort=-rss | head -9"]);
+    const text = r.stdout.trim();
+    fs.writeFileSync(path.join(OUT, "host-memory-" + tag + ".txt"), text);
+    log("host memory (" + tag + "): " + text.split(String.fromCharCode(10))[0]);
+  } catch {
+    /* a record, never a failure */
+  }
+}
+/** What the system knows when "System UI isn't responding" shows: saved BEFORE the dialog is tapped, so it can be classified afterwards. Never hides the ANR. */
+function captureAnrDiag() {
+  state.anrDismissed++;
+  const parts = [
+    ["date", ["shell", "date"]],
+    ["loadavg", ["shell", "cat", "/proc/loadavg"]],
+    ["meminfo", ["shell", "head", "-n", "6", "/proc/meminfo"]],
+    ["top", ["shell", "top", "-n", "1", "-b", "-m", "12"]],
+    ["exit-info systemui", ["shell", "dumpsys", "activity", "exit-info", "com.android.systemui"]],
+    ["anr in logcat", ["shell", "logcat", "-d", "-b", "all", "-t", "400", "-v", "time", "ActivityManager:W", "*:S"]],
+  ];
+  const text = parts.map(([name, a]) => { const r = adb(...a); return "=== " + name + " ===" + String.fromCharCode(10) + r.stdout + (r.stderr ? String.fromCharCode(10) + r.stderr : ""); }).join(String.fromCharCode(10));
+  fs.writeFileSync(path.join(OUT, "systemui-anr-" + state.anrDismissed + "-diag.txt"), text);
+}
 function dump() {
   let nodes = lib.parseNodes(adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
   // A cold swiftshader emulator raises "System UI isn't responding" style dialogs that cover the app: tap Wait and look again.
   for (let i = 0; i < 3 && lib.hasLabel(nodes, /isn't responding|isn.t responding/i); i++) {
     const wait = lib.findNode(nodes, /^Wait$/);
     if (!wait) break;
+    captureAnrDiag();
     tapNode(wait);
     nodes = lib.parseNodes(adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
   }
@@ -597,7 +624,9 @@ async function teardown() {
     await startWeb();
     const apk = buildApk();
     checkBakedConfig(apk);
+    hostMemory("before-boot");
     await bootEmulator();
+    hostMemory("after-settle");
     await checkReachable();
     await flows(apk);
   } catch (error) {
@@ -613,6 +642,8 @@ async function teardown() {
       }
     }
   } finally {
+    if (state.anrDismissed) state.results.push(lib.makeResult("System UI ANR dialog (emulator environment, not the app) dismissed with Wait", true, state.anrDismissed + " time(s); see systemui-anr-*-diag.txt"));
+    hostMemory("end");
     await teardown();
   }
   const summary = lib.summarize(state.results);
