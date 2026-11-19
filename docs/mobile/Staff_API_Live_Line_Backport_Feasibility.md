@@ -83,7 +83,7 @@ On a scratch worktree of `origin/release/website-embeds` @ `6ba312957` (removed 
 | `is_own_instructor_appointment(uuid, uuid)` (used by the roster-names RPC) | present, security definer, executable by `authenticated`, not by `anon` |
 | **`get_class_roster_names_for_instructor(uuid)`** (SQL `20270214120000`) | **ABSENT**: needed for an **assigned instructor's** class detail and attendance; without it those requests return `503 service_unavailable` |
 | **`get_teaching_clients_for_instructor(...)`** (SQL `20260905160000_fc1b5d_teaching_client_access_rpc.sql`) | **ABSENT** on PROD (new finding): called by `src/lib/staff/instructorToday.ts` (instructor names on Today) and `src/lib/staff/clients.ts` (instructor "My clients", client summary), so for **instructors** these throw and the route answers 503. Owner, admin and front desk read `clients` directly (`loadStudioClientNames`, broad scope) and do not call it |
-| `clients` RLS | still the broad policy `studio staff manage clients` (`ALL`, roles `public`) plus two portal-user SELECT policies: FC-1B5D Phase B (`20260906090000`) is not applied, which is why owners and front desk can read client names through the bearer client |
+| `clients` RLS | **CORRECTED 2026-11-18** (this row first said Phase B was not applied; that was an unverified inference from the policy name). The PROD policy `studio staff manage clients` (`ALL`) is the **tightened Phase B form**: its predicate allows only `studio_owner`, `studio_admin` and `front_desk` (plus platform admin), the role-agnostic "studio members can view clients" policy is gone, and two portal-user SELECT policies remain. So FC-1B5D **Phase B is applied on PROD while Phase A (`get_teaching_clients_for_instructor`, `search_bookable_clients_for_instructor`) is not**: an instructor has **no** direct read of `clients` and no RPC. Owner, admin and front desk read names directly through the bearer client and are covered. See `Instructor_RPC_Gap_Impact.md` |
 
 Side finding for the coordinator, outside this task: **the live line's own web code already calls `get_teaching_clients_for_instructor`** (for example `src/app/app/page.tsx:2709`, `src/app/app/schedule/page.tsx:1408` on `release/website-embeds`), and PROD does not have the function. How those web paths behave for an instructor on PROD today is **A** (not exercised here); it may degrade or error. `pg_proc` was searched in schema `public` by exact name for the two functions above only; the FC-1B5D family's other functions were not enumerated, so do not read this as a full inventory of that migration set.
 
@@ -142,7 +142,7 @@ The app decides what to show from `GET /api/staff/me` capabilities and from buil
 | Any slice, database lacks `20270214120000` | - | owner, admin, front desk fully; an **assigned instructor's** class detail and attendance 503 | instructor class roster |
 | Any slice, database lacks `get_teaching_clients_for_instructor` | - | owner, admin, front desk fully | instructor Today names, instructor My clients and client summary (503) |
 
-**A:** the owner/admin/front-desk columns above follow from the code reading `clients` directly under today's PROD policies (broad staff policy present); they were not exercised against PROD.
+**A:** the owner/admin/front-desk columns above follow from the code reading `clients` directly under today's PROD policy (Phase B form, owner/admin/front desk allowed); they were not exercised against PROD.
 
 ## 8. Open items
 
