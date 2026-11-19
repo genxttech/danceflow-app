@@ -100,6 +100,8 @@ Needs: one Android phone (Android 13 or later; 12 and older are untested), the i
 11. Sign out, then "Email me a sign-in link" with the same address and open the link on the phone. **Expect** a return to the app, signed in. (Only valid if the redirect URL is on the allow-list; if the link opens a browser instead, record it as the A5 gap, not an app failure.)
 12. Ask the studio owner to change this person's role or pause the studio, then tap Refresh studios. **Expect** "Not available for your role" or the paused explanation, and recovery after it is restored.
 
+Attendance rule for step 6 and for the app: one mark at a time, online only, wait for the answer before changing the same person again, no queue of attendance writes (the server keeps no idempotency key, so the last request to arrive wins, and "attended" deducts a package credit that "no_show" does not return; see `Staff_API_Contract.md`, Known limits). If a mark shows an error, reopen the class to see the real state before trying again.
+
 Record per step PASS / FAIL / NOT RUN with a screenshot. Any "Temporarily unavailable" on step 3 or later means the staff API is not live on the deployment the build points at: stop and tell engineering, it is not a tester error.
 
 ## 6. Monitoring during the test
