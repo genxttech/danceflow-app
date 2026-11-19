@@ -15,9 +15,15 @@ describe("dancer readers use the column-restricted views", () => {
     const portal = read("src/app/portal/[studioSlug]/page.tsx");
     expect(portal).toContain('.from("my_event_registrations")');
     expect(portal).toContain("my_event_registration_attendees");
-    // staff keep the base table only on the staff branch (pinned in dancerReadersStaffClient.test.ts)
-    expect(portal).not.toMatch(/\.from\("event_registration_attendees"\)/);
-    expect(read("src/app/app/account/page.tsx")).toContain('.from("my_event_registrations")');
+    // The base tables are read ONLY on the staff branch: exactly one occurrence each, directly after the isActiveStudioStaff switch.
+    expect(portal.match(/"event_registrations"/g)).toHaveLength(1);
+    expect(portal).toMatch(/isActiveStudioStaff\s*\?\s*supabase\s*\.from\("event_registrations"\)/);
+    expect(portal.match(/"event_registration_attendees"/g)).toHaveLength(1);
+    expect(portal).toMatch(/isActiveStudioStaff\s*\?\s*"event_registration_attendees"\s*:\s*"my_event_registration_attendees"/);
+    const appAccount = read("src/app/app/account/page.tsx");
+    expect(appAccount).toContain('.from("my_event_registrations")');
+    expect(appAccount.match(/"event_registrations"/g)).toHaveLength(1);
+    expect(appAccount).toMatch(/isActiveStudioStaff\s*\?\s*supabase\s*\.from\("event_registrations"\)/);
     expect(read("src/app/events/[slug]/page.tsx")).toContain('.from("my_event_registrations")\n      .select("id, payment_status, attendee_email")');
   });
 

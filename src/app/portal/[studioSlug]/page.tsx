@@ -795,6 +795,8 @@ export default async function PortalHomePage({
   }
 
   const canReturnToWorkspace = Boolean(workspaceRole);
+  // Data-path switch (not the UI flag above): the viewer's own active staff role for THIS studio.
+  const isActiveStudioStaff = Boolean(workspaceRole);
 
   const portalRegistrationSelect = `
         id,
@@ -942,7 +944,7 @@ export default async function PortalHomePage({
     // Active studio staff keep the previous base-table query, scoped to this viewer's own selected client record (the staff policies stay in
     // force after the dancer-policy cutover), so staff-created registrations of their own client record still show. Everyone else reads the
     // dancer view, which is already limited to their own registrations.
-    (canReturnToWorkspace
+    (isActiveStudioStaff
       ? supabase
           .from("event_registrations")
           .select(portalRegistrationSelect)
@@ -1074,7 +1076,7 @@ export default async function PortalHomePage({
   if (registrationIds.length) {
     // Staff keep the base table for the (own-client) registrations selected above; everyone else reads the dancer view.
     const { data: eventTickets, error: eventTicketsError } = await supabase
-      .from(canReturnToWorkspace ? "event_registration_attendees" : "my_event_registration_attendees")
+      .from(isActiveStudioStaff ? "event_registration_attendees" : "my_event_registration_attendees")
       .select(
         "id, registration_id, event_id, first_name, last_name, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at",
       )
