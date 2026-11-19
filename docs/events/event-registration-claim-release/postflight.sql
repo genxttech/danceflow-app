@@ -17,6 +17,7 @@ select jsonb_build_object(
   'dancer_read', (select jsonb_build_object(
       'views', (select coalesce(jsonb_object_agg(c.relname, (select jsonb_agg(a.attname order by a.attnum) from pg_attribute a where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped)), '{}'::jsonb)
                         from pg_class c where c.oid in (to_regclass('public.my_event_registrations'), to_regclass('public.my_event_registration_attendees'))),
+      'view_reloptions', (select coalesce(jsonb_object_agg(c.relname, jsonb_build_object('options', c.reloptions, 'owner', pg_get_userbyid(c.relowner))), '{}'::jsonb) from pg_class c where c.oid in (to_regclass('public.my_event_registrations'), to_regclass('public.my_event_registration_attendees'))),
       'view_grants', jsonb_build_object(
         'authenticated_select_regs', case when to_regclass('public.my_event_registrations') is null then null else has_table_privilege('authenticated', 'public.my_event_registrations', 'select') end,
         'anon_select_regs', case when to_regclass('public.my_event_registrations') is null then null else has_table_privilege('anon', 'public.my_event_registrations', 'select') end,
