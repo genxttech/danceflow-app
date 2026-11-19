@@ -77,7 +77,8 @@ jobs:
           CF1_STRIPE_KEY: ${{ secrets.CF1_STRIPE_TEST_SECRET_KEY }}
         run: |
           # TODO scripts/qa/cf1-stripe-guard.ts: key shape sk_test_/rk_test_; GET /v1/account id == CF1_EXPECT_PLATFORM_ACCT and livemode=false;
-          # GET /v1/accounts/$CF1_EXPECT_CONNECTED_ACCT charges_enabled and card_payments active; abort before any money-path call.
+          # GET /v1/accounts/$CF1_EXPECT_CONNECTED_ACCT: RECORD charges_enabled / card_payments (the sandbox may accept Checkout before the capability is active; the account is Restricted, see package 3a),
+          # then canary: create + immediately expire one $1 Checkout Session on the connected account with an application fee; abort in seconds if Stripe refuses it.
           echo "TODO"
 
       - name: Build and start the app (local), start the event relay, run Playwright
