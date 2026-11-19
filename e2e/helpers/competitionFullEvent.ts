@@ -127,8 +127,8 @@ export async function payCheckoutSession(stripe: Stripe, account: string, sessio
   try {
     await stripe.rawRequest("POST", `/v1/payment_pages/${sessionId}/confirm`, { payment_method: paymentMethod.id, expected_amount: paymentPage.total_summary?.due }, onAccount);
   } catch (error) {
-    const raw = (error as { raw?: { code?: string; message?: string } }).raw;
-    throw new Error(`Stripe test confirm failed: ${raw?.code ?? ""} ${raw?.message ?? String(error)}`);
+    const raw = (error as { raw?: { code?: string; message?: string; request_id?: string } }).raw;
+    throw new Error(`Stripe test confirm failed: ${raw?.code ?? ""} ${raw?.message ?? String(error)} (request ${raw?.request_id ?? "unknown"})`);
   }
   return stripe.checkout.sessions.retrieve(sessionId, {}, onAccount);
 }
