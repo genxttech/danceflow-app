@@ -43,12 +43,14 @@ Method: Vercel stores each deployed file keyed by the sha1 of its raw content; g
 
 1. The operator who holds the Vercel credential saves the file tree of the staged deployment (never paste the token anywhere):
    `curl -s -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments/<dpl_id>/files?teamId=<team_id>" > files.json`
-   Confirm the first file entry has a 40-hex `uid`. If the API returns another encoding, stop and report (do not adapt the script silently).
+   Confirm a file entry has a 40-hex `uid`. If the API returns another encoding, stop and report (do not adapt the script silently).
+   The real response has two top-level directories: `src` (the whole source tree wrapped in one root directory, so every path looks like `src/src/app/...`) and `out` (build output, not source). The script ignores `out` and unwraps a single root directory only when that matches git better than the raw paths do (it prints `unwrappedRootDirectory`). No manual editing of the JSON is needed.
 2. From a clean checkout of this repository (any ref that contains the script), run
    `node docs/events/event-registration-claim-release/web-r1-tree-identity.mjs ab9f344948c1155d8ac414dfdf56541047ba338f files.json`
    The script reads git and the saved JSON only; it makes no network call and writes nothing.
 3. Expected: `TREE IDENTITY: PASS` with exactly three files absent from the deployment (`.gitignore`, `mobile/student/.gitignore`, `mobile/student/android/.gitignore`; the CLI skips `.gitignore` files), zero extra files and zero content mismatches (3431 git files, 3428 deployed). Anything else is a FAIL: do not promote.
-4. Self-test of the script on the exact head (done 2026-11-19, no deployment needed): `node …/web-r1-tree-identity.mjs ab9f344948c1155d8ac414dfdf56541047ba338f --selftest` printed `PASS` with the same three absent files.
+4. Fixture test for the real response shape (pure, no git, no network): `node --test docs/events/event-registration-claim-release/web-r1-tree-identity.test.mjs` (5 tests: wrapped `src` + `out`, plain tree, a genuine top-level `src` not unwrapped, mismatch/extra/missing FAIL, empty FAIL). First real use 2026-11-19 on `dpl_FZb1JsjNutYnhhhjiNbg3v1aa6SE` needed the root `src` unwrapped by hand and gave PASS (3431 git files vs 3428 deployed, only the 3 `.gitignore` files missing); the script now does that itself.
+5. Self-test of the script on the exact head (done 2026-11-19, no deployment needed): `node …/web-r1-tree-identity.mjs ab9f344948c1155d8ac414dfdf56541047ba338f --selftest` printed `PASS` with the same three absent files.
 
 ## 5. Staged production deployment (NEEDS the owner's explicit authorization; no promotion)
 
@@ -93,6 +95,8 @@ Promotion is its own gate: promote the staged deployment id only after section 5
 | Signed-in smoke (dancer `/account`, `/portal/<studio>`, `/events/<slug>` retry; staff `/app/account`) | only if a test dancer/staff account already exists on PROD: ask the coordinator, never create accounts |
 
 Do not call any write endpoint, checkout, or cron with a secret.
+
+The anonymous, read-only part of this table is scripted: `bash docs/events/event-registration-claim-release/web-r1-smoke.sh <base-url> <label>` (GET only, no accounts, prints the `/login` frame headers, exits 1 on any FAIL). `AVAIL_EXPECT` sets the status expected for `/api/student/events/<zero uuid>/availability`: default `401` (promoted release build); `AVAIL_EXPECT=404` against a build without the route (the pre-release deployment, for a before/after comparison); on the staged URL behind Vercel SSO the answer is the SSO redirect, so check what it returns before trusting it. The default `401` is the unauthenticated-route proof for the release build.
 
 ### 6.1 Evidence that the readers use the views (read-only, any time afterwards)
 
