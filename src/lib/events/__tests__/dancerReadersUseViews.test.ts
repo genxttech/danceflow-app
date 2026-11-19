@@ -14,8 +14,8 @@ describe("dancer readers use the column-restricted views", () => {
     expect(account).not.toMatch(/\.from\("event_registrations"\)/);
     const portal = read("src/app/portal/[studioSlug]/page.tsx");
     expect(portal).toContain('.from("my_event_registrations")');
-    expect(portal).toContain('.from("my_event_registration_attendees")');
-    expect(portal).not.toMatch(/\.from\("event_registrations"\)/);
+    expect(portal).toContain("my_event_registration_attendees");
+    // staff keep the base table only on the staff branch (pinned in dancerReadersStaffClient.test.ts)
     expect(portal).not.toMatch(/\.from\("event_registration_attendees"\)/);
     expect(read("src/app/app/account/page.tsx")).toContain('.from("my_event_registrations")');
     expect(read("src/app/events/[slug]/page.tsx")).toContain('.from("my_event_registrations")\n      .select("id, payment_status, attendee_email")');

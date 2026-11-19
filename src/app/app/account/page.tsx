@@ -21,6 +21,28 @@ export default async function AccountHomePage() {
     redirect("/login?next=/account");
   }
 
+  // Studio staff keep the previous base-table query (their staff policies stay in force after the dancer-policy cutover), so a staff
+  // member who is also a client still counts staff-created registrations under their own email. Everyone else reads the dancer view.
+  const { data: staffRole, error: staffRoleError } = await supabase
+    .from("user_studio_roles")
+    .select("studio_id")
+    .eq("user_id", user.id)
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (staffRoleError) {
+    throw new Error(`Failed to load account role: ${staffRoleError.message}`);
+  }
+
+  const registrationsQuery = staffRole
+    ? supabase
+        .from("event_registrations")
+        .select("id")
+        .eq("attendee_email", user.email ?? "__no_email__")
+        .not("status", "eq", "cancelled")
+    : supabase.from("my_event_registrations").select("id").not("status", "eq", "cancelled");
+
   const [
     { data: favorites, error: favoritesError },
     { data: registrations, error: registrationsError },
@@ -30,10 +52,7 @@ export default async function AccountHomePage() {
       .select("target_type")
       .eq("user_id", user.id),
 
-    supabase
-      .from("my_event_registrations")
-      .select("id")
-      .not("status", "eq", "cancelled"),
+    registrationsQuery,
   ]);
 
   if (favoritesError) {
