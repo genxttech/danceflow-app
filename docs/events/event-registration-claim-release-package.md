@@ -419,7 +419,7 @@ End of Gate 1: `owned` is still 0 and `max_updated_at` unchanged on PROD (the mi
 
 **Owner decisions still open (do not block Gate 1):** `organizer_portal` and `other` not claimable (confirm); holder vs purchaser for gifts; Student old-build handling (Gate 2); the Student draft #649 merges only after Gate 1 is on PROD.
 
-### 14.10 Ready-to-paste owner authorization -- GATE 1 (supersedes every earlier block; this is the only valid one)
+### 14.10 Ready-to-paste owner authorization -- GATE 1 -- SUPERSEDED by section 15.9 (owner hold on the function execute window, 2026-11-18); DO NOT USE
 "I authorize applying to PROD (`hvsujyfbftfffxpfmlpb`), in this order, in one session, **before any app deploy**, exactly these four files taken from main `487257e6dd24042fe33b519d7540455f47677873`:
 (1) `20270221090000_event_registration_claim_function.sql` sha256 `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec`;
 (2) `20270222090000_event_registration_claim_buyer_sources_only.sql` sha256 `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487`;
@@ -429,5 +429,108 @@ Engineering runs the read-only preflight before and `postflight.sql` after each 
 I pre-authorize these rollbacks, in the order (4), (3), (2), (1), only if a postflight check fails: `20270222092000_..._rollback.sql` sha256 `0ea32ec8db0fe37d9756a2711651fee527c82dc719ca231d02dd3ceab2ff4841`; `20270222091000_..._rollback.sql` sha256 `8cee163391da78d33d1d3a5984551f274641eeb362fe2412f4358a948e768dad`; `20270222090000_..._rollback.sql` sha256 `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3`; `20270221090000_..._rollback.sql` sha256 `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3`.
 I confirm `organizer_portal` and `other` registrations are NOT claimable, and that this gate is additive (it removes no dancer policy, so existing Student builds are unaffected). The cutover (`20270222093000`) is NOT included and needs a separate authorization. No data change; no app deploy included."
 
-### 14.11 Gate 2 authorization (request only after the prerequisites in 14.9 hold)
+### 14.11 Gate 2 authorization -- SUPERSEDED by section 15.10 (Gate 2 now also contains the activation file); DO NOT USE
 "I authorize applying to PROD, after Gate 1 and after web PR #648 and a view-reading Student build are live, exactly `20270222093000_dancer_direct_read_policies_cutover.sql` sha256 `5c41c91e23606d34e4e3782d2db98804740990d39a96527225f586dea654cde8` from main `487257e6dd24042fe33b519d7540455f47677873`, with the read-only postflight (`dancer_self_policies = []`, policy counts 10 and 8), and I pre-authorize its rollback `d95c73735ebe1ab663212fc2cd1e4d6fa1407c3818b7038356148512f3038992` only if a check fails. I understand that Student builds that still read the base tables will show no event tickets after this step."
+
+## 15. FINAL at main `ef98b513d8a3bd3acab56e5c83b091d785decb4b` (PR #657 merged) -- the single authoritative Gate 1 / Gate 2 text. It SUPERSEDES 14.9 (where they differ), 14.10 and 14.11.
+
+Docs only. Nothing applied anywhere. Why this section exists: `20270221090000` (function) and `20270222090000` (exclusion) each end with `grant execute ... to authenticated`, and `prod-apply` applies **one file per invocation**. Applied as separate files, the RPC would be executable by `authenticated` from step 1 until `20270222090500` ("A", execute withheld) ran. That is harmless in data terms (0 rows match a bound identity) but it is not "cannot". Fix, with **no reviewed migration file edited**: Gate 1 applies the three files as ONE bundle in ONE transaction, so the function is created, restricted to buyer sources and revoked before any other session can see it.
+
+### 15.1 Release artifacts and exact order
+
+Migration files live under `src/lib/supabase/migrations/` (sha256 recomputed from git objects at `ef98b513`; no reviewed migration file changed). The bundle lives under `docs/events/event-registration-claim-release/` and is **not a migration**: the three individual files remain the Git history.
+
+| Gate | Step | Apply file | sha256 |
+|---|---|---|---|
+| 1 | 1 | **`gate1_bundle_claim_function.sql`** = files 1+2+A in ONE transaction (below) | `682baa2c496eac317888839716ee3ae58ac571159e236fc8396ea794460798bf` |
+| 1 | 2 | `20270222091000_event_registrations_unclaimed_email_index.sql` | `0d6bf93df2973c937b1852c83866a7849ff080929d7519bd7be78ed37fe06fb5` |
+| 1 | 3 | `20270222092000_dancer_event_registration_views.sql` | `45544f920c9ceea4d19ee0c28db63a3148788d6fe129a6b9784c4ab9ab7009cb` |
+| 2 | 4 | `20270222093000_dancer_direct_read_policies_cutover.sql` | `5c41c91e23606d34e4e3782d2db98804740990d39a96527225f586dea654cde8` |
+| 2 | 5 | `20270222094000_claim_function_execute_activation.sql` ("B") | `34dcde4ccff7903786123f6537dec0d170ecf5e710fa465cdbf9a532978eba42` |
+
+Bundle sources (NOT applied separately; their hashes are pinned inside the builder, which aborts on any difference):
+| Source file | sha256 |
+|---|---|
+| `20270221090000_event_registration_claim_function.sql` | `3c873d6f3840ca5da2cecaab524f33af3537f42643e1fc0cc5f937c55e4d08ec` |
+| `20270222090000_event_registration_claim_buyer_sources_only.sql` | `cd38c08e107894a7ab1d2e7977cf3a20f823bed6493ed4457a62eacb8ad49487` |
+| `20270222090500_claim_function_execute_withheld.sql` ("A") | `cb38e320ae92119d2c729a07874dba164997416e587f8be20f15e4a0d63373d7` |
+
+**Bundle generation (reproducible from git).** `node docs/events/event-registration-claim-release/build-gate1-bundle.mjs` writes `gate1_bundle_claim_function.sql`; `--check` exits 1 unless the committed file equals a fresh build; `--print-sha` prints the sha256. The only transformation is removing lines that are exactly `begin;` or `commit;` from the three sources and wrapping the result in one `begin; ... commit;` (LF, UTF-8, no timestamps; a header comment per source records its sha256). A CI test (`src/lib/events/__tests__/claimGate1Bundle.test.ts`) fails if the committed bundle drifts from the builder output. Before applying, engineering runs `--check` on the checkout the apply file is copied from and compares the printed sha256 with the one above.
+
+Rollbacks (under `rollback/`):
+| Rollback | sha256 |
+|---|---|
+| `20270222094000_claim_function_execute_activation_rollback.sql` (undoes B: withholds again) | `004174f6868f2e22a4ef88ff05eb6bfec4f8c6db95e5fde57c0faa681f83db81` |
+| `20270222093000_dancer_direct_read_policies_cutover_rollback.sql` | `d95c73735ebe1ab663212fc2cd1e4d6fa1407c3818b7038356148512f3038992` |
+| `20270222092000_dancer_event_registration_views_rollback.sql` | `0ea32ec8db0fe37d9756a2711651fee527c82dc719ca231d02dd3ceab2ff4841` |
+| `20270222091000_event_registrations_unclaimed_email_index_rollback.sql` | `8cee163391da78d33d1d3a5984551f274641eeb362fe2412f4358a948e768dad` |
+| `20270221090000_event_registration_claim_function_rollback.sql` (**bundle undo**: `drop function if exists`; one statement, no executable window) | `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3` |
+| `20270222090500_claim_function_execute_withheld_rollback.sql` (A-undo; NOT part of the normal rollback, it re-grants execute) | `0f868ebc5414f9f798cc6712789d8e670dadc5c436d6dff93868085932976f8d` |
+| `20270222090000_event_registration_claim_buyer_sources_only_rollback.sql` (exclusion undo; NOT part of the normal rollback) | `a9c5c04f6da292367730a5c6e926152f0a08101de063578053d3fb7afc9241c3` |
+
+Suites (not applied to PROD): `test_T_claim_execute_gate.sql` `36153cc36d407f29fc8e764be7fcc54304940cc921a64126e277b3dbd0dbc86d` (8 checks, `-v expect=withheld|active`), `test_T_dancer_column_restricted_read.sql` `a9addd19b8cfc645d73c55397587034554e1529121a0ce575ed6a0621963510c` (22), `test_T_claim_buyer_sources_only.sql` `0879411cae328031f6c9eb452829ff079509d40cafbc0cafb15b84f455ff88bf` (37), `test_T_claim_my_event_registrations.sql` `6c54cc6ea958953416e559e9033fdad35da7905bfac02990de53ba6ea8d64404` (34). `postflight.sql` and `preflight.sql` are unchanged; their `function.authenticated_exec`, `function.grantees` and `unclaimed_counts.owned/max_updated_at` fields are what 15.4 checks.
+
+**Normal rollback after a failed postflight or on the owner's word: B, cutover, views, index, bundle undo, in that order, skipping whatever is not applied yet.** "Bundle undo" is only the function rollback (it drops the function, which also drops its ACL). The A-undo and exclusion rollbacks are not needed to remove the whole feature and are not run: the A-undo would re-grant execute to `authenticated` for the moments before the drop. Never roll back the views while the cutover is applied. Claimed `user_id` values stay on any rollback (section 7).
+
+### 15.2 Fresh read-only checks (sb.sh `preflight.sql` and `postflight.sql`, "before" state)
+| Time (UTC) | Host | Result |
+|---|---|---|
+| 2026-11-19T00:15:42Z (preflight), 00:15:45Z (postflight) | PROD `hvsujyfbftfffxpfmlpb` | function, index, views all absent; prerequisites present; 0 invalid indexes; 37 registrations (11 `admin`, 26 `public_event_page`), **0 owned**, 37 unclaimed; 3 bound identities, **0 rows match a bound identity**; `max_updated_at` = `2026-10-13T12:15:45.523556+00:00`; the three dancer self policies present; policy counts 11 / 10; table-level SELECT held by anon and authenticated on the three tables |
+| 2026-11-19T00:15:51Z | DEV `epdrtzcydvnoidwrepqz` | function, index, views absent; 35 registrations, 14 owned (DEV only); 0 bound identities; policy counts 11 / 10 |
+
+**Re-check immediately before apply (read-only, same two files):** function, index and views still absent, `owned = 0`, `would_match_bound_identity_now.registrations = 0`, `max_updated_at` unchanged from the value above (or explain any change), policy counts 11 / 10. The re-checked `max_updated_at` is the baseline for 15.4 and 15.7.
+
+### 15.3 Evidence for the bundle (disposable stack `g1b`, auth stack, torn down; psql `SET ROLE`, never PostgREST) [V]
+- **Identical end state.** Applying the three files one after the other and applying the bundle give the same `owner | security definer | proconfig | proacl | md5(pg_get_functiondef)`: `postgres | true | {search_path=""} | {postgres=X/postgres} | 37413c47f8ec47a3ef1449fd4a1082fc`. Gate suite `withheld`: 8/8.
+- **No executable state is ever observable.** A second session polled, as separate top-level statements every ~10 ms, whether the function exists and whether `authenticated` can execute it. *Negative control* (the same three files applied separately with pauses): 347 of 500 polls saw the function and `authenticated_could_execute` = 347, so the poller does detect the exposure. *Bundle with a 3-second pause inserted before COMMIT* (window widened): `authenticated_could_execute` = **0** of 500 polls, and the function became visible only after commit. *Real bundle under a tight poller*: `authenticated_could_execute` = **0** of 300 polls. (A first poller written as one DO block was invalid -- it never saw the function even after commit -- and was replaced.)
+- **Release path.** bundle, index, views: gate suite `withheld` 8/8 (twice); then cutover, B: gate suite `active` 8/8, claim-source suite 37/37, dancer column-restricted read suite 22/22.
+- **Rollbacks.** B, cutover, views, index, A-undo: function ACL restored to `{postgres, authenticated}` (gate suite `active` 8/8); exclusion rollback: 34/34 on the step-1 body; function rollback: function gone. Re-applying the release from the bundle afterwards, and an idempotent re-apply of the bundle, are clean.
+- **Runner caveat [A for the hosted API].** The bundle is one string with one explicit `begin; ... commit;`, exactly like the existing migration files; a runner that wraps a multi-statement string in an implicit transaction makes it atomic either way. If the hosted runner somehow did not make the file atomic, the step-1 postflight (`authenticated_exec=false`) is the control that would show it, and the window would still be one file, not three.
+
+### 15.4 Gate 1: order and per-step postflight
+Each step is one `prod-apply` of a file copied from git into a scratch directory with its full sha256, then `postflight.sql` (read-only), stopping on any deviation: `bash C:/Users/mcurt/danceflow-ops/sb.sh prod-apply <scratch>/<file>.sql <64-hex sha256>`.
+| After step | Required postflight |
+|---|---|
+| 1 bundle | `function`: present, 0 args, returns integer, `security_definer=true`, owner `postgres`, `config` has `search_path=""`, **`authenticated_exec=false` (from the first moment the function exists)**, `anon_exec=false`, `service_role_exec=false`, `public_grants=0`, `grantees=["postgres"]`, `has_source_allowlist=true`; `source_distribution`: admin 11 owned 0, public_event_page 26 owned 0; `unclaimed_counts.owned=0`, `max_updated_at` unchanged. **If any is not true: stop, apply nothing else, deploy nothing.** |
+| 2 index | `index.valid=true`, `ready=true`, definition contains `lower(btrim(attendee_email))` and `WHERE ((user_id IS NULL) AND (attendee_email IS NOT NULL))`; `invalid_indexes_on_table=0`; function ACL still `authenticated_exec=false`; `owned=0` |
+| 3 views | the exact column lists, reloptions, grants and policy counts of 14.9 "4 views" (20 and 15 columns; owner `postgres`, `security_barrier=true`, no `security_invoker`; `authenticated_select_regs=true`, `anon_select_regs=false`, `authenticated_write_regs=false`; three self policies still listed; counts 11 / 10); function ACL still `authenticated_exec=false`; `owned=0` |
+
+End of Gate 1: `authenticated_exec=false`, `owned=0`, `max_updated_at` unchanged. **No app deploy is part of Gate 1**, and before Gate 2 the claim RPC is not executable by any client (a call returns 42501, which the web wrapper and the Student app already treat as "0 claimed").
+
+### 15.5 Between the gates, Gate 2 and its postflight
+Not SQL; separate decisions: web readers #648 deployed (needs the views from Gate 1 step 3); a Student build that reads the views live and seen reading them (#649 merges only after Gate 1 is on PROD); a device/HTTP claim check on a disposable stack; the owner's decision on old Student builds; the open owner decisions of 14.9 (`organizer_portal`/`other`, gift holder vs purchaser).
+**Gate 2 (all prerequisites hold), in this order in one session:** cutover `20270222093000...`, then activation `20270222094000...`.
+| After step | Required postflight |
+|---|---|
+| 4 cutover | `dancer_read.dancer_self_policies = []`; `policy_count_event_registrations=10`, `policy_count_event_registration_attendees=8`; views and their grants unchanged; staff/organizer policies present; function ACL still `authenticated_exec=false`; `owned=0` |
+| 5 activation | `function.authenticated_exec=true`, `anon_exec=false`, `service_role_exec=false`, `public_grants=0`, `grantees=["authenticated","postgres"]`; `has_source_allowlist=true`; `owned` and `max_updated_at` unchanged (nothing calls the RPC from SQL; the first claim happens only when an app calls it) |
+
+`authenticated_exec` is true only after step 5, i.e. only after the direct dancer read of the three tables has been removed and the view readers are live.
+
+### 15.6 Minimal sequence
+| Gate | # | Action | Function ACL after | Dancer direct read | Claim RPC callable by a user |
+|---|---|---|---|---|---|
+| 1 | 1 | bundle (function + exclusion + withheld, one transaction) | `{postgres}` | present | no (42501) |
+| 1 | 2 | index | `{postgres}` | present | no |
+| 1 | 3 | views | `{postgres}` | present | no |
+| -- | -- | #648 readers live; Student view-reader build live and seen | `{postgres}` | present | no |
+| 2 | 4 | cutover | `{postgres}` | removed | no |
+| 2 | 5 | activation | `{postgres, authenticated}` | removed | yes (verified email, buyer sources only) |
+
+### 15.7 Detective control (what proves no claim happened)
+`postflight.sql` after every step reports `unclaimed_counts.owned` (registrations with a `user_id`; 0 on PROD before) and `max_updated_at` (a claim UPDATE sets `user_id` and moves it). Both unchanged after Gate 1 prove no registration was claimed; together with `authenticated_exec=false` after step 1 and every later Gate 1 step they show the RPC was never executable. Per-call counters such as `pg_stat_user_functions` need `track_functions` and are not relied on. After step 5, `owned` may rise only through real claims by verified buyers of `public_event_page` rows (`admin`-sold rows must stay `owned=0`).
+
+### 15.8 Student and web statements (corrected)
+Before step 5 the web `/account` claim call and any Student claim call receive 42501 from the RPC and report **0 claimed** with no error shown (the wrapper `claimMyEventRegistrations.ts` returns 0 on any RPC error; test-pinned). Web readers may ship once Gate 1 step 3 is on PROD. After step 5 the same calls claim real rows.
+
+### 15.9 Ready-to-paste owner authorization -- GATE 1 (the only valid Gate 1 block; supersedes 14.10)
+"I authorize applying to PROD (`hvsujyfbftfffxpfmlpb`), in this order, each as its own `prod-apply` in one session, **before any app deploy**, exactly these three files, copied from main at or after `ef98b513d8a3bd3acab56e5c83b091d785decb4b` (the sha256 values are the authority; the bundle is checked with `docs/events/event-registration-claim-release/build-gate1-bundle.mjs --check` before apply):
+(1) `docs/events/event-registration-claim-release/gate1_bundle_claim_function.sql` sha256 `682baa2c496eac317888839716ee3ae58ac571159e236fc8396ea794460798bf` (the function, the buyer-sources-only exclusion and the execute withhold in ONE transaction);
+(2) `20270222091000_event_registrations_unclaimed_email_index.sql` sha256 `0d6bf93df2973c937b1852c83866a7849ff080929d7519bd7be78ed37fe06fb5`;
+(3) `20270222092000_dancer_event_registration_views.sql` sha256 `45544f920c9ceea4d19ee0c28db63a3148788d6fe129a6b9784c4ab9ab7009cb`.
+Engineering re-runs the read-only preflight immediately before and `postflight.sql` after each step, and stops without applying the next step if `function.authenticated_exec` is not false after step 1, `owned` or `max_updated_at` changes, `has_source_allowlist` is not true, the index is invalid, or the views' columns, grants or the three dancer policies differ from section 15.4.
+I pre-authorize these rollbacks, in this order, only for steps already applied and only if a postflight check fails: `20270222092000_..._rollback.sql` sha256 `0ea32ec8db0fe37d9756a2711651fee527c82dc719ca231d02dd3ceab2ff4841`; `20270222091000_..._rollback.sql` sha256 `8cee163391da78d33d1d3a5984551f274641eeb362fe2412f4358a948e768dad`; `20270221090000_event_registration_claim_function_rollback.sql` (drops the function) sha256 `1bbe5338b32f22e0ea15202e7d629057747b92be4688ffaa313b90fcd4e032c3`.
+I confirm `organizer_portal` and `other` registrations are NOT claimable, and that this gate is additive and leaves the claim RPC NOT executable by any client (it removes no dancer policy, so existing Student builds are unaffected). The cutover and the activation are NOT included and need a separate authorization. No data change; no app deploy included."
+
+### 15.10 Gate 2 authorization (request only after the 15.5 prerequisites hold; supersedes 14.11)
+"I authorize applying to PROD, after Gate 1 and after web PR #648 and a view-reading Student build are live, in this order in one session, exactly: (4) `20270222093000_dancer_direct_read_policies_cutover.sql` sha256 `5c41c91e23606d34e4e3782d2db98804740990d39a96527225f586dea654cde8`, then (5) `20270222094000_claim_function_execute_activation.sql` sha256 `34dcde4ccff7903786123f6537dec0d170ecf5e710fa465cdbf9a532978eba42`, from main at or after `ef98b513d8a3bd3acab56e5c83b091d785decb4b`, with the read-only postflights of 15.5. I pre-authorize, only if a check fails and in this order for the steps already applied: `20270222094000_..._rollback.sql` sha256 `004174f6868f2e22a4ef88ff05eb6bfec4f8c6db95e5fde57c0faa681f83db81`, then `20270222093000_..._rollback.sql` sha256 `d95c73735ebe1ab663212fc2cd1e4d6fa1407c3818b7038356148512f3038992`. I understand that Student builds that still read the base tables will show no event tickets after step 4, and that step 5 makes the claim RPC callable by signed-in users."
