@@ -24,7 +24,7 @@
     "template": "release-migration-inventory",
     "params": {},
     "deps": [],
-    "scope_sha": "f928873c3d5d54cc132f68859d83a6774d486fafc0d5210806fe3578c5f19cb0",
+    "scope_sha": "f80d1ed35d886dbdbb0256a9d095e297f8beda21a1cb4042aed32527f54db171",
     "by": "owner",
     "not_after": "2026-11-19T16:00:00Z"
   },
@@ -35,7 +35,7 @@
     "deps": [
       "Q2"
     ],
-    "scope_sha": "1c39da257f0459d2757e6c4e34c97721ffe2abdabd7065548e62de1f1452e32b",
+    "scope_sha": "a735998e957ddc6721cc709e78fd68872d577ee34d3a068c05edaefb8e2e28ad",
     "by": "owner",
     "not_after": "2026-11-19T16:00:00Z"
   }
