@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyStripeError, runStripeGuard, type GuardConfig } from "../stripeGuard";
+import { classifyStripeError, redactReport, runStripeGuard, serializeReport, summarizeReport, type GuardConfig, type GuardReport } from "../stripeGuard";
 
 const PLATFORM = "acct_PLATFORM1";
 const CONNECTED = "acct_CONNECTED1";
@@ -141,5 +141,59 @@ describe("stripe guard", () => {
   it("classifies authentication failures and reads raw fields", () => {
     expect(classifyStripeError(stripeError({ type: "StripeAuthenticationError", message: "Invalid API Key provided", statusCode: 401 })).kind).toBe("authentication");
     expect(classifyStripeError(stripeError({ message: "x", raw: { code: "rate_limit", request_id: "req_9" } }))).toMatchObject({ code: "rate_limit", requestId: "req_9", kind: "other" });
+  });
+});
+
+describe("the whole report is masked before it leaves the process (security review, PR 683)", () => {
+  const LEAK = /(sk|rk|pk)_(test|live)_|whsec_|eyJ[A-Za-z0-9_-]{10,}\./;
+  const JWT = "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZSJ9.c2lnbmF0dXJl";
+
+  it("a fake secret in EVERY Stripe error field is masked in the failure, the JSON, the summary and the file text", async () => {
+    const err = stripeError({
+      type: "StripeError_sk_test_TYPE111", code: "rk_live_CODE222", param: "whsec_PARAM333", message: `Bearer ${JWT} for sk_test_****MSG444`,
+      raw: { request_id: "req_sk_test_REQ555", statusCode: 400 },
+    });
+    const report = await runStripeGuard({ stripe: fakeStripe({ createError: err }).stripe, key: KEY, config });
+    expect(report.stop).toBeTruthy();
+    const failure = report.stop!.failure;
+    for (const field of [failure.type, failure.code, failure.param, failure.message, failure.requestId]) expect(String(field)).not.toMatch(LEAK);
+    expect(failure.message).toContain("[redacted-");
+    expect(serializeReport(report)).not.toMatch(LEAK);
+    expect(summarizeReport(report)).not.toMatch(LEAK);
+  });
+
+  it("secrets planted anywhere in a report (step names, details, connected state, stop message) are masked and the output still parses", () => {
+    const planted: GuardReport = {
+      ok: false,
+      steps: [{ name: "step sk_test_STEPNAME", ok: false, detail: { token: JWT, note: "whsec_DETAIL", nested: { deep: "rk_live_DEEP" } } }],
+      connected: { id: "acct_X", memo: "sk_test_CONNECTED" },
+      stop: { step: "canary sk_test_STEP", message: "STOP whsec_MESSAGE", failure: { kind: "capability", type: "sk_test_T", code: "rk_test_C", param: "whsec_P", message: "m sk_test_M", requestId: "req_sk_test_R", statusCode: 400 } },
+    };
+    const json = serializeReport(planted);
+    expect(json).not.toMatch(LEAK);
+    const parsed = JSON.parse(json) as GuardReport;
+    expect(parsed.ok).toBe(false);
+    expect(parsed.steps).toHaveLength(1);
+    expect(parsed.stop?.failure.kind).toBe("capability");
+    expect(parsed.stop?.failure.statusCode).toBe(400);
+    expect(summarizeReport(planted)).not.toMatch(LEAK);
+    expect(redactReport(planted).connected).toMatchObject({ id: "acct_X" });
+  });
+
+  it("a report with nothing secret is unchanged by masking", () => {
+    const clean: GuardReport = { ok: true, steps: [{ name: "canary A", ok: true, detail: { amount_received: 100 } }], connected: { id: "acct_1", charges_enabled: false } };
+    expect(redactReport(clean)).toEqual(clean);
+  });
+
+  it("the guard CLI can only print or write the masked report: no raw JSON.stringify and every sink uses summarizeReport / serializeReport", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const source = readFileSync(join(process.cwd(), "scripts", "qa", "cf1-stripe-guard.ts"), "utf8").split("\n").filter((line) => !/^\s*(\*|\/\*|\/\/)/.test(line)).join("\n");
+    expect(source).not.toContain("JSON.stringify");
+    expect(source).toMatch(/const summary = summarizeReport\(report\)/);
+    expect(source).toMatch(/console\.log\(summary\)/);
+    expect(source).toMatch(/appendFileSync\([^)]*summary/);
+    expect(source).toMatch(/writeFileSync\([^)]*serializeReport\(report\)/);
+    expect(source).not.toMatch(/console\.(log|error)\([^)]*report\b(?!\))/);
   });
 });

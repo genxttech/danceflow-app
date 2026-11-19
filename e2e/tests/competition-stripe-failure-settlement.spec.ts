@@ -111,7 +111,8 @@ test.describe("Stripe failure handling and settlement integrity", () => {
 
   /** POST one delivery to the app and return status and body text (so a test can read "Already processed"). */
   async function post(body: string, signature: string | null) {
-    const response = await fetch(webhookUrl, { method: "POST", headers: { "content-type": "application/json", ...(signature ? { "stripe-signature": signature } : {}) }, body });
+    // redirect: "manual" like the relay: a response can never steer a signed body to another host (a 3xx would simply fail the test's status assertion).
+    const response = await fetch(webhookUrl, { method: "POST", redirect: "manual", headers: { "content-type": "application/json", ...(signature ? { "stripe-signature": signature } : {}) }, body });
     return { status: response.status, text: await response.text() };
   }
 

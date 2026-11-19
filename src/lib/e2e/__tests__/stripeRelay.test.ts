@@ -2,7 +2,7 @@ import Stripe from "stripe";
 import { describe, expect, it } from "vitest";
 import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import {
-  assertRelayTarget, assertTestKey, redactSecrets, buildDeliveryBody, deliverEvent, oldestFirst, runRelay, selectUnseen, signStripePayload,
+  assertRelayTarget, assertTestKey, makePost, redactSecrets, buildDeliveryBody, deliverEvent, oldestFirst, runRelay, selectUnseen, signStripePayload,
   type RelayEvent,
 } from "../stripeRelay";
 
@@ -147,5 +147,64 @@ describe("relay loop", () => {
     const first = await deliverEvent({ url: URL_OK, secret: SECRET, event: e, account: ACCOUNT, post });
     const second = await deliverEvent({ url: URL_OK, secret: SECRET, event: e, account: ACCOUNT, post });
     expect([first.status, second.status]).toEqual([200, 200]);
+  });
+});
+
+describe("redirects are never followed (security review, PR 683)", () => {
+  type Hit = { method: string; url: string; body: string };
+
+  /** Two loopback servers: A (the validated target) answers with the given redirect; B (the redirect destination) records every request it receives. */
+  async function withServers(status: number, run: (a: string, hits: Hit[]) => Promise<void>) {
+    const { createServer } = await import("node:http");
+    const hits: Hit[] = [];
+    const b = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => { hits.push({ method: String(req.method), url: String(req.url), body }); res.statusCode = 200; res.end("ok"); });
+    });
+    await new Promise<void>((resolve) => b.listen(0, "127.0.0.1", resolve));
+    const bPort = (b.address() as { port: number }).port;
+    const a = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => { res.statusCode = status; res.setHeader("location", `http://127.0.0.1:${bPort}/steal`); res.end(); });
+    });
+    await new Promise<void>((resolve) => a.listen(0, "127.0.0.1", resolve));
+    const aPort = (a.address() as { port: number }).port;
+    try { await run(`http://127.0.0.1:${aPort}/api/payments/webhook`, hits); }
+    finally { await Promise.all([a, b].map((s) => new Promise<void>((resolve) => s.close(() => resolve())))); }
+  }
+
+  it.each([301, 302, 303, 307, 308])("a %i response is returned as a status, the signed body is NOT replayed to the redirect target", async (status) => {
+    await withServers(status, async (target, hits) => {
+      const result = await makePost()({ url: target, body: '{"id":"evt_1"}', signature: "t=1,v1=abc" });
+      expect(result).toBe(status);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(hits).toEqual([]);
+    });
+  });
+
+  it("the fetch is always called with redirect: manual, and the target is re-validated on every delivery", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const spy = (async (url: string, init: RequestInit) => { calls.push({ url, init }); return new Response("ok", { status: 200 }); }) as unknown as typeof fetch;
+    await makePost(spy)({ url: URL_OK, body: "{}", signature: "s" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].init.redirect).toBe("manual");
+    for (const bad of ["https://127.0.0.1:3000/api/payments/webhook", "http://example.com/api/payments/webhook", "http://127.0.0.1:3000/redirected"]) {
+      await expect(makePost(spy)({ url: bad, body: "{}", signature: "s" })).rejects.toThrow(/refusing/);
+    }
+    expect(calls).toHaveLength(1);
+  });
+
+  it("the relay loop counts a 3xx as a failure (not ok), does not retry it, and logs that it was not followed", async () => {
+    const logs: string[] = [];
+    const stats = await runRelay({
+      url: URL_OK, secret: SECRET, account: ACCOUNT, startedAtSeconds: 1000, pollMs: 1, maxPolls: 3,
+      deps: {
+        listEvents: async () => [event("evt_r", 1001)], post: async () => 302, isPaused: () => false, sleep: async () => undefined,
+        shouldStop: () => false, log: (line) => logs.push(line), nowSeconds: () => 2000,
+      },
+    });
+    expect(stats).toMatchObject({ delivered: 1, okResponses: 0, clientErrors: 1, serverErrors: 0 });
+    expect(logs.join("\n")).toMatch(/redirect not followed/);
   });
 });

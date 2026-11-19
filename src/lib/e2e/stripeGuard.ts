@@ -26,10 +26,12 @@ const CAPABILITY_TEXT = /capabilit|card_payments|transfers|charges (are )?not en
 export function classifyStripeError(error: unknown): StripeFailure {
   const e = error as { type?: string; code?: string; param?: string; message?: string; requestId?: string; statusCode?: number; raw?: { type?: string; code?: string; param?: string; message?: string; request_id?: string; statusCode?: number } };
   const raw = e?.raw ?? {};
+  // Every string field is masked, not just the message: a credential must not reach a log, a summary or a file through any Stripe error field.
+  const safe = (value: unknown) => (typeof value === "string" ? redactSecrets(value) : undefined);
   const failure: StripeFailure = {
-    type: e?.type ?? raw.type, code: e?.code ?? raw.code, param: e?.param ?? raw.param,
+    type: safe(e?.type ?? raw.type), code: safe(e?.code ?? raw.code), param: safe(e?.param ?? raw.param),
     message: redactSecrets(String(e?.message ?? raw.message ?? error ?? "unknown error")).slice(0, 600),
-    requestId: e?.requestId ?? raw.request_id, statusCode: e?.statusCode ?? raw.statusCode,
+    requestId: safe(e?.requestId ?? raw.request_id), statusCode: typeof (e?.statusCode ?? raw.statusCode) === "number" ? (e?.statusCode ?? raw.statusCode) : undefined,
     kind: "other",
   };
   if (failure.type === "StripeAuthenticationError" || failure.statusCode === 401) failure.kind = "authentication";
@@ -45,6 +47,28 @@ export type GuardReport = {
   connected?: Record<string, unknown>;
   stop?: { step: string; failure: StripeFailure; message: string };
 };
+
+/**
+ * The only way a report leaves the process. The WHOLE report is serialized and masked (step names, details, the connected-account state, every
+ * Stripe error field), so nothing that reaches stdout, the job summary or the report file can carry a key, a webhook secret or a JWT.
+ * Masking never touches JSON structure (tokens contain no quotes or backslashes), so the output still parses.
+ */
+export function serializeReport(report: GuardReport): string {
+  return redactSecrets(JSON.stringify(report, null, 2));
+}
+
+export function redactReport(report: GuardReport): GuardReport {
+  return JSON.parse(serializeReport(report)) as GuardReport;
+}
+
+export function summarizeReport(report: GuardReport): string {
+  const safe = redactReport(report);
+  const lines = [safe.ok ? "## Stripe guard: PASSED" : "## Stripe guard: STOPPED", ""];
+  for (const step of safe.steps) lines.push(`- ${step.ok ? "ok" : "FAILED"}: ${step.name}${step.detail ? ` ${JSON.stringify(step.detail)}` : ""}`);
+  if (safe.connected) lines.push("", `connected account: \`${JSON.stringify(safe.connected)}\``);
+  if (safe.stop) lines.push("", `**${safe.stop.message}**`, "", `step: ${safe.stop.step}`, "", "```json", JSON.stringify(safe.stop.failure, null, 2), "```");
+  return redactSecrets(lines.join("\n"));
+}
 
 type StripeLike = Pick<Stripe, "accounts" | "balance" | "checkout" | "paymentIntents"> & { rawRequest: Stripe["rawRequest"]; paymentMethods: Stripe["paymentMethods"] };
 

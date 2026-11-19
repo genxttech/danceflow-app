@@ -11,12 +11,16 @@
  */
 import { createHmac } from "node:crypto";
 
-/** Anything that could carry a credential is masked before it is logged, reported or written to a summary (Stripe's own error text can echo a masked key). */
+/**
+ * Anything that could carry a credential is masked before it is logged, reported or written to a summary (Stripe's own error text can echo a masked key).
+ * No word-boundary anchors on purpose: a credential glued to other word characters (an id like req_sk_test_..., a prefix_whsec_...) must still be masked,
+ * and a false positive only costs a redacted token.
+ */
 export function redactSecrets(text: string): string {
   return text
-    .replace(/\b(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9*_]+/g, "[redacted-key]")
-    .replace(/\bwhsec_[A-Za-z0-9*_]+/g, "[redacted-secret]")
-    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g, "[redacted-jwt]");
+    .replace(/(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9*_]+/g, "[redacted-key]")
+    .replace(/whsec_[A-Za-z0-9*_]+/g, "[redacted-secret]")
+    .replace(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g, "[redacted-jwt]");
 }
 
 /** Stripe's documented scheme: `t=<unix>,v1=hex(HMAC_SHA256(secret, "<t>.<body>"))`. */
@@ -61,6 +65,20 @@ export function assertTestKey(key: string): void {
 export type DeliveryResult = { eventId: string; type: string; status: number };
 
 export type DeliverFn = (input: { url: string; body: string; signature: string }) => Promise<number>;
+
+/**
+ * The relay's only network write. It re-validates the target on every delivery (loopback, plain http, the webhook path) and NEVER follows a redirect:
+ * `redirect: "manual"` returns the 3xx response itself, so a response can not steer the signed body (and its signature) to another host or path.
+ * A 3xx is reported to the caller as a non-success status.
+ */
+export function makePost(fetchImpl: typeof fetch = fetch): DeliverFn {
+  return async ({ url, body, signature }) => {
+    const target = assertRelayTarget(url).toString();
+    const response = await fetchImpl(target, { method: "POST", redirect: "manual", headers: { "content-type": "application/json", "stripe-signature": signature }, body });
+    await response.text();
+    return response.status;
+  };
+}
 
 /** Sign and POST one event. `now` is injected for tests. */
 export async function deliverEvent(input: {
@@ -136,7 +154,8 @@ export async function runRelay(input: {
       if (result.status >= 500) { stats.serverErrors += 1; failed(event); deps.log(`relay: ${event.type} ${event.id} -> ${result.status} (will retry)`); break; }
       seen.add(event.id);
       if (event.created > newestSeen) newestSeen = event.created;
-      if (result.status >= 400) { stats.clientErrors += 1; deps.log(`relay: ${event.type} ${event.id} -> ${result.status}`); } else stats.okResponses += 1;
+      // 3xx is a failure too: redirects are never followed (makePost), and the app's webhook route does not redirect. Counted, logged, not retried.
+      if (result.status >= 300) { stats.clientErrors += 1; deps.log(`relay: ${event.type} ${event.id} -> ${result.status}${result.status < 400 ? " (redirect not followed)" : ""}`); } else stats.okResponses += 1;
     }
     await deps.sleep(input.pollMs);
   }

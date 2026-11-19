@@ -18,7 +18,7 @@
  */
 import { existsSync, writeFileSync } from "node:fs";
 import Stripe from "stripe";
-import { assertRelayTarget, assertTestKey, redactSecrets, runRelay, type RelayEvent } from "../../src/lib/e2e/stripeRelay";
+import { assertRelayTarget, assertTestKey, makePost, redactSecrets, runRelay, type RelayEvent } from "../../src/lib/e2e/stripeRelay";
 
 async function main() {
   const key = process.env.E2E_STRIPE_TEST_SECRET_KEY ?? "";
@@ -54,11 +54,8 @@ async function main() {
         for await (const item of stripe.events.list({ created: { gte: sinceSeconds }, limit: 100 }, { stripeAccount: account })) events.push(item as unknown as RelayEvent);
         return events;
       },
-      post: async ({ url: target, body, signature }) => {
-        const response = await fetch(target, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": signature }, body });
-        await response.text();
-        return response.status;
-      },
+      // makePost re-validates the loopback target on every delivery and never follows a redirect (redirect: "manual").
+      post: makePost(),
       isPaused: () => (pauseFile ? existsSync(pauseFile) : false),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       shouldStop: () => stop,
