@@ -133,6 +133,11 @@ describe("stripe guard", () => {
     expect(report.stop?.step).toMatch(/canary A/);
   });
 
+  it("never lets a key fragment or webhook secret into the reported error", () => {
+    const failure = classifyStripeError(stripeError({ type: "StripeAuthenticationError", message: "Invalid API Key provided: sk_test_****wxyz (whsec_abc123)", statusCode: 401 }));
+    expect(failure.message).not.toMatch(/sk_test_|whsec_/);
+  });
+
   it("classifies authentication failures and reads raw fields", () => {
     expect(classifyStripeError(stripeError({ type: "StripeAuthenticationError", message: "Invalid API Key provided", statusCode: 401 })).kind).toBe("authentication");
     expect(classifyStripeError(stripeError({ message: "x", raw: { code: "rate_limit", request_id: "req_9" } }))).toMatchObject({ code: "rate_limit", requestId: "req_9", kind: "other" });

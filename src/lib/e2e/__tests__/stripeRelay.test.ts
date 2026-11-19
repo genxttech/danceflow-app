@@ -2,7 +2,7 @@ import Stripe from "stripe";
 import { describe, expect, it } from "vitest";
 import { verifyStripeWebhook } from "@/lib/payments/webhookVerification";
 import {
-  assertRelayTarget, assertTestKey, buildDeliveryBody, deliverEvent, oldestFirst, runRelay, selectUnseen, signStripePayload,
+  assertRelayTarget, assertTestKey, redactSecrets, buildDeliveryBody, deliverEvent, oldestFirst, runRelay, selectUnseen, signStripePayload,
   type RelayEvent,
 } from "../stripeRelay";
 
@@ -48,6 +48,18 @@ describe("guards", () => {
     expect(() => assertTestKey("sk_test_abc123")).not.toThrow();
     expect(() => assertTestKey("rk_test_abc123")).not.toThrow();
     for (const bad of ["sk_live_abc123", "rk_live_abc123", "pk_test_abc", "", "sk_test_"]) expect(() => assertTestKey(bad)).toThrow();
+  });
+});
+
+describe("redaction", () => {
+  it("masks keys, webhook secrets and JWTs in any text", () => {
+    const text = "Invalid API Key provided: sk_test_****abcd and rk_live_ZZZ111 whsec_abc123 Bearer eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZSJ9.c2lnbmF0dXJl end";
+    const out = redactSecrets(text);
+    expect(out).not.toMatch(/sk_test_|rk_live_|whsec_|eyJ/);
+    expect(out).toContain("[redacted-key]");
+    expect(out).toContain("[redacted-secret]");
+    expect(out).toContain("[redacted-jwt]");
+    expect(redactSecrets("nothing secret here: acct_123")).toBe("nothing secret here: acct_123");
   });
 });
 

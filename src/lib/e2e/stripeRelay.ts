@@ -11,6 +11,14 @@
  */
 import { createHmac } from "node:crypto";
 
+/** Anything that could carry a credential is masked before it is logged, reported or written to a summary (Stripe's own error text can echo a masked key). */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/\b(?:sk|rk|pk)_(?:test|live)_[A-Za-z0-9*_]+/g, "[redacted-key]")
+    .replace(/\bwhsec_[A-Za-z0-9*_]+/g, "[redacted-secret]")
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g, "[redacted-jwt]");
+}
+
 /** Stripe's documented scheme: `t=<unix>,v1=hex(HMAC_SHA256(secret, "<t>.<body>"))`. */
 export function signStripePayload(body: string, secret: string, timestampSeconds: number): string {
   const signature = createHmac("sha256", secret).update(`${timestampSeconds}.${body}`, "utf8").digest("hex");
@@ -111,7 +119,7 @@ export async function runRelay(input: {
     try {
       events = await deps.listEvents(Math.max(0, newestSeen - lookbackSeconds));
     } catch (error) {
-      deps.log(`relay: events.list failed (${error instanceof Error ? error.message.slice(0, 120) : "error"}); will retry`);
+      deps.log(`relay: events.list failed (${redactSecrets(error instanceof Error ? error.message : "error").slice(0, 120)}); will retry`);
     }
     stats.listed += events.length;
     for (const event of oldestFirst(selectUnseen(events, seen))) {
@@ -120,7 +128,7 @@ export async function runRelay(input: {
       try {
         result = await deliverEvent({ url: input.url, secret: input.secret, event, account: input.account, post: deps.post, nowSeconds: deps.nowSeconds });
       } catch (error) {
-        deps.log(`relay: delivery of ${event.type} failed (${error instanceof Error ? error.message.slice(0, 120) : "error"}); will retry`);
+        deps.log(`relay: delivery of ${event.type} failed (${redactSecrets(error instanceof Error ? error.message : "error").slice(0, 120)}); will retry`);
         failed(event);
         break;
       }

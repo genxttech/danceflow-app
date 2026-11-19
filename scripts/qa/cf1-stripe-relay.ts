@@ -18,7 +18,7 @@
  */
 import { existsSync, writeFileSync } from "node:fs";
 import Stripe from "stripe";
-import { assertRelayTarget, assertTestKey, runRelay, type RelayEvent } from "../../src/lib/e2e/stripeRelay";
+import { assertRelayTarget, assertTestKey, redactSecrets, runRelay, type RelayEvent } from "../../src/lib/e2e/stripeRelay";
 
 async function main() {
   const key = process.env.E2E_STRIPE_TEST_SECRET_KEY ?? "";
@@ -71,6 +71,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`relay: ${error instanceof Error ? error.message : "failed"}`);
+  console.error(`relay: ${redactSecrets(error instanceof Error ? error.message : "failed")}`);
   process.exit(1);
 });

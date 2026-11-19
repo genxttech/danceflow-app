@@ -7,6 +7,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import Stripe from "stripe";
 import { runStripeGuard, type GuardReport } from "../../src/lib/e2e/stripeGuard";
+import { redactSecrets } from "../../src/lib/e2e/stripeRelay";
 
 function summarize(report: GuardReport): string {
   const lines = [report.ok ? "## Stripe guard: PASSED" : "## Stripe guard: STOPPED", ""];
@@ -32,4 +33,4 @@ async function main() {
   process.exit(report.ok ? 0 : report.stop?.failure.kind === "capability" ? 2 : 1);
 }
 
-main().catch((error) => { console.error(`guard: ${error instanceof Error ? error.message : "failed"}`); process.exit(1); });
+main().catch((error) => { console.error(`guard: ${redactSecrets(error instanceof Error ? error.message : "failed")}`); process.exit(1); });

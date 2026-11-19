@@ -12,7 +12,7 @@
  * (type, code, message, param, request id) are reported, because the run must STOP and quote the exact error before any onboarding is requested.
  */
 import type Stripe from "stripe";
-import { assertTestKey } from "./stripeRelay";
+import { assertTestKey, redactSecrets } from "./stripeRelay";
 
 export type StripeFailure = {
   kind: "capability" | "authentication" | "other";
@@ -28,7 +28,7 @@ export function classifyStripeError(error: unknown): StripeFailure {
   const raw = e?.raw ?? {};
   const failure: StripeFailure = {
     type: e?.type ?? raw.type, code: e?.code ?? raw.code, param: e?.param ?? raw.param,
-    message: String(e?.message ?? raw.message ?? error ?? "unknown error").slice(0, 600),
+    message: redactSecrets(String(e?.message ?? raw.message ?? error ?? "unknown error")).slice(0, 600),
     requestId: e?.requestId ?? raw.request_id, statusCode: e?.statusCode ?? raw.statusCode,
     kind: "other",
   };
