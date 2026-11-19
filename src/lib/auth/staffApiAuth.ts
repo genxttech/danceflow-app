@@ -124,7 +124,7 @@ async function resolveStaffUser(request: Request): Promise<GuardFailure | ({ ok:
     response: staffApiError("account_inactive", "This account is not active.", 403),
   });
 
-  const userLimit = checkRateLimit(rateLimitKey("staff-api", "user", user.id, ip), STAFF_API_USER_LIMIT);
+  const userLimit = checkRateLimit(rateLimitKey("staff-api", "user", user.id), STAFF_API_USER_LIMIT);
   if (!userLimit.allowed) return { ok: false, response: staffApiRateLimited(userLimit) };
 
   if (isBanned(user)) return inactive();
