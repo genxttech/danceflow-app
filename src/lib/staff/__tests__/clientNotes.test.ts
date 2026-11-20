@@ -151,6 +151,18 @@ describe("addClientActivityNote", () => {
     expect(lookup.ops.some(([o]) => o === "insert")).toBe(false);
   });
 
+  it("the dedupe window is exactly the requested number of seconds back from now (boundary)", async () => {
+    const f = fakeSupabase({ existing: [], inserted: row() });
+    const before = Date.now();
+    await addClientActivityNote({ supabase: f.client, studioId: studio, clientId: "c1", userId: "u1", input, dedupeWithinSeconds: 120 });
+    const after = Date.now();
+    const gte = f.log.find((e) => e.table === "client_activity_notes")!.ops.find(([o]) => o === "gte")!;
+    expect(gte[1][0]).toBe("created_at");
+    const since = new Date(String(gte[1][1])).getTime();
+    expect(since).toBeGreaterThanOrEqual(before - 120_000);
+    expect(since).toBeLessThanOrEqual(after - 120_000);
+  });
+
   it("API: with no recent twin the note is inserted", async () => {
     const f = fakeSupabase({ existing: [], inserted: row({ id: "new" }) });
     const r = await addClientActivityNote({ supabase: f.client, studioId: studio, clientId: "c1", userId: "u1", input, dedupeWithinSeconds: 120 });
