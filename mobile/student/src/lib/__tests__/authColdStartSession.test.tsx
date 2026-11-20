@@ -41,13 +41,17 @@ beforeEach(() => {
 
 async function startApp() {
   const seen: { latest?: ReturnType<typeof useAuth> } = {};
-  function Capture() {
-    seen.latest = useAuth();
+  function Capture({ onValue }: { onValue: (next: ReturnType<typeof useAuth>) => void }) {
+    onValue(useAuth());
     return <Text>ready</Text>;
   }
   render(
     <AuthProvider>
-      <Capture />
+      <Capture
+        onValue={(next) => {
+          seen.latest = next;
+        }}
+      />
     </AuthProvider>,
   );
   await waitFor(() => expect(seen.latest?.loading).toBe(false));
