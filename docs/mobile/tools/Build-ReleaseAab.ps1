@@ -24,23 +24,60 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)][ValidateSet("student", "business")][string]$App,
-  [Parameter(Mandatory)][string]$Commit,
-  [Parameter(Mandatory)][string]$EnvFile,
+  [string]$Commit = "",
+  [string]$EnvFile = "",
   [Parameter(Mandatory)][string]$ExpectedFile,
   [string]$GoogleServices = "",   # Student only: path of the Firebase google-services.json (never copied into the repo)
   [string]$RepoRoot = "C:\Dev\studioapp",
   [string]$Jdk = "C:\Android\jdk-17",
-  [string]$Sdk = "C:\Android\sdk"
+  [string]$Sdk = "C:\Android\sdk",
+  # Dry mode: no build, no worktree, no Gradle, no keystore. Runs ONLY the signer-pin check and the baked-config check on an
+  # existing -Aab, with the same fail-closed exit codes. Used to prove the path handling and to re-check an AAB read-only.
+  [switch]$CheckOnly,
+  [string]$Aab = ""
 )
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "Test-UploadSigner.ps1")   # Get-AabSignerFingerprints / Assert-UploadSigner (pinned upload certificate)
+
+# --- 0. absolute paths, resolved against the CALLER's current directory BEFORE any Set-Location/Push-Location below.
+# (A relative -ExpectedFile used to be re-resolved from inside the temporary worktree and the verifier then failed to find it.)
+function Resolve-CallerPath([string]$p) {
+  if (-not $p) { return $p }
+  return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p)
+}
+$EnvFile = Resolve-CallerPath $EnvFile
+$ExpectedFile = Resolve-CallerPath $ExpectedFile
+$GoogleServices = Resolve-CallerPath $GoogleServices
+$Aab = Resolve-CallerPath $Aab
+$RepoRoot = Resolve-CallerPath $RepoRoot
+$Jdk = Resolve-CallerPath $Jdk
+$Sdk = Resolve-CallerPath $Sdk
+if (-not (Test-Path -LiteralPath $ExpectedFile)) { throw "Missing file: $ExpectedFile" }
+
+if ($CheckOnly) {
+  # --- dry mode: signer pin + baked config on an existing AAB; nothing is built, no keystore or password is needed
+  if (-not $Aab -or -not (Test-Path -LiteralPath $Aab)) { throw "-CheckOnly needs -Aab <existing .aab>." }
+  Write-Host "CHECK ONLY (no build): $Aab" -ForegroundColor Cyan
+  $bad = 0
+  try { Assert-UploadSigner -Aab $Aab -Keytool "$Jdk\bin\keytool.exe" }
+  catch { Write-Host "SIGNER CHECK: FAIL. $($_.Exception.Message)" -ForegroundColor Red; $bad++ }
+  & node (Join-Path $PSScriptRoot "verify-baked-config.js") $Aab $ExpectedFile
+  if ($LASTEXITCODE -ne 0) { Write-Host "BAKED CONFIG: FAIL (verifier exit $LASTEXITCODE)." -ForegroundColor Red; $bad++ }
+  if ($bad) { Write-Host "DO NOT UPLOAD $Aab" -ForegroundColor Red; exit 1 }
+  Write-Host "CHECKS: PASS (signer equals the pin; baked config verified)." -ForegroundColor Green
+  exit 0
+}
 
 # --- 1. preconditions
 if (Get-Process -Name java -ErrorAction SilentlyContinue) { throw "A java/Gradle process is running. One Gradle build at a time: wait for it." }
 foreach ($n in "DANCEFLOW_UPLOAD_STORE_FILE", "DANCEFLOW_UPLOAD_STORE_PASSWORD", "DANCEFLOW_UPLOAD_KEY_ALIAS", "DANCEFLOW_UPLOAD_KEY_PASSWORD") {
   if (-not [Environment]::GetEnvironmentVariable($n, "Process")) { throw "$n is not set in this shell. Dot-source Set-UploadSigningEnv.ps1 first." }
 }
-foreach ($f in $EnvFile, $ExpectedFile) { if (-not (Test-Path -LiteralPath $f)) { throw "Missing file: $f" } }
+# Gradle runs from inside the worktree, so a relative keystore path would break there: make it absolute now.
+$ksPath = Resolve-CallerPath ([Environment]::GetEnvironmentVariable("DANCEFLOW_UPLOAD_STORE_FILE", "Process"))
+if (-not (Test-Path -LiteralPath $ksPath)) { throw "Keystore file not found (DANCEFLOW_UPLOAD_STORE_FILE)." }
+[Environment]::SetEnvironmentVariable("DANCEFLOW_UPLOAD_STORE_FILE", $ksPath, "Process")
+if (-not $EnvFile -or -not (Test-Path -LiteralPath $EnvFile)) { throw "Missing file: -EnvFile $EnvFile" }
 if ($Commit -notmatch "^[0-9a-f]{7,40}$") { throw "-Commit must be a hex SHA." }
 if ($App -eq "student") {
   if (-not $GoogleServices -or -not (Test-Path -LiteralPath $GoogleServices)) { throw "Student needs -GoogleServices <path to google-services.json>." }
@@ -122,10 +159,11 @@ try {
   $verify = $LASTEXITCODE
   Write-Host ""
   if ($verify -eq 0) { Write-Host "BAKED CONFIG: PASS. The AAB is a candidate for manual upload (owner step)." -ForegroundColor Green }
-  else { Write-Host "BAKED CONFIG: FAIL. DO NOT UPLOAD this AAB." -ForegroundColor Red; exit 1 }
+  else { Write-Host "BAKED CONFIG: FAIL (verifier exit $verify). DO NOT UPLOAD $aab" -ForegroundColor Red; exit 1 }
 } finally {
   Pop-Location
   foreach ($n in "DANCEFLOW_UPLOAD_STORE_FILE", "DANCEFLOW_UPLOAD_STORE_PASSWORD", "DANCEFLOW_UPLOAD_KEY_ALIAS", "DANCEFLOW_UPLOAD_KEY_PASSWORD") { [Environment]::SetEnvironmentVariable($n, $null, "Process") }
   Get-ChildItem Env: | Where-Object { $_.Name -like "EXPO_PUBLIC_*" } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
   Write-Host "DANCEFLOW_UPLOAD_* and EXPO_PUBLIC_* cleared from this process."
 }
+exit 0
