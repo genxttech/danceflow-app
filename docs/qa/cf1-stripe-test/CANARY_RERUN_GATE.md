@@ -1,0 +1,33 @@
+# Canary re-run: result of run 1, the corrected runner, the minimum sandbox action, and the approval gates (2026-11-20)
+
+## 1. Run 1 (GitHub Actions run 44653007956, main `1b5449216`, code under test `c62bccb15`, owner-approved deployment)
+Facts from the job log (masked, no key): key shape OK; identity OK through the pinned connected account (restricted `rk_test_` key); connected account `acct_1UZibNRCFiaIzL1V`: `charges_enabled` false, `payouts_enabled` false, `card_payments` inactive, `transfers` inactive, 13 requirements currently due, disabled reason `requirements.past_due`. **Canary A FAILED**: Stripe 400 `StripeInvalidRequestError`, "In order to use Checkout, you must set an account or business name at https://dashboard.stripe.com/account.", request `req_67Z382HA0utgTP`. Canaries C and B never ran (the guard stopped at A). Stripe requests: 3 (balance, account, session create). No session, no charge.
+Defect found in my guard: the message was classified `other` (exit 1) instead of an account-setup problem, and C was behind A so its answer was hidden.
+
+## 2. Corrected runner (PR 690, `release/website-embeds`, test tooling only)
+- Order: identity, account state, **canary C** (direct $1 PaymentIntent, TEST card, application fee, documented endpoints), canary A (create+expire a Checkout Session), canary B (Checkout payment).
+- The business-name wording is classified as an account-setup (capability-class) error (exit 2).
+- Every stop says what already passed and which canaries were NOT attempted (B needs a Checkout Session, so it cannot run when A is refused).
+- Unchanged: key formats, identity by key type, permission classification (exit 3), masking, redirects, and the fee/amount/livemode integrity checks (a C mismatch is still a hard stop before any Checkout Session exists).
+
+## 3. What a passing canary C proves, and what it does not
+Proves: the connected account can confirm a TEST card payment as a direct charge, with `application_fee_amount` honored (fee recorded on the PaymentIntent and the charge), using the restricted key and only documented endpoints, even though `card_payments` shows `inactive` (consistent with Stripe's sandbox note that sandboxes may not enforce capabilities).
+Does not prove: that Checkout works on this account (A), that a Checkout Session can be paid through the payment page with this key (B), webhook delivery, refunds, or anything about the application's own routes. Checkout stays blocked by the business-name requirement until it is fixed.
+
+## 4. Minimum sandbox-only action to resolve the missing business name (NOT performed; needs the owner's authorization)
+What Stripe documents (API reference, "Update an account"): for accounts whose `controller.requirement_collection` is `stripe` (this account: Express dashboard, created by `POST /v1/accounts` with controller parameters in the D24 provisioning run), "you can update all information until you create an Account Link or Account Session to start Connect onboarding, after which some properties can no longer be updated." Engineering's D24 provisioning made exactly three requests and created no Account Link or Account Session, and no onboarding was ever started, so the profile fields should still be updatable. Not independently verified against Stripe.
+The smallest action: ONE `POST /v1/accounts/acct_1UZibNRCFiaIzL1V` in the sandbox with `business_profile[name]=CF1 Test Studio` and `settings[dashboard][display_name]=CF1 Test Studio` (the two fields behind "account or business name"). It submits no identity data, no documents, no bank account, no Terms acceptance, no capability change and no verification; it creates no account and incurs no fee. It is reversible (the same call with another name).
+How, in order of preference:
+1. The owner sends that single request from the Stripe Dashboard's own API tooling in the sandbox (Workbench API explorer or Shell, if available in the owner's sandbox), under the owner's own login. No change to the canary key, no new code, nothing for engineering to hold.
+2. Add "Connected accounts: Write" to the canary key for one run. Not recommended: it broadens the key, and the canary workflow has no step for it.
+3. A one-shot engineering workflow for the update. Not recommended: another build and review cycle for one request.
+If Stripe refuses the update (for example because an Account Link exists), the error says so and the next step would be hosted onboarding, which is NOT requested here.
+Honest limit: the name may not be the only Checkout prerequisite. The re-run will show it, and canary C's result is independent of it.
+Optional note: the Checkout Sessions API has a session-level `branding_settings.display_name`; whether it satisfies this check is unknown, it would not help the application's own sessions, and it is not pursued.
+
+## 5. Approval gates for the re-run (no run is dispatched without them)
+1. Owner: code-owner approval of PR 690 at its exact head (given with the PR); engineering merges it with the head guard.
+2. Owner: code-owner approval of the pin PR to `main` (one line, `CF1_PINNED_COMMIT` to the PR 690 merge commit; opened only after 1).
+3. Owner decision (recommended before the re-run, so a single run shows C, A and B together): authorize or decline the one-request business-name update in section 4 and perform it.
+4. Engineering dispatches the canary on `main`; the owner approves the deployment after comparing the pinned commit. The restricted key remains valid until its 24-hour expiry; the owner expires the key and deletes the secret afterwards.
+Cost of the re-run: about 7 Stripe requests, $0, two $1 TEST charges (C and B) left on the sandbox.
