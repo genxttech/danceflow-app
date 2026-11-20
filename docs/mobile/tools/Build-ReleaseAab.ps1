@@ -32,6 +32,8 @@ param(
   # "pulse" / "studioSchedule" are refused unless the production smoke summary (Invoke-StaffApiSmoke.ps1) shows those routes PASS.
   [string]$StaffFeatures = "",
   [string]$SmokeSummary = "C:\dfr-out\release\checks\business-staff-smoke.txt",
+  # Business write words (appointmentAttendance, clientNotes, clientCreate, classRoster): iso-qa device-smoke evidence for THIS commit (production writes are not allowed).
+  [string]$WriteEvidence = "C:\dfr-out\release\checks\business-writes-isoqa-smoke.txt",
   [string]$RepoRoot = "C:\Dev\studioapp",
   [string]$Jdk = "C:\Android\jdk-17",
   [string]$Sdk = "C:\Android\sdk",
@@ -55,6 +57,7 @@ $ExpectedFile = Resolve-CallerPath $ExpectedFile
 $GoogleServices = Resolve-CallerPath $GoogleServices
 $Aab = Resolve-CallerPath $Aab
 $SmokeSummary = Resolve-CallerPath $SmokeSummary
+$WriteEvidence = Resolve-CallerPath $WriteEvidence
 $RepoRoot = Resolve-CallerPath $RepoRoot
 $Jdk = Resolve-CallerPath $Jdk
 $Sdk = Resolve-CallerPath $Sdk
@@ -92,7 +95,7 @@ if ($App -eq "business") {
   if (-not $effectiveFeatures) {
     foreach ($line in Get-Content -LiteralPath $EnvFile) { if ($line -match "^\s*EXPO_PUBLIC_STAFF_FEATURES\s*=\s*(.*?)\s*$") { $effectiveFeatures = $Matches[1] } }
   }
-  Assert-StaffFeatures -Features $effectiveFeatures -SummaryPath $SmokeSummary
+  Assert-StaffFeatures -Features $effectiveFeatures -SummaryPath $SmokeSummary -WriteEvidencePath $WriteEvidence -Commit $Commit
   Write-Host "Staff features for this build: $(if ($effectiveFeatures) { $effectiveFeatures } else { "(defaults: clients, attendance)" })" -ForegroundColor Cyan
 }
 if ($App -eq "student") {
