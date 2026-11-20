@@ -12,6 +12,7 @@ Helpers added with this document (all under `docs/mobile/tools/`, none contains 
 | `upload-cert.json`, `Test-UploadSigner.ps1` | The pinned upload certificate and the signer check `Build-ReleaseAab.ps1` runs on every AAB (fails unless the signer SHA-256 equals the pin; always rejects the QA key). |
 | `Set-UploadSigningEnv.ps1` | The owner exports the four `DANCEFLOW_UPLOAD_*` variables into one PowerShell process, passwords typed hidden. |
 | `Build-ReleaseAab.ps1` | One supervised command per app: clean worktree at an exact commit, private `TEMP`, `CI` unset, unminified `bundleRelease`, then the baked-config check. |
+| `scan-aab-secrets.js` | Read-only secrets scan over every entry of an AAB/APK (reports entry names, never values). |
 | `verify-baked-config.js` | Decodes the Hermes string table of an AAB/APK and PASS/FAILs the baked `EXPO_PUBLIC_*` values (self-test: `--self-test`). |
 | `expected-production.student.json`, `expected-production.business.json`, `release-env.example` | Expected values (no secret) and the env-file template. |
 
@@ -140,3 +141,35 @@ Engineering side is ready; the commands in section 4 are one command each per ap
 3. Two confirmations that change a value, not the commands: the coordinator's R+2 result for `/api/staff` on `www` (decides `EXPO_PUBLIC_STAFF_FEATURES` for Business and the web origin), and the pin check in section 4 printing nothing at go-time.
 
 Not missing: the keystore (exists), its fingerprints (pinned), the JDK 17 path, the verifier (self-test passes), the expected-value files, the DEV `google-services.json` (exists, accepted for the first internal build), the pinned candidate commits. `Build-ReleaseAab.ps1` has not run end to end (UNVERIFIED until the first supervised run).
+
+## 8. First real-key Student AAB: read-only artifact checks (2026-11-20)
+
+The owner built `C:\dfr-out\release\student-f5f31103.aab` (99,116,172 B, SHA-256 `f67a39a52d15f503b79f62a408746da4f8592e6566320a3830a2bee31b8fbda7`, confirmed identical on 2026-11-20) with `Build-ReleaseAab.ps1` from commit `f5f31103f` (main after #693). The Student app inputs (`mobile/student` excluding scripts, tests and `*.md`) are unchanged since the RC5b evidence commit `f794940c3`. Checks below were run read-only by engineering: no Gradle, no emulator, the keystore never touched; a scratch universal APK signed with the **throwaway QA key** (not the owner key) was built only to run `zipalign` and was deleted. Evidence files are in `C:\dfr-out\release\checks\student-f5f31103\` (outside the repo).
+
+| Check | Result | Evidence |
+|---|---|---|
+| File identity | **PASS**: SHA-256 equals the value above | `sha256sum` |
+| Manifest (`bundletool dump manifest`): package, version | **PASS**: `com.idanceflow.student`, versionCode 1, versionName 0.1.0 | `manifest.xml` |
+| targetSdk / minSdk / compileSdk | **PASS**: 36 / 24 / 36 | `manifest.xml` |
+| `debuggable` | **PASS**: attribute absent (not debuggable) | `manifest.xml` (0 matches) |
+| Cleartext | **PASS**: no `usesCleartextTraffic`, no `networkSecurityConfig` | `manifest.xml` (0 matches) |
+| `allowBackup` | **PASS**: `false` | `manifest.xml` |
+| Permissions vs `Google_Play_Internal_Testing.md` section 9 | **PASS**: location (coarse/fine), `POST_NOTIFICATIONS`, `INTERNET`, `VIBRATE`, plus library permissions (network/Wi-Fi state, `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, `USE_BIOMETRIC`/`USE_FINGERPRINT`, `DOWNLOAD_WITHOUT_NOTIFICATION`, FCM `c2dm.RECEIVE`, install-referrer, launcher badge permissions, the app's own dynamic-receiver permission). `CAMERA`, `RECORD_AUDIO`, `SYSTEM_ALERT_WINDOW`, `READ/WRITE/MANAGE_EXTERNAL_STORAGE` and `READ_MEDIA_*` all absent | `manifest.xml` |
+| 16 KB: ELF `p_align` of every `arm64-v8a` and `x86_64` library in the AAB | **PASS**: 46 libraries, 0 below 16384 | `elfcheck.txt` |
+| 16 KB: `zipalign -c -P 16 4` on a universal APK generated from the AAB | **PASS**: exit 0 (QA-signed scratch APK, deleted) | `zipalign.txt` |
+| Firebase config baked in (no QA placeholder) | **PASS**: `project_id` = `danceflow-mobile-dev`, `google_app_id` equals the `com.idanceflow.student` client of the DEV `google-services.json` (and differs from the Business client), the baked API key equals that client's key, the file has no placeholder marker. Compared in a script; no value printed. Production push stays UNVERIFIED (DEV Firebase project, accepted for the first internal build) | bundletool `dump resources` of `string/project_id`, `google_app_id`, `google_api_key` |
+| No debug signing | **PASS**: one signer; not the QA key, not the Android debug key; no `debuggable` | `signer.txt` |
+| Signer equals the pinned upload certificate | **PASS**: SHA-256 `12:E5:24:0E:...:A1:EE:AF` and SHA-1 `B3:67:50:A0:...:F0:DF:92` equal `upload-cert.json`; SHA256withRSA, valid 2026-11-19 to 2051-11-13, owner `CN=Michael Curtis, OU=DanceFlow, O=Genx TotalTech` | `signer.txt` |
+| Baked `EXPO_PUBLIC_*` | **PASS** (`verify-baked-config.js` with `expected-production.student.json`): one Supabase project `hvsujyfbftfffxpfmlpb`, exactly one JWT (`role=anon`, `ref=hvsujyfbftfffxpfmlpb`, `iss=supabase`, not expired), web origin `https://www.idanceflow.com`, no Stripe publishable key, no placeholder/stack/localhost/secret | `baked-config.txt` |
+| Secrets scan over all 2,144 entries (`scan-aab-secrets.js`) | **PASS**: no private-key block, service-account JSON, Stripe `sk_`/`rk_`/`whsec_`, `service_role`, QA keystore name/password, `DANCEFLOW_UPLOAD_*`, cloud/CI token shape, `client_secret` value, or keystore/PKCS12 file. Expected non-secrets: one Google API key resource (`base/resources.pb`), the bare word `client_secret` in two dex files (library parameter name), three public CA/3DS `.pem` assets | `secrets-scan.txt` |
+
+Not covered by these read-only checks: the **device smoke of this exact AAB** (the release build is production-valued, so the QA smoke harness cannot sign in to it; the smoke evidence is the QA build of the same commit: RC5b `C:\dfr-out\qa-rc5b`), push delivery, and the Play pre-launch report. The AAB also carries native debug symbols (`BUNDLE-METADATA/.../*.so.sym`), which Play uses for crash symbolication: expected.
+
+### `Build-ReleaseAab.ps1`: behaviour in the first real run
+
+Engineering did not see the owner's console, so these notes come from the artifacts the run left behind (no error text was available; the owner or coordinator should add any message they saw):
+
+- **Worked:** a clean detached worktree at `f5f31103f` (`C:\dfr\rel-student`, status clean), `npm ci` (about 23:16), a successful `bundleRelease` and the copy to `C:\dfr-out\release\student-f5f31103.aab` at 23:50 (about 34 minutes including `npm ci` on the shared PC); the Firebase file was copied and validated (project and package match); the signer equals the pin (coordinator verified; re-verified above); the baked-config verifier passed; the AAB is unminified as intended.
+- **No defect found** in the AAB it produced (all checks above pass).
+- **Housekeeping gaps (not bugs):** the script leaves the worktree (about 5.8 GB at `C:\dfr\rel-student`) and the private `TEMP` (`C:\dfr\tmp-rel-student-f5f31103`, 41 MB) behind. It removes and recreates the worktree on the next run, so nothing breaks, but disk use grows per app; delete both after the AAB is uploaded and its hash recorded. The script does not itself run the manifest, SDK, 16 KB and permission checks of this section; they remain separate read-only steps (now documented here, with `scan-aab-secrets.js` for the secrets scan).
+- Still **UNVERIFIED**: the same script for **Business** (not run yet), and the keystore-password prompt behaviour in the owner's shell beyond the fact that the signed AAB came out.
