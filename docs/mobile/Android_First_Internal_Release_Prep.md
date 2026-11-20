@@ -8,11 +8,25 @@ Helpers added with this document (all under `docs/mobile/tools/`, none contains 
 
 | File | What it does |
 |---|---|
-| `New-UploadKeystore.ps1` | The owner creates the one upload keystore. Prints only the public fingerprints. |
+| `New-UploadKeystore.ps1` | The owner creates the one upload keystore (idempotent: if it exists it only prints the public fingerprints and compares them with the pin). |
+| `upload-cert.json`, `Test-UploadSigner.ps1` | The pinned upload certificate and the signer check `Build-ReleaseAab.ps1` runs on every AAB (fails unless the signer SHA-256 equals the pin; always rejects the QA key). |
 | `Set-UploadSigningEnv.ps1` | The owner exports the four `DANCEFLOW_UPLOAD_*` variables into one PowerShell process, passwords typed hidden. |
 | `Build-ReleaseAab.ps1` | One supervised command per app: clean worktree at an exact commit, private `TEMP`, `CI` unset, unminified `bundleRelease`, then the baked-config check. |
 | `verify-baked-config.js` | Decodes the Hermes string table of an AAB/APK and PASS/FAILs the baked `EXPO_PUBLIC_*` values (self-test: `--self-test`). |
 | `expected-production.student.json`, `expected-production.business.json`, `release-env.example` | Expected values (no secret) and the env-file template. |
+
+## 0. Pinned upload certificate (2026-11-20)
+
+The owner created the upload keystore with keytool (`C:\Users\mcurt\df-credentials\upload\danceflow-upload.keystore`, alias `danceflow-upload`; engineering never reads, copies or searches for it or its passwords). Its public certificate fingerprints, pasted by the owner:
+
+| | |
+|---|---|
+| SHA-256 | `12:E5:24:0E:3C:71:84:6D:11:80:B4:2D:D5:22:7E:F6:74:1B:28:7D:12:F2:DC:4C:A4:1A:B7:18:08:A1:EE:AF` |
+| SHA-1 | `B3:67:50:A0:32:96:B1:B1:A3:92:29:50:13:66:35:35:35:F0:DF:92` |
+
+These are recorded in `docs/mobile/tools/upload-cert.json`. `Build-ReleaseAab.ps1` fails (exit 1, "DO NOT UPLOAD") unless the built AAB's signer SHA-256 equals this value, and always rejects the QA key (`93:F4:E4:5E:...:F0:99`); `New-UploadKeystore.ps1` prints MATCHES / DOES NOT MATCH against it. The Play Console's *Upload key certificate* SHA-256 after the first upload must equal it too (section 1 step 5).
+
+**Why the first run of `New-UploadKeystore.ps1` failed at the certificate export (fixed):** the script ran `keytool -exportcert ... | Out-Null`. With stdout piped, JDK 17's `System.console()` is null, so keytool can neither show its password prompt (the prompt text went into `Out-Null`) nor hide the typing, and the export failed. The key generation step had no pipe and worked, which is why the keystore existed. My earlier test used `-storepass:env` (no prompt) and so missed it. The fixed script runs both keytool calls with no pipe or redirect, lets keytool print only `Certificate stored in file ...`, and computes the SHA-256/SHA-1 itself from the public `.cer`, which it deletes. A second bug found while testing the idempotent path: `$PSScriptRoot` is empty inside a `param()` default on Windows PowerShell 5.1, so the pin-file path is now resolved in the script body. Tested on a throwaway copy of the QA keystore (password fed on stdin, so the interactive TTY prompt itself is **UNVERIFIED** until the owner re-runs): an existing keystore is not regenerated or modified (byte-identical), the fingerprints print, no `.cer` is left, and a key that is not the pinned one is flagged. The owner can simply re-run `New-UploadKeystore.ps1`: it skips generation and prints the fingerprints, which should say MATCHES.
 
 ## 1. Owner signing setup (minimal, local keystore + Play App Signing)
 
@@ -20,13 +34,13 @@ Facts: **one upload key may sign both apps.** Play App Signing is what Google us
 
 The JDK 17 on this PC (the one Gradle uses) is `C:\Android\jdk-17`; its `keytool.exe` is `C:\Android\jdk-17\bin\keytool.exe` (`JAVA_HOME` is not set in every shell; the helpers use that path and take `-Keytool` to override).
 
-1. **Create the key (owner, own PowerShell window, once):**
+1. **Create the key (owner, own PowerShell window, once; already done 2026-11-20 — re-running only prints the fingerprints):**
    ```powershell
    powershell -NoProfile -ExecutionPolicy Bypass -File <repo>\docs\mobile\tools\New-UploadKeystore.ps1
    ```
-   keytool asks for the password (twice) and the name fields itself, hidden; the script never sees them. It creates `C:\Users\mcurt\df-credentials\upload\danceflow-upload.keystore` (alias `danceflow-upload`, RSA 2048, 25 years), refuses to overwrite an existing file, restricts the folder's ACL to the Windows user, prints the **SHA-256 and SHA-1 of the upload certificate** and reminds the backups.
+   keytool asks for the password (twice) and the name fields itself, hidden; the script never sees them. It creates `C:\Users\mcurt\df-credentials\upload\danceflow-upload.keystore` (alias `danceflow-upload`, RSA 2048, 25 years), refuses to overwrite an existing file, restricts the folder's ACL to the Windows user, prints the **SHA-256 and SHA-1 of the upload certificate**, compares them with the pin, and reminds the backups.
 2. **Back it up before anything else:** password in the password manager, the `.keystore` file as a password-manager attachment **and** an offline copy (encrypted USB). Two places.
-3. **Give engineering the fingerprint to pin:** paste the two printed lines (SHA-256, SHA-1). They are public. Engineering records them and, after every build, compares the AAB's signer certificate (the build script prints it) with them.
+3. **The fingerprint is pinned** (section 0); the build script compares every AAB's signer certificate with it.
 4. **For a supervised build** (section 4), in the same PowerShell window: `. <repo>\docs\mobile\tools\Set-UploadSigningEnv.ps1` (note the leading dot). Passwords are typed hidden; the four `DANCEFLOW_UPLOAD_*` variables exist only in that process, the keystore is opened once to prove the password (nothing printed), and `Clear-UploadSigningEnv` (or closing the window) removes them. The build script also clears them when it ends, so dot-source again before the second app.
 5. **At the first upload** Play registers the signing certificate of that AAB as the upload key. After upload, open the app's *Test and release > Setup > App signing* (Console wording varies slightly) and compare **Upload key certificate SHA-256** with the fingerprint from step 1. **If they differ** the AAB was signed with a different key than intended (wrong keystore or a QA/debug key): stop, do not release, and tell engineering. With Play App Signing the upload key can be reset by Google (App signing page > *Request upload key reset*), so this is recoverable; Play will not let a key that does not match the registered upload key upload later builds.
 6. If the keystore or password is ever lost, nothing is lost before the first upload (make a new key); after it, request an upload-key reset in the Console. The app-signing key is Google's, so users are not affected.
@@ -97,7 +111,7 @@ $sha = git rev-parse origin/main                       # after the pin check abo
    -ExpectedFile .\docs\mobile\tools\expected-production.business.json
 ```
 
-What each command does: refuses if Gradle/java runs or a `DANCEFLOW_UPLOAD_*` variable is missing; `git worktree add --detach C:\dfr\rel-<app> <sha>`; `npm ci`; reads only the env file's `EXPO_PUBLIC_*` (anything already in the shell is dropped); private empty `TEMP`/`TMP`, `CI` unset, JDK 17; Student copies the Firebase file, Business runs `expo prebuild --clean`; deletes `createBundleReleaseJsAndAssets`; `gradlew bundleRelease --no-daemon` (unminified); copies the AAB to `C:\dfr-out\release\<app>-<sha8>.aab`; prints size, file SHA-256 and the **signer certificate** (must equal the section 1 fingerprints); runs `verify-baked-config.js`. Exit 1 and "DO NOT UPLOAD" if the baked config fails. Afterwards engineering still runs the manifest/targetSdk 36/16 KB/permission checks (`Android_Release_QA_Runbook.md` step 1) and, with the coordinator's emulator slot, the device smoke of the same commit on a disposable stack. These helpers were syntax-checked and their key logic (fingerprint printing, `-storepass:env` open check) was proven on the throwaway QA keystore, **but `Build-ReleaseAab.ps1` itself has not been run end to end** (it needs the real key and the production anon key): UNVERIFIED until the first supervised run.
+What each command does: refuses if Gradle/java runs or a `DANCEFLOW_UPLOAD_*` variable is missing; `git worktree add --detach C:\dfr\rel-<app> <sha>`; `npm ci`; reads only the env file's `EXPO_PUBLIC_*` (anything already in the shell is dropped); private empty `TEMP`/`TMP`, `CI` unset, JDK 17; Student copies the Firebase file, Business runs `expo prebuild --clean`; deletes `createBundleReleaseJsAndAssets`; `gradlew bundleRelease --no-daemon` (unminified); copies the AAB to `C:\dfr-out\release\<app>-<sha8>.aab`; prints size, file SHA-256, then **fails unless the signer SHA-256 equals the pinned upload certificate** (section 0; the QA key is always rejected); runs `verify-baked-config.js`. Exit 1 and "DO NOT UPLOAD" if the baked config fails. Afterwards engineering still runs the manifest/targetSdk 36/16 KB/permission checks (`Android_Release_QA_Runbook.md` step 1) and, with the coordinator's emulator slot, the device smoke of the same commit on a disposable stack. These helpers were syntax-checked and their key logic (fingerprint printing, `-storepass:env` open check) was proven on the throwaway QA keystore, **but `Build-ReleaseAab.ps1` itself has not been run end to end** (it needs the real key and the production anon key): UNVERIFIED until the first supervised run.
 
 ## 5. Tester lists: five-line reconciliation (per app, owner, about 3 minutes each)
 
@@ -116,3 +130,13 @@ What each command does: refuses if Gradle/java runs or a `DANCEFLOW_UPLOAD_*` va
 5. Say go; run (or watch engineering run) the two supervised commands in section 4 in one PowerShell window; read the printed signer fingerprint and the `BAKED CONFIG: PASS` line for each app.
 6. Upload each AAB by hand in the Console (*Internal testing > Create new release > Upload*, accept Play App Signing, save and roll out to the internal track) and compare the Console's upload-key SHA-256 with step 1.
 7. Do the five-line tester reconciliation (section 5) for each app.
+
+## 7. What is still missing for the two build commands to run (2026-11-20)
+
+Engineering side is ready; the commands in section 4 are one command each per app (plus the dot-source). Missing, and only these:
+
+1. **The production Supabase anon key** in `C:\Users\mcurt\df-credentials\release\student.env` and `business.env` (template `docs\mobile\tools\release-env.example`; the URL and `www` origin lines are pre-filled and need the owner's confirmation; the folder does not exist yet). Not fetched by engineering.
+2. **The owner's go**, with the upload keystore password typed by the owner at `Set-UploadSigningEnv.ps1`'s hidden prompt, in the shell that runs the build.
+3. Two confirmations that change a value, not the commands: the coordinator's R+2 result for `/api/staff` on `www` (decides `EXPO_PUBLIC_STAFF_FEATURES` for Business and the web origin), and the pin check in section 4 printing nothing at go-time.
+
+Not missing: the keystore (exists), its fingerprints (pinned), the JDK 17 path, the verifier (self-test passes), the expected-value files, the DEV `google-services.json` (exists, accepted for the first internal build), the pinned candidate commits. `Build-ReleaseAab.ps1` has not run end to end (UNVERIFIED until the first supervised run).
