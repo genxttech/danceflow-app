@@ -322,3 +322,13 @@ Every write route added after v0.1 goes through `requireStaffWrite(request, stud
 - **Header:** `X-DanceFlow-App: business/<versionName>/<versionCode>/<android|ios>`, for example `business/0.2.0/3/android`. Required on every gated write; missing, malformed, another app id, a code below the platform minimum or a blocked code = `426 upgrade_required`. Reads never need it.
 - **Policy:** one server environment variable `STAFF_API_WRITE_POLICY`, JSON: `{"enabled": ["clientNotes"], "minimumCode": {"android": 2}, "blockedCodes": {"android": [1]}}`. **Fail closed:** unset, empty, not JSON, or any malformed field means every write is `403 writes_disabled`; a capability not listed in `enabled` is disabled. It is read on each request; changing it takes a redeploy.
 - **Order:** identity, membership and pause refusals (401/403) first, then `writes_disabled`, then `upgrade_required`.
+
+## Write helpers: idempotency patterns, conflicts, error-code registry (Phase 0, P0-2)
+
+Shared by every write route added after v0.1 (`src/lib/staff/writeSupport.ts`). No migration and no stored keys.
+
+- **`Idempotency-Key` is required on every write** (8-128 characters of letters, digits, `- _ : .`) and is not stored. A retry must reuse the same key and the same body.
+- **Three patterns make a retry safe** (each write names its pattern in its design note): (1) **state-based**: setting a status that is already set is a no-op that returns the current record with `alreadyApplied: true` (attendance, attended/no-show, cancel attendee); (2) **client-supplied entity id**: the app sends a UUID it generated once per user action (`noteId`, `clientId`), the route inserts with that id; an identical replay returns the existing row with `200`, the same id with different content is `409 idempotency_conflict`; (3) **natural domain key**: the existing uniqueness rule is read as a replay (a dancer already enrolled in the class returns the existing attendee with `200`, `alreadyEnrolled: true`).
+- **Conflicts are `409 { error, code, current }`**, where `current` is the server's present state of the thing the app tried to change, so the app can show it and reconcile (replace its local copy with `current`, do not blindly retry).
+- **Bodies** are JSON objects of at most 16 KB; anything else is `400 invalid_request`. A write route returns flat errors only.
+- **Error-code registry for writes** (lower snake case; a slice adds its codes here): `writes_disabled` (403) and `upgrade_required` (426) from the write gate; `idempotency_conflict` (409); slice codes are defined in each slice's design note (`outcome_conflict`, `payment_required`, `duplicate_email`, the roster codes such as `class_full`, `already_enrolled`).
