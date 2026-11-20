@@ -11,6 +11,7 @@ import { PushProvider, usePushTaps } from "@/lib/push";
 import { nativePush } from "@/lib/pushNative";
 import { stackAnimation, useReduceMotion } from "@/lib/motion";
 import { StaffApiProvider, StaffSessionProvider } from "@/lib/staff";
+import { currentAppHeader } from "@/lib/appVersion";
 import { createStaffApi } from "@/lib/staffApi";
 import { colors } from "@/theme";
 
@@ -29,7 +30,7 @@ function PushTapRouter() {
 function StaffProviders({ children }: { children: React.ReactNode }) {
   const { getAccessToken, refreshAccessToken, signOut, signOutEverywhere, session } = useAuth();
   const api = useMemo(
-    () => createStaffApi({ baseUrl: webUrl!, getAccessToken, refreshAccessToken }),
+    () => createStaffApi({ baseUrl: webUrl!, getAccessToken, refreshAccessToken, appHeader: currentAppHeader() }),
     [getAccessToken, refreshAccessToken],
   );
 
