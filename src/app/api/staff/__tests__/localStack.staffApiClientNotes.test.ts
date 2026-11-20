@@ -89,7 +89,7 @@ const note = (user: string, clientId: string, body: unknown, opts: { studioId?: 
   return post(
     new Request(`https://app.test/api/staff/workspaces/${studioId}/clients/${clientId}/notes`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${tokenFor(user)}`, "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) },
+      headers: { Authorization: `Bearer ${tokenFor(user)}`, "content-type": "application/json", "x-danceflow-app": "business/0.2.0/3/android", ...(key ? { "idempotency-key": key } : {}) },
       body: typeof body === "string" ? body : JSON.stringify(body),
     }),
     { params: Promise.resolve({ studioId, clientId }) },
@@ -110,6 +110,7 @@ describe.skipIf(!enabled)("staff API client notes against real RLS", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = URL_;
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = sign({ role: "anon", exp: exp() });
     process.env.SUPABASE_SERVICE_ROLE_KEY = sign({ role: "service_role", exp: exp() });
+    process.env.STAFF_API_WRITE_POLICY = JSON.stringify({ enabled: ["clientNotes"] });
 
     const users = Object.values(USERS);
     const role = (user: string, studio: string, value: string) => `('${user}', '${studio}', '${value}', true)`;

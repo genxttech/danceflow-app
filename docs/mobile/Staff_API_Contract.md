@@ -319,6 +319,7 @@ Response: `201` with the new note, or `200` with the existing note when it was a
 ```
 
 Who may call it and what each answer means:
+- **Write guard:** the route is behind the per-capability kill switch (`clientNotes`) and the minimum-app-version gate (`X-DanceFlow-App` header): `403 writes_disabled` while the capability is not enabled, `426 upgrade_required` for a missing or too-old build. Identity and membership refusals come first.
 - **Roles:** owners, admins and front desk (`canEditClients`, the same as the web action). Instructors, independent instructors and organizer roles get `403 role_not_permitted`.
 - **Another studio's client, or a client that does not exist:** `404 not_found` (indistinguishable). A workspace the caller does not belong to is `403 not_a_member`.
 - **Bad input** (missing or blank `body`, unknown `noteType`, unparsable `occurredAt`, non-string fields, over-long `body`, malformed ids or key): `400 invalid_request`.

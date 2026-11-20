@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { canEditClients } from "@/lib/auth/permissions";
 import { normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
-import { requireStaffApi, staffApiError, staffApiJson, staffApiUnavailable } from "@/lib/auth/staffApiAuth";
+import { staffApiError, staffApiJson, staffApiUnavailable } from "@/lib/auth/staffApiAuth";
+import { requireStaffWrite } from "@/lib/staff/writeGuard";
 import { addClientActivityNote, validateClientNoteInput } from "@/lib/staff/clientNotes";
 
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_\-:.]{8,128}$/;
@@ -12,7 +13,7 @@ const DEDUPE_WINDOW_SECONDS = 120;
 
 export async function POST(request: Request, { params }: { params: Promise<{ studioId: string; clientId: string }> }) {
   const { studioId, clientId } = await params;
-  const guard = await requireStaffApi(request, studioId);
+  const guard = await requireStaffWrite(request, studioId, "clientNotes");
   if (!guard.ok) return guard.response;
 
   // Same roles as the web "add note" action (canEditClients): owners, admins and front desk. Instructors are refused.

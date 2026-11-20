@@ -37,7 +37,7 @@ const { POST } = await import("../workspaces/[studioId]/clients/[clientId]/notes
 
 const CLIENT = "c0000000-0000-4000-8000-0000000000bb";
 
-function post(token: string, body: unknown, headers: Record<string, string> = { "Idempotency-Key": "note-key-0001" }, clientId = CLIENT) {
+function post(token: string, body: unknown, headers: Record<string, string> = { "Idempotency-Key": "note-key-0001", "X-DanceFlow-App": "business/0.2.0/3/android" }, clientId = CLIENT) {
   return POST(
     new Request(`https://app.test/api/staff/workspaces/${STUDIO_A}/clients/${clientId}/notes`, {
       method: "POST",
@@ -57,12 +57,35 @@ async function expectRefusal(response: Response, status: number, code: string) {
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://db.test";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+  process.env.STAFF_API_WRITE_POLICY = JSON.stringify({ enabled: ["clientNotes"] });
   harness.dataReads = 0;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {
   expect(harness.dataReads).toBe(0);
   vi.restoreAllMocks();
+});
+
+describe("client note route: the write guard (kill switch and app version) runs after identity and before the role check", () => {
+  it("no policy, or the capability not listed: 403 writes_disabled (fail closed)", async () => {
+    delete process.env.STAFF_API_WRITE_POLICY;
+    await expectRefusal(await post(TOKENS.frontDeskA, { body: "x" }), 403, "writes_disabled");
+    process.env.STAFF_API_WRITE_POLICY = JSON.stringify({ enabled: ["clientCreate"] });
+    await expectRefusal(await post(TOKENS.ownerA, { body: "x" }), 403, "writes_disabled");
+    process.env.STAFF_API_WRITE_POLICY = "not json";
+    await expectRefusal(await post(TOKENS.ownerA, { body: "x" }), 403, "writes_disabled");
+  });
+
+  it("a missing or malformed app header: 426 upgrade_required", async () => {
+    await expectRefusal(await post(TOKENS.frontDeskA, { body: "x" }, { "Idempotency-Key": "note-key-0001" }), 426, "upgrade_required");
+    await expectRefusal(await post(TOKENS.frontDeskA, { body: "x" }, { "Idempotency-Key": "note-key-0001", "X-DanceFlow-App": "student/1/1/android" }), 426, "upgrade_required");
+  });
+
+  it("identity refusals still win over the guard", async () => {
+    delete process.env.STAFF_API_WRITE_POLICY;
+    await expectRefusal(await post(TOKENS.instructorB, { body: "x" }), 403, "not_a_member");
+    await expectRefusal(await post("not-a-real-token", { body: "x" }), 401, "unauthenticated");
+  });
 });
 
 describe("client note route: role matrix (canEditClients = owner, admin, front desk)", () => {
@@ -83,8 +106,8 @@ describe("client note route: input validation (front desk and owner, before any 
     ["front desk", TOKENS.frontDeskA],
     ["owner", TOKENS.ownerA],
   ])("%s: bad input is a 400 invalid_request", async (_label, token) => {
-    await expectRefusal(await post(token, { body: "x" }, {}), 400, "invalid_request"); // no Idempotency-Key
-    await expectRefusal(await post(token, { body: "x" }, { "Idempotency-Key": "short" }), 400, "invalid_request");
+    await expectRefusal(await post(token, { body: "x" }, { "X-DanceFlow-App": "business/0.2.0/3/android" }), 400, "invalid_request"); // no Idempotency-Key
+    await expectRefusal(await post(token, { body: "x" }, { "Idempotency-Key": "short", "X-DanceFlow-App": "business/0.2.0/3/android" }), 400, "invalid_request");
     await expectRefusal(await post(token, "not json"), 400, "invalid_request");
     await expectRefusal(await post(token, "[1]"), 400, "invalid_request");
     await expectRefusal(await post(token, {}), 400, "invalid_request"); // body required

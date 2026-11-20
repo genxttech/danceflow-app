@@ -62,6 +62,7 @@ function req(path: string, token?: string, init: RequestInit = {}) {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       "Idempotency-Key": "qa-refusal-key-1",
+      "X-DanceFlow-App": "business/0.2.0/3/android",
       "Content-Type": "application/json",
     },
   });
@@ -110,6 +111,7 @@ async function expectRefusal(response: Response, status: number, code: string) {
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://db.test";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+  process.env.STAFF_API_WRITE_POLICY = JSON.stringify({ enabled: ["clientNotes", "clientCreate", "appointmentAttendance"] });
   harness.authFailure = null;
   harness.cookieClientCalls = 0;
   harness.dataReads = 0;
