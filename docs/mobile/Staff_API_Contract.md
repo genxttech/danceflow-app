@@ -42,6 +42,8 @@ Every refusal is JSON, and no route redirects. The shape is flat: `error` is dis
 | 403 | `role_not_permitted` | The role has no access to this feature | Hide the feature |
 | 404 | `not_found` | The record is missing, in another studio, or not the caller's to read. These cases are indistinguishable | Show "not found" and refresh the list |
 | 409 | `not_markable` | **slice 2.** Attendance can't be recorded for this appointment: it isn't a group class, or the class is cancelled | Refresh the class and explain |
+| 403 | `writes_disabled` | **Write routes added after v0.1.** The server's kill switch for this capability is off (or unreadable: fail closed). Reads are unaffected | Show "This change is turned off right now"; do not retry in a loop |
+| 426 | `upgrade_required` | **Write routes added after v0.1.** The build is too old, blocked, or sent no `X-DanceFlow-App` header | Show the update prompt; the write was not applied |
 | 503 | `service_unavailable` | A dependency failed, including token verification | Retry with backoff. Do not sign out |
 
 Responses carry `Cache-Control: private, no-store`. Do not persist them beyond what the screen needs, because they contain client names.
@@ -312,3 +314,11 @@ A client summary with no money and no contact details. Same role rules as the se
 - **Attendee name after a write:** the name in the response is looked up after the write has committed; if that lookup fails the response is still `200` with `displayName: null`, not a `503`.
 - **Client cursors** are opaque; a cursor the server did not issue answers `400 invalid_request`.
 - **Instructor client scope** follows the teaching relationship window. A student whose last attended lesson with the instructor ended more than 14 days ago, and who has nothing upcoming with them, drops out of the instructor's search and summary.
+
+## Write gate (Phase 0, P0-1)
+
+Every write route added after v0.1 goes through `requireStaffWrite(request, studioId, capability)` (`src/lib/staff/writeGuard.ts`), capability keys `appointmentAttendance`, `clientNotes`, `clientCreate`, `classRoster`. The v0.1 class-attendance route predates it and is not behind it.
+
+- **Header:** `X-DanceFlow-App: business/<versionName>/<versionCode>/<android|ios>`, for example `business/0.2.0/3/android`. Required on every gated write; missing, malformed, another app id, a code below the platform minimum or a blocked code = `426 upgrade_required`. Reads never need it.
+- **Policy:** one server environment variable `STAFF_API_WRITE_POLICY`, JSON: `{"enabled": ["clientNotes"], "minimumCode": {"android": 2}, "blockedCodes": {"android": [1]}}`. **Fail closed:** unset, empty, not JSON, or any malformed field means every write is `403 writes_disabled`; a capability not listed in `enabled` is disabled. It is read on each request; changing it takes a redeploy.
+- **Order:** identity, membership and pause refusals (401/403) first, then `writes_disabled`, then `upgrade_required`.
