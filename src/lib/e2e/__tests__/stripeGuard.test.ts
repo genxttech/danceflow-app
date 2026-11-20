@@ -111,6 +111,8 @@ describe("stripe guard", () => {
     expect(report.ok).toBe(false);
     expect(report.stop?.failure).toMatchObject({ kind: "capability", code: "account_invalid", requestId: "req_abc123", statusCode: 400 });
     expect(report.stop?.message).toMatch(/Do not request sandbox onboarding/);
+    expect(report.stop?.message).toMatch(/Canary C PASSED/);
+    expect(report.stop?.message).toMatch(/Not attempted: canary B/);
     expect(report.stop?.step).toMatch(/canary A/);
   });
 
@@ -222,7 +224,7 @@ describe("restricted keys (rk_test_)", () => {
     expect(report.ok).toBe(true);
     expect(calls).not.toContain("account-read");
     expect(report.steps.some((step) => step.name.includes("restricted TEST key owns the pinned connected account"))).toBe(true);
-    expect(report.steps.filter((step) => step.name.startsWith("canary")).map((step) => step.name.slice(0, 8))).toEqual(["canary A", "canary C", "canary B"]);
+    expect(report.steps.filter((step) => step.name.startsWith("canary")).map((step) => step.name.slice(0, 8))).toEqual(["canary C", "canary A", "canary B"]);
     expect(calls.filter((c) => c.startsWith("pi:")).every((c) => c === `pi:${CONNECTED}`)).toBe(true);
   });
 
@@ -280,6 +282,8 @@ describe("restricted keys (rk_test_)", () => {
     expect(report.stop?.step).toMatch(/canary C/);
     expect(report.stop?.failure.kind).toBe("capability");
     expect(calls).not.toContain("confirm");
+    expect(calls.some((c) => c.startsWith("create:")), "no Checkout Session is attempted after C failed").toBe(false);
+    expect(report.stop?.message).toMatch(/Not attempted: canary A, canary B/);
   });
 
   it("the guard CLI maps permission errors to exit 3, capability to 2, anything else to 1 (source tripwire)", async () => {
@@ -287,5 +291,45 @@ describe("restricted keys (rk_test_)", () => {
     const { join } = await import("node:path");
     const source = readFileSync(join(process.cwd(), "scripts", "qa", "cf1-stripe-guard.ts"), "utf8");
     expect(source).toMatch(/kind === "capability" \? 2 : report\.stop\?\.failure\.kind === "permission" \? 3 : 1/);
+  });
+});
+
+
+describe("canary C first (owner decision 2026-11-20 after run 44653007956)", () => {
+  // The exact Stripe error observed on the sandbox connected account (request id as reported by Stripe).
+  const businessName = () => stripeError({
+    type: "StripeInvalidRequestError", statusCode: 400,
+    message: "In order to use Checkout, you must set an account or business name at https://dashboard.stripe.com/account.",
+    raw: { request_id: "req_67Z382HA0utgTP", statusCode: 400 },
+  });
+
+  it("the observed business-name error is an account-setup (capability-class) error, not 'other'", () => {
+    expect(classifyStripeError(businessName())).toMatchObject({ kind: "capability", statusCode: 400, requestId: "req_67Z382HA0utgTP" });
+  });
+
+  it("C passes, then Checkout is refused for the missing name: the report says what C proves, what is blocked, quotes the exact error, and B is not attempted", async () => {
+    const { stripe, calls } = fakeStripe({ createError: businessName() });
+    const report = await runStripeGuard({ stripe, key: "rk_test_unit123", config });
+    expect(report.ok).toBe(false);
+    expect(report.steps.map((step) => [step.name.slice(0, 8), step.ok]).filter(([n]) => String(n).startsWith("canary"))).toEqual([["canary C", true], ["canary A", false]]);
+    expect(calls.filter((c) => c.startsWith("pi:"))).toEqual(["pi:acct_CONNECTED1"]);
+    expect(calls).not.toContain("confirm");
+    expect(report.stop?.step).toMatch(/canary A/);
+    expect(report.stop?.failure).toMatchObject({ kind: "capability", requestId: "req_67Z382HA0utgTP" });
+    expect(report.stop?.failure.message).toBe("In order to use Checkout, you must set an account or business name at https://dashboard.stripe.com/account.");
+    expect(report.stop?.message).toMatch(/Canary C PASSED/);
+    expect(report.stop?.message).toMatch(/only Checkout is blocked/);
+    expect(report.stop?.message).toMatch(/Not attempted: canary B/);
+    expect(report.stop?.message).toMatch(/Do not request sandbox onboarding/);
+  });
+
+  it("nothing is weakened: C failing on a fee or amount mismatch is still a hard stop before any Checkout Session exists", async () => {
+    for (const over of [{ fee: 5 }, { fee: null }, { chargeFee: null }, { received: 99 }] as Overrides[]) {
+      const { stripe, calls } = fakeStripe(over);
+      const report = await runStripeGuard({ stripe, key: "rk_test_unit123", config });
+      expect(report.ok, JSON.stringify(over)).toBe(false);
+      expect(report.stop?.step, JSON.stringify(over)).toMatch(/canary C/);
+      expect(calls.some((c) => c.startsWith("create:")), JSON.stringify(over)).toBe(false);
+    }
   });
 });
