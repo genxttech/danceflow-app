@@ -42,7 +42,7 @@ jobs:
       BASH_ENV: ""
       ENV: ""
       # The code under test: a full commit id on release/website-embeds that contains scripts/qa/cf1-stripe-guard.ts. The owner approves THIS value.
-      CF1_PINNED_COMMIT: "799681ed5fec464c0a71b4a172c545a9bef249b0"
+      CF1_PINNED_COMMIT: "c62bccb15d6250072cf1c1d738c13643cc0ccbda"
       CF1_RELEASE_BRANCH: "release/website-embeds"
       CF1_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
       E2E_STRIPE_TEST_CONNECTED_ACCOUNT: "acct_1UZibNRCFiaIzL1V"
