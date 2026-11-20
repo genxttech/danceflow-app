@@ -1,0 +1,72 @@
+# DanceFlow Business (Android): internal-testing release requirements checklist
+
+2026-11-19, written from `main` `4300f1ab5`. Business = `com.idanceflow.business` (`mobile/business`). Docs only: nothing here was run, built, uploaded or changed to write it. It orders what is already recorded in `Business_Release_Package_Internal_Testing.md` (the package; sections cited as "package §n"), `Google_Play_Internal_Testing.md` ("Play §n"), `Android_Release_Audit.md` ("Audit §n") and `Staff_API_Contract.md`. Marks: **V** verified (evidence named), **A** assumed, **OWNER** only the owner can do it, **ENG** engineering can do it alone, **GATE** a stop point that needs a named decision.
+
+## 1. Where things stand
+
+| Item | State |
+|---|---|
+| Staff API on the live web | **Not live** as of 2026-11-19 (`GET /api/staff/me` on `www` returns an HTML 404; a control route answers JSON 401, package §1a). The owner authorized release R+2 (draft backport #673, verified on Node 20 CI run 44593579060) for 2026-11-20 12:35Z; the coordinator runs it. Until it is verified live, no Business release step below has anything to talk to. |
+| App candidate | RC6 on main `6d23af298`: device smoke 23/23 (`C:\dfr-out\qa-smoke21`); QA-signed `business-rc6.aab` checked for manifest, targetSdk 36, 16 KB and baked config (package §1a). It is a **QA-keyed placeholder build and can never be uploaded**; the real AAB is built after the gates below. |
+| Rate limits (#674) and app 429 handling (#679) | on main; ship with R+2 and the next app build respectively. |
+| Instructors | **Not part of the first test.** Phase A SQL is not on PROD (`Instructor_RPC_Gap_Impact.md`). The first tester list is **owner, admin and front desk only**. Package §4 and Play §2 mention "one instructor" as a tester: that line is superseded until the instructor SQL gate has passed. |
+
+## 2. Owner-only items (engineering cannot do these, and must not touch the credentials)
+
+| # | Item | Exactly what | Hand to engineering |
+|---|---|---|---|
+| O1 | **Play Console developer account and the Business app** | Account in good standing, then *Create app*: name "DanceFlow Business", default language, app (not game), free, the declarations. Package name must be `com.idanceflow.business` (cannot be changed later). | Confirmation the app exists and the package name. |
+| O2 | **Upload key** | Generate once with `keytool` (command in Audit §4), on the PC, strong passwords, stored in a password manager plus an offline copy. Never in the repo, Downloads, chat or a ticket. Accept **Play App Signing** on the first upload. Never reuse the QA key (`DanceFlow QA ONLY DO NOT UPLOAD`). | The upload certificate **SHA-256 fingerprint only**, to record in the audit and to check that a built AAB is signed with it. |
+| O3 | **Build credentials in the shell that builds** | `DANCEFLOW_UPLOAD_STORE_FILE`, `_STORE_PASSWORD`, `_KEY_ALIAS`, `_KEY_PASSWORD` (Audit §4 step 3). The owner either builds the AAB themselves from a recorded commit, or exports these for one build in a shell they control. Engineering does not store or log them. | A signed AAB, or a supervised build. |
+| O4 | **`eas init` (Business)** | Only if EAS builds or push are wanted. **Not needed for the first test:** push is out of scope (package §4), RC6 built without it, and the Gradle path signs locally. If chosen: run `eas init` in `mobile/business` (creates the EAS project id and `expo.owner`). | The project id. |
+| O5 | **`GOOGLE_SERVICES_JSON`** | Only with push. Not needed for the first test: the build succeeds without it (RC6) and the app degrades cleanly (package §4, C14). If push is later wanted: decide the Firebase release project, store the Business `google-services.json` as the EAS file variable, upload an FCM v1 key (Play §11 owner queue 2 and 3). A QA placeholder file is **rejected** by the release guard. | The file variable name set, nothing else. |
+| O6 | **Production values for the build** | The three `EXPO_PUBLIC_*` values: production Supabase URL, production anon key, `https://idanceflow.com`. They are public by design, but the owner confirms them as the production environment. | The values, in the build shell only. |
+| O7 | **Auth redirect allow-list** | Add `danceflow-business://auth/callback` to the production Supabase Auth redirect allow-list (an Auth settings change: package §2 C1, §9). Needed for magic-link sign-in in the app. | Confirmation. |
+| O8 | **Privacy policy and account-deletion URL** | Live, public URLs. Decide when the web account-deletion page and the privacy policy URL go live; the Data safety form needs the deletion URL before submission (Play §3, §11 item 4). | The two URLs. |
+| O9 | **Data safety form** | Answer per Play §4 "DanceFlow Business": email (collected, not shared), name and appointment details and studio client names (collected, displayed, held by the studio's backend, not shared), no location, photos or payments. Push tokens: **No** while push is out of scope (the Expo token is minted only with an EAS project id); change to Yes, shared with Expo and Google, if O4 and O5 happen. Encrypted in transit: yes. Account deletion: yes, with the O8 URL. The owner confirms each answer is true for the build uploaded. | Confirmation. |
+| O10 | **Content rating, target audience, ads, App access, declarations** | IARC questionnaire (Play §5), target audience adults/staff (Play §6), no ads (Play §7), government/financial/health declarations as the Console lists. Internal testing does not need them approved; production does. | Confirmation. |
+| O11 | **Store listing** | 512x512 icon (the Business app has no distinct icon asset yet: Audit), feature graphic 1024x500, two or more phone screenshots, short and full descriptions, category, contact email (Play §10). Not required to start internal testing; required before production. | The assets. |
+| O12 | **Reviewer and tester accounts, and PROD test data** | **Engineering must not create PROD users or touch hosted databases.** The owner creates (a) one or two real staff test logins at a real studio willing to be tested on (an owner or front-desk account, **not instructor** until the SQL gate), and (b) for the Play *App access* form, a staff login in a demonstration studio with synthetic data only. Passwords go into the Console form and a password manager, never the repo. Attendance marking is a real write (package §2): decide which studio and class the testers may mark, and that a mark can be changed back. | The test login emails, and the studio and class to use. Never passwords. |
+| O13 | **Tester list** | Add the named Google accounts to the internal-testing track; each opts in through the join link (Play §2). | The list. |
+| O14 | **Approval of the first build** | A GATE: approve the specific AAB (commit, hash, decoded config) for upload to internal testing. Upload is by hand in the Console (Play §2); engineering does not upload. | The approval, naming the AAB hash. |
+
+## 3. What engineering can do alone the moment R+2 is verified live
+
+All **ENG**, no owner action, read-only against production or fully local. Not started before the coordinator reports R+2 live (promotion verified).
+
+| # | Step | How | Pass |
+|---|---|---|---|
+| E1 | **Route probe, no token** | `GET https://www.idanceflow.com/api/staff/me`, `.../workspaces/<uuid>/today`, `/schedule`, `/pulse`, `/clients` with no `Authorization` header (read-only, no credential). | Each answers flat JSON `{"error", "code": "unauthenticated"}` with 401 (an HTML 404 means not live). `Cache-Control: private, no-store`. |
+| E2 | **Production staff API smoke with a real staff bearer token** | The token belongs to the O12 test login. **Engineering does not hold or type owner passwords** (standing rule): the account holder obtains a short-lived access token (for example by signing in in the app or on the web and copying the session token into an environment variable of one shell, never chat, repo or logs) and the smoke runs read-only calls only: `/me` (workspaces and role), `/today`, `/schedule` (studio day), `/pulse`, `/clients?q=`, one `/clients/<id>`, one `/appointments/<id>`. **No attendance write on PROD in the engineering smoke**; the write is the testers' step 6 of the package script (package §5). Record status codes and response shapes only, no names or ids in the record. | All 200 with the contract shapes for the role; `/me` lists the studio; no 5xx. A 403 `role_not_permitted` for an instructor is expected and is not a failure. |
+| E3 | **429 shape (not a burst)** | Do not load-test production. The 429 contract (flat body, `Retry-After`, `X-RateLimit-*`) is covered by the 7 limiter tests on main; record that the live deployment contains `staffApiAuth.ts` at the #674 content (source check of the promoted SHA). | Source check only. A real 429 observed from normal use is recorded, not provoked. |
+| E4 | **Build the real AAB** | **After O2, O3, O6 and the E1/E2 results.** Clean checkout of a recorded main SHA in the short-path worktree, private empty `TEMP` per build, `CI` unset, `app/build/generated/assets/createBundleReleaseJsAndAssets` deleted, one Gradle build at a time, unminified (R8 is UNVERIFIED), `bundleRelease` with the owner's upload variables in the shell, production `EXPO_PUBLIC_*`. Flags: `clients`, `attendance` on; `pulse` and `studioSchedule` on **only if** R+2 serves `/pulse` and `/schedule` (the E1 and E2 results decide); `bulkAttendance` and `keepStale` off (package §4). Alternative: the owner builds, engineering checks. | Build exits 0, AAB written outside the repo. |
+| E5 | **Baked-config decode of the final AAB against www** | Extract `base/assets/index.android.bundle` (Hermes, magic `c61fbc03`) and scan its string table as in Audit §9 and the package. Compare with O6. | Supabase URL = production, web URL = `https://www.idanceflow.com` or the `https://idanceflow.com` apex that serves the API (**check which origin serves `/api/staff` live and bake exactly that one**), anon key payload `role=anon` for the production project only; **no** `qa-placeholder`, `.invalid`, `10.0.2.2`, localhost or stack port, `service_role`, `sk_`/`pk_live` secrets beyond the intended publishable key (none expected), `whsec_`, private key. Any hit: reject, do not upload. |
+| E6 | **versionCode / target / manifest / permissions / signing checks** | `bundletool dump manifest` (versionCode, versionName, `targetSdkVersion` 36, allowBackup false, debuggable and cleartext absent), permission list against Play §9 (no CAMERA, RECORD_AUDIO, SYSTEM_ALERT_WINDOW, external storage), `zipalign -c -P 16 4` exit 0 and 64-bit ELF `p_align` >= 16384, signing certificate SHA-256 **equals the O2 fingerprint** (not the QA key, not debug). versionCode must be **higher than any version already uploaded** to the app (first upload: 1 is fine; the next needs a higher code; `eas.json` `autoIncrement` applies only to EAS builds). | All as listed. |
+| E7 | **Smoke of the same commit on the fixed harness** | `device-smoke.js --build-dir` on the disposable iso-qa stack at the same SHA (never against production), private TEMP, emulator slot only when the coordinator grants it, honest PASS / UNVERIFIED / BLOCKED, System UI ANR classified from the saved diagnostics. | 23/23 or each failure explained. Does not prove production. |
+| E8 | **Record** | Update the package doc and `DEVICE_QA_RESULTS.md`: SHA, AAB SHA-256, decoded config summary (no secrets), results, UNVERIFIED list. | Merged docs PR. |
+
+## 4. Ordered sequence and gates
+
+1. **GATE R+2 live and verified** (coordinator, 2026-11-20 12:35Z or later). Engineering starts nothing before this is reported.
+2. **ENG E1** route probe. Stop if it is not the flat 401.
+3. **OWNER O12** test logins and the studio and class to use; **OWNER O7** redirect allow-list. In parallel with 2.
+4. **ENG E2** production read-only staff smoke with a token the account holder supplies. **GATE G-B1 (server proven for staff):** E1 and E2 pass. If E2 shows a 5xx or wrong shape, stop and report; no app work.
+5. **OWNER O1, O2** (Play app, upload key), **O6** (confirm production values), **O8, O9, O10** (policy URLs and forms; internal testing does not wait for approval but the forms should not contradict the build). In parallel with 4 and may start earlier: none of it needs R+2.
+6. **ENG E4** build the real AAB (needs O2, O3, O6 and G-B1), then **E5 and E6** on the final artifact. **GATE G-B2 (artifact proven):** every E5 and E6 pass. A failed decode means a rebuild with a fresh private TEMP, never a patch.
+7. **ENG E7** device smoke of the same SHA (emulator slot from the coordinator).
+8. **GATE O14** owner approves the AAB by hash. **OWNER** uploads it to the internal-testing track by hand and adds the tester list (O13); accepts Play App Signing on the first upload.
+9. **Testers** run the 12-step script (package §5), owner and front desk only; steps 11 and 12 only if the redirect allow-list was confirmed. Monitor per package §6.
+10. **GATE pass criteria** (package §7). Widen or fix.
+
+**Instructor branch (separate, later):** the three SQL files (`20260905160000`, `20260905160100`, `20270214120000`) are an owner gate (hosted SQL, approve by hash, read-only postflight) and a separate release. Only after it is applied do instructor-role testers join, and the instructor steps of the script then run for the first time on production (unverified until then).
+
+## 5. Stop conditions and rollback
+
+- **Stop and report, do not improvise:** E1 not 401; E2 any 5xx; E5 any forbidden string; E6 signer is not the O2 fingerprint; any crash cluster in Android vitals.
+- **Server rollback:** promote the previous web deployment (package §8). The staff routes then 404 and the app shows "Temporarily unavailable"; no data lives only in the app.
+- **App rollback:** halt the internal-testing release in the Console, or upload a fixed AAB with a higher versionCode (package §8).
+- **No server kill switch exists for `/api/staff`** (package §1): rollback is promotion.
+
+## 6. Never, in this track
+
+No production credentials or owner passwords handled by engineering; no hosted SQL, env or Auth change by engineering; no engineering upload to Play; no production load test; no use of the QA key or a QA placeholder build for anything but the QA smoke; no instructor tester before the SQL gate.
