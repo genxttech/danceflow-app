@@ -26,7 +26,7 @@ vi.mock("@supabase/supabase-js", () => ({
     // Count any read of the tables these routes own: a refusal must never reach them.
     const from = world.from.bind(world);
     world.from = ((table: string) => {
-      if (table === "clients" || table === "attendance_records" || table === "client_packages") harness.dataReads += 1;
+      if (table === "clients" || table === "attendance_records" || table === "client_packages" || table === "client_activity_notes") harness.dataReads += 1;
       return from(table);
     }) as typeof world.from;
     return world;
@@ -50,6 +50,7 @@ const { GET: listClients } = await import("../workspaces/[studioId]/clients/rout
 const { GET: getSchedule } = await import("../workspaces/[studioId]/schedule/route");
 const { GET: getPulse } = await import("../workspaces/[studioId]/pulse/route");
 const { GET: getClient } = await import("../workspaces/[studioId]/clients/[clientId]/route");
+const { POST: postNote } = await import("../workspaces/[studioId]/clients/[clientId]/notes/route");
 const { PUT: putAttendance } = await import("../workspaces/[studioId]/appointments/[appointmentId]/attendance/[clientId]/route");
 
 const ID = "a0000000-0000-4000-8000-0000000000aa";
@@ -61,6 +62,7 @@ function req(path: string, token?: string, init: RequestInit = {}) {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       "Idempotency-Key": "qa-refusal-key-1",
+      "X-DanceFlow-App": "business/0.2.0/3/android",
       "Content-Type": "application/json",
     },
   });
@@ -75,6 +77,13 @@ const CALLS: [string, Call][] = [
   [
     "GET client summary",
     (t, s) => getClient(req(`/api/staff/workspaces/${s}/clients/${CLIENT}`, t), { params: Promise.resolve({ studioId: s, clientId: CLIENT }) }),
+  ],
+  [
+    "POST client note",
+    (t, s) =>
+      postNote(req(`/api/staff/workspaces/${s}/clients/${CLIENT}/notes`, t, { method: "POST", body: JSON.stringify({ body: "hello" }) }), {
+        params: Promise.resolve({ studioId: s, clientId: CLIENT }),
+      }),
   ],
   [
     "PUT attendance",
@@ -102,6 +111,7 @@ async function expectRefusal(response: Response, status: number, code: string) {
 beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://db.test";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
+  process.env.STAFF_API_WRITE_POLICY = JSON.stringify({ enabled: ["clientNotes", "clientCreate", "appointmentAttendance"] });
   harness.authFailure = null;
   harness.cookieClientCalls = 0;
   harness.dataReads = 0;

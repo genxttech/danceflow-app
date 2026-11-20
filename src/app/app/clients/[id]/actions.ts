@@ -33,6 +33,11 @@ import { isPackageEligibleForReactivation } from "@/lib/packages/entitlement";
 import { buildVoidsFromFormData } from "@/lib/packages/refundReviewVoids";
 import { PACKAGE_REFUND_RECONCILIATION_RELEASE_HOLD } from "@/lib/payments/package-refund-release-hold";
 import { canManageDocumentsRole } from "@/lib/documents/studio-access";
+import {
+  CLIENT_NOTE_WEB_ERROR_CODES,
+  addClientActivityNote,
+  validateClientNoteInput,
+} from "@/lib/staff/clientNotes";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -1643,56 +1648,35 @@ export async function addClientAccountLedgerEntryAction(formData: FormData) {
 
 export async function addClientActivityNoteAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
-  const noteType = getString(formData, "noteType") || "general";
-  const body = getString(formData, "body");
-  const occurredAt = getString(formData, "occurredAt");
   const returnTo =
     getString(formData, "returnTo") || `/app/clients/${clientId}?tab=notes`;
-  const allowedNoteTypes = new Set([
-    "general",
-    "follow_up",
-    "sales",
-    "lesson",
-    "billing",
-    "concern",
-  ]);
 
-  if (!clientId || !body) {
-    redirectWithResult(returnTo, "error", "client_note_missing_fields");
-  }
+  const parsed = validateClientNoteInput({
+    clientId,
+    noteType: getString(formData, "noteType"),
+    body: getString(formData, "body"),
+    occurredAt: getString(formData, "occurredAt"),
+  });
 
-  if (!allowedNoteTypes.has(noteType)) {
-    redirectWithResult(returnTo, "error", "client_note_invalid_type");
-  }
-
-  const parsedOccurredAt = occurredAt ? new Date(occurredAt) : new Date();
-
-  if (Number.isNaN(parsedOccurredAt.getTime())) {
-    redirectWithResult(returnTo, "error", "client_note_invalid_date");
+  if (!parsed.ok) {
+    redirectWithResult(returnTo, "error", CLIENT_NOTE_WEB_ERROR_CODES[parsed.reason]);
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
 
-  await getStudioClientOrRedirect({
+  const { data: userData } = await supabase.auth.getUser();
+
+  // The note write is shared with the Staff API (src/lib/staff/clientNotes.ts).
+  const result = await addClientActivityNote({
     supabase,
     studioId,
     clientId,
-    returnTo,
+    userId: userData.user?.id ?? null,
+    input: parsed.input,
   });
 
-  const { data: userData } = await supabase.auth.getUser();
-
-  const { error } = await supabase.from("client_activity_notes").insert({
-    studio_id: studioId,
-    client_id: clientId,
-    note_type: noteType,
-    body,
-    occurred_at: parsedOccurredAt.toISOString(),
-    created_by: userData.user?.id ?? null,
-  });
-
-  if (error) {
-    redirectWithResult(returnTo, "error", "client_note_save_failed");
+  if (!result.ok) {
+    redirectWithResult(returnTo, "error", CLIENT_NOTE_WEB_ERROR_CODES[result.reason]);
   }
 
   revalidatePath(`/app/clients/${clientId}`);
