@@ -88,6 +88,23 @@ describe("Past events toggle", () => {
     expect(screen.getByRole("tab", { name: "Show past events" }).props.accessibilityState).toMatchObject({ selected: true });
   });
 
+  it("the Past list keeps newest-ended-first (not alphabetical)", async () => {
+    mockEvents.mockImplementation(async (_user: unknown, options?: { scope?: string }) =>
+      options?.scope === "past"
+        ? [
+            { ...base, id: "p1", name: "Zumba Last Night", ended: true },
+            { ...base, id: "p2", name: "Mambo Last Month", ended: true },
+            { ...base, id: "p3", name: "Argentine Tango Last Year", ended: true },
+          ]
+        : [],
+    );
+    render(<EventSearchScreen />);
+    fireEvent.press(await screen.findByRole("tab", { name: "Show past events" }));
+    await screen.findByText("Zumba Last Night");
+    const titles = screen.getAllByText(/Last (Night|Month|Year)$/).map((node) => node.props.children as string);
+    expect(titles).toEqual(["Zumba Last Night", "Mambo Last Month", "Argentine Tango Last Year"]);
+  });
+
   it("an empty past list says so in plain words", async () => {
     mockEvents.mockResolvedValue([]);
     render(<EventSearchScreen />);
