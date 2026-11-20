@@ -294,6 +294,37 @@ A client summary with no money and no contact details. Same role rules as the se
 - `nextAppointment` is the earliest upcoming `scheduled`, `confirmed` or `rescheduled` appointment, or `null`. For owners, admins and front desk that means a lesson where the client is the primary or partner client, or a group class they're booked into. For instructors it is only the instructor's own lessons with that client.
 - `status` is `null` for instructors, as in the search.
 
+## `POST /api/staff/workspaces/{studioId}/clients/{clientId}/notes` (client slice C1)
+
+Adds an activity note to a client. It is the web "Add note" action's own write (shared module `src/lib/staff/clientNotes.ts`), so validation, columns and the database guards are the same.
+
+Request:
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "body": "Called about the showcase.", "noteType": "follow_up", "occurredAt": "2026-11-20T15:30:00Z" }
+```
+
+- `body` is required, trimmed, at most 5000 characters (the web form has no cap; the API adds one).
+- `noteType` is optional: `general` (default), `follow_up`, `sales`, `lesson`, `billing` or `concern`.
+- `occurredAt` is optional ISO 8601; it defaults to now. Any other field is ignored.
+- `Idempotency-Key` is required. **The key is not stored**, and a note insert is not idempotent by state, so the route de-duplicates instead: an identical note (same studio, client, author, `noteType` and `body`) created within the last 120 seconds is returned, not inserted again. Reuse the same key and body when retrying a lost response.
+
+Response: `201` with the new note, or `200` with the existing note when it was a retry:
+
+```json
+{ "note": { "id": "uuid", "clientId": "uuid", "noteType": "follow_up", "body": "Called about the showcase.", "occurredAt": "2026-11-20T15:30:00+00:00", "createdAt": "2026-11-20T15:30:02.123+00:00" } }
+```
+
+Who may call it and what each answer means:
+- **Roles:** owners, admins and front desk (`canEditClients`, the same as the web action). Instructors, independent instructors and organizer roles get `403 role_not_permitted`.
+- **Another studio's client, or a client that does not exist:** `404 not_found` (indistinguishable). A workspace the caller does not belong to is `403 not_a_member`.
+- **Bad input** (missing or blank `body`, unknown `noteType`, unparsable `occurredAt`, non-string fields, over-long `body`, malformed ids or key): `400 invalid_request`.
+- The write is made with the caller's own token, so row-level security applies (an active membership of that studio and a client of the same studio).
+- **What is recorded:** the note row (`studio_id`, `client_id`, `note_type`, `body`, `occurred_at`, `created_by` = the caller). The web action writes nothing else (no audit table, no outbox), and `client_activity_notes` has no source column, so a note made on a phone is not marked as such.
+
 ## Planned, not in slice 2
 
 - **Session recap writes.**
