@@ -326,6 +326,48 @@ Who may call it and what each answer means:
 - The write is made with the caller's own token, so row-level security applies (an active membership of that studio and a client of the same studio).
 - **What is recorded:** the note row (`studio_id`, `client_id`, `note_type`, `body`, `occurred_at`, `created_by` = the caller). The web action writes nothing else (no audit table, no outbox), and `client_activity_notes` has no source column, so a note made on a phone is not marked as such.
 
+## `POST /api/staff/workspaces/{studioId}/clients` (client slice C2, quick add)
+
+Creates a client (a `lead`) with the fewest fields a front desk needs at the door. It is the web "New client" action's own create path (shared module `src/lib/staff/clientCreate.ts`: the same payload builder, the same duplicate-email rule, the same insert), with a minimal body.
+
+Request:
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "firstName": "Ana", "lastName": "Rivera", "phone": "(555) 010-0100", "email": "ana@example.com", "note": "Met at the showcase.", "allowDuplicatePhone": false }
+```
+
+- `firstName`, `lastName`: required, at most 80 characters (the web limits).
+- `phone` and/or `email`: at least one is required. They are normalized as on the web: the email is lower-cased; a US number is stored as `+1XXXXXXXXXX`, other numbers need an international `+` form.
+- `note`: optional, at most 3000 characters; stored in the client's `notes` field (the web form's "Notes"), not as an activity note.
+- `allowDuplicatePhone`: optional boolean, default `false` (see below).
+- Everything else the web form has (address, birthday, partner, photo, onboarding documents, status) is not accepted; unknown fields are ignored. The client is created with status `lead`, exactly like a web-created lead, with no referral source and no source marker (the table has none that is truthful for a phone; `source_system` belongs to imports).
+- `Idempotency-Key` is required and **not stored**. A retry of a create whose answer was lost is caught by the duplicate rule below (the second attempt answers `409 duplicate_client` with the id of the client the first attempt created), so the app should open that client.
+
+Response `201`:
+
+```json
+{ "client": { "id": "uuid", "firstName": "Ana", "lastName": "Rivera", "status": "lead" } }
+```
+
+Duplicate response `409` (nothing was created):
+
+```json
+{ "error": "A client with this email already exists in this studio.", "code": "duplicate_client", "existingClientId": "uuid", "matchedOn": "email" }
+```
+
+- **Email** match (exact, same studio): always blocks, as on the web.
+- **Phone** match (same studio; the stored forms `+1XXXXXXXXXX`, `XXXXXXXXXX` and `1XXXXXXXXXX` all match): blocks, because a retry or a returning dancer is the common case. A household can share a phone, so the app may resend with `allowDuplicatePhone: true` after the person confirms; that skips only the phone match, never the email match. Treat `existingClientId` as an invitation to open that client instead (use `GET …/clients/{id}`).
+- Matching never looks outside the caller's studio.
+
+Who may call it and what each answer means:
+- **Write guard:** the route is behind the per-capability kill switch (`clientCreate`) and the minimum-app-version gate (`X-DanceFlow-App` header): `403 writes_disabled` while the capability is not enabled, `426 upgrade_required` for a missing or too-old build. Identity and membership refusals come first.
+- **Roles:** owners, admins and front desk (`canEditClients`, the same as the web action). Instructors, independent instructors and organizer roles get `403 role_not_permitted`; a workspace the caller does not belong to is `403 not_a_member`.
+- **Bad input** (missing names, neither phone nor email, over-long or malformed fields, non-string values, missing key): `400 invalid_request`; the `error` text is the web's own validation message.
+- The write is made with the caller's own token, so row-level security applies.
+
 ## Planned, not in slice 2
 
 - **Session recap writes.**
