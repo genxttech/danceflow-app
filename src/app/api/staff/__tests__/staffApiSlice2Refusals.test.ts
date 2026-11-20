@@ -46,7 +46,7 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
 }));
 
-const { GET: listClients } = await import("../workspaces/[studioId]/clients/route");
+const { GET: listClients, POST: createClient } = await import("../workspaces/[studioId]/clients/route");
 const { GET: getSchedule } = await import("../workspaces/[studioId]/schedule/route");
 const { GET: getPulse } = await import("../workspaces/[studioId]/pulse/route");
 const { GET: getClient } = await import("../workspaces/[studioId]/clients/[clientId]/route");
@@ -74,6 +74,13 @@ const CALLS: [string, Call][] = [
   ["GET pulse", (t, s) => getPulse(req(`/api/staff/workspaces/${s}/pulse`, t), { params: Promise.resolve({ studioId: s }) })],
   ["GET studio schedule", (t, s) => getSchedule(req(`/api/staff/workspaces/${s}/schedule?date=2026-11-09`, t), { params: Promise.resolve({ studioId: s }) })],
   ["GET clients", (t, s) => listClients(req(`/api/staff/workspaces/${s}/clients`, t), { params: Promise.resolve({ studioId: s }) })],
+  [
+    "POST quick-add client",
+    (t, s) =>
+      createClient(req(`/api/staff/workspaces/${s}/clients`, t, { method: "POST", body: JSON.stringify({ firstName: "Ana", lastName: "Rivera", phone: "555-0100" }) }), {
+        params: Promise.resolve({ studioId: s }),
+      }),
+  ],
   [
     "GET client summary",
     (t, s) => getClient(req(`/api/staff/workspaces/${s}/clients/${CLIENT}`, t), { params: Promise.resolve({ studioId: s, clientId: CLIENT }) }),
