@@ -90,7 +90,8 @@ const note = (user: string, clientId: string, body: unknown, opts: { studioId?: 
     new Request(`https://app.test/api/staff/workspaces/${studioId}/clients/${clientId}/notes`, {
       method: "POST",
       headers: { Authorization: `Bearer ${tokenFor(user)}`, "content-type": "application/json", "x-danceflow-app": "business/0.2.0/3/android", ...(key ? { "idempotency-key": key } : {}) },
-      body: typeof body === "string" ? body : JSON.stringify(body),
+      // a fresh noteId per call unless the case supplies one (even undefined)
+      body: typeof body === "string" ? body : JSON.stringify(body && typeof body === "object" && !("noteId" in body) ? { noteId: randomUUID(), ...body } : body),
     }),
     { params: Promise.resolve({ studioId, clientId }) },
   );
@@ -153,19 +154,62 @@ describe.skipIf(!enabled)("staff API client notes against real RLS", () => {
     expect(Math.abs(new Date(saved.occurredAt).getTime() - before)).toBeLessThan(60_000);
   });
 
-  it("a retry of the same note (lost response) is 200 with the same id and writes nothing new; a different body is a new note", async () => {
-    const first = await note(USERS.frontDesk, ANA, { body: "retry me" }, { key: "retry-key-0001" });
+  it("the app-supplied noteId becomes the note primary key", async () => {
+    const noteId = randomUUID();
+    const response = await note(USERS.frontDesk, ANA, { noteId, body: "my own id" });
+    expect(response.status).toBe(201);
+    expect(((await response.json()) as { note: { id: string } }).note.id).toBe(noteId);
+    expect(psql(`select count(*) from public.client_activity_notes where id = '${noteId}' and studio_id = '${STUDIO_A}';`)).toBe("1");
+  });
+
+  it("a retry of the same note (lost response) is 200 with the same id and writes nothing new; a different note is a new row", async () => {
+    const noteId = randomUUID();
+    const first = await note(USERS.frontDesk, ANA, { noteId, body: "retry me", occurredAt: "2026-11-20T15:30:00Z" }, { key: "retry-key-0001" });
     expect(first.status).toBe(201);
-    const firstId = ((await first.json()) as { note: { id: string } }).note.id;
     const count = noteCount();
-    const again = await note(USERS.frontDesk, ANA, { body: "retry me" }, { key: "retry-key-0001" });
+    const again = await note(USERS.frontDesk, ANA, { noteId, body: "retry me", occurredAt: "2026-11-20T15:30:00Z" }, { key: "retry-key-0001" });
     expect(again.status).toBe(200);
-    expect(((await again.json()) as { note: { id: string } }).note.id).toBe(firstId);
+    expect(((await again.json()) as { note: { id: string } }).note.id).toBe(noteId);
     expect(noteCount()).toBe(count);
+    // a retry that omitted occurredAt both times is also a replay (the defaulted time is not compared)
+    const open = randomUUID();
+    expect((await note(USERS.frontDesk, ANA, { noteId: open, body: "no time given" })).status).toBe(201);
+    expect((await note(USERS.frontDesk, ANA, { noteId: open, body: "no time given" })).status).toBe(200);
+    // two different notes, two different ids
     expect((await note(USERS.frontDesk, ANA, { body: "retry me too" })).status).toBe(201);
-    expect(noteCount()).toBe(count + 1);
-    // another author saying the same thing is not a retry
     expect((await note(USERS.owner, ANA, { body: "retry me" })).status).toBe(201);
+  });
+
+  it("the same noteId with different content is 409 idempotency_conflict carrying the stored note; the stored note is unchanged", async () => {
+    const noteId = randomUUID();
+    expect((await note(USERS.frontDesk, ANA, { noteId, body: "original", noteType: "sales" })).status).toBe(201);
+    const count = noteCount();
+    for (const changed of [{ body: "changed" }, { body: "original", noteType: "billing" }]) {
+      const response = await note(USERS.frontDesk, ANA, { noteId, ...changed });
+      await expectCode(response.clone(), 409, "idempotency_conflict");
+      expect(await response.json()).toMatchObject({ current: { note: { id: noteId, body: "original", noteType: "sales", clientId: ANA } } });
+    }
+    expect(noteCount()).toBe(count);
+    expect(notesFor(ANA)).toContain("sales|original|");
+  });
+
+  it("another author cannot replay someone else noteId: 409, and nothing changes", async () => {
+    const noteId = randomUUID();
+    expect((await note(USERS.frontDesk, ANA, { noteId, body: "mine" })).status).toBe(201);
+    const count = noteCount();
+    await expectCode(await note(USERS.owner, ANA, { noteId, body: "mine" }), 409, "idempotency_conflict");
+    expect(noteCount()).toBe(count);
+  });
+
+  it("a noteId that exists in another studio is a 409 with no current (nothing about that note is revealed)", async () => {
+    const noteId = randomUUID();
+    psql(`insert into public.client_activity_notes (id, studio_id, client_id, note_type, body) values ('${noteId}', '${STUDIO_B}', '${BEA}', 'general', 'studio B secret');`);
+    const response = await note(USERS.frontDesk, ANA, { noteId, body: "collide" });
+    expect(response.status).toBe(409);
+    const json = await response.json();
+    expect(json).toMatchObject({ code: "idempotency_conflict", current: null });
+    expect(JSON.stringify(json)).not.toContain("secret");
+    expect(notesFor(ANA)).not.toContain("collide");
   });
 
   it("instructors and independent instructors are refused and nothing is written", async () => {
@@ -185,7 +229,7 @@ describe.skipIf(!enabled)("staff API client notes against real RLS", () => {
     await expectCode(await note(USERS.instructorB, ANA, { body: "cross" }), 403, "not_a_member");
     await expectCode(await note(USERS.stranger, ANA, { body: "cross" }), 403, "not_a_member");
     expect(noteCount()).toBe(count);
-    expect(notesFor(BEA)).toBe("");
+    expect(notesFor(BEA)).not.toContain("cross");
   });
 
   it("a client id that does not exist is the same 404", async () => {

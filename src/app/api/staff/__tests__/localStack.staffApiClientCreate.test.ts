@@ -91,7 +91,8 @@ const create = (user: string, body: unknown, opts: { studioId?: string; key?: st
     new Request(`https://app.test/api/staff/workspaces/${studioId}/clients`, {
       method: "POST",
       headers: { Authorization: `Bearer ${tokenFor(user)}`, "content-type": "application/json", "x-danceflow-app": "business/0.2.0/3/android", ...(key ? { "idempotency-key": key } : {}) },
-      body: typeof body === "string" ? body : JSON.stringify(body),
+      // a fresh clientId per call unless the case supplies one (even undefined)
+      body: typeof body === "string" ? body : JSON.stringify(body && typeof body === "object" && !("clientId" in body) ? { clientId: randomUUID(), ...body } : body),
     }),
     { params: Promise.resolve({ studioId }) },
   );
@@ -185,14 +186,46 @@ describe.skipIf(!enabled)("staff API client quick add against real RLS", () => {
     expect(await stillEmail.json()).toMatchObject({ matchedOn: "email", existingClientId: EXISTING });
   });
 
-  it("a retry of a create whose answer was lost finds the first attempt's client instead of making a twin", async () => {
-    const first = await create(USERS.frontDesk, { firstName: "Retry", lastName: "Person", phone: "555-010-5555" }, { key: "retry-create-0001" });
+  it("the app-supplied clientId becomes the client primary key", async () => {
+    const clientId = randomUUID();
+    const response = await create(USERS.frontDesk, { clientId, firstName: "Own", lastName: "Id", phone: "555-010-5551" });
+    expect(response.status).toBe(201);
+    expect(((await response.json()) as { client: { id: string } }).client.id).toBe(clientId);
+    expect(row(clientId).startsWith(`${STUDIO_A}|Own|Id|`)).toBe(true);
+  });
+
+  it("a retry of a create whose answer was lost is 200 replayed with the same id: no twin, and never a duplicate_client about itself", async () => {
+    const clientId = randomUUID();
+    const body = { clientId, firstName: "Retry", lastName: "Person", phone: "555-010-5555", email: "retry.person@example.test" };
+    const first = await create(USERS.frontDesk, body, { key: "retry-create-0001" });
     expect(first.status).toBe(201);
-    const id1 = ((await first.json()) as { client: { id: string } }).client.id;
     const before = count(STUDIO_A);
-    const again = await create(USERS.frontDesk, { firstName: "Retry", lastName: "Person", phone: "555-010-5555" }, { key: "retry-create-0001" });
-    expect(again.status).toBe(409);
-    expect(await again.json()).toMatchObject({ existingClientId: id1, matchedOn: "phone" });
+    const again = await create(USERS.frontDesk, body, { key: "retry-create-0001" });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ client: { id: clientId, firstName: "Retry", lastName: "Person", status: "lead" }, replayed: true });
+    expect(count(STUDIO_A)).toBe(before);
+  });
+
+  it("the same clientId with different details is 409 idempotency_conflict carrying the stored client; the stored client is unchanged", async () => {
+    const clientId = randomUUID();
+    expect((await create(USERS.frontDesk, { clientId, firstName: "Orig", lastName: "Inal", phone: "555-010-5556" })).status).toBe(201);
+    const before = count(STUDIO_A);
+    const response = await create(USERS.frontDesk, { clientId, firstName: "Changed", lastName: "Inal", phone: "555-010-5556" });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "idempotency_conflict", current: { client: { id: clientId, firstName: "Orig", lastName: "Inal", status: "lead" } } });
+    expect(count(STUDIO_A)).toBe(before);
+    expect(row(clientId)).toContain("|Orig|Inal|");
+  });
+
+  it("a clientId that exists in another studio is a 409 with no current and reveals nothing about that client", async () => {
+    const clientId = randomUUID();
+    psql(`insert into public.clients (id, studio_id, first_name, last_name, status) values ('${clientId}', '${STUDIO_B}', 'Hidden', 'Studiobperson', 'active');`);
+    const before = count(STUDIO_A);
+    const response = await create(USERS.frontDesk, { clientId, firstName: "Collide", lastName: "Attempt", phone: "555-010-5557" });
+    expect(response.status).toBe(409);
+    const json = await response.json();
+    expect(json).toMatchObject({ code: "idempotency_conflict", current: null });
+    expect(JSON.stringify(json)).not.toContain("Hidden");
     expect(count(STUDIO_A)).toBe(before);
   });
 
