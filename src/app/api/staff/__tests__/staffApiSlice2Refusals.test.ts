@@ -51,6 +51,7 @@ const { GET: getSchedule } = await import("../workspaces/[studioId]/schedule/rou
 const { GET: getPulse } = await import("../workspaces/[studioId]/pulse/route");
 const { GET: getClient } = await import("../workspaces/[studioId]/clients/[clientId]/route");
 const { POST: postNote } = await import("../workspaces/[studioId]/clients/[clientId]/notes/route");
+const { GET: getNotes } = await import("../workspaces/[studioId]/clients/[clientId]/notes/route");
 const { PUT: putAttendance } = await import("../workspaces/[studioId]/appointments/[appointmentId]/attendance/[clientId]/route");
 
 const ID = "a0000000-0000-4000-8000-0000000000aa";
@@ -91,6 +92,10 @@ const CALLS: [string, Call][] = [
       postNote(req(`/api/staff/workspaces/${s}/clients/${CLIENT}/notes`, t, { method: "POST", body: JSON.stringify({ noteId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", body: "hello" }) }), {
         params: Promise.resolve({ studioId: s, clientId: CLIENT }),
       }),
+  ],
+  [
+    "GET client notes",
+    (t, s) => getNotes(req(`/api/staff/workspaces/${s}/clients/${CLIENT}/notes`, t), { params: Promise.resolve({ studioId: s, clientId: CLIENT }) }),
   ],
   [
     "PUT attendance",
