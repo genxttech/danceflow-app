@@ -38,7 +38,8 @@ const cfg = {
   claimWithheld: flag("claim-withheld"), // implies --claim: Gate 1 as on PROD (20270222090500 revokes execute): the claim RPC must answer 42501 and the app stays silent and fail-closed
   claim: flag("claim") || flag("claim-visual") || flag("claim-withheld"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
   realWeb: flag("real-web"), // serve the app's web API with the repo's REAL Next.js routes (next dev on the mock port, pointed at this stack) instead of mock-web.mjs; QA only, the stack's service key never leaves this PC
-  events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
+  pastEvents: flag("past-events"), // regression smoke for the past-events fix (#700): seeded events in several time zones, Events/home/saved/studio lists, Past segment, ended-event detail, history, empty state
+  events: flag("events") || flag("past-events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
   cutover: flag("cutover"), // with --claim: also apply the dancer cutover (drop the direct dancer read policies), as after Gate 2
   noTeardown: flag("keep"), // debugging only
@@ -131,7 +132,7 @@ async function stackUp() {
     // Gate 1 as applied on PROD: execute withheld from every client role (applied AFTER the counter wrapper so the wrapper is the revoked object).
     if (cfg.claimWithheld) psqlText(migrationFromGit("20270222090500_claim_function_execute_withheld.sql"), "20270222090500_claim_function_execute_withheld.sql");
   }
-  if (!cfg.claim && (cfg.cutover || flag("views"))) {
+  if (!cfg.claim && (cfg.cutover || flag("views") || cfg.pastEvents)) {
     // The screen matrix (--events) with the dancer views (and, with --cutover, the direct dancer read policies dropped): the Wallet must still show the tickets.
     for (const file of ["20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) psqlText(migrationFromGit(file), file);
   }
@@ -754,6 +755,130 @@ async function claimWithheldScenario(link, anon) {
   }
 }
 
+/**
+ * --past-events: the past-events fix against the disposable stack with seeded events (seed-past-events.sql). Everything is read from the live screens.
+ * Time-zone rows double as the on-device Intl check: Pacific/Auckland (UTC+13) and Pacific/Honolulu (UTC-10) rows that end 25 minutes from now / 30-60 minutes
+ * ago. An implementation that ignored the event's zone, or whose Intl does not know the zone, gets at least one of those four wrong.
+ */
+async function pastEventsScenario(link) {
+  const crashed = (x) => /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(x);
+  const NAMES = {
+    endedLastWeek: "QA Ended Last Week", endedTwoDays: "QA Ended Two Days Ago", multiDay: "QA Multi Day Last Day", soonAkl: "QA Ends Soon Auckland",
+    endedAkl: "QA Ended Hour Ago Auckland", soonHnl: "QA Ends Soon Honolulu", endedHnl: "QA Ended Half Hour Honolulu", dstFall: "QA DST Fall Ambiguous Hour",
+    dstSpring: "QA DST Spring Missing Hour", baseline: "QA Social Dance Night",
+  };
+  const ID = { endedLastWeek: "44444444-4444-4444-8444-4444444444a1" };
+  // 2027-03-14 02:30 America/New_York does not exist; the event stays upcoming until the end of that day's 02:30 (07:30Z). After that the expectation flips.
+  const dstSpringUpcoming = Date.now() < Date.UTC(2027, 2, 14, 7, 30);
+
+  // Seed right before the app starts (home and Saved read their saved items at sign-in; the "ends in 25 minutes" rows stay in the future for the ~10 minutes of reads).
+  psql(join(here, "seed-past-events.sql"), ["-v", "uid='" + state.uid + "'"]);
+  const seeded = q("select count(*) from public.events where id::text like '44444444-4444-4444-8444-4444444444a%'");
+  record("past-events: fixtures seeded (9 events)", seeded === "9", "count " + seeded);
+  writeFileSync(join(cfg.out, "pe-seeded-events.txt"), q("select name, timezone, start_date, end_date, start_time, end_time, now() at time zone 'utc' as now_utc from public.events where id::text like '44444444-4444-4444-8444-4444444444a%' order by name"));
+
+  // Sign in (same steps as the screen matrix).
+  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  await sleep(15000);
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    openLink(await link());
+    ok = await waitFor(() => /Today|Discover|Wallet|Settings/.test(hierarchy()), "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
+  }
+  record("past-events: sign-in via magic link", ok, ok ? "" : "see sign-in screen");
+  if (!ok) throw new Error("sign-in did not complete");
+
+  // Reads a screen, scrolling to the end, and returns every dump concatenated in scroll order (names are searched in it).
+  const read = async (tag, url, { scrolls = 8, wait = 9000, before } = {}) => {
+    sh(["shell", "input", "keyevent", "224"]);
+    if (url) openLink(url);
+    await sleep(wait);
+    for (let i = 0; i < 12 && /Loading events|Loading event|Loading/.test(hierarchy()); i++) await sleep(3000);
+    if (before) await before();
+    let all = "", last = "";
+    for (let i = 0; i < scrolls; i++) {
+      const xml = hierarchy();
+      if (i === 0) shot(join(cfg.out, "pe-" + tag + ".png"));
+      all += xml;
+      if (xml === last) break;
+      last = xml;
+      sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+      await sleep(1200);
+    }
+    writeFileSync(join(cfg.out, "pe-" + tag + ".xml"), all);
+    return all;
+  };
+  const has = (xml, name) => xml.includes('"' + name + '"') || xml.includes(name);
+  const order = (xml, names) => names.map((n) => xml.indexOf(n));
+  const checkLists = (tag, xml, shouldHave, shouldNot) => {
+    for (const k of shouldHave) record("past-events " + tag + ": lists " + NAMES[k], has(xml, NAMES[k]), "");
+    for (const k of shouldNot) record("past-events " + tag + ": does NOT list " + NAMES[k], !has(xml, NAMES[k]), "");
+    record("past-events " + tag + ": no crash or ANR dialog", !crashed(xml), "");
+  };
+  const upcomingNames = ["multiDay", "soonAkl", "soonHnl", "baseline", ...(dstSpringUpcoming ? ["dstSpring"] : [])];
+  const endedNames = ["endedLastWeek", "endedTwoDays", "endedAkl", "endedHnl", "dstFall", ...(dstSpringUpcoming ? [] : ["dstSpring"])];
+
+  // 1. Events list (upcoming segment is the default).
+  const list = await read("events-list", "danceflow://discover/events/all", { scrolls: 10 });
+  checkLists("Events list", list, upcomingNames, endedNames);
+  record("past-events Events list: the Upcoming segment is selected by default", /content-desc="Show upcoming events"[^>]*selected="true"/.test(list) || /selected="true"[^>]*content-desc="Show upcoming events"/.test(list), "");
+  // On-device Intl check, named for what it proves.
+  const intlOk = has(list, NAMES.soonAkl) && !has(list, NAMES.endedAkl) && has(list, NAMES.soonHnl) && !has(list, NAMES.endedHnl);
+  record("past-events Hermes/Android Intl time zones: Auckland +25 min listed, Auckland -60 min gone, Honolulu +25 min listed, Honolulu -30 min gone", intlOk,
+    JSON.stringify({ soonAkl: has(list, NAMES.soonAkl), endedAkl: has(list, NAMES.endedAkl), soonHnl: has(list, NAMES.soonHnl), endedHnl: has(list, NAMES.endedHnl) }));
+
+  // 2. Home (saved events) and Saved: the dancer saved one ended and one upcoming event.
+  const home = await read("home", "danceflow://home", { scrolls: 6 });
+  record("past-events home: the saved upcoming event shows and the saved ENDED event does not", has(home, NAMES.baseline) && !has(home, NAMES.endedLastWeek), "baseline " + has(home, NAMES.baseline) + ", ended " + has(home, NAMES.endedLastWeek));
+  const fav = await read("favorites", "danceflow://favorites", { scrolls: 6 });
+  record("past-events Saved: the saved upcoming event shows and the saved ENDED event does not", has(fav, NAMES.baseline) && !has(fav, NAMES.endedLastWeek), "baseline " + has(fav, NAMES.baseline) + ", ended " + has(fav, NAMES.endedLastWeek));
+
+  // 3. Studio page, Events section.
+  const studio = await read("studio-events", "danceflow://studios/11111111-1111-4111-8111-111111111111/events", { scrolls: 10 });
+  checkLists("studio Events", studio, upcomingNames, endedNames);
+
+  // 4. Past segment: ended events only, newest first.
+  const tapPast = async () => {
+    const xml = hierarchy();
+    const m = /content-desc="Show past events"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+    if (m) sh(["shell", "input", "tap", String(Math.round((+m[1] + +m[3]) / 2)), String(Math.round((+m[2] + +m[4]) / 2))]);
+    await sleep(8000);
+    for (let i = 0; i < 10 && /Loading events/.test(hierarchy()); i++) await sleep(3000);
+  };
+  const past = await read("events-past", "danceflow://discover/events/all", { scrolls: 10, before: tapPast });
+  checkLists("Past segment", past, endedNames, upcomingNames);
+  // The favourited ended event also shows once in the "Favorited Events" block above the list; only the list after "N matching events" gives the order.
+  const listFrom = past.search(/\d+ matching events?/);
+  const idx = order(listFrom >= 0 ? past.slice(listFrom) : past, [NAMES.endedAkl, NAMES.endedHnl, NAMES.endedTwoDays, NAMES.endedLastWeek, NAMES.dstFall]);
+  const recentFirst = idx.every((i) => i >= 0) && Math.max(idx[0], idx[1]) < idx[2] && idx[2] < idx[3] && idx[3] < idx[4];
+  record("past-events Past segment: newest first (the two hours-old events, then 2 days, then 7 days, then the 2026-11-01 DST event)", recentFirst, "positions " + JSON.stringify(idx));
+
+  // 5. Ended event by direct link: loads, says it ended, no checkout.
+  const detail = await read("ended-detail", "danceflow://events/" + ID.endedLastWeek, { scrolls: 4 });
+  record("past-events ended event by direct link: loads (name shown)", has(detail, NAMES.endedLastWeek), "");
+  record("past-events ended event by direct link: says 'This event has ended'", detail.includes("This event has ended"), "");
+  record("past-events ended event by direct link: no register or sign-in-to-register action and no ticket list", !/Register in app|Sign in to register|Past General Admission/.test(detail), "");
+  const register = await read("ended-register", "danceflow://events/" + ID.endedLastWeek + "/register", { scrolls: 3 });
+  record("past-events ended event register link: shows the ended state, not the checkout form", register.includes("This event has ended") && !/Event Registration/.test(register), "");
+
+  // 6. History: the ticket and the registration for the ended event are still there.
+  const tickets = await read("ended-tickets", "danceflow://wallet/event-tickets", { scrolls: 8, wait: 12000 });
+  record("past-events history: the wallet ticket screen still shows the ended event's ticket QA-PAST-0001", /QA-PAST-0001|Q A - P A S T/.test(tickets) || has(tickets, NAMES.endedLastWeek), "");
+  // The Tickets & registrations screen (schedule/events) has only an "Upcoming events" section by design (it was like that before the past-events fix);
+  // an ended registration is reached through the wallet ticket screen above and the event's own page. Recorded as an observation, not a pass of a new behaviour.
+  const regs = await read("ended-registrations", "danceflow://schedule/events", { scrolls: 6, wait: 12000 });
+  record("past-events history (observation): the Tickets & registrations screen lists upcoming events only (" + (has(regs, NAMES.endedLastWeek) ? "ended event shown" : "ended event not shown, as before the fix") + ")", has(regs, NAMES.baseline), "unchanged behaviour; the baseline upcoming registration is listed");
+  record("past-events history: receipts/orders for an ended event: NOT RUN (no seeded order; BLOCKED, not passed)", true, "BLOCKED");
+
+  // 7. Empty state: make every public event ended, then read the lists again.
+  const upd = q("update public.events set start_date = current_date - 30, end_date = current_date - 29, start_time = '19:00', end_time = '22:00', timezone = 'America/New_York' where studio_id = '11111111-1111-4111-8111-111111111111'");
+  record("past-events empty state: every event made ended", !/^ERR/.test(upd), upd);
+  const empty = await read("empty-list", "danceflow://discover/events/all", { scrolls: 3 });
+  record("past-events empty state: zero upcoming reads 'No upcoming events' with a check-back hint, not an error", empty.includes("No upcoming events") && /Check back soon/.test(empty) && !/need attention|Try again/.test(empty), "");
+  const emptyStudio = await read("empty-studio", "danceflow://studios/11111111-1111-4111-8111-111111111111/events", { scrolls: 3 });
+  record("past-events empty state: the studio page says 'No upcoming events'", emptyStudio.includes("No upcoming events") && !crashed(emptyStudio), "");
+}
+
 async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
@@ -791,7 +916,8 @@ try {
   if (!/Success/.test(inst.stdout)) throw new Error(`install failed: ${inst.stdout}${inst.stderr}`);
   state.installed = true;
   await checkReachable();
-  if (cfg.claimWithheld) await claimWithheldScenario(link, anon);
+  if (cfg.pastEvents) await pastEventsScenario(link);
+  else if (cfg.claimWithheld) await claimWithheldScenario(link, anon);
   else if (cfg.claimVisual) await claimVisualScenario(link);
   else if (cfg.claim) await claimScenario(link);
   else await screens(link);

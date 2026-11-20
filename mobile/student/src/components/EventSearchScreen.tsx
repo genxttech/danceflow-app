@@ -190,13 +190,15 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
         return true;
       })
       .sort((a, b) => {
+        // Past events keep the order the loader returns them in: most recently ended first.
+        if (scope === "past") return 0;
         if (a.distanceMiles !== null && b.distanceMiles !== null) {
           return a.distanceMiles - b.distanceMiles;
         }
         if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-  }, [categoryEvents, currentLocation, query, radiusMiles]);
+  }, [categoryEvents, currentLocation, query, radiusMiles, scope]);
 
   async function useCurrentLocation() {
     setLocationError(null);
