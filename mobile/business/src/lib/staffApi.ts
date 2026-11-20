@@ -123,6 +123,12 @@ export type StaffApiErrorCode =
   | "not_markable"
   /** 429: the server's per-device or per-account limit; `Retry-After` says when to try again. The request was refused before any work, so nothing was applied. */
   | "rate_limited"
+  /** 403: the server's write kill switch for this capability is off. Reads still work. */
+  | "writes_disabled"
+  /** 426: this build is too old (or blocked, or sent no version header) for this write. */
+  | "upgrade_required"
+  /** 409 with a slice-specific code (idempotency_conflict, outcome_conflict, class_full, already_enrolled, duplicate_email, payment_required ...). `serverCode` has the code, `current` the server state. */
+  | "conflict"
   /** Client-side: no response at all (offline, DNS, TLS). */
   | "network_error"
   /** Client-side: a response that is not the contract's JSON. */
@@ -135,6 +141,8 @@ export class StaffApiError extends Error {
     message: string,
     /** Seconds from a 429's Retry-After header, when it sent a usable one. */
     readonly retryAfterSeconds?: number,
+    /** Write refusals: the raw server code (for a `conflict`) and the server's current state of the thing the app tried to change. */
+    readonly extra?: { serverCode?: string; current?: unknown },
   ) {
     super(message);
     this.name = "StaffApiError";
@@ -152,6 +160,9 @@ export type StaffErrorKind =
   | "not_found"
   | "not_markable"
   | "rate_limited"
+  | "writes_disabled"
+  | "upgrade_required"
+  | "conflict"
   | "unavailable"
   | "client_bug";
 
@@ -167,6 +178,28 @@ const KNOWN_CODES: readonly StaffApiErrorCode[] = [
   "service_unavailable",
   "not_markable",
   "rate_limited",
+  "writes_disabled",
+  "upgrade_required",
+];
+
+/**
+ * 409 codes the Phase 1A write routes use (the registry is "Write error codes" in Staff_API_Contract.md; a slice adds its codes here when it lands). Any other 409 keeps
+ * the v0.1 meaning, not_markable, so an unknown or malformed body can never be read as something the screen would act on.
+ */
+const CONFLICT_CODES: readonly string[] = [
+  "idempotency_conflict",
+  "outcome_conflict",
+  "payment_required",
+  "duplicate_email",
+  "already_enrolled",
+  "class_full",
+  "class_cancelled",
+  "entitlement_exhausted",
+  "no_eligible_entitlement",
+  "membership_not_active",
+  "membership_requires_selection",
+  "ambiguous_funding_source",
+  "attendee_attendance_recorded",
 ];
 
 /** The server's `code` decides; the status is only a fallback for a body without one. */
@@ -174,6 +207,9 @@ function codeFor(status: number, raw: unknown): StaffApiErrorCode {
   if (typeof raw === "string" && (KNOWN_CODES as readonly string[]).includes(raw)) {
     return raw as StaffApiErrorCode;
   }
+  if (status === 426) return "upgrade_required";
+  // a 409 that names a slice-specific code is a conflict the screen can reconcile; a 409 with no code keeps the v0.1 meaning (not_markable)
+  if (status === 409 && typeof raw === "string" && CONFLICT_CODES.includes(raw)) return "conflict";
   if (status === 401) return "unauthenticated";
   if (status === 404) return "not_found";
   if (status === 400) return "invalid_request";
@@ -188,8 +224,8 @@ function codeFor(status: number, raw: unknown): StaffApiErrorCode {
  * The contract's error shape is flat: `{ error: "<message>", code: "<code>" }`. A nested `{ error: { code, message } }` is still
  * read defensively, because an unknown body must never crash the error path.
  */
-export function readErrorBody(body: unknown): { code: unknown; message: string | null } {
-  const record = (body ?? {}) as { code?: unknown; error?: unknown; message?: unknown };
+export function readErrorBody(body: unknown): { code: unknown; message: string | null; current?: unknown } {
+  const record = (body ?? {}) as { code?: unknown; error?: unknown; message?: unknown; current?: unknown };
   if (record.error && typeof record.error === "object") {
     const nested = record.error as { code?: unknown; message?: unknown };
     return { code: nested.code ?? record.code, message: typeof nested.message === "string" ? nested.message : null };
@@ -197,6 +233,7 @@ export function readErrorBody(body: unknown): { code: unknown; message: string |
   return {
     code: record.code,
     message: typeof record.error === "string" ? record.error : typeof record.message === "string" ? record.message : null,
+    current: record.current,
   };
 }
 
@@ -222,6 +259,12 @@ export function staffErrorKind(error: unknown): StaffErrorKind {
       return "not_markable";
     case "rate_limited":
       return "rate_limited";
+    case "writes_disabled":
+      return "writes_disabled";
+    case "upgrade_required":
+      return "upgrade_required";
+    case "conflict":
+      return "conflict";
     case "invalid_request":
       return "client_bug";
     case "service_unavailable":
@@ -239,6 +282,8 @@ export type StaffApiOptions = {
   /** Refreshes the session and returns the new access token, or null if it cannot. */
   refreshAccessToken: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
+  /** Sent as X-DanceFlow-App on every request: business/<version>/<code>/<platform> (see appVersion.ts). Omitted when unknown; the server then refuses gated writes with upgrade_required. */
+  appHeader?: string | null;
   /** Waits between a 429 and its one automatic retry. Injected so tests do not sleep. */
   sleepImpl?: (ms: number) => Promise<void>;
 };
@@ -449,7 +494,7 @@ export function toAttendanceResult(raw: unknown, clientId: string): AttendanceRe
   };
 }
 
-type RequestOptions = { method?: "GET" | "PUT"; body?: unknown; headers?: Record<string, string> };
+type RequestOptions = { method?: "GET" | "PUT" | "POST" | "DELETE"; body?: unknown; headers?: Record<string, string> };
 
 export function createStaffApi(options: StaffApiOptions): StaffApi {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -463,6 +508,7 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
+          ...(options.appHeader ? { "X-DanceFlow-App": options.appHeader } : {}),
           ...(request.body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...request.headers,
         },
@@ -508,8 +554,11 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     }
 
     if (!response.ok) {
-      const { code, message } = readErrorBody(body);
-      throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.", retryAfterSeconds);
+      const { code, message, current } = readErrorBody(body);
+      throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.", retryAfterSeconds, {
+        serverCode: typeof code === "string" ? code : undefined,
+        current,
+      });
     }
 
     if (body === null || typeof body !== "object") {
