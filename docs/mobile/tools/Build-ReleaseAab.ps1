@@ -28,6 +28,10 @@ param(
   [string]$EnvFile = "",
   [Parameter(Mandatory)][string]$ExpectedFile,
   [string]$GoogleServices = "",   # Student only: path of the Firebase google-services.json (never copied into the repo)
+  # Business only: EXPO_PUBLIC_STAFF_FEATURES for this build (comma list). Empty = the app defaults (clients, attendance), unless -EnvFile carries one.
+  # "pulse" / "studioSchedule" are refused unless the production smoke summary (Invoke-StaffApiSmoke.ps1) shows those routes PASS.
+  [string]$StaffFeatures = "",
+  [string]$SmokeSummary = "C:\dfr-out\release\checks\business-staff-smoke.txt",
   [string]$RepoRoot = "C:\Dev\studioapp",
   [string]$Jdk = "C:\Android\jdk-17",
   [string]$Sdk = "C:\Android\sdk",
@@ -37,6 +41,7 @@ param(
   [string]$Aab = ""
 )
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "Test-StaffFeatures.ps1")   # Assert-StaffFeatures (smoke-gated optional Business screens)
 . (Join-Path $PSScriptRoot "Test-UploadSigner.ps1")   # Get-AabSignerFingerprints / Assert-UploadSigner (pinned upload certificate)
 
 # --- 0. absolute paths, resolved against the CALLER's current directory BEFORE any Set-Location/Push-Location below.
@@ -49,6 +54,7 @@ $EnvFile = Resolve-CallerPath $EnvFile
 $ExpectedFile = Resolve-CallerPath $ExpectedFile
 $GoogleServices = Resolve-CallerPath $GoogleServices
 $Aab = Resolve-CallerPath $Aab
+$SmokeSummary = Resolve-CallerPath $SmokeSummary
 $RepoRoot = Resolve-CallerPath $RepoRoot
 $Jdk = Resolve-CallerPath $Jdk
 $Sdk = Resolve-CallerPath $Sdk
@@ -79,6 +85,16 @@ if (-not (Test-Path -LiteralPath $ksPath)) { throw "Keystore file not found (DAN
 [Environment]::SetEnvironmentVariable("DANCEFLOW_UPLOAD_STORE_FILE", $ksPath, "Process")
 if (-not $EnvFile -or -not (Test-Path -LiteralPath $EnvFile)) { throw "Missing file: -EnvFile $EnvFile" }
 if ($Commit -notmatch "^[0-9a-f]{7,40}$") { throw "-Commit must be a hex SHA." }
+# Business: the effective staff-feature list (the parameter wins over a line in the env file) is checked BEFORE anything is built.
+$effectiveFeatures = ""
+if ($App -eq "business") {
+  $effectiveFeatures = $StaffFeatures
+  if (-not $effectiveFeatures) {
+    foreach ($line in Get-Content -LiteralPath $EnvFile) { if ($line -match "^\s*EXPO_PUBLIC_STAFF_FEATURES\s*=\s*(.*?)\s*$") { $effectiveFeatures = $Matches[1] } }
+  }
+  Assert-StaffFeatures -Features $effectiveFeatures -SummaryPath $SmokeSummary
+  Write-Host "Staff features for this build: $(if ($effectiveFeatures) { $effectiveFeatures } else { "(defaults: clients, attendance)" })" -ForegroundColor Cyan
+}
 if ($App -eq "student") {
   if (-not $GoogleServices -or -not (Test-Path -LiteralPath $GoogleServices)) { throw "Student needs -GoogleServices <path to google-services.json>." }
 }
@@ -105,6 +121,10 @@ try {
   Get-ChildItem Env: | Where-Object { $_.Name -like "EXPO_PUBLIC_*" } | ForEach-Object { Remove-Item "Env:$($_.Name)" }
   foreach ($line in Get-Content -LiteralPath $EnvFile) {
     if ($line -match "^\s*(EXPO_PUBLIC_[A-Z0-9_]+)\s*=\s*(.*?)\s*$") { Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2] }
+  }
+  if ($App -eq "business") {
+    Remove-Item Env:EXPO_PUBLIC_STAFF_FEATURES -ErrorAction SilentlyContinue
+    if ($effectiveFeatures) { $env:EXPO_PUBLIC_STAFF_FEATURES = $effectiveFeatures }
   }
   foreach ($n in "EXPO_PUBLIC_SUPABASE_URL", "EXPO_PUBLIC_SUPABASE_ANON_KEY", "EXPO_PUBLIC_DANCEFLOW_WEB_URL") {
     if (-not (Get-Item "Env:$n" -ErrorAction SilentlyContinue)) { throw "$n is missing from $EnvFile" }
