@@ -142,7 +142,7 @@ export class StaffApiError extends Error {
     /** Seconds from a 429's Retry-After header, when it sent a usable one. */
     readonly retryAfterSeconds?: number,
     /** Write refusals: the raw server code (for a `conflict`) and the server's current state of the thing the app tried to change. */
-    readonly extra?: { serverCode?: string; current?: unknown },
+    readonly extra?: { serverCode?: string; current?: unknown; /** The rest of a flat error body (for example duplicate_client: existingClientId, matchedOn). Never rendered as text. */ details?: Record<string, unknown> },
   ) {
     super(message);
     this.name = "StaffApiError";
@@ -200,6 +200,8 @@ const CONFLICT_CODES: readonly string[] = [
   "membership_requires_selection",
   "ambiguous_funding_source",
   "attendee_attendance_recorded",
+  "duplicate_client",
+  "terminal_outcome",
 ];
 
 /** The server's `code` decides; the status is only a fallback for a body without one. */
@@ -235,6 +237,13 @@ export function readErrorBody(body: unknown): { code: unknown; message: string |
     message: typeof record.error === "string" ? record.error : typeof record.message === "string" ? record.message : null,
     current: record.current,
   };
+}
+
+/** Fields of a flat error body besides error / code / current / message. */
+function errorDetails(body: unknown): Record<string, unknown> | undefined {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const { error: _e, code: _c, current: _u, message: _m, ...rest } = body as Record<string, unknown>;
+  return Object.keys(rest).length ? rest : undefined;
 }
 
 export function staffErrorKind(error: unknown): StaffErrorKind {
@@ -340,6 +349,22 @@ export type AttendanceMark = (typeof ATTENDANCE_MARKS)[number];
 
 export type AttendanceResult = { clientId: string; attendanceStatus: string | null; displayName: string | null; updatedAt: string | null };
 
+export type ClientNote = { id: string; clientId: string; noteType: string; body: string; occurredAt: string; createdAt: string };
+export const CLIENT_NOTE_TYPES = ["general", "follow_up", "sales", "lesson", "billing", "concern"] as const;
+export type ClientNoteType = (typeof CLIENT_NOTE_TYPES)[number];
+
+export type NewClientInput = {
+  /** Generated once per new client (newEntityId) and resent unchanged on every retry. */
+  clientId: string;
+  firstName: string;
+  lastName: string;
+  /** A phone or an email is required. */
+  phone?: string;
+  email?: string;
+  note?: string;
+  allowDuplicatePhone?: boolean;
+};
+
 export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
@@ -360,6 +385,15 @@ export type StaffApi = {
     status: AttendanceMark,
     idempotencyKey: string,
   ) => Promise<AttendanceResult>;
+  /** Phase 1A C1: POST /workspaces/{id}/clients/{clientId}/notes. `noteId` is generated once per note and resent on retries; 201 new, 200 replay. Owner, admin, front desk. */
+  addClientNote: (
+    studioId: string,
+    clientId: string,
+    input: { noteId: string; body: string; noteType?: ClientNoteType },
+    idempotencyKey: string,
+  ) => Promise<{ note: ClientNote }>;
+  /** Phase 1A C2: POST /workspaces/{id}/clients (quick add). `clientId` is generated once per new client and resent on retries. A duplicate phone or email is 409 duplicate_client. */
+  createClient: (studioId: string, input: NewClientInput, idempotencyKey: string) => Promise<{ client: ClientSummary; replayed: boolean }>;
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : null);
@@ -558,6 +592,7 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
       throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.", retryAfterSeconds, {
         serverCode: typeof code === "string" ? code : undefined,
         current,
+        details: errorDetails(body),
       });
     }
 
@@ -589,6 +624,34 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     },
     client: async (studioId, clientId) =>
       toClientDetail(await call<unknown>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}`)),
+    addClientNote: async (studioId, clientId, input, idempotencyKey) => {
+      const raw = await call<{ note?: Record<string, unknown> }>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}/notes`, {
+        method: "POST",
+        body: { noteId: input.noteId, body: input.body, ...(input.noteType ? { noteType: input.noteType } : {}) },
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      const n = raw.note;
+      if (!n || typeof n.id !== "string") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return {
+        note: {
+          id: n.id,
+          clientId: typeof n.clientId === "string" ? n.clientId : clientId,
+          noteType: typeof n.noteType === "string" ? n.noteType : "general",
+          body: typeof n.body === "string" ? n.body : input.body,
+          occurredAt: typeof n.occurredAt === "string" ? n.occurredAt : "",
+          createdAt: typeof n.createdAt === "string" ? n.createdAt : "",
+        },
+      };
+    },
+    createClient: async (studioId, input, idempotencyKey) => {
+      const raw = await call<{ client?: unknown; replayed?: unknown }>(`${ws(studioId)}/clients`, {
+        method: "POST",
+        body: input,
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      if (!raw.client || typeof raw.client !== "object") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { client: toClientSummary(raw.client), replayed: raw.replayed === true };
+    },
     setAttendance: async (studioId, appointmentId, clientId, status, idempotencyKey) =>
       toAttendanceResult(
         await call<unknown>(
