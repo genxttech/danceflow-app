@@ -133,7 +133,7 @@ export default function EventDetailScreen() {
     );
   }
 
-  const price = fromPrice(event);
+  const price = event.ended ? null : fromPrice(event);
 
   return (
     <View style={styles.page}>
@@ -168,6 +168,14 @@ export default function EventDetailScreen() {
 
           <AppText style={styles.summary}>{event.summary ?? "Event details are coming soon."}</AppText>
 
+          {event.ended ? (
+            <FeatureCard
+              title="This event has ended"
+              detail="Tickets are no longer on sale. Tickets and receipts you already have stay in Wallet."
+            />
+          ) : null}
+
+          {!event.ended ? (
           <View style={styles.section}>
             <AppText accessibilityRole="header" style={styles.sectionTitle}>
               Tickets
@@ -202,8 +210,9 @@ export default function EventDetailScreen() {
               ))
             )}
           </View>
+          ) : null}
 
-          {event.requiredDocuments.length > 0 ? (
+          {!event.ended && event.requiredDocuments.length > 0 ? (
             <View style={styles.section}>
               <AppText accessibilityRole="header" style={styles.sectionTitle}>
                 Before checkout
@@ -217,7 +226,7 @@ export default function EventDetailScreen() {
             </View>
           ) : null}
 
-          {!session ? (
+          {!session && !event.ended ? (
             <FeatureCard detail="Use your DanceFlow account so tickets can appear in Wallet after payment." title="Sign in to register" />
           ) : null}
         </View>
@@ -231,9 +240,9 @@ export default function EventDetailScreen() {
           </View>
         ) : null}
         <AppButton
-          // Signed out: go to sign-in and come back to this event afterwards.
-          disabled={Boolean(session) && event.ticketTypes.length === 0}
-          label={session ? "Register in app" : "Sign in to register"}
+          // Signed out: go to sign-in and come back to this event afterwards. An ended event cannot be registered for.
+          disabled={event.ended || (Boolean(session) && event.ticketTypes.length === 0)}
+          label={event.ended ? "This event has ended" : session ? "Register in app" : "Sign in to register"}
           onPress={() =>
             session
               ? router.push(`/events/${event.id}/register` as unknown as RouterPushTarget)

@@ -372,6 +372,16 @@ export default function EventRegisterScreen() {
     );
   }
 
+  // An ended event is history: no checkout. (The server refuses it too; this keeps a stale link from reaching the form.)
+  if (event.ended) {
+    return (
+      <Screen>
+        <FeatureCard title="This event has ended" detail="Tickets are no longer on sale for this event. Tickets and receipts you already have stay in Wallet." />
+        <AppButton label="Back to events" onPress={() => router.push("/discover/events" as never)} />
+      </Screen>
+    );
+  }
+
 
   return (
     <Screen>

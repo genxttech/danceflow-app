@@ -111,6 +111,8 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
   const [events, setEvents] = useState<PublicEventItem[]>([]);
+  // "upcoming" (events that have not ended, the default) or "past" (ended history, newest first).
+  const [scope, setScope] = useState<"upcoming" | "past">("upcoming");
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -127,7 +129,7 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
     setErrorMessage(null);
 
     try {
-      setEvents(await getPublicEventsForMobile(userId));
+      setEvents(await getPublicEventsForMobile(userId, { scope }));
     } catch (err) {
       setErrorMessage(failureMessage(err, "Events are not available yet. Try again in a moment."));
     } finally {
@@ -138,7 +140,7 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
   useEffect(() => {
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [userId, scope]);
 
   const categoryEvents = useMemo(
     () => events.filter((event) => matchesEventCategory(event, category)),
@@ -308,6 +310,24 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
 
       {locationError ? <ErrorState error={locationError} title="Location" /> : null}
 
+      <View accessibilityRole="tablist" style={{ flexDirection: "row", gap: 8 }}>
+        {(["upcoming", "past"] as const).map((value) => (
+          <Pressable
+            accessibilityLabel={value === "upcoming" ? "Show upcoming events" : "Show past events"}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: scope === value }}
+            key={value}
+            onPress={() => setScope(value)}
+            style={[styles.radiusButton, scope === value && styles.radiusButtonActive, { minHeight: 44, justifyContent: "center" }]}
+            testID={`events-scope-${value}`}
+          >
+            <AppText style={[styles.radiusText, scope === value && styles.radiusTextActive]}>
+              {value === "upcoming" ? "Upcoming" : "Past"}
+            </AppText>
+          </Pressable>
+        ))}
+      </View>
+
       {loading ? <LoadingState label="Loading events" /> : null}
       {message ? <FeatureCard title="Events" detail={message} /> : null}
       {errorMessage ? <ErrorState error={errorMessage} title="Events need attention" onRetry={() => void loadEvents()} /> : null}
@@ -430,8 +450,14 @@ export function EventSearchScreen({ category = "all" }: { category?: EventSearch
         ))
       ) : !loading ? (
         <FeatureCard
-          title="No events found"
-          detail="Try a broader search or check back as more studios publish events."
+          title={events.length === 0 ? (scope === "upcoming" ? "No upcoming events" : "No past events") : "No events found"}
+          detail={
+            events.length === 0
+              ? scope === "upcoming"
+                ? "Nothing is scheduled right now. Check back soon as studios and organizers add events."
+                : "Events that have ended will show here."
+              : "Try a broader search or a different filter."
+          }
         />
       ) : null}
     </Screen>

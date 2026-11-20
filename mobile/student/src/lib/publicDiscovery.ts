@@ -1,3 +1,11 @@
+import {
+  EVENT_LIST_PAST_BUFFER,
+  eventEndDateLowerBound,
+  eventPastEndDateUpperBound,
+  filterNotPastEvents,
+  filterPastEvents,
+  isEventPast,
+} from "@/lib/eventTiming";
 import { supabase } from "@/lib/supabase";
 import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { effectiveTicketPrice } from "./ticketPricing";
@@ -159,6 +167,8 @@ export type PublicEventItem = {
   registrationRequired: boolean;
   favorited: boolean;
   webUrl: string;
+  /** True once the event end (end_date + end_time in its own time zone) has passed. History stays reachable; registering does not. */
+  ended: boolean;
 };
 
 export type PublicStudioTag = {
@@ -312,6 +322,7 @@ type EventRow = {
   end_date: string | null;
   start_time: string | null;
   end_time: string | null;
+  timezone?: string | null;
   visibility: string | null;
   status: string | null;
   public_summary: string | null;
@@ -660,7 +671,37 @@ export async function getPublicStudiosForMobile(userId?: string | null) {
   );
 }
 
-export async function getPublicEventsForMobile(userId?: string | null) {
+/** The most events one list shows (the same cap as before; past rows no longer count toward it in the upcoming list). */
+const EVENT_LIST_LIMIT = 100;
+
+export type PublicEventScope = "upcoming" | "past" | "all";
+
+export type PublicEventsOptions = {
+  /** "upcoming" (default): events that have not ended. "past": ended events, newest first. "all": no timing filter (used with eventId). */
+  scope?: PublicEventScope;
+  /** Load only this event (any timing). The detail screens use it so an ended event still opens. */
+  eventId?: string;
+  /** The clock, for tests. */
+  now?: Date;
+};
+
+export async function getPublicEventsForMobile(userId?: string | null, options: PublicEventsOptions = {}) {
+  const scope: PublicEventScope = options.eventId ? "all" : (options.scope ?? "upcoming");
+  const now = options.now ?? new Date();
+  let eventsQuery = supabase
+    .from("events")
+    .select(
+      "id, slug, studio_id, organizer_id, name, event_type, public_cover_image_url, cover_image_url, start_date, end_date, start_time, end_time, timezone, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude, venue_name, city, state"
+    )
+    .eq("visibility", "public")
+    .eq("public_directory_enabled", true)
+    .in("status", ["published", "open"]);
+  if (options.eventId) eventsQuery = eventsQuery.eq("id", options.eventId);
+  // Database prefilter first (so ended history does not fill the page), then the exact rule in JS below. Same shape as the web lists.
+  if (scope === "upcoming") eventsQuery = eventsQuery.gte("end_date", eventEndDateLowerBound(now)).order("start_date", { ascending: true }).limit(EVENT_LIST_LIMIT + EVENT_LIST_PAST_BUFFER);
+  else if (scope === "past") eventsQuery = eventsQuery.lte("end_date", eventPastEndDateUpperBound(now)).order("start_date", { ascending: false }).limit(EVENT_LIST_LIMIT + EVENT_LIST_PAST_BUFFER);
+  else eventsQuery = eventsQuery.order("start_date", { ascending: true }).limit(EVENT_LIST_LIMIT);
+
   const [
     { data: events, error: eventsError },
     { data: studios, error: studiosError },
@@ -668,16 +709,7 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     { data: locations, error: locationsError },
     { data: styles, error: stylesError }
   ] = await Promise.all([
-    supabase
-      .from("events")
-      .select(
-        "id, slug, studio_id, organizer_id, name, event_type, public_cover_image_url, cover_image_url, start_date, end_date, start_time, end_time, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude, venue_name, city, state"
-      )
-      .eq("visibility", "public")
-      .eq("public_directory_enabled", true)
-      .in("status", ["published", "open"])
-      .order("start_date", { ascending: true })
-      .limit(100),
+    eventsQuery,
     supabase
       .from("studios")
       .select(
@@ -724,12 +756,27 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     stylesByEventId.set(style.event_id, current);
   }
 
-  const rows = ((events ?? []) as EventRow[]).filter((event) => {
+  // A timing failure (an unusable time zone, say) must never hide an event: treat it as not ended.
+  const timingSafe = (fn: (list: EventRow[]) => EventRow[], list: EventRow[]) => {
+    try {
+      return fn(list);
+    } catch {
+      return list;
+    }
+  };
+  const timed = (list: EventRow[]) =>
+    scope === "upcoming"
+      ? timingSafe((l) => filterNotPastEvents(l, now), list)
+      : scope === "past"
+        ? timingSafe((l) => filterPastEvents(l, now), list)
+        : list;
+
+  const rows = timed((events ?? []) as EventRow[]).filter((event) => {
     if (!event.slug || !event.public_directory_enabled) return false;
     if (!event.studio_id || !studioById.has(event.studio_id)) return false;
     if (event.organizer_id && !organizerById.has(event.organizer_id)) return false;
     return true;
-  });
+  }).slice(0, EVENT_LIST_LIMIT);
 
   const favoriteIds = new Set<string>();
 
@@ -776,7 +823,14 @@ export async function getPublicEventsForMobile(userId?: string | null) {
       beginnerFriendly: event.beginner_friendly === true,
       registrationRequired: event.registration_required === true,
       favorited: favoriteIds.has(event.id),
-      webUrl: `${danceFlowWebUrl()}/events/${event.slug}`
+      webUrl: `${danceFlowWebUrl()}/events/${event.slug}`,
+      ended: (() => {
+        try {
+          return isEventPast(event, now);
+        } catch {
+          return false;
+        }
+      })()
     };
   });
 }
@@ -871,7 +925,7 @@ export async function getPublicEventDetailForMobile(
   userId?: string | null
 ): Promise<PublicEventDetail | null> {
   const [events, eventResult, ticketsResult, documentsResult] = await Promise.all([
-    getPublicEventsForMobile(userId),
+    getPublicEventsForMobile(userId, { eventId }),
     supabase
       .from("events")
       .select(
