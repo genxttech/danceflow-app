@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyStripeError, redactReport, runStripeGuard, serializeReport, summarizeReport, type GuardConfig, type GuardReport } from "../stripeGuard";
+import { assertFeeRecorded, classifyStripeError, redactReport, runStripeGuard, serializeReport, summarizeReport, type GuardConfig, type GuardReport } from "../stripeGuard";
 
 const PLATFORM = "acct_PLATFORM1";
 const CONNECTED = "acct_CONNECTED1";
@@ -7,7 +7,7 @@ const config: GuardConfig = { expectPlatform: PLATFORM, connectedAccount: CONNEC
 const KEY = "sk_test_unit123";
 
 type Overrides = Partial<{
-  live: boolean; platformId: string; createError: unknown; piError: unknown; confirmError: unknown; fee: number | null; chargeFee: string | null; received: number; expireStatus: string;
+  live: boolean; platformId: string; createError: unknown; piError: unknown; confirmError: unknown; fee: number | null; chargeFee: string | null; chargeFeeAmount: number | null; received: number; expireStatus: string;
 }>;
 
 type FakeSession = { id: string; status: string; payment_status: string; livemode: boolean; payment_intent: string | null; customer_email: null };
@@ -63,13 +63,13 @@ function fakeStripe(o: Overrides = {}) {
         void params;
         return {
           status: "succeeded", amount_received: o.received ?? 100, application_fee_amount: o.fee === undefined ? 10 : o.fee,
-          latest_charge: { application_fee: o.chargeFee === undefined ? "fee_1" : o.chargeFee },
+          latest_charge: { application_fee: o.chargeFee === undefined ? "fee_1" : o.chargeFee, application_fee_amount: o.chargeFeeAmount === undefined ? 10 : o.chargeFeeAmount },
         };
       },
       retrieve: async () => ({
         amount_received: o.received ?? 100,
         application_fee_amount: o.fee === undefined ? 10 : o.fee,
-        latest_charge: { application_fee: o.chargeFee === undefined ? "fee_1" : o.chargeFee },
+        latest_charge: { application_fee: o.chargeFee === undefined ? "fee_1" : o.chargeFee, application_fee_amount: o.chargeFeeAmount === undefined ? 10 : o.chargeFeeAmount },
       }),
     },
   };
@@ -112,8 +112,9 @@ describe("stripe guard", () => {
     expect(report.stop?.failure).toMatchObject({ kind: "capability", code: "account_invalid", requestId: "req_abc123", statusCode: 400 });
     expect(report.stop?.message).toMatch(/Do not request sandbox onboarding/);
     expect(report.stop?.message).toMatch(/Canary C PASSED/);
-    expect(report.stop?.message).toMatch(/Not attempted: canary B/);
-    expect(report.stop?.step).toMatch(/canary A/);
+    expect(report.stop?.message).toMatch(/2 of 3 canaries failed \(canary A, canary B\); passed: canary C/);
+    expect(report.failures?.map((f) => f.step.slice(0, 8))).toEqual(["canary A", "canary B"]);
+    expect(report.stop?.step).toMatch(/canary [AB]/);
   });
 
   it("a payment-confirmation failure on a capability STOPS in canary B with the exact error (canary A passing proves session creation only)", async () => {
@@ -131,7 +132,7 @@ describe("stripe guard", () => {
   });
 
   it("fails when the application fee is missing or wrong, or the amount is wrong", async () => {
-    for (const over of [{ fee: null }, { fee: 5 }, { chargeFee: null }, { received: 99 }] as Overrides[]) {
+    for (const over of [{ fee: null }, { fee: 5 }, { chargeFee: null, chargeFeeAmount: null }, { chargeFeeAmount: 5 }, { received: 99 }] as Overrides[]) {
       const report = await runStripeGuard({ stripe: fakeStripe(over).stripe, key: KEY, config });
       expect(report.ok, JSON.stringify(over)).toBe(false);
       expect(report.stop?.step).toMatch(/canary C/);
@@ -275,15 +276,16 @@ describe("restricted keys (rk_test_)", () => {
     expect(summarizeReport(report)).not.toMatch(/rk_test_[A-Za-z0-9]/);
   });
 
-  it("a capability error at canary C stops there, before the Checkout payment attempt", async () => {
+  it("a capability error at canary C is reported, and A and B are STILL attempted so their answers are not hidden", async () => {
     const err = stripeError({ type: "StripeInvalidRequestError", code: "account_invalid", message: "Your account cannot currently make live charges.", raw: { request_id: "req_c1", statusCode: 400 } });
     const { stripe, calls } = fakeStripe({ piError: err });
     const report = await runStripeGuard({ stripe, key: RK, config });
+    expect(report.ok).toBe(false);
     expect(report.stop?.step).toMatch(/canary C/);
     expect(report.stop?.failure.kind).toBe("capability");
-    expect(calls).not.toContain("confirm");
-    expect(calls.some((c) => c.startsWith("create:")), "no Checkout Session is attempted after C failed").toBe(false);
-    expect(report.stop?.message).toMatch(/Not attempted: canary A, canary B/);
+    expect(report.failures?.map((f) => f.step.slice(0, 8))).toEqual(["canary C"]);
+    expect(report.steps.filter((step) => step.ok && step.name.startsWith("canary")).map((step) => step.name.slice(0, 8))).toEqual(["canary A", "canary B"]);
+    expect(calls).toContain("confirm");
   });
 
   it("the guard CLI maps permission errors to exit 3, capability to 2, anything else to 1 (source tripwire)", async () => {
@@ -307,29 +309,91 @@ describe("canary C first (owner decision 2026-11-20 after run 44653007956)", () 
     expect(classifyStripeError(businessName())).toMatchObject({ kind: "capability", statusCode: 400, requestId: "req_67Z382HA0utgTP" });
   });
 
-  it("C passes, then Checkout is refused for the missing name: the report says what C proves, what is blocked, quotes the exact error, and B is not attempted", async () => {
+  it("C passes, then Checkout is refused for the missing name: the report says what C proves, what is blocked, quotes the exact error, and both Checkout canaries are reported", async () => {
     const { stripe, calls } = fakeStripe({ createError: businessName() });
     const report = await runStripeGuard({ stripe, key: "rk_test_unit123", config });
     expect(report.ok).toBe(false);
-    expect(report.steps.map((step) => [step.name.slice(0, 8), step.ok]).filter(([n]) => String(n).startsWith("canary"))).toEqual([["canary C", true], ["canary A", false]]);
+    expect(report.steps.map((step) => [step.name.slice(0, 8), step.ok]).filter(([n]) => String(n).startsWith("canary"))).toEqual([["canary C", true], ["canary A", false], ["canary B", false]]);
     expect(calls.filter((c) => c.startsWith("pi:"))).toEqual(["pi:acct_CONNECTED1"]);
     expect(calls).not.toContain("confirm");
-    expect(report.stop?.step).toMatch(/canary A/);
     expect(report.stop?.failure).toMatchObject({ kind: "capability", requestId: "req_67Z382HA0utgTP" });
     expect(report.stop?.failure.message).toBe("In order to use Checkout, you must set an account or business name at https://dashboard.stripe.com/account.");
     expect(report.stop?.message).toMatch(/Canary C PASSED/);
     expect(report.stop?.message).toMatch(/only Checkout is blocked/);
-    expect(report.stop?.message).toMatch(/Not attempted: canary B/);
     expect(report.stop?.message).toMatch(/Do not request sandbox onboarding/);
   });
 
-  it("nothing is weakened: C failing on a fee or amount mismatch is still a hard stop before any Checkout Session exists", async () => {
-    for (const over of [{ fee: 5 }, { fee: null }, { chargeFee: null }, { received: 99 }] as Overrides[]) {
-      const { stripe, calls } = fakeStripe(over);
+  it("nothing is weakened: a fee or amount mismatch at C is still a FAILED run (non-ok report, non-zero exit kind), reported with the field values it saw", async () => {
+    for (const over of [{ fee: 5 }, { fee: null }, { chargeFee: null, chargeFeeAmount: null }, { chargeFeeAmount: 5 }, { received: 99 }] as Overrides[]) {
+      const { stripe } = fakeStripe(over);
       const report = await runStripeGuard({ stripe, key: "rk_test_unit123", config });
       expect(report.ok, JSON.stringify(over)).toBe(false);
-      expect(report.stop?.step, JSON.stringify(over)).toMatch(/canary C/);
-      expect(calls.some((c) => c.startsWith("create:")), JSON.stringify(over)).toBe(false);
+      expect(report.failures?.some((f) => f.step.startsWith("canary C")), JSON.stringify(over)).toBe(true);
+      expect(report.stop?.failure.kind, JSON.stringify(over)).toBe("other");
     }
+  });
+});
+
+
+describe("fee evidence on the charge (run 44725454494: C reached the charge-level fee check)", () => {
+  it("passes when the charge records the fee AMOUNT even if no fee object id is present", async () => {
+    const report = await runStripeGuard({ stripe: fakeStripe({ chargeFee: null, chargeFeeAmount: 10 }).stripe, key: "rk_test_unit123", config });
+    expect(report.ok).toBe(true);
+  });
+  it("passes when the charge carries a fee object but no amount field", async () => {
+    const report = await runStripeGuard({ stripe: fakeStripe({ chargeFee: "fee_1", chargeFeeAmount: null }).stripe, key: "rk_test_unit123", config });
+    expect(report.ok).toBe(true);
+  });
+  it("FAILS with the exact fields it saw when the charge records neither; a wrong amount fails even if a fee object exists", async () => {
+    const neither = await runStripeGuard({ stripe: fakeStripe({ chargeFee: null, chargeFeeAmount: null }).stripe, key: "rk_test_unit123", config });
+    expect(neither.ok).toBe(false);
+    expect(neither.failures?.find((f) => f.step.startsWith("canary C"))?.failure.message).toBe("the charge does not record the application fee (charge.application_fee_amount=null, charge.application_fee=null)");
+    const wrong = await runStripeGuard({ stripe: fakeStripe({ chargeFee: "fee_1", chargeFeeAmount: 5 }).stripe, key: "rk_test_unit123", config });
+    expect(wrong.ok).toBe(false);
+    expect(wrong.failures?.find((f) => f.step.startsWith("canary C"))?.failure.message).toMatch(/charge records application fee 5, expected 10/);
+  });
+  it("the PaymentIntent-level fee is still required in addition to the charge-level evidence", async () => {
+    const report = await runStripeGuard({ stripe: fakeStripe({ fee: 5 }).stripe, key: "rk_test_unit123", config });
+    expect(report.ok).toBe(false);
+    expect(report.failures?.find((f) => f.step.startsWith("canary C"))?.failure.message).toMatch(/application fee on the PaymentIntent is 5, expected 10/);
+  });
+});
+
+describe("canaries run independently (owner decision 2026-11-20)", () => {
+  const RK = "rk_test_unit123";
+  it("every failure is reported, the most severe drives the stop, the run is not ok, and passed canaries are listed", async () => {
+    const decline = stripeError({ type: "StripeCardError", code: "card_declined", message: "Your card was declined.", raw: { request_id: "req_d" } });
+    const permission = stripeError({ type: "StripePermissionError", statusCode: 403, message: "The provided key does not have the required permissions. Having the 'rak_payment_page_write' permission would allow this request to continue.", raw: { request_id: "req_p" } });
+    const report = await runStripeGuard({ stripe: fakeStripe({ piError: decline, confirmError: permission }).stripe, key: RK, config });
+    expect(report.ok).toBe(false);
+    expect(report.failures?.map((f) => [f.step.slice(0, 8), f.failure.kind])).toEqual([["canary C", "other"], ["canary B", "permission"]]);
+    expect(report.stop?.failure.kind).toBe("permission");
+    expect(report.stop?.message).toMatch(/2 of 3 canaries failed \(canary C, canary B\); passed: canary A/);
+    const text = summarizeReport(report);
+    expect(text).toMatch(/also failed: canary C/);
+    expect(text).toMatch(/card_declined/);
+  });
+  it("a precondition failure is still fatal: no canary is attempted and the message says so", async () => {
+    const { stripe, calls } = fakeStripe({ live: true });
+    const report = await runStripeGuard({ stripe, key: RK, config });
+    expect(report.ok).toBe(false);
+    expect(report.stop?.message).toMatch(/Not attempted: canary C, canary A, canary B/);
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("assertFeeRecorded (unit)", () => {
+  const charge = (over: Record<string, unknown>) => over as never;
+  it("accepts the documented amount, or a fee object, and nothing else", () => {
+    expect(() => assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: 10, application_fee: null }), 10)).not.toThrow();
+    expect(() => assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: null, application_fee: "fee_x" }), 10)).not.toThrow();
+    expect(() => assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: null, application_fee: null }), 10)).toThrow(/does not record/);
+    expect(() => assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: 9, application_fee: "fee_x" }), 10)).toThrow(/records application fee 9/);
+    expect(() => assertFeeRecorded({ application_fee_amount: 10 }, null, 10)).toThrow(/no charge/);
+    expect(() => assertFeeRecorded({ application_fee_amount: null }, charge({ application_fee_amount: 10 }), 10)).toThrow(/PaymentIntent is null/);
+  });
+  it("never puts an id in its message (types and numbers only)", () => {
+    try { assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: null, application_fee: "fee_SECRETISH123" }), 9); } catch (e) { expect(String((e as Error).message)).not.toMatch(/fee_SECRETISH123/); }
+    expect(() => assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: null, application_fee: null }), 10)).toThrow(/application_fee=null/);
   });
 });
