@@ -68,10 +68,10 @@ describe("wallet tickets linked by user_id", () => {
     expect(userQuery.map((c) => c.args[1])).toEqual(["user-1"]);
   });
 
-  it("asks for the signed-in account's own user_id and only the shown statuses", async () => {
+  it("asks for the signed-in account's own user_id and the shown statuses plus cancelled (history only)", async () => {
     await loadStudentWallet([], "dana.dancer@example.test", { force: true });
     const ins = mockCalls.filter((c) => c.table === "my_event_registrations" && c.method === "in").map((c) => c.args);
-    expect(ins).toContainEqual(["status", ["confirmed", "checked_in", "pending", "waitlisted"]]);
+    expect(ins).toContainEqual(["status", ["confirmed", "checked_in", "pending", "waitlisted", "cancelled"]]);
   });
 
   it("signed out (no session user): no by-user lookup and nothing invented", async () => {

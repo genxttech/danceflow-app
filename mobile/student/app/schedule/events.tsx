@@ -17,41 +17,7 @@ import {
   type StudentWallet
 } from "@/lib/studentWallet";
 import { failureMessage } from "@/lib/errorKind";
-
-type EventScheduleItem = {
-  id: string;
-  eventId: string;
-  eventName: string;
-  eventSlug: string | null;
-  studioName: string;
-  hostName: string;
-  status: string;
-  paymentStatus: string | null;
-  ticketCount: number;
-  eventDate: string | null;
-  eventTime: string | null;
-  venue: string | null;
-  city: string | null;
-  state: string | null;
-};
-
-function eventDateKey(item: Pick<EventScheduleItem, "eventDate">) {
-  return item.eventDate?.slice(0, 10) ?? null;
-}
-
-function todayDateKey() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function isUpcomingEvent(item: EventScheduleItem) {
-  const dateKey = eventDateKey(item);
-  if (!dateKey) return true;
-  return dateKey >= todayDateKey();
-}
+import { eventItemsFromWallet, PAST_PAGE_SIZE, type EventScheduleItem } from "@/lib/eventRegistrationHistory";
 
 function locationLine(item: EventScheduleItem) {
   return [item.venue, [item.city, item.state].filter(Boolean).join(", ")]
@@ -65,67 +31,6 @@ function statusText(item: EventScheduleItem) {
   }
 
   return item.status.replaceAll("_", " ");
-}
-
-function eventItemsFromWallet(
-  wallet: StudentWallet | null
-): EventScheduleItem[] {
-  if (!wallet) return [];
-
-  const ticketCountByRegistrationId = new Map<string, number>();
-
-  wallet.tickets.forEach((ticket) => {
-    ticketCountByRegistrationId.set(
-      ticket.registrationId,
-      (ticketCountByRegistrationId.get(ticket.registrationId) ?? 0) + 1
-    );
-  });
-
-  const registrationItems = wallet.registrations.map((registration) => ({
-    id: registration.id,
-    eventId: registration.eventId,
-    eventName: registration.eventName,
-    eventSlug: registration.eventSlug,
-    studioName: registration.studioName,
-    hostName: registration.hostName,
-    status: registration.status,
-    paymentStatus: registration.paymentStatus,
-    ticketCount: ticketCountByRegistrationId.get(registration.id) ?? 0,
-    eventDate: registration.eventDate,
-    eventTime: registration.eventTime,
-    venue: registration.venue,
-    city: registration.city,
-    state: registration.state
-  }));
-
-  const registrationIds = new Set(
-    registrationItems.map((item) => item.id)
-  );
-
-  const ticketOnlyItems = wallet.tickets
-    .filter((ticket) => !registrationIds.has(ticket.registrationId))
-    .map((ticket) => ({
-      id: ticket.registrationId,
-      eventId: ticket.eventId,
-      eventName: ticket.eventName,
-      eventSlug: ticket.eventSlug,
-      studioName: ticket.studioName,
-      hostName: ticket.hostName,
-      status: ticket.checkedInAt ? "checked_in" : "confirmed",
-      paymentStatus: null,
-      ticketCount: 1,
-      eventDate: ticket.eventDate,
-      eventTime: ticket.eventTime,
-      venue: ticket.venue,
-      city: ticket.city,
-      state: ticket.state
-    }));
-
-  return [...registrationItems, ...ticketOnlyItems].sort((a, b) => {
-    const aDate = eventDateKey(a) ?? "9999-12-31";
-    const bDate = eventDateKey(b) ?? "9999-12-31";
-    return aDate.localeCompare(bDate);
-  });
 }
 
 function SectionHeader({
@@ -143,7 +48,7 @@ function SectionHeader({
     <View style={styles.sectionHeader}>
       <View>
         <AppText style={styles.sectionEyebrow}>{eyebrow}</AppText>
-        <AppText style={styles.sectionTitle}>{title}</AppText>
+        <AppText accessibilityRole="header" style={styles.sectionTitle}>{title}</AppText>
       </View>
       <View style={styles.countBadge}>
         <AppText style={styles.countBadgeText}>{count}</AppText>
@@ -277,11 +182,8 @@ export default function ScheduleEventsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user.email, session?.user.id]);
 
-  const eventItems = useMemo(
-    () => eventItemsFromWallet(wallet),
-    [wallet]
-  );
-  const upcomingEvents = eventItems.filter(isUpcomingEvent);
+  const [pastShown, setPastShown] = useState(PAST_PAGE_SIZE);
+  const { upcoming: upcomingEvents, past: pastEvents } = useMemo(() => eventItemsFromWallet(wallet), [wallet]);
 
   return (
     <Screen>
@@ -337,6 +239,24 @@ export default function ScheduleEventsScreen() {
             )}
           </View>
 
+          {pastEvents.length > 0 ? (
+            <View style={styles.section}>
+              <SectionHeader eyebrow="Earlier" title="Past events" count={pastEvents.length} />
+              <View style={styles.list}>
+                {pastEvents.slice(0, pastShown).map((item) => (
+                  <EventCard key={item.id} item={item} muted />
+                ))}
+              </View>
+              {pastEvents.length > pastShown ? (
+                <AppButton
+                  accessibilityLabel={`Show more past events, ${pastEvents.length - pastShown} remaining`}
+                  label={`Show more (${pastEvents.length - pastShown} more)`}
+                  onPress={() => setPastShown((count) => count + PAST_PAGE_SIZE)}
+                  variant="secondary"
+                />
+              ) : null}
+            </View>
+          ) : null}
         </>
       ) : null}
 
@@ -394,8 +314,7 @@ function createStyles(colors: ThemeColors) {
       overflow: "hidden"
     },
     eventCardMuted: {
-      borderColor: colors.border,
-      opacity: 0.78
+      borderColor: colors.border
     },
     eventIcon: {
       alignItems: "center",

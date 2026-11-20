@@ -39,8 +39,9 @@ const cfg = {
   claim: flag("claim") || flag("claim-visual") || flag("claim-withheld"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
   realWeb: flag("real-web"), // serve the app's web API with the repo's REAL Next.js routes (next dev on the mock port, pointed at this stack) instead of mock-web.mjs; QA only, the stack's service key never leaves this PC
   sessionDiag: flag("session-diag"), // does the signed-in session survive an app kill? harness force-stop vs user-style kills vs emulator reboot vs offline start; evidence per step
+  pastRegistrations: flag("past-registrations"), // Tickets & registrations > Past events: ended registrations with/without a ticket, cancelled+refunded, the 12-item page and Show more, tap-through to the ended event, font 2.0 + dark
   pastEvents: flag("past-events"), // regression smoke for the past-events fix (#700): seeded events in several time zones, Events/home/saved/studio lists, Past segment, ended-event detail, history, empty state
-  events: flag("events") || flag("past-events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
+  events: flag("events") || flag("past-events") || flag("past-registrations"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
   cutover: flag("cutover"), // with --claim: also apply the dancer cutover (drop the direct dancer read policies), as after Gate 2
   noTeardown: flag("keep"), // debugging only
@@ -133,7 +134,7 @@ async function stackUp() {
     // Gate 1 as applied on PROD: execute withheld from every client role (applied AFTER the counter wrapper so the wrapper is the revoked object).
     if (cfg.claimWithheld) psqlText(migrationFromGit("20270222090500_claim_function_execute_withheld.sql"), "20270222090500_claim_function_execute_withheld.sql");
   }
-  if (!cfg.claim && (cfg.cutover || flag("views") || cfg.pastEvents)) {
+  if (!cfg.claim && (cfg.cutover || flag("views") || cfg.pastEvents || cfg.pastRegistrations)) {
     // The screen matrix (--events) with the dancer views (and, with --cutover, the direct dancer read policies dropped): the Wallet must still show the tickets.
     for (const file of ["20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) psqlText(migrationFromGit(file), file);
   }
@@ -294,7 +295,7 @@ async function emulatorUp() {
   writeFileSync(join(cfg.out, "talkback.txt"), sh(["shell", "pm", "list", "packages", "talkback"]).stdout || "TalkBack package not installed on this image");
   state.prevFont = sh(["shell", "settings", "get", "system", "font_scale"]).stdout.trim();
   const d = /(\d+)\s*$/.exec(sh(["shell", "wm", "density"]).stdout.trim())?.[1];
-  if (d) writeFileSync(join(cfg.out, "density.txt"), d); // px per 160 dpi, for the touch-target check
+  if (d) { state.density = Number(d); writeFileSync(join(cfg.out, "density.txt"), d); } // px per 160 dpi, for the touch-target check
 }
 
 /*
@@ -996,6 +997,118 @@ async function sessionDiagScenario(link) {
 }
 const await_ = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+/**
+ * --past-registrations: Tickets & registrations (danceflow://schedule/events) with the dancer's ended registrations, read through the real dancer views and the
+ * real events embed on the disposable stack (so this is also the real-DB proof that the event's end date/time/zone reach the app WITHOUT any SQL change).
+ */
+async function pastRegistrationsScenario(link) {
+  const crashed = (x) => /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(x);
+  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  await sleep(15000);
+  psql(join(here, "seed-past-registrations.sql"), ["-v", "uid='" + state.uid + "'"]);
+  const regCount = q("select count(*) from public.event_registrations where id::text like '66666666-6666-4666-8666-6666%'");
+  const privateProbe = q("select count(*) from public.events where name = 'QA Private Ended'") === "1";
+  record("past-registrations: fixtures seeded (registrations)", Number(regCount) >= 17, "count " + regCount + ", private probe " + (privateProbe ? "present" : "SKIPPED (visibility value not allowed)"));
+  writeFileSync(join(cfg.out, "pr-seeded.txt"), q("select e.name, e.visibility, e.end_date, r.status, r.payment_status from public.event_registrations r join public.events e on e.id = r.event_id where r.user_id = '" + state.uid + "' order by e.end_date desc"));
+
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    openLink(await link());
+    ok = await waitFor(() => /Today|Discover|Wallet|Settings/.test(hierarchy()), "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
+  }
+  record("past-registrations: sign-in via magic link", ok, ok ? "" : "see sign-in screen");
+  if (!ok) throw new Error("sign-in did not complete");
+
+  const read = async (tag, url, { scrolls = 10, wait = 9000 } = {}) => {
+    sh(["shell", "input", "keyevent", "224"]);
+    if (url) openLink(url);
+    await sleep(wait);
+    for (let i = 0; i < 12 && /Loading/.test(hierarchy()); i++) await sleep(3000);
+    let all = "", last = "";
+    for (let i = 0; i < scrolls; i++) {
+      const xml = hierarchy();
+      if (i === 0) shot(join(cfg.out, "pr-" + tag + ".png"));
+      all += xml;
+      if (xml === last) break;
+      last = xml;
+      sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+      await sleep(1200);
+    }
+    writeFileSync(join(cfg.out, "pr-" + tag + ".xml"), all);
+    return all;
+  };
+  const tapNode = (xml, pattern) => {
+    const m = new RegExp(pattern + '[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"').exec(xml);
+    if (!m) return false;
+    sh(["shell", "input", "tap", String(Math.round((+m[1] + +m[3]) / 2)), String(Math.round((+m[2] + +m[4]) / 2))]);
+    return true;
+  };
+  const pastNames = (xml) => new Set([...xml.matchAll(/text="(QA (?:Past With Ticket|Past No Ticket|Past Cancelled Refunded|Bulk Past \d\d|Private Ended))"/g)].map((m) => m[1]));
+
+  // 1. The screen: upcoming stays, Past events below, 12 then Show more.
+  const first = await read("schedule-events", "danceflow://schedule/events");
+  record("past-registrations: Upcoming events still lists the upcoming registrations (the seeded baseline and 'QA Upcoming Registered')", first.includes("QA Social Dance Night") && first.includes("QA Upcoming Registered"), "");
+  record("past-registrations: a 'Past events' section exists below Upcoming", first.includes("Past events"), "");
+  record("past-registrations: ended registrations WITH a ticket, WITHOUT a ticket and cancelled+refunded are all in history (newest ended first)", ["QA Past With Ticket", "QA Past No Ticket", "QA Past Cancelled Refunded"].every((n) => first.includes(n)) && first.indexOf("QA Past With Ticket") < first.indexOf("QA Past No Ticket") && first.indexOf("QA Past No Ticket") < first.indexOf("QA Past Cancelled Refunded"), "");
+  record("past-registrations: the cancelled+refunded registration shows its own status wording ('refunded'), the no-ticket one shows 'Registration'", /text="refunded"/.test(first) && /text="Registration"/.test(first), "");
+  const shown = pastNames(first);
+  const moreM = /text="Show more \((\d+) more\)"/.exec(first);
+  const expectedTotal = 16 + (privateProbe ? 1 : 0);
+  record("past-registrations: exactly 12 past items are shown first, then 'Show more (" + (expectedTotal - 12) + " more)'", shown.size === 12 && moreM && Number(moreM[1]) === expectedTotal - 12,
+    "shown " + [...shown].length + " named cards; button " + (moreM ? moreM[0] : "absent"));
+  record("past-registrations: no crash or ANR dialog", !crashed(first), "");
+
+  // Private-event probe (observation, not a pass/fail of the feature): does the events embed return a private event's end date to the registered dancer?
+  record("past-registrations (observation, real DB): the PRIVATE ended event the dancer registered for " + (first.includes("QA Private Ended") ? "resolves its name and is in history, so the events embed returns it" : "was NOT resolved by name in the first page (check pr-schedule-events.xml); if the embed returns null for it the registration shows a generic name and no end date"), true, "probe " + (privateProbe ? "seeded" : "skipped"));
+
+  // 2. Show more reveals the rest and removes itself.
+  // scroll down to the button, tap it, read again to the end
+  let all2 = "";
+  for (let i = 0; i < 12; i++) {
+    const x = hierarchy();
+    if (/Show more past events/.test(x)) { tapNode(x, 'content-desc="Show more past events'); await sleep(2500); break; }
+    sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+    await sleep(1200);
+  }
+  for (let i = 0; i < 12; i++) {
+    const x = hierarchy();
+    all2 += x;
+    sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+    await sleep(1200);
+  }
+  writeFileSync(join(cfg.out, "pr-after-show-more.xml"), all2);
+  const allNames = pastNames(all2 + first);
+  record("past-registrations: after Show more every ended registration is listed and the button is gone", allNames.size >= 16 + 0 && !/text="Show more \(/.test(all2.slice(-20000)), "distinct past names " + allNames.size);
+
+  // 3. Tapping an ended registration opens the event page: ended state, no checkout.
+  sh(["shell", "input", "keyevent", "224"]);
+  openLink("danceflow://schedule/events");
+  await sleep(9000);
+  let tapped = false;
+  for (let i = 0; i < 6 && !tapped; i++) {
+    tapped = tapNode(hierarchy(), 'text="QA Past No Ticket"');
+    if (!tapped) { sh(["shell", "input", "swipe", "540", "1900", "540", "900", "450"]); await sleep(1200); }
+  }
+  await sleep(9000);
+  const detail = hierarchy();
+  writeFileSync(join(cfg.out, "pr-ended-detail.xml"), detail);
+  shot(join(cfg.out, "pr-ended-detail.png"));
+  record("past-registrations: tapping an ended registration opens its event with 'This event has ended' and no register action", tapped && detail.includes("This event has ended") && detail.includes("QA Past No Ticket") && !/Register in app|Sign in to register/.test(detail), tapped ? "" : "card not found to tap");
+
+  // 4. Tickets of ended events are untouched (Wallet > Event tickets), and the cancelled registration has no ticket there.
+  const tickets = await read("event-tickets", "danceflow://wallet/event-tickets", { scrolls: 8, wait: 12000 });
+  record("past-registrations: Wallet event tickets still shows the ended event's ticket (QA-PASTREG-0001) and none for the cancelled registration", /QA-PASTREG-0001|Q A - P A S T R E G/.test(tickets) && !/Cancelled Refunded/.test(tickets), "");
+
+  // 5. Font 2.0 and dark: the section, its headings and the Show more button are reachable and nothing is clipped into a crash.
+  sh(["shell", "cmd", "uimode", "night", "yes"]);
+  sh(["shell", "settings", "put", "system", "font_scale", "2.0"]);
+  await sleep(4000);
+  const big = await read("schedule-events-2.0-dark", "danceflow://schedule/events", { scrolls: 14 });
+  record("past-registrations font 2.0 + dark: Upcoming and Past events headings present, Show more reachable, no crash", big.includes("Upcoming events") && big.includes("Past events") && /text="Show more \(/.test(big) && !crashed(big), "");
+  const lowest = [...big.matchAll(/text="Show more \(\d+ more\)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)].map((m) => Number(m[4]) - Number(m[2]));
+  record("past-registrations font 2.0: the Show more button is at least 44dp tall (touch target)", lowest.length > 0 && lowest.every((h) => h >= 44 * (Number(state.density ?? 420) / 160) * 0.9), "heights px " + JSON.stringify(lowest.slice(0, 3)));
+}
+
 async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
@@ -1033,7 +1146,8 @@ try {
   if (!/Success/.test(inst.stdout)) throw new Error(`install failed: ${inst.stdout}${inst.stderr}`);
   state.installed = true;
   await checkReachable();
-  if (cfg.pastEvents) await pastEventsScenario(link);
+  if (cfg.pastRegistrations) await pastRegistrationsScenario(link);
+  else if (cfg.pastEvents) await pastEventsScenario(link);
   else if (cfg.claimWithheld) await claimWithheldScenario(link, anon);
   else if (cfg.claimVisual) await claimVisualScenario(link);
   else if (cfg.claim) await claimScenario(link);
