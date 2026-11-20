@@ -830,7 +830,9 @@ async function pastEventsScenario(link) {
 
   // 2. Home (saved events) and Saved: the dancer saved one ended and one upcoming event.
   const home = await read("home", "danceflow://home", { scrolls: 6 });
-  record("past-events home: the saved upcoming event shows and the saved ENDED event does not", has(home, NAMES.baseline) && !has(home, NAMES.endedLastWeek), "baseline " + has(home, NAMES.baseline) + ", ended " + has(home, NAMES.endedLastWeek));
+  // Home shows only a COUNT of saved items ("N studio(s) and events you follow"). The dancer saved one upcoming and one ended event: if the ended one were
+  // counted it would read "2 studios and events you follow".
+  record("past-events home: the saved count counts the saved upcoming event and NOT the saved ended event (reads '1 studio and events you follow')", /1 studio and events you follow/.test(home) && !/2 studios and events you follow/.test(home), "");
   const fav = await read("favorites", "danceflow://favorites", { scrolls: 6 });
   record("past-events Saved: the saved upcoming event shows and the saved ENDED event does not", has(fav, NAMES.baseline) && !has(fav, NAMES.endedLastWeek), "baseline " + has(fav, NAMES.baseline) + ", ended " + has(fav, NAMES.endedLastWeek));
 
@@ -846,6 +848,8 @@ async function pastEventsScenario(link) {
     await sleep(8000);
     for (let i = 0; i < 10 && /Loading events/.test(hierarchy()); i++) await sleep(3000);
   };
+  // The saved ended event also shows in a "Favorited Events" card that scrolls with the list and would pollute the order measurement: unsave it first (the Saved/home checks are done).
+  q("delete from public.user_favorites where event_id = '44444444-4444-4444-8444-4444444444a1'");
   const past = await read("events-past", "danceflow://discover/events/all", { scrolls: 10, before: tapPast });
   checkLists("Past segment", past, endedNames, upcomingNames);
   // The favourited ended event also shows once in the "Favorited Events" block above the list; only the list after "N matching events" gives the order.
