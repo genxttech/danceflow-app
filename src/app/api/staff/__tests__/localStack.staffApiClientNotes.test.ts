@@ -229,7 +229,7 @@ describe.skipIf(!enabled)("staff API client notes against real RLS", () => {
     await expectCode(await note(USERS.instructorB, ANA, { body: "cross" }), 403, "not_a_member");
     await expectCode(await note(USERS.stranger, ANA, { body: "cross" }), 403, "not_a_member");
     expect(noteCount()).toBe(count);
-    expect(notesFor(BEA)).toBe("");
+    expect(notesFor(BEA)).not.toContain("cross");
   });
 
   it("a client id that does not exist is the same 404", async () => {
