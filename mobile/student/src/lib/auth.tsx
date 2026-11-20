@@ -12,6 +12,7 @@ import { router } from "expo-router";
 import * as Linking from "expo-linking";
 import type { Session } from "@supabase/supabase-js";
 import { clearPersistedSupabaseSessions, supabase } from "@/lib/supabase";
+import { authErrorFacts } from "@/lib/errorKind";
 import { reactivateDanceFlowAccount } from "@/lib/accountControls";
 import {
   friendlyAuthLinkError,
@@ -38,6 +39,13 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+/** True only when the auth server answered and refused the session (4xx other than a timeout or a rate limit). Network failures, 5xx and unknown errors keep the session. */
+export function serverRefusedSession(error: unknown): boolean {
+  const { status, network } = authErrorFacts(error);
+  if (network || status === null) return false;
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -155,7 +163,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           data.session.access_token
         );
 
-        if (userError || !userData.user) {
+        // Only the auth server refusing this session (an invalid or revoked token) ends it. A failed request (offline, a flaky network right after the
+        // phone wakes or the app starts, a 5xx, a rate limit) says nothing about the session: signing out and wiping it here would log the dancer out
+        // every time the app starts without a connection.
+        if (!userData.user && !userError) {
+          await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+          await clearPersistedSupabaseSessions().catch(() => undefined);
+          setSession(null);
+          return;
+        }
+        if (userError && serverRefusedSession(userError)) {
           await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
           await clearPersistedSupabaseSessions().catch(() => undefined);
           setSession(null);
