@@ -1,13 +1,18 @@
 /**
  * CF1 Stripe-TEST acceptance: first Stripe compatibility check (the "guard"), before any registration is built.
  *
+ * Accepted keys: sk_test_ (standard) or rk_test_ (restricted) ONLY; never a live key. Restricted keys are supported (permission list in
+ * docs/qa/cf1-stripe-test/RESTRICTED_KEY_PERMISSIONS.md); a missing permission is reported as its own failure kind with Stripe's exact error.
  * Order, each step stopping the run on failure with Stripe's exact error:
- *   1. identity: the key belongs to the pinned sandbox platform and is a TEST key (no live key can pass);
+ *   1. identity: a TEST key; a standard key must read its own account and equal the pinned sandbox platform; a restricted key proves its platform by
+ *      retrieving the PINNED connected account (only the owning platform's key can);
  *   2. connected account: read and RECORD its state (restricted, capabilities, outstanding requirement count). Not a gate: a sandbox may accept
  *      Checkout before `card_payments` is active (Stripe sandbox docs), so the state is evidence, not a verdict;
  *   3. canary A: create one $1 Checkout Session on the connected account WITH an application fee, then expire it. This proves session creation only;
- *   4. canary B (payment probe): create a second $1 session with the same shape, pay it through the payment page with a TEST card, and verify the
- *      session is paid and the application fee is recorded on the PaymentIntent and the charge. This is what proves card confirmation and the fee.
+ *   4. canary C: a direct $1 PaymentIntent on the connected account, confirmed with a TEST card and the same application fee (documented endpoints only):
+ *      proves the ACCOUNT can take a card payment and carry the fee, whatever key type is used;
+ *   5. canary B (Checkout payment probe): create a second $1 session, pay it through the payment page (an undocumented endpoint that no restricted-key
+ *      permission is documented to cover) with a TEST card, and verify the session is paid and the fee is on the PaymentIntent and the charge.
  * Effects are injected (a Stripe-shaped object), so the unit tests need no Stripe account. Nothing here logs a key; only Stripe's error fields
  * (type, code, message, param, request id) are reported, because the run must STOP and quote the exact error before any onboarding is requested.
  */
@@ -15,12 +20,13 @@ import type Stripe from "stripe";
 import { assertTestKey, redactSecrets } from "./stripeRelay";
 
 export type StripeFailure = {
-  kind: "capability" | "authentication" | "other";
+  kind: "capability" | "permission" | "authentication" | "other";
   type?: string; code?: string; param?: string; message: string; requestId?: string; statusCode?: number;
 };
 
 const CAPABILITY_CODES = new Set(["account_invalid", "platform_account_required", "capability_not_enabled", "transfers_not_enabled", "charges_not_enabled", "account_country_invalid_address"]);
-const CAPABILITY_TEXT = /capabilit|card_payments|transfers|charges (are )?not enabled|cannot (create|accept|process) (charges|payments)|not (yet )?(enabled|activated)|restricted|requirements|onboarding|verification/i;
+const PERMISSION_TEXT = /required permissions?|does not have the required permission|rak_[a-z_]+_(read|write)|permission would allow/i;
+const CAPABILITY_TEXT =/capabilit|card_payments|transfers|charges (are )?not enabled|cannot (create|accept|process) (charges|payments)|not (yet )?(enabled|activated)|restricted|requirements|onboarding|verification/i;
 
 /** Stripe's own error fields, with nothing added. A capability-class failure is identified by code or wording so the run can say STOP before onboarding. */
 export function classifyStripeError(error: unknown): StripeFailure {
@@ -34,7 +40,9 @@ export function classifyStripeError(error: unknown): StripeFailure {
     requestId: safe(e?.requestId ?? raw.request_id), statusCode: typeof (e?.statusCode ?? raw.statusCode) === "number" ? (e?.statusCode ?? raw.statusCode) : undefined,
     kind: "other",
   };
+  // A restricted key missing a permission is NOT an account-capability problem even though Stripe's text says "restricted": it is checked first.
   if (failure.type === "StripeAuthenticationError" || failure.statusCode === 401) failure.kind = "authentication";
+  else if (failure.type === "StripePermissionError" || failure.statusCode === 403 || PERMISSION_TEXT.test(failure.message)) failure.kind = "permission";
   else if ((failure.code && CAPABILITY_CODES.has(failure.code)) || CAPABILITY_TEXT.test(failure.message)) failure.kind = "capability";
   return failure;
 }
@@ -101,15 +109,22 @@ export async function runStripeGuard(input: { stripe: StripeLike; key: string; c
     report.steps.push({ name: "key shape is a TEST key", ok: true });
 
     step = "identity";
+    const restricted = key.startsWith("rk_test_");
     const balance = await stripe.balance.retrieve();
     if (balance.livemode) throw new Error("the key is a live key");
-    const platform = (await stripe.rawRequest("GET", "/v1/account", {})) as unknown as { id?: string };
-    if (platform.id !== config.expectPlatform) throw new Error("the key belongs to a different Stripe account than the pinned sandbox platform");
-    report.steps.push({ name: "identity: TEST key on the pinned sandbox platform", ok: true });
+    if (!restricted) {
+      // A standard key can read its own account: the platform id must equal the pinned sandbox platform.
+      const platform = (await stripe.rawRequest("GET", "/v1/account", {})) as unknown as { id?: string };
+      if (platform.id !== config.expectPlatform) throw new Error("the key belongs to a different Stripe account than the pinned sandbox platform");
+      report.steps.push({ name: "identity: TEST key on the pinned sandbox platform (GET /v1/account equals the pin)", ok: true });
+    }
 
     step = "connected account";
+    // Only the owning platform's key can retrieve a connected account, so with a restricted key (no documented permission for GET /v1/account in the
+    // least-privilege set) retrieving the PINNED connected account is the identity proof. It is deterministic by key type, not a fallback.
     const account = await stripe.accounts.retrieve(config.connectedAccount);
     if (account.id !== config.connectedAccount) throw new Error("connected account id mismatch");
+    if (restricted) report.steps.push({ name: `identity: restricted TEST key owns the pinned connected account (platform ${config.expectPlatform} is proven through it, not read directly)`, ok: true });
     report.connected = {
       id: account.id, charges_enabled: account.charges_enabled, payouts_enabled: account.payouts_enabled,
       card_payments: account.capabilities?.card_payments ?? null, transfers: account.capabilities?.transfers ?? null,
@@ -127,7 +142,22 @@ export async function runStripeGuard(input: { stripe: StripeLike; key: string; c
     }
     report.steps.push({ name: "canary A: session created with an application fee and expired (session creation only; NOT payment)", ok: true });
 
-    step = "canary B: pay a $1 session with a TEST card";
+    // Canary C uses ONLY documented endpoints (so a restricted key can run it): a direct $1 PaymentIntent on the connected account, confirmed with a TEST card,
+    // WITH the same application fee. It answers the capability question ("can this account take a card payment and carry the fee?") independently of
+    // whether the key may drive a hosted Checkout page. It does not replace canary B.
+    step = "canary C: confirm a $1 direct PaymentIntent with a TEST card and an application fee (documented endpoints only)";
+    const direct = await stripe.paymentIntents.create({
+      amount: 100, currency: "usd", payment_method: "pm_card_visa", confirm: true, application_fee_amount: fee,
+      automatic_payment_methods: { enabled: true, allow_redirects: "never" }, metadata: { cf1_canary: "C-direct" }, expand: ["latest_charge"],
+    }, onAccount);
+    const directCharge = direct.latest_charge as Stripe.Charge | null;
+    if (direct.status !== "succeeded") throw new Error(`PaymentIntent is ${direct.status}, not succeeded`);
+    if (direct.amount_received !== 100) throw new Error(`received ${direct.amount_received} cents, expected 100`);
+    if (direct.application_fee_amount !== fee) throw new Error(`application fee on the PaymentIntent is ${direct.application_fee_amount}, expected ${fee}`);
+    if (!directCharge || !directCharge.application_fee) throw new Error("the charge carries no application fee");
+    report.steps.push({ name: "canary C: card payment confirmed on the connected account with an application fee (the ACCOUNT can take TEST card payments)", ok: true, detail: { amount_received: direct.amount_received, application_fee_amount: direct.application_fee_amount } });
+
+    step = "canary B: pay a $1 Checkout Session with a TEST card (payment page confirm)";
     const paying = await stripe.checkout.sessions.create(sessionParams(config, "B-pay"), onAccount);
     await payCheckoutSessionPlain(stripe, config.connectedAccount, paying.id, config.cardToken);
     const paid = await stripe.checkout.sessions.retrieve(paying.id, {}, onAccount);
@@ -143,9 +173,12 @@ export async function runStripeGuard(input: { stripe: StripeLike; key: string; c
     return report;
   } catch (error) {
     const failure = classifyStripeError(error);
+    const accountProven = report.steps.some((s) => s.ok && s.name.startsWith("canary C"));
     const prefix = failure.kind === "capability"
       ? "STOP: a connected-account capability error. Do not request sandbox onboarding; report the exact Stripe error below to the owner first."
-      : failure.kind === "authentication" ? "STOP: Stripe rejected the key." : "STOP: the guard failed.";
+      : failure.kind === "permission"
+        ? `STOP: the key lacks a Stripe permission (Stripe names it in the error below). ${accountProven ? "Canary C PASSED, so the connected ACCOUNT can take TEST card payments with an application fee; the limit is the KEY, not the account. " : ""}Do not request sandbox onboarding. Report the exact error to the owner: the permission is added to the SAME restricted key, or the step is declared unsupported for restricted keys; never switch to another key silently.`
+        : failure.kind === "authentication" ? "STOP: Stripe rejected the key." : "STOP: the guard failed.";
     report.steps.push({ name: step, ok: false });
     report.stop = { step, failure, message: prefix };
     return report;

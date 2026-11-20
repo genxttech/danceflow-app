@@ -7,7 +7,7 @@ const config: GuardConfig = { expectPlatform: PLATFORM, connectedAccount: CONNEC
 const KEY = "sk_test_unit123";
 
 type Overrides = Partial<{
-  live: boolean; platformId: string; createError: unknown; confirmError: unknown; fee: number | null; chargeFee: string | null; received: number; expireStatus: string;
+  live: boolean; platformId: string; createError: unknown; piError: unknown; confirmError: unknown; fee: number | null; chargeFee: string | null; received: number; expireStatus: string;
 }>;
 
 type FakeSession = { id: string; status: string; payment_status: string; livemode: boolean; payment_intent: string | null; customer_email: null };
@@ -53,10 +53,19 @@ function fakeStripe(o: Overrides = {}) {
         s.payment_intent = "pi_1";
         return {};
       }
-      if (path === "/v1/account") return { id: o.platformId ?? PLATFORM };
+      if (path === "/v1/account") { calls.push("account-read"); return { id: o.platformId ?? PLATFORM }; }
       return { livemode: false, total_summary: { due: 100 } };
     },
     paymentIntents: {
+      create: async (params: { application_fee_amount?: number; confirm?: boolean; payment_method?: string }, opts: { stripeAccount?: string }) => {
+        calls.push(`pi:${opts?.stripeAccount}`);
+        if (o.piError) throw o.piError;
+        void params;
+        return {
+          status: "succeeded", amount_received: o.received ?? 100, application_fee_amount: o.fee === undefined ? 10 : o.fee,
+          latest_charge: { application_fee: o.chargeFee === undefined ? "fee_1" : o.chargeFee },
+        };
+      },
       retrieve: async () => ({
         amount_received: o.received ?? 100,
         application_fee_amount: o.fee === undefined ? 10 : o.fee,
@@ -70,12 +79,12 @@ function fakeStripe(o: Overrides = {}) {
 const stripeError = (over: Record<string, unknown>) => Object.assign(new Error(String(over.message)), over);
 
 describe("stripe guard", () => {
-  it("passes: records the restricted account state, proves session creation, then proves payment and the application fee", async () => {
+  it("passes: records the restricted account state, proves session creation (A), a documented-API card payment with the fee (C), then Checkout payment (B)", async () => {
     const { stripe, calls } = fakeStripe();
     const report = await runStripeGuard({ stripe, key: KEY, config });
     expect(report.ok).toBe(true);
     expect(report.connected).toMatchObject({ charges_enabled: false, card_payments: "inactive", currently_due_count: 7 });
-    expect(report.steps.map((s) => s.name).filter((name) => name.startsWith("canary"))).toHaveLength(2);
+    expect(report.steps.map((s) => s.name).filter((name) => name.startsWith("canary"))).toHaveLength(3);
     expect(calls.filter((c) => c.startsWith("create")).every((c) => c === `create:${CONNECTED}`)).toBe(true);
     expect(calls).toContain(`expire:${CONNECTED}`);
     expect(calls).toContain("confirm");
@@ -123,7 +132,7 @@ describe("stripe guard", () => {
     for (const over of [{ fee: null }, { fee: 5 }, { chargeFee: null }, { received: 99 }] as Overrides[]) {
       const report = await runStripeGuard({ stripe: fakeStripe(over).stripe, key: KEY, config });
       expect(report.ok, JSON.stringify(over)).toBe(false);
-      expect(report.stop?.step).toMatch(/canary B/);
+      expect(report.stop?.step).toMatch(/canary C/);
     }
   });
 
@@ -195,5 +204,88 @@ describe("the whole report is masked before it leaves the process (security revi
     expect(source).toMatch(/appendFileSync\([^)]*summary/);
     expect(source).toMatch(/writeFileSync\([^)]*serializeReport\(report\)/);
     expect(source).not.toMatch(/console\.(log|error)\([^)]*report\b(?!\))/);
+  });
+});
+
+
+describe("restricted keys (rk_test_)", () => {
+  const RK = "rk_test_unit123";
+  const permissionError = (extra: Record<string, unknown> = {}) => stripeError({
+    type: "StripePermissionError", statusCode: 403,
+    message: "The provided key 'rk_test_***********abcd' does not have the required permissions for this endpoint on account 'acct_CONNECTED1'. Having the 'rak_payment_page_write' permission would allow this request to continue.",
+    raw: { request_id: "req_perm1", statusCode: 403 }, ...extra,
+  });
+
+  it("passes with a restricted key: never reads GET /v1/account, proves the platform through the pinned connected account, runs A, C and B", async () => {
+    const { stripe, calls } = fakeStripe({ platformId: "acct_WOULD_MISMATCH" });
+    const report = await runStripeGuard({ stripe, key: RK, config });
+    expect(report.ok).toBe(true);
+    expect(calls).not.toContain("account-read");
+    expect(report.steps.some((step) => step.name.includes("restricted TEST key owns the pinned connected account"))).toBe(true);
+    expect(report.steps.filter((step) => step.name.startsWith("canary")).map((step) => step.name.slice(0, 8))).toEqual(["canary A", "canary C", "canary B"]);
+    expect(calls.filter((c) => c.startsWith("pi:")).every((c) => c === `pi:${CONNECTED}`)).toBe(true);
+  });
+
+  it("a STANDARD key still must read its own account and still fails on a different platform (no weakening)", async () => {
+    const { stripe, calls } = fakeStripe({ platformId: "acct_OTHER" });
+    const report = await runStripeGuard({ stripe, key: KEY, config });
+    expect(calls).toContain("account-read");
+    expect(report.ok).toBe(false);
+    expect(report.stop?.step).toBe("identity");
+  });
+
+  it("only sk_test_ and rk_test_ pass the key check: live, publishable and malformed keys stop before any Stripe call", async () => {
+    for (const bad of ["rk_live_abc123", "sk_live_abc123", "pk_test_abc123", "rak_test_abc", "rk_test_", ""]) {
+      const { stripe, calls } = fakeStripe();
+      const report = await runStripeGuard({ stripe, key: bad, config });
+      expect(report.ok, bad).toBe(false);
+      expect(calls, bad).toEqual([]);
+    }
+  });
+
+  it("a restricted key that cannot retrieve the pinned connected account STOPS as a permission error, naming Stripe's exact error", async () => {
+    const { stripe } = fakeStripe();
+    (stripe as unknown as { accounts: { retrieve: () => Promise<never> } }).accounts.retrieve = async () => { throw permissionError({ raw: { request_id: "req_perm0", statusCode: 403 } }); };
+    const report = await runStripeGuard({ stripe, key: RK, config });
+    expect(report.ok).toBe(false);
+    expect(report.stop?.step).toBe("connected account");
+    expect(report.stop?.failure).toMatchObject({ kind: "permission", statusCode: 403, requestId: "req_perm0" });
+    expect(report.stop?.failure.message).toMatch(/rak_payment_page_write/);
+    expect(report.stop?.failure.message).not.toMatch(/rk_test_[A-Za-z0-9]/);
+  });
+
+  it("a permission error is NOT a capability error even though Stripe's text says 'restricted' (and the reverse still holds)", () => {
+    expect(classifyStripeError(permissionError()).kind).toBe("permission");
+    expect(classifyStripeError(stripeError({ type: "StripePermissionError", message: "This restricted key cannot do that" })).kind).toBe("permission");
+    expect(classifyStripeError(stripeError({ type: "StripeInvalidRequestError", code: "account_invalid", message: "The account is restricted", raw: { statusCode: 400 } })).kind).toBe("capability");
+    expect(classifyStripeError(stripeError({ type: "StripeCardError", code: "card_declined", message: "Your card was declined." })).kind).toBe("other");
+  });
+
+  it("PARTIAL result: canary C passes, canary B hits a permission error (the payment page is not a documented restricted-key permission) - the report says the ACCOUNT is fine and the KEY is the limit, and does not pass", async () => {
+    const report = await runStripeGuard({ stripe: fakeStripe({ confirmError: permissionError() }).stripe, key: RK, config });
+    expect(report.ok).toBe(false);
+    expect(report.steps.some((step) => step.ok && step.name.startsWith("canary C"))).toBe(true);
+    expect(report.stop?.step).toMatch(/canary B/);
+    expect(report.stop?.failure.kind).toBe("permission");
+    expect(report.stop?.message).toMatch(/Canary C PASSED/);
+    expect(report.stop?.message).toMatch(/never switch to another key silently/);
+    expect(report.stop?.message).toMatch(/Do not request sandbox onboarding/);
+    expect(summarizeReport(report)).not.toMatch(/rk_test_[A-Za-z0-9]/);
+  });
+
+  it("a capability error at canary C stops there, before the Checkout payment attempt", async () => {
+    const err = stripeError({ type: "StripeInvalidRequestError", code: "account_invalid", message: "Your account cannot currently make live charges.", raw: { request_id: "req_c1", statusCode: 400 } });
+    const { stripe, calls } = fakeStripe({ piError: err });
+    const report = await runStripeGuard({ stripe, key: RK, config });
+    expect(report.stop?.step).toMatch(/canary C/);
+    expect(report.stop?.failure.kind).toBe("capability");
+    expect(calls).not.toContain("confirm");
+  });
+
+  it("the guard CLI maps permission errors to exit 3, capability to 2, anything else to 1 (source tripwire)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const source = readFileSync(join(process.cwd(), "scripts", "qa", "cf1-stripe-guard.ts"), "utf8");
+    expect(source).toMatch(/kind === "capability" \? 2 : report\.stop\?\.failure\.kind === "permission" \? 3 : 1/);
   });
 });
