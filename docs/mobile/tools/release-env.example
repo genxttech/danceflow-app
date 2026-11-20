@@ -1,0 +1,10 @@
+# Copy to C:\Users\mcurt\df-credentials\release\student.env and business.env (a folder OUTSIDE every repo). Never commit the copies.
+# All three values are PUBLIC client values, but they must be the PRODUCTION ones. Build-ReleaseAab.ps1 reads only this file.
+# Supabase URL: https://<project ref>.supabase.co  (production ref hvsujyfbftfffxpfmlpb)
+EXPO_PUBLIC_SUPABASE_URL=https://hvsujyfbftfffxpfmlpb.supabase.co
+# Anon key: Supabase Dashboard > Project Settings > API > "anon" "public" key of the PRODUCTION project (starts with eyJ). Never the service_role key.
+EXPO_PUBLIC_SUPABASE_ANON_KEY=
+# Origin serving /api/*: use the www host (the apex 307-redirects to www; a cross-host redirect can drop the Authorization header)
+EXPO_PUBLIC_DANCEFLOW_WEB_URL=https://www.idanceflow.com
+# Business only, and only after the coordinator confirms the server serves the routes: EXPO_PUBLIC_STAFF_FEATURES=pulse,studioSchedule
+# Student: leave EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY unset (the server sends the publishable key with each payment response)

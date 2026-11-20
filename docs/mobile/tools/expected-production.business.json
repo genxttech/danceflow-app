@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy to expected-production.<app>.json (untracked or tracked: it holds no secret) and set app. supabaseRef is the PRODUCTION project (docs: PROD hvsujyfbftfffxpfmlpb). webUrl is the origin that serves /api/* after the apex-to-www redirect (https://www.idanceflow.com). stripe: unset = leave EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY out (the server sends the publishable key with each payment response); live/test = require exactly that mode.",
+  "app": "business",
+  "supabaseRef": "hvsujyfbftfffxpfmlpb",
+  "webUrl": "https://www.idanceflow.com",
+  "stripe": "unset"
+}
