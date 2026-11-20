@@ -240,6 +240,34 @@ Who may call it and what each answer means:
 - **Not markable:** a non-class appointment or a cancelled class returns `409 not_markable`.
 - `displayName` follows the roster name rules above and can be `null`.
 
+## Class roster: drop-in enroll and remove (Phase 1A, S2)
+
+Both routes sit behind the write gate (capability `classRoster`, `X-DanceFlow-App` header) and call the same code as the web "Enroll student" and "Remove" buttons (`src/lib/staff/classRoster.ts`, which calls the database functions `enroll_class_attendee` and `cancel_class_attendee`). Capacity, duplicates, cancelled classes and funding are decided in the database under row locks, so a race can never overfill a class or enroll a dancer twice.
+
+### `POST /api/staff/workspaces/{studioId}/appointments/{appointmentId}/roster`
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "clientId": "uuid", "billingType": "free_comped", "clientPackageId": null, "clientMembershipId": null }
+```
+
+- `clientId` is required. `billingType` is optional: `package_credit`, `membership`, `pay_as_you_go` or `free_comped` (database default `package_credit`). `clientPackageId` and `clientMembershipId` are optional ids; `membership` needs `clientMembershipId` (`400 invalid_request` without it).
+- A package credit is **not** taken at enrollment. It is taken when attendance is recorded, as on the web.
+- Response `201 { "attendee": { "id": "uuid", "clientId": "uuid", "alreadyEnrolled": false } }`. A dancer who is already enrolled is a replay (natural domain key): `200` with the existing attendee and `alreadyEnrolled: true`, never a second row.
+- **Roles:** owner, admin and front desk for any class in the studio; an instructor only for their own class. **An instructor's `billingType` and ids are ignored by the database**: it enrolls the dancer only when they have exactly one eligible package or membership, otherwise `409 ambiguous_funding_source` ("ask an owner, admin or front desk"). Independent instructors and organizer roles get `403 role_not_permitted`.
+- Refusals: `404 not_found` (missing class, another studio's, not the caller's class, a private lesson, or a client of another studio); `409` with `class_full`, `class_cancelled`, `no_eligible_entitlement`, `entitlement_exhausted`, `membership_not_active`, `ambiguous_funding_source`, or `invalid_funding` (the package or membership is not an active one of this dancer). `409` bodies carry `current: null`.
+- Dancer notice: after the enrollment commits the dancer gets the same confirmation (email and push, no SMS) as from the web, once per new attendee row.
+
+### `DELETE /api/staff/workspaces/{studioId}/appointments/{appointmentId}/roster/{clientId}`
+
+Removes a dancer, addressed by client id (the roster the app shows lists clients, not attendee rows). `Idempotency-Key` required, no body.
+
+- Response `200 { "removed": true, "alreadyApplied": false }`. Removing a dancer who was already removed is a no-op: `200` with `alreadyApplied: true`, no second notice.
+- `404 not_found`: class missing, in another studio, not the caller's, or the client was never on the roster. `409 attendance_recorded`: the dancer's attendance is already recorded, so they can't be removed. Roles as above.
+- The removal notice to the dancer is sent only when the removal actually changed a booked dancer.
+
 ## `GET /api/staff/workspaces/{studioId}/clients?q=&cursor=&limit=` (slice 2)
 
 Client lookup.
