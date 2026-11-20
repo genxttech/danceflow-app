@@ -151,3 +151,17 @@ The RC3 rows above that call R8 "FAILED in dark mode" are superseded: that smoke
 ### RC5 update (main `8535bedc2`, 2026-11-18)
 
 Build, manifest, targetSdk 36, 16 KB and baked-config decode: PASSED for both AABs (SHA-256 in `Android_Release_Audit.md` section 11). Device smokes (Student matrix, Student `--events` with the dancer views, Business): BLOCKED by an emulator System UI ANR, so the wallet-reads-the-views check is UNVERIFIED on RC5; RC4 smokes passed (section 10). Owner queue unchanged.
+
+### MILESTONE 2026-11-20: Student version code 1 is live on the internal track
+
+Owner-confirmed 2026-11-20: **DanceFlow (Student) 0.1.0, version code 1 is ACTIVE and AVAILABLE TO INTERNAL TESTERS** on the existing internal testing track. Not production, not open testing. The Console's *upload key certificate* SHA-256 matched the pin in `docs/mobile/tools/upload-cert.json` exactly (`12:E5:24:0E:...:A1:EE:AF`).
+
+| | |
+|---|---|
+| Artifact | `C:\dfr-out\release\student-f5f31103.aab` (99,116,172 B), outside the repo; keep it |
+| SHA-256 | `f67a39a52d15f503b79f62a408746da4f8592e6566320a3830a2bee31b8fbda7` |
+| Built from | main `f5f31103f2ed` via `Build-ReleaseAab.ps1` (worktree `C:\dfr\rel-student`); read-only artifact checks all PASS (`Android_First_Internal_Release_Prep.md` section 8) |
+| Version | versionName 0.1.0, **versionCode 1**; the next upload needs **versionCode 2** |
+| Tester steps | `Student_Internal_Tester_Smoke.md` (message to forward, 8-step smoke, what we watch server-side, housekeeping) |
+
+Still UNVERIFIED: device behavior of this exact production-valued AAB (only the QA build of the same inputs was smoke-tested), push delivery (DEV Firebase project), and the Play pre-launch report. Business is not uploaded.

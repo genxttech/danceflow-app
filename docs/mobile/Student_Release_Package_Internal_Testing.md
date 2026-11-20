@@ -106,3 +106,7 @@ Autonomous (Student engineering, no owner step): keep jest, `tsc` and the device
 - Run the 42501 (execute withheld) path on a disposable stack with device before activation: UNVERIFIED.
 - `--claim-visual` with the views (font 2.0 and dark) not run.
 - Real push, real payments, Android 12 and older, TalkBack and VoiceOver walks remain BLOCKED/UNVERIFIED per the checklist.
+
+## 2026-11-20 update: uploaded to internal testing
+
+The statement at the top that nothing is uploaded is superseded: **version code 1 (0.1.0) is ACTIVE and AVAILABLE TO INTERNAL TESTERS** (owner-confirmed 2026-11-20; upload-key SHA-256 matched the pin). AAB `C:\dfr-out\release\student-f5f31103.aab`, SHA-256 `f67a39a52d15f503b79f62a408746da4f8592e6566320a3830a2bee31b8fbda7`, built from main `f5f31103f2ed`. Tester message, 8-step smoke and the server-side watch list are in `Student_Internal_Tester_Smoke.md`. The next upload needs version code 2. Gate 2 stays closed until the watch signals there (view reads above the 0 baseline, no empty-Tickets reports) are seen.
