@@ -899,7 +899,8 @@ async function sessionDiagScenario(link) {
   };
   record("session-diag: emulator rootable (needed to list secure-storage key names)", true, rooted ? "yes" : "NO: key names UNVERIFIED on this image");
   const settle = async (tag, ms = 30000) => {
-    const ok = await waitFor(signedInNow, "the app to show a signed-in screen", ms, 3000).then(() => true, () => false);
+    let ok = await waitFor(signedInNow, "the app to show a signed-in screen", ms, 3000).then(() => true, () => false);
+    if (ok) { await sleep(12000); ok = signedInNow(); } // the app first shows the STORED session, then asks the server about it and may sign out: only a look that holds 12 s later counts
     shot(join(cfg.out, "sd-" + tag + ".png"));
     writeFileSync(join(cfg.out, "sd-" + tag + ".xml"), hierarchy());
     return ok;
@@ -950,7 +951,12 @@ async function sessionDiagScenario(link) {
   await killCase(2, "user style: swipe the app away in Recents", () => {
     sh(["shell", "input", "keyevent", "3"]); await_(1500);
     sh(["shell", "input", "keyevent", "187"]); await_(2500);
-    sh(["shell", "input", "swipe", "540", "1500", "540", "250", "180"]);
+    const x = hierarchy();
+    const m = /<node[^>]*(?:content-desc|text)="[^"]*DanceFlow[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(x);
+    const cx = m ? Math.round((+m[1] + +m[3]) / 2) : 540;
+    const cy = m ? Math.round((+m[2] + +m[4]) / 2) : 1100;
+    writeFileSync(join(cfg.out, "sd-recents.xml"), x);
+    sh(["shell", "input", "swipe", String(cx), String(cy), String(cx), "120", "150"]);
   });
   await killCase(3, "system style: Home then am kill (background process kill)", () => {
     sh(["shell", "input", "keyevent", "3"]); await_(2500);
@@ -961,6 +967,8 @@ async function sessionDiagScenario(link) {
   sh(["reboot"]);
   await sleep(15000);
   await waitFor(() => sh(["shell", "getprop", "sys.boot_completed"]).stdout.trim() === "1", "the emulator to boot again", 300_000).catch(() => undefined);
+  sh(["root"]);
+  await sleep(4000);
   sh(["shell", "input", "keyevent", "224"]);
   const wifiAtLaunch = wifi();
   const keptReboot = await relaunch("k4");
