@@ -55,7 +55,8 @@ function ClientRow({ client, onPress }: { client: ClientSummary; onPress: () => 
 
 function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolean }) {
   const api = useStaffApi();
-  const { reload: reloadWorkspaces, signOut } = useStaffSession();
+  const { reload: reloadWorkspaces, signOut, workspace } = useStaffSession();
+  const canAdd = isStaffFeatureEnabled("clientCreate") && workspace?.capabilities?.editClients === true;
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -110,6 +111,7 @@ function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolea
 
   return (
     <>
+      {canAdd ? <AppButton label="Add a client" variant="secondary" onPress={() => router.push({ pathname: "/clients/new", params: { studioId } })} /> : null}
       <View style={styles.searchField}>
         <AppText variant="label" nativeID="client-search-label">
           Search clients
