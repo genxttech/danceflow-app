@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth/staffApiAuth";
 import { clientLookupScope, decodeCursor, searchClients } from "@/lib/staff/clients";
 import { quickAddClient } from "@/lib/staff/clientCreate";
+import { requireStaffWrite } from "@/lib/staff/writeGuard";
 import { cleanTextValue, normalizeOptionalEmail, normalizeOptionalPhone } from "@/lib/validation/forms";
 
 const DEFAULT_LIMIT = 25;
@@ -52,7 +53,7 @@ const BODY_FIELDS = ["firstName", "lastName", "phone", "email", "note", "allowDu
  */
 export async function POST(request: Request, { params }: { params: Promise<{ studioId: string }> }) {
   const { studioId } = await params;
-  const guard = await requireStaffApi(request, studioId);
+  const guard = await requireStaffWrite(request, studioId, "clientCreate");
   if (!guard.ok) return guard.response;
 
   if (!canEditClients(guard.studioRole)) {
