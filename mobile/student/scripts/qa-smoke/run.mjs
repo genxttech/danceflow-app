@@ -771,6 +771,12 @@ async function pastEventsScenario(link) {
   // 2027-03-14 02:30 America/New_York does not exist; the event stays upcoming until the end of that day's 02:30 (07:30Z). After that the expectation flips.
   const dstSpringUpcoming = Date.now() < Date.UTC(2027, 2, 14, 7, 30);
 
+  // Seed right before the app starts (home and Saved read their saved items at sign-in; the "ends in 25 minutes" rows stay in the future for the ~10 minutes of reads).
+  psql(join(here, "seed-past-events.sql"), ["-v", "uid='" + state.uid + "'"]);
+  const seeded = q("select count(*) from public.events where id::text like '44444444-4444-4444-8444-4444444444a%'");
+  record("past-events: fixtures seeded (9 events)", seeded === "9", "count " + seeded);
+  writeFileSync(join(cfg.out, "pe-seeded-events.txt"), q("select name, timezone, start_date, end_date, start_time, end_time, now() at time zone 'utc' as now_utc from public.events where id::text like '44444444-4444-4444-8444-4444444444a%' order by name"));
+
   // Sign in (same steps as the screen matrix).
   sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
   await sleep(15000);
@@ -781,12 +787,6 @@ async function pastEventsScenario(link) {
   }
   record("past-events: sign-in via magic link", ok, ok ? "" : "see sign-in screen");
   if (!ok) throw new Error("sign-in did not complete");
-
-  // Seed NOW (after sign-in), so the "ends in 25 minutes" rows are still in the future when read.
-  psql(join(here, "seed-past-events.sql"), ["-v", "uid='" + state.uid + "'"]);
-  const seeded = q("select count(*) from public.events where id::text like '44444444-4444-4444-8444-4444444444a%'");
-  record("past-events: fixtures seeded (9 events)", seeded === "9", "count " + seeded);
-  writeFileSync(join(cfg.out, "pe-seeded-events.txt"), q("select name, timezone, start_date, end_date, start_time, end_time, now() at time zone 'utc' as now_utc from public.events where id::text like '44444444-4444-4444-8444-4444444444a%' order by name"));
 
   // Reads a screen, scrolling to the end, and returns every dump concatenated in scroll order (names are searched in it).
   const read = async (tag, url, { scrolls = 8, wait = 9000, before } = {}) => {
@@ -828,11 +828,7 @@ async function pastEventsScenario(link) {
     JSON.stringify({ soonAkl: has(list, NAMES.soonAkl), endedAkl: has(list, NAMES.endedAkl), soonHnl: has(list, NAMES.soonHnl), endedHnl: has(list, NAMES.endedHnl) }));
 
   // 2. Home (saved events) and Saved: the dancer saved one ended and one upcoming event.
-  // Home loaded its saved items at sign-in, before the fixtures existed, and a link to the already-open tab does not reload it: restart the app (the session persists).
-  sh(["shell", "am", "force-stop", cfg.pkg]);
-  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
-  await sleep(15000);
-  const home = await read("home", null, { scrolls: 6, wait: 6000 });
+  const home = await read("home", "danceflow://home", { scrolls: 6 });
   record("past-events home: the saved upcoming event shows and the saved ENDED event does not", has(home, NAMES.baseline) && !has(home, NAMES.endedLastWeek), "baseline " + has(home, NAMES.baseline) + ", ended " + has(home, NAMES.endedLastWeek));
   const fav = await read("favorites", "danceflow://favorites", { scrolls: 6 });
   record("past-events Saved: the saved upcoming event shows and the saved ENDED event does not", has(fav, NAMES.baseline) && !has(fav, NAMES.endedLastWeek), "baseline " + has(fav, NAMES.baseline) + ", ended " + has(fav, NAMES.endedLastWeek));
