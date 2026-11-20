@@ -173,3 +173,33 @@ Engineering did not see the owner's console, so these notes come from the artifa
 - **No defect found** in the AAB it produced (all checks above pass).
 - **Housekeeping gaps (not bugs):** the script leaves the worktree (about 5.8 GB at `C:\dfr\rel-student`) and the private `TEMP` (`C:\dfr\tmp-rel-student-f5f31103`, 41 MB) behind. It removes and recreates the worktree on the next run, so nothing breaks, but disk use grows per app; delete both after the AAB is uploaded and its hash recorded. The script does not itself run the manifest, SDK, 16 KB and permission checks of this section; they remain separate read-only steps (now documented here, with `scan-aab-secrets.js` for the secrets scan).
 - Still **UNVERIFIED**: the same script for **Business** (not run yet), and the keystore-password prompt behaviour in the owner's shell beyond the fact that the signed AAB came out.
+
+## 9. First real-key Business AAB: read-only artifact checks (2026-11-20)
+
+The owner built `C:\dfr-out\release\business-42e31612.aab` (64,767,999 B, SHA-256 `48cfd4a404d8025156a201d517d520e1a5b8f0c73359e1ebae59b1ca23ab8897`, re-hashed by engineering and equal) with `Build-ReleaseAab.ps1 -App business -StaffFeatures pulse,studioSchedule` from main `42e31612d1d1` (#700, an ancestor of main). Checks were read-only: no Gradle, no emulator, the keystore never touched; a scratch universal APK signed with the **throwaway QA key** was built only for `zipalign` and deleted. Evidence (outside the repo): `C:\dfr-out\release\checks\business-42e31612\`.
+
+| Check | Result | Evidence |
+|---|---|---|
+| File identity | **PASS** | `sha256sum` |
+| Manifest | **PASS**: `com.idanceflow.business`, versionCode 1, versionName 0.1.0, minSdk 24, targetSdk 36, compileSdk 36 | `manifest.xml` |
+| `debuggable`, cleartext | **PASS**: no `debuggable`, no `usesCleartextTraffic`, no `networkSecurityConfig` | `manifest.xml` |
+| `allowBackup` | **PASS**: `false` | `manifest.xml` |
+| Permissions vs `Google_Play_Internal_Testing.md` section 9 | **PASS**: `INTERNET`, `POST_NOTIFICATIONS`, `VIBRATE` plus library permissions (network state, `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, `USE_BIOMETRIC`/`USE_FINGERPRINT`, FCM `c2dm.RECEIVE`, install referrer, launcher badge permissions, the app's own dynamic-receiver permission). `CAMERA`, `RECORD_AUDIO`, `SYSTEM_ALERT_WINDOW`, location, external storage and `READ_MEDIA_*` all absent. `POST_NOTIFICATIONS` is intended (the Business push-token row in the Data safety draft) | `manifest.xml` |
+| 16 KB: ELF `p_align` of every `arm64-v8a`/`x86_64` library | **PASS**: 36 libraries, 0 below 16384 | `elfcheck.txt` |
+| 16 KB: `zipalign -c -P 16 4` on a universal APK from the AAB | **PASS**: exit 0 (QA-signed scratch APK, deleted) | `zipalign.txt` |
+| No `google-services.json` / QA placeholder | **PASS**: no `google_app_id`, `project_id`, `google_api_key` or Firebase resource in the AAB (Business ships no Firebase config; the 14 "placeholder" hits in `resources.txt` are Android UI attribute names such as `placeholderImage`, not the QA marker); the baked-config verifier also finds no `qa-placeholder`, `.invalid`, stack port or LAN address | `resources.txt`, `signer-baked.txt` |
+| Signer equals the pinned upload certificate | **PASS**: SHA-256 `12:E5:24:0E:...:A1:EE:AF` and SHA-1 equal `upload-cert.json`; not the QA key | `signer-baked.txt` (`Build-ReleaseAab.ps1 -CheckOnly`) |
+| Baked `EXPO_PUBLIC_*` | **PASS** (`verify-baked-config.js` with `expected-production.business.json`): one Supabase project `hvsujyfbftfffxpfmlpb`, exactly one JWT (`role=anon`, ref match, `iss=supabase`, not expired), web origin `https://www.idanceflow.com`, no Stripe publishable key, no `service_role` or secret | `signer-baked.txt` |
+| Secrets scan over all 1,430 entries (`scan-aab-secrets.js`) | **PASS**: every must-be-empty rule 0 hits; no `AIza` key, no `.pem` assets | `secrets-scan.txt` |
+| Baked staff feature flags (`mobile/business/src/lib/features.ts`) | **PASS** by decode: the Hermes bundle (`base/assets/index.android.bundle`, 2,453,540 B, Hermes magic) holds the string `pulse,studioSchedule` exactly once, which is the inlined `EXPO_PUBLIC_STAFF_FEATURES`. The names `bulkAttendance` and `keepStale` occur once each, i.e. only as the feature-name literals in the parser and not in any baked list, so the build does not enable them. Defaults at this commit are `clients` and `attendance` on (`ENABLED_BY_DEFAULT`), so the effective set is **clients, attendance, pulse, studioSchedule**, with `bulkAttendance` and `keepStale` off. The effective set is inferred from the decoded value plus the source at this commit; the running app's feature set was **not observed on a device** | decode output (not saved as a file) |
+
+The `-StaffFeatures pulse,studioSchedule` build was allowed by `Assert-StaffFeatures`, which needs a production staff-API smoke PASS for `/pulse` and `/schedule` (`C:\dfr-out\release\checks\business-staff-smoke.txt`, 2026-11-20, host `www.idanceflow.com`, GET only).
+
+Not covered: a **device smoke of this exact AAB** (production-valued, so the QA harness cannot sign in; the Business device evidence is the QA builds of earlier release candidates), push delivery (the AAB carries no Firebase config, so Android push from this build is UNVERIFIED and likely cannot deliver until an FCM config is added), and the Play pre-launch report. Android 12 and older, and the live font-size change, remain UNTESTED.
+
+### `Build-ReleaseAab.ps1`: first real Business run (from artifacts, not from the owner's console)
+
+- **Worked:** a clean detached worktree at `42e31612d1d1` (`C:\dfr\rel-business`, `git status` clean), `expo prebuild --clean`, `bundleRelease`, and the copy to `C:\dfr-out\release\business-42e31612.aab`; the worktree was created 14:29 and the AAB written 14:46 (about 17 minutes including `npm ci` and prebuild). The signer equals the pin, the baked-config verifier passed (coordinator-confirmed and re-run here with `-CheckOnly`), and the unminified build is as intended. The `-StaffFeatures` gate passed.
+- **No defect found** in the AAB.
+- **Housekeeping gap (unchanged):** the worktree `C:\dfr\rel-business` and the private TEMP `C:\dfr\tmp-rel-business-42e31612` stay behind. Delete them only after the owner confirms the hash and commit are recorded. Keep the AAB.
+- **Observation:** the commit's latest change is a Student one (#700); Business inputs are unaffected, so this is harmless, but the commit name alone does not say which app changed.
