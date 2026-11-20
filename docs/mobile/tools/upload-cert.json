@@ -1,0 +1,7 @@
+{
+  "_comment": "The pinned Play UPLOAD certificate of the one owner-created upload keystore (public values, pasted by the owner 2026-11-20). Build-ReleaseAab.ps1 refuses any AAB whose signer SHA-256 differs; New-UploadKeystore.ps1 compares the keystore's certificate with it. Change only if the owner deliberately replaces the upload key (e.g. after a Play upload-key reset).",
+  "alias": "danceflow-upload",
+  "sha256": "12:E5:24:0E:3C:71:84:6D:11:80:B4:2D:D5:22:7E:F6:74:1B:28:7D:12:F2:DC:4C:A4:1A:B7:18:08:A1:EE:AF",
+  "sha1": "B3:67:50:A0:32:96:B1:B1:A3:92:29:50:13:66:35:35:35:F0:DF:92",
+  "rejectedQaSha256": "93:F4:E4:5E:1B:B7:4F:C9:31:F4:D8:F7:C9:4A:CE:0B:AC:BA:F7:D4:7F:5E:32:A8:86:DD:BD:9D:0A:D8:F0:99"
+}

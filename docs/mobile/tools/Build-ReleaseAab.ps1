@@ -33,6 +33,7 @@ param(
   [string]$Sdk = "C:\Android\sdk"
 )
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "Test-UploadSigner.ps1")   # Get-AabSignerFingerprints / Assert-UploadSigner (pinned upload certificate)
 
 # --- 1. preconditions
 if (Get-Process -Name java -ErrorAction SilentlyContinue) { throw "A java/Gradle process is running. One Gradle build at a time: wait for it." }
@@ -109,8 +110,13 @@ try {
   Write-Host "AAB:    $aab" -ForegroundColor Green
   Write-Host "Size:   $($item.Length) bytes"
   Write-Host "SHA-256 (file): $((Get-FileHash -Algorithm SHA256 -LiteralPath $aab).Hash)"
-  Write-Host "Signer certificate (must equal the upload-key fingerprints):"
-  & "$Jdk\bin\keytool.exe" -printcert -jarfile $aab | Select-String -Pattern "SHA1:|SHA256:" | ForEach-Object { "  " + $_.Line.Trim() }
+  Write-Host "Signer certificate (must equal the pinned upload certificate in upload-cert.json; the QA key is always rejected):"
+  try { Assert-UploadSigner -Aab $aab -Keytool "$Jdk\bin\keytool.exe" }
+  catch {
+    Write-Host "SIGNER CHECK: FAIL. $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "DO NOT UPLOAD $aab" -ForegroundColor Red
+    exit 1
+  }
   Write-Host ""
   & node (Join-Path $PSScriptRoot "verify-baked-config.js") $aab $ExpectedFile
   $verify = $LASTEXITCODE
