@@ -38,6 +38,7 @@ const cfg = {
   claimWithheld: flag("claim-withheld"), // implies --claim: Gate 1 as on PROD (20270222090500 revokes execute): the claim RPC must answer 42501 and the app stays silent and fail-closed
   claim: flag("claim") || flag("claim-visual") || flag("claim-withheld"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
   realWeb: flag("real-web"), // serve the app's web API with the repo's REAL Next.js routes (next dev on the mock port, pointed at this stack) instead of mock-web.mjs; QA only, the stack's service key never leaves this PC
+  sessionDiag: flag("session-diag"), // does the signed-in session survive an app kill? harness force-stop vs user-style kills vs emulator reboot vs offline start; evidence per step
   pastEvents: flag("past-events"), // regression smoke for the past-events fix (#700): seeded events in several time zones, Events/home/saved/studio lists, Past segment, ended-event detail, history, empty state
   events: flag("events") || flag("past-events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
@@ -879,6 +880,118 @@ async function pastEventsScenario(link) {
   record("past-events empty state: the studio page says 'No upcoming events'", emptyStudio.includes("No upcoming events") && !crashed(emptyStudio), "");
 }
 
+/**
+ * --session-diag: is a signed-in session still there after the app process dies? Compares the harness's own "am force-stop" with what a user does
+ * (swipe the app away in Recents), the system's background kill ("am kill"), a reboot of the emulator, and a start with NO network (airplane mode).
+ * Each step records whether the process was alive before and gone after, whether Today shows, the relaunch logcat, and (when the emulator is rootable)
+ * the NAMES of the secure-storage keys that hold the session (never values).
+ */
+async function sessionDiagScenario(link) {
+  const pidof = () => sh(["shell", "pidof", cfg.pkg]).stdout.trim();
+  const signedInNow = () => { const x = hierarchy(); return /Today|Wallet|Settings/.test(x) && !/Continue with email|Start exploring/.test(x); };
+  const launch = () => sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  // Root is only available on non-Play emulator images; without it the secure-storage key names are UNVERIFIED, never guessed.
+  const rooted = (() => { sh(["root"]); return /uid=0/.test(sh(["shell", "id"]).stdout); })();
+  const keyNames = () => {
+    if (!rooted) return null;
+    const r = sh(["shell", "cat", "/data/data/" + cfg.pkg + "/shared_prefs/SecureStore.xml"]);
+    return [...String(r.stdout).matchAll(/name="([^"]+)"/g)].map((m) => m[1]).filter((n) => /auth-token/.test(n)).sort();
+  };
+  record("session-diag: emulator rootable (needed to list secure-storage key names)", true, rooted ? "yes" : "NO: key names UNVERIFIED on this image");
+  const settle = async (tag, ms = 30000) => {
+    let ok = await waitFor(signedInNow, "the app to show a signed-in screen", ms, 3000).then(() => true, () => false);
+    if (ok) { await sleep(12000); ok = signedInNow(); } // the app first shows the STORED session, then asks the server about it and may sign out: only a look that holds 12 s later counts
+    shot(join(cfg.out, "sd-" + tag + ".png"));
+    writeFileSync(join(cfg.out, "sd-" + tag + ".xml"), hierarchy());
+    return ok;
+  };
+  const relaunch = async (tag) => {
+    sh(["logcat", "-c"]);
+    launch();
+    const ok = await settle(tag);
+    const l = sh(["logcat", "-d", "-v", "time", "-t", "800"]);
+    writeFileSync(join(cfg.out, "sd-" + tag + "-logcat.txt"), l.stdout + "\n" + l.stderr);
+    return ok;
+  };
+  const wifi = () => reach.oneLine(sh(["shell", "ip", "-4", "addr", "show", "wlan0"]).stdout, 120);
+
+  // 0. sign in
+  launch();
+  await sleep(15000);
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    openLink(await link());
+    ok = await waitFor(signedInNow, "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
+  }
+  record("session-diag 0: signed in with the magic link", ok, ok ? "" : "sign-in failed");
+  if (!ok) throw new Error("sign-in did not complete");
+  await sleep(8000);
+  const keys0 = keyNames();
+  writeFileSync(join(cfg.out, "sd-keys-0.json"), JSON.stringify(keys0));
+  record("session-diag 0: session keys present in secure storage right after sign-in", keys0 === null ? true : keys0.length > 0, keys0 === null ? "UNVERIFIED (not rooted)" : JSON.stringify(keys0));
+
+  const killCase = async (n, label, kill, expectAlive) => {
+    const before = pidof();
+    kill();
+    await sleep(4000);
+    const after = pidof();
+    const dead = after === "" || after !== before;
+    const kept = await relaunch("k" + n);
+    const keys = keyNames();
+    record("session-diag " + n + " (" + label + "): process " + (before ? "was alive" : "was NOT alive") + ", " + (dead ? "was killed" : "SURVIVED the kill") + "; after relaunch the dancer is " + (kept ? "still signed in" : "SIGNED OUT"),
+      kept, "pid before " + before + ", after " + after + "; secure keys now " + (keys === null ? "UNVERIFIED" : JSON.stringify(keys)));
+    if (!kept) { // continue the walk from a signed-in state
+      openLink(await link());
+      await waitFor(signedInNow, "re-sign-in", 60_000, 4000).catch(() => undefined);
+    }
+    return kept;
+  };
+
+  await killCase(1, "harness style: am force-stop", () => sh(["shell", "am", "force-stop", cfg.pkg]));
+  await killCase(2, "user style: swipe the app away in Recents", () => {
+    sh(["shell", "input", "keyevent", "3"]); await_(1500);
+    sh(["shell", "input", "keyevent", "187"]); await_(2500);
+    const x = hierarchy();
+    const m = /<node[^>]*(?:content-desc|text)="[^"]*DanceFlow[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(x);
+    const cx = m ? Math.round((+m[1] + +m[3]) / 2) : 540;
+    const cy = m ? Math.round((+m[2] + +m[4]) / 2) : 1100;
+    writeFileSync(join(cfg.out, "sd-recents.xml"), x);
+    sh(["shell", "input", "swipe", String(cx), String(cy), String(cx), "120", "150"]);
+  });
+  await killCase(3, "system style: Home then am kill (background process kill)", () => {
+    sh(["shell", "input", "keyevent", "3"]); await_(2500);
+    sh(["shell", "am", "kill", cfg.pkg]);
+  });
+
+  // 4. reboot the emulator (userdata persists); the network is not up the moment the app can first be launched.
+  sh(["reboot"]);
+  await sleep(15000);
+  await waitFor(() => sh(["shell", "getprop", "sys.boot_completed"]).stdout.trim() === "1", "the emulator to boot again", 300_000).catch(() => undefined);
+  sh(["root"]);
+  await sleep(4000);
+  sh(["shell", "input", "keyevent", "224"]);
+  const wifiAtLaunch = wifi();
+  const keptReboot = await relaunch("k4");
+  record("session-diag 4 (emulator reboot, app launched as soon as boot completed; wlan0 at launch: " + wifiAtLaunch + "): the dancer is " + (keptReboot ? "still signed in" : "SIGNED OUT"), keptReboot, "keys " + JSON.stringify(keyNames()));
+  if (!keptReboot) { openLink(await link()); await waitFor(signedInNow, "re-sign-in", 60_000, 4000).catch(() => undefined); }
+
+  // 5. start with NO network, then with network again.
+  sh(["shell", "cmd", "connectivity", "airplane-mode", "enable"]);
+  state.airplane = true;
+  await sleep(8000);
+  sh(["shell", "am", "force-stop", cfg.pkg]);
+  await sleep(2000);
+  const keptOffline = await relaunch("k5-offline");
+  record("session-diag 5 (start with no network): the dancer is " + (keptOffline ? "still signed in (offline start keeps the session)" : "SIGNED OUT by an offline start"), keptOffline, "keys " + JSON.stringify(keyNames()));
+  sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]);
+  state.airplane = false;
+  await sleep(25000);
+  sh(["shell", "am", "force-stop", cfg.pkg]);
+  const keptBack = await relaunch("k5-online-again");
+  record("session-diag 5b (network back, app started again): the dancer is " + (keptBack ? "signed in" : "SIGNED OUT (the offline start destroyed the session)"), keptBack, "keys " + JSON.stringify(keyNames()));
+}
+const await_ = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
 async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
@@ -920,6 +1033,7 @@ try {
   else if (cfg.claimWithheld) await claimWithheldScenario(link, anon);
   else if (cfg.claimVisual) await claimVisualScenario(link);
   else if (cfg.claim) await claimScenario(link);
+  else if (cfg.sessionDiag) await sessionDiagScenario(link);
   else await screens(link);
 } catch (e) {
   if (!e.done) record("run", false, e.message);
