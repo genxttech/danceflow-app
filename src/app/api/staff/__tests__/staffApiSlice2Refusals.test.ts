@@ -77,7 +77,7 @@ const CALLS: [string, Call][] = [
   [
     "POST quick-add client",
     (t, s) =>
-      createClient(req(`/api/staff/workspaces/${s}/clients`, t, { method: "POST", body: JSON.stringify({ firstName: "Ana", lastName: "Rivera", phone: "555-0100" }) }), {
+      createClient(req(`/api/staff/workspaces/${s}/clients`, t, { method: "POST", body: JSON.stringify({ clientId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", firstName: "Ana", lastName: "Rivera", phone: "555-0100" }) }), {
         params: Promise.resolve({ studioId: s }),
       }),
   ],
@@ -88,7 +88,7 @@ const CALLS: [string, Call][] = [
   [
     "POST client note",
     (t, s) =>
-      postNote(req(`/api/staff/workspaces/${s}/clients/${CLIENT}/notes`, t, { method: "POST", body: JSON.stringify({ body: "hello" }) }), {
+      postNote(req(`/api/staff/workspaces/${s}/clients/${CLIENT}/notes`, t, { method: "POST", body: JSON.stringify({ noteId: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", body: "hello" }) }), {
         params: Promise.resolve({ studioId: s, clientId: CLIENT }),
       }),
   ],

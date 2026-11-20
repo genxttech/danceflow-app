@@ -35,12 +35,15 @@ vi.mock("next/headers", () => ({
 
 const { POST } = await import("../workspaces/[studioId]/clients/route");
 
+const CLIENT_ID = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+
 function post(token: string, body: unknown, headers: Record<string, string> = { "Idempotency-Key": "create-key-0001", "X-DanceFlow-App": "business/0.2.0/3/android" }) {
   return POST(
     new Request(`https://app.test/api/staff/workspaces/${STUDIO_A}/clients`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...headers },
-      body: typeof body === "string" ? body : JSON.stringify(body),
+      // a default clientId is added unless the case sets the key itself (even to undefined)
+      body: typeof body === "string" ? body : JSON.stringify(body && typeof body === "object" && !("clientId" in body) ? { clientId: CLIENT_ID, ...body } : body),
     }),
     { params: Promise.resolve({ studioId: STUDIO_A }) },
   );
@@ -107,6 +110,8 @@ describe("quick-add route: input validation (front desk and owner, before any da
     await expectRefusal(await post(token, ok, { "Idempotency-Key": "short", "X-DanceFlow-App": "business/0.2.0/3/android" }), 400, "invalid_request");
     await expectRefusal(await post(token, "not json"), 400, "invalid_request");
     await expectRefusal(await post(token, "[1]"), 400, "invalid_request");
+    await expectRefusal(await post(token, { ...ok, clientId: undefined }), 400, "invalid_request"); // clientId required
+    await expectRefusal(await post(token, { ...ok, clientId: "not-a-uuid" }), 400, "invalid_request");
     await expectRefusal(await post(token, { lastName: "Rivera", phone: "555-010-0100" }), 400, "invalid_request"); // first name required
     await expectRefusal(await post(token, { firstName: "Ana", phone: "555-010-0100" }), 400, "invalid_request"); // last name required
     await expectRefusal(await post(token, { firstName: "Ana", lastName: "Rivera" }), 400, "invalid_request"); // phone or email required

@@ -36,13 +36,15 @@ vi.mock("next/headers", () => ({
 const { POST } = await import("../workspaces/[studioId]/clients/[clientId]/notes/route");
 
 const CLIENT = "c0000000-0000-4000-8000-0000000000bb";
+const NOTE_ID = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
 
 function post(token: string, body: unknown, headers: Record<string, string> = { "Idempotency-Key": "note-key-0001", "X-DanceFlow-App": "business/0.2.0/3/android" }, clientId = CLIENT) {
   return POST(
     new Request(`https://app.test/api/staff/workspaces/${STUDIO_A}/clients/${clientId}/notes`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...headers },
-      body: typeof body === "string" ? body : JSON.stringify(body),
+      // a default noteId is added unless the case sets the key itself (even to undefined)
+      body: typeof body === "string" ? body : JSON.stringify(body && typeof body === "object" && !("noteId" in body) ? { noteId: NOTE_ID, ...body } : body),
     }),
     { params: Promise.resolve({ studioId: STUDIO_A, clientId }) },
   );
@@ -111,6 +113,9 @@ describe("client note route: input validation (front desk and owner, before any 
     await expectRefusal(await post(token, "not json"), 400, "invalid_request");
     await expectRefusal(await post(token, "[1]"), 400, "invalid_request");
     await expectRefusal(await post(token, {}), 400, "invalid_request"); // body required
+    await expectRefusal(await post(token, { body: "x", noteId: undefined }), 400, "invalid_request"); // noteId required
+    await expectRefusal(await post(token, { body: "x", noteId: "not-a-uuid" }), 400, "invalid_request");
+    await expectRefusal(await post(token, { body: "x", noteId: 5 }), 400, "invalid_request");
     await expectRefusal(await post(token, { body: "   " }), 400, "invalid_request");
     await expectRefusal(await post(token, { body: 5 }), 400, "invalid_request");
     await expectRefusal(await post(token, { body: "x", noteType: "secret" }), 400, "invalid_request");

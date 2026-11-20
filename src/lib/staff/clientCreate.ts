@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveInsertReplay, sameFields } from "@/lib/staff/writeSupport";
 import {
   CLIENT_REFERRAL_SOURCE_OPTIONS,
   CLIENT_SKILL_LEVEL_OPTIONS,
@@ -148,14 +149,14 @@ export async function insertClient(params: {
   clientId: string;
   payload: ReturnType<typeof normalizeClientPayload>;
   photoPath?: string | null;
-}): Promise<{ ok: true } | { ok: false; message: string }> {
+}): Promise<{ ok: true } | { ok: false; message: string; error: { code?: string | null; message?: string } }> {
   const { error } = await params.supabase.from("clients").insert({
     id: params.clientId,
     studio_id: params.studioId,
     ...params.payload,
     ...(params.photoPath !== undefined ? { photo_url: params.photoPath } : {}),
   });
-  return error ? { ok: false, message: error.message } : { ok: true };
+  return error ? { ok: false, message: error.message, error } : { ok: true };
 }
 
 export type QuickAddInput = {
@@ -168,33 +169,34 @@ export type QuickAddInput = {
   allowDuplicatePhone?: boolean;
 };
 
+export type QuickAddClient = { id: string; firstName: string; lastName: string; status: string };
+
 export type QuickAddResult =
-  | { ok: true; client: { id: string; firstName: string; lastName: string; status: string } }
+  | { ok: true; replayed: boolean; client: QuickAddClient }
   | { ok: false; reason: "duplicate_client"; existingClientId: string; matchedOn: "email" | "phone" }
+  | { ok: false; reason: "idempotency_conflict"; current: QuickAddClient | null }
   | { ok: false; reason: "insert_failed"; message: string };
 
+type ClientDbRow = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null; notes: string | null; status: string };
+const CLIENT_COLUMNS = "id, first_name, last_name, email, phone, notes, status";
+const toQuickAddClient = (row: ClientDbRow): QuickAddClient => ({ id: row.id, firstName: row.first_name, lastName: row.last_name, status: row.status });
+
 /**
- * Staff API quick add: the web action's create path with the minimal field set. Same duplicate-email rule, same payload builder (so the
- * stored row has exactly the columns and defaults a web-created lead has: status "lead", no source columns set), same insert. Adds a
- * phone match (soft) on top of the web's email rule.
+ * Staff API quick add: the web action's create path with the minimal field set. Same duplicate-email rule, same payload builder (so the stored
+ * row has exactly the columns and defaults a web-created lead has: status "lead", no source columns set), same insert. Adds a phone match
+ * (soft) on top of the web's email rule.
+ *
+ * Idempotency is the CLIENT-SUPPLIED ENTITY ID pattern: `clientId` is the id the app generated once for this user action. A client already stored
+ * under that id in this studio with the same details is a replay (`replayed: true`, nothing written); the same id with different details is
+ * `idempotency_conflict`. The duplicate rules only decide about a DIFFERENT client, so a retry never answers `duplicate_client` about itself.
  */
 export async function quickAddClient(params: {
   supabase: SupabaseClient;
   studioId: string;
   input: QuickAddInput;
-  newClientId: string;
+  clientId: string;
 }): Promise<QuickAddResult> {
-  const { supabase, studioId, input, newClientId } = params;
-
-  if (input.email) {
-    const byEmail = await findClientByEmail({ supabase, studioId, email: input.email });
-    if (byEmail) return { ok: false, reason: "duplicate_client", existingClientId: byEmail.id, matchedOn: "email" };
-  }
-
-  if (input.phone && !input.allowDuplicatePhone) {
-    const byPhone = await findClientByPhone({ supabase, studioId, phone: input.phone });
-    if (byPhone) return { ok: false, reason: "duplicate_client", existingClientId: byPhone.id, matchedOn: "phone" };
-  }
+  const { supabase, studioId, input, clientId } = params;
 
   const payload = normalizeClientPayload({
     firstName: input.firstName,
@@ -219,8 +221,38 @@ export async function quickAddClient(params: {
     isIndependentInstructor: false,
   });
 
-  const inserted = await insertClient({ supabase, studioId, clientId: newClientId, payload });
-  if (!inserted.ok) return { ok: false, reason: "insert_failed", message: inserted.message };
+  const fetchExisting = async () => {
+    const { data } = await supabase.from("clients").select(CLIENT_COLUMNS).eq("studio_id", studioId).eq("id", clientId).maybeSingle();
+    return (data as ClientDbRow | null) ?? null;
+  };
+  const matches = (existing: ClientDbRow) =>
+    sameFields(existing, payload, ["first_name", "last_name", "email", "phone", "notes"]);
+  const decide = (existing: ClientDbRow): QuickAddResult =>
+    matches(existing)
+      ? { ok: true, replayed: true, client: toQuickAddClient(existing) }
+      : { ok: false, reason: "idempotency_conflict", current: toQuickAddClient(existing) };
 
-  return { ok: true, client: { id: newClientId, firstName: input.firstName, lastName: input.lastName, status: payload.status } };
+  // A replay of this very request: the id is already stored in this studio.
+  const already = await fetchExisting();
+  if (already) return decide(already);
+
+  if (input.email) {
+    const byEmail = await findClientByEmail({ supabase, studioId, email: input.email });
+    if (byEmail && byEmail.id !== clientId) return { ok: false, reason: "duplicate_client", existingClientId: byEmail.id, matchedOn: "email" };
+  }
+
+  if (input.phone && !input.allowDuplicatePhone) {
+    const byPhone = await findClientByPhone({ supabase, studioId, phone: input.phone });
+    if (byPhone && byPhone.id !== clientId) return { ok: false, reason: "duplicate_client", existingClientId: byPhone.id, matchedOn: "phone" };
+  }
+
+  const inserted = await insertClient({ supabase, studioId, clientId, payload });
+  if (inserted.ok) return { ok: true, replayed: false, client: { id: clientId, firstName: input.firstName, lastName: input.lastName, status: payload.status } };
+
+  // A concurrent identical attempt, or the id exists where this caller cannot read it (another studio): resolve instead of guessing.
+  const outcome = await resolveInsertReplay<ClientDbRow>({ error: inserted.error, fetchExisting, matches });
+  if (outcome.kind === "replay") return { ok: true, replayed: true, client: toQuickAddClient(outcome.existing) };
+  if (outcome.kind === "idempotency_conflict") return { ok: false, reason: "idempotency_conflict", current: toQuickAddClient(outcome.existing) };
+  if (outcome.kind === "other_conflict") return { ok: false, reason: "idempotency_conflict", current: null };
+  return { ok: false, reason: "insert_failed", message: inserted.message };
 }

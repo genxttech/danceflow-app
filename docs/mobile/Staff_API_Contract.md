@@ -304,15 +304,16 @@ Request:
 Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
 Content-Type: application/json
 
-{ "body": "Called about the showcase.", "noteType": "follow_up", "occurredAt": "2026-11-20T15:30:00Z" }
+{ "noteId": "3f1c2a54-8d0e-4c7b-9a61-52e8d4f0b1aa", "body": "Called about the showcase.", "noteType": "follow_up", "occurredAt": "2026-11-20T15:30:00Z" }
 ```
 
+- `noteId` is required: a UUID the app generates **once per note** and resends unchanged on every retry (client-supplied entity id pattern). The note is stored under that id.
 - `body` is required, trimmed, at most 5000 characters (the web form has no cap; the API adds one).
 - `noteType` is optional: `general` (default), `follow_up`, `sales`, `lesson`, `billing` or `concern`.
 - `occurredAt` is optional ISO 8601; it defaults to now. Any other field is ignored.
-- `Idempotency-Key` is required. **The key is not stored**, and a note insert is not idempotent by state, so the route de-duplicates instead: an identical note (same studio, client, author, `noteType` and `body`) created within the last 120 seconds is returned, not inserted again. Reuse the same key and body when retrying a lost response.
+- `Idempotency-Key` is required (and, as everywhere, not stored). Retries are made safe by `noteId`: sending the same `noteId` with the same content again (same client, `noteType`, `body`, and `occurredAt` when you sent one; same author) returns the stored note with `200` and writes nothing; the same `noteId` with different content, or from a different author, is `409 idempotency_conflict`.
 
-Response: `201` with the new note, or `200` with the existing note when it was a retry:
+Response: `201` with the new note, or `200` with the stored note when it was a replay of the same `noteId`:
 
 ```json
 { "note": { "id": "uuid", "clientId": "uuid", "noteType": "follow_up", "body": "Called about the showcase.", "occurredAt": "2026-11-20T15:30:00+00:00", "createdAt": "2026-11-20T15:30:02.123+00:00" } }
@@ -321,8 +322,9 @@ Response: `201` with the new note, or `200` with the existing note when it was a
 Who may call it and what each answer means:
 - **Write guard:** the route is behind the per-capability kill switch (`clientNotes`) and the minimum-app-version gate (`X-DanceFlow-App` header): `403 writes_disabled` while the capability is not enabled, `426 upgrade_required` for a missing or too-old build. Identity and membership refusals come first.
 - **Roles:** owners, admins and front desk (`canEditClients`, the same as the web action). Instructors, independent instructors and organizer roles get `403 role_not_permitted`.
+- **`409 idempotency_conflict`:** `{ "error", "code": "idempotency_conflict", "current": { "note": { … } } }`. `current` is the stored note, or `null` when that `noteId` exists where the caller cannot read it (another studio). Never retry it unchanged: generate a new `noteId` if the person really meant a new note.
 - **Another studio's client, or a client that does not exist:** `404 not_found` (indistinguishable). A workspace the caller does not belong to is `403 not_a_member`.
-- **Bad input** (missing or blank `body`, unknown `noteType`, unparsable `occurredAt`, non-string fields, over-long `body`, malformed ids or key): `400 invalid_request`.
+- **Bad input** (missing or malformed `noteId`, missing or blank `body`, unknown `noteType`, unparsable `occurredAt`, non-string fields, over-long `body`, malformed ids or key): `400 invalid_request`.
 - The write is made with the caller's own token, so row-level security applies (an active membership of that studio and a client of the same studio).
 - **What is recorded:** the note row (`studio_id`, `client_id`, `note_type`, `body`, `occurred_at`, `created_by` = the caller). The web action writes nothing else (no audit table, no outbox), and `client_activity_notes` has no source column, so a note made on a phone is not marked as such.
 
@@ -336,17 +338,18 @@ Request:
 Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
 Content-Type: application/json
 
-{ "firstName": "Ana", "lastName": "Rivera", "phone": "(555) 010-0100", "email": "ana@example.com", "note": "Met at the showcase.", "allowDuplicatePhone": false }
+{ "clientId": "9b2d6c1e-47a3-4f0b-8e55-3c1d7a90e2f4", "firstName": "Ana", "lastName": "Rivera", "phone": "(555) 010-0100", "email": "ana@example.com", "note": "Met at the showcase.", "allowDuplicatePhone": false }
 ```
 
+- `clientId`: required: a UUID the app generates **once per new client** and resends unchanged on every retry (client-supplied entity id pattern). The client is stored under that id.
 - `firstName`, `lastName`: required, at most 80 characters (the web limits).
 - `phone` and/or `email`: at least one is required. They are normalized as on the web: the email is lower-cased; a US number is stored as `+1XXXXXXXXXX`, other numbers need an international `+` form.
 - `note`: optional, at most 3000 characters; stored in the client's `notes` field (the web form's "Notes"), not as an activity note.
 - `allowDuplicatePhone`: optional boolean, default `false` (see below).
 - Everything else the web form has (address, birthday, partner, photo, onboarding documents, status) is not accepted; unknown fields are ignored. The client is created with status `lead`, exactly like a web-created lead, with no referral source and no source marker (the table has none that is truthful for a phone; `source_system` belongs to imports).
-- `Idempotency-Key` is required and **not stored**. A retry of a create whose answer was lost is caught by the duplicate rule below (the second attempt answers `409 duplicate_client` with the id of the client the first attempt created), so the app should open that client.
+- `Idempotency-Key` is required (and not stored). Retries are made safe by `clientId`: the same `clientId` with the same details (names, email, phone, note) returns the stored client with `200` and `"replayed": true` and writes nothing; the same `clientId` with different details is `409 idempotency_conflict`. The duplicate rules below only ever concern a **different** client, so a retry is never answered `duplicate_client` about itself.
 
-Response `201`:
+Response `201` (or `200` with `"replayed": true` for a replay of the same `clientId`):
 
 ```json
 { "client": { "id": "uuid", "firstName": "Ana", "lastName": "Rivera", "status": "lead" } }
@@ -365,7 +368,8 @@ Duplicate response `409` (nothing was created):
 Who may call it and what each answer means:
 - **Write guard:** the route is behind the per-capability kill switch (`clientCreate`) and the minimum-app-version gate (`X-DanceFlow-App` header): `403 writes_disabled` while the capability is not enabled, `426 upgrade_required` for a missing or too-old build. Identity and membership refusals come first.
 - **Roles:** owners, admins and front desk (`canEditClients`, the same as the web action). Instructors, independent instructors and organizer roles get `403 role_not_permitted`; a workspace the caller does not belong to is `403 not_a_member`.
-- **Bad input** (missing names, neither phone nor email, over-long or malformed fields, non-string values, missing key): `400 invalid_request`; the `error` text is the web's own validation message.
+- **`409 idempotency_conflict`:** `{ "error", "code", "current": { "client": { "id", "firstName", "lastName", "status" } } }`; `current` is `null` when that `clientId` exists where the caller cannot read it (another studio). Generate a new `clientId` only if the person really meant a different client.
+- **Bad input** (missing or malformed `clientId`, missing names, neither phone nor email, over-long or malformed fields, non-string values, missing key): `400 invalid_request`; the `error` text is the web's own validation message.
 - The write is made with the caller's own token, so row-level security applies.
 
 ## Planned, not in slice 2
@@ -405,4 +409,4 @@ Shared by every write route added after v0.1 (`src/lib/staff/writeSupport.ts`). 
 - **Three patterns make a retry safe** (each write names its pattern in its design note): (1) **state-based**: setting a status that is already set is a no-op that returns the current record with `alreadyApplied: true` (attendance, attended/no-show, cancel attendee); (2) **client-supplied entity id**: the app sends a UUID it generated once per user action (`noteId`, `clientId`), the route inserts with that id; an identical replay returns the existing row with `200`, the same id with different content is `409 idempotency_conflict`; (3) **natural domain key**: the existing uniqueness rule is read as a replay (a dancer already enrolled in the class returns the existing attendee with `200`, `alreadyEnrolled: true`).
 - **Conflicts are `409 { error, code, current }`**, where `current` is the server's present state of the thing the app tried to change, so the app can show it and reconcile (replace its local copy with `current`, do not blindly retry).
 - **Bodies** are JSON objects of at most 16 KB; anything else is `400 invalid_request`. A write route returns flat errors only.
-- **Error-code registry for writes** (lower snake case; a slice adds its codes here): `writes_disabled` (403) and `upgrade_required` (426) from the write gate; `idempotency_conflict` (409); slice codes are defined in each slice's design note (`outcome_conflict`, `payment_required`, `duplicate_email`, the roster codes such as `class_full`, `already_enrolled`).
+- **Error-code registry for writes** (lower snake case; a slice adds its codes here): `writes_disabled` (403) and `upgrade_required` (426) from the write gate; `idempotency_conflict` (409); client slices: `duplicate_client` (409, `existingClientId`, `matchedOn`); slice codes are defined in each slice's design note (`outcome_conflict`, `payment_required`, `duplicate_email`, the roster codes such as `class_full`, `already_enrolled`).
