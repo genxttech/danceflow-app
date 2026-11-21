@@ -123,6 +123,12 @@ function campaignErrorMessage(code?: string) {
       return "Test email could not be sent. Check Resend settings and sender verification.";
     case "recipient_generate_failed":
       return "Recipients could not be generated. Check the campaign audience and try again.";
+    case "apply_not_confirmed":
+      return "Confirm before applying the suggestion to the draft. Nothing was changed.";
+    case "apply_empty":
+      return "There was nothing to apply. Generate copy first.";
+    case "unauthorized":
+      return "You do not have permission to change this campaign.";
     case "missing_name":
       return "Give the campaign a name.";
     case "missing_subject":
@@ -1097,6 +1103,7 @@ export default async function MarketingCampaignDetailPage({
                   currentBodyText={campaign.body_text}
                   ctaLabel={campaign.cta_label}
                   ctaUrl={campaign.cta_url}
+                  applyToCampaignId={campaign.status === "draft" ? campaign.id : undefined}
                   compact
                 />
               </div>
