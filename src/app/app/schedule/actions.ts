@@ -60,15 +60,14 @@ import {
 import { notifySeriesCancellation } from "@/lib/notifications/groupClassSeriesCancellation";
 import {
   notifyGroupClassChanged,
-  notifyGroupClassEnrolled,
-  notifyGroupClassRemovedByAttendee,
   notifyGroupClassSeriesChanged,
   seriesChangesAreMaterial,
   seriesEditNoticeLine,
   snapshotClassesByIds,
   snapshotSeriesFollowing,
 } from "@/lib/notifications/groupClassNotices";
-import { classifyRosterEnrollError, safeRosterErrorReturn } from "@/lib/schedule/groupClassRosterPanel";
+import { safeRosterErrorReturn } from "@/lib/schedule/groupClassRosterPanel";
+import { cancelClassAttendee, enrollClassAttendee } from "@/lib/staff/classRoster";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import {
   INSTRUCTOR_NOT_ASSIGNABLE_MESSAGE,
@@ -2949,11 +2948,6 @@ export async function deleteAppointmentAction(formData: FormData) {
 // code -- only the outcomes the UX audit specifically named get a new,
 // dedicated code, so this stays a targeted fix rather than a redesign of
 // every possible RPC failure.
-function classifyEnrollClassAttendeeError(message: string): string {
-  // GC-S1D-1: one shared mapping (src/lib/schedule/groupClassRosterPanel.ts) for the roster panel and this page.
-  return classifyRosterEnrollError(message);
-}
-
 export async function enrollClassAttendeeAction(formData: FormData) {
   const fallback = "/app/schedule";
 
@@ -2974,34 +2968,20 @@ export async function enrollClassAttendeeAction(formData: FormData) {
     // accepted in-context return; anything else keeps the existing Enroll Student behavior.
     const inContextErrorReturn = safeRosterErrorReturn(getString(formData, "errorReturnTo"), appointmentId);
 
-    // PR #70 review correction: billingType='membership' with no
-    // clientMembershipId is an invalid, unfunded state -- reject it here,
-    // before ever calling the RPC, rather than letting an incomplete
-    // selection reach the database. Package/PAYG/free-comped are
-    // unaffected (they have no equivalent required-id requirement here).
-    if (billingType === "membership" && !clientMembershipId) {
-      redirect(
-        inContextErrorReturn
-          ? appendQueryParam(inContextErrorReturn, "error", "membership_requires_selection")
-          : appendQueryParam(
-              appendQueryParam("/app/schedule/enroll-student", "error", "membership_requires_selection"),
-              "appointmentId",
-              appointmentId,
-            ),
-      );
-    }
-
-    const { data: enrolledAttendeeId, error } = await supabase.rpc("enroll_class_attendee", {
-      p_appointment_id: appointmentId,
-      p_client_id: clientId,
-      p_billing_type: billingType,
-      p_client_package_id: clientPackageId,
-      p_client_membership_id: clientMembershipId,
+    // The RPC call, the funding rules and the dancer notice live in src/lib/staff/classRoster.ts, shared with the staff API.
+    const result = await enrollClassAttendee({
+      supabase: supabase as never,
+      studioId,
+      appointmentId,
+      clientId,
+      billingType,
+      clientPackageId,
+      clientMembershipId,
     });
 
-    if (error) {
-      console.error("Could not enroll class attendee:", error.message);
-      const errorCode = classifyEnrollClassAttendeeError(error.message ?? "");
+    if (!result.ok) {
+      // "not_found" and "invalid_funding" are the API's wording; the page has always shown the generic failure for both.
+      const errorCode = result.reason === "not_found" || result.reason === "invalid_funding" ? "enrollment_failed" : result.reason;
       // Deliberately not getErrorRedirect/formData.returnTo here -- the
       // form's own returnTo always points at the class detail page (the
       // right place to land after a SUCCESSFUL enrollment), which has no
@@ -3017,18 +2997,6 @@ export async function enrollClassAttendeeAction(formData: FormData) {
               appointmentId,
             ),
       );
-    }
-
-    // GC-S1E-2: after the enrollment has committed, confirm it to the dancer (email + push, no SMS). The new attendee row id is
-    // the event identity, so a retried notification cannot send twice. Never throws; the enrollment stands regardless.
-    if (typeof enrolledAttendeeId === "string" && enrolledAttendeeId) {
-      await notifyGroupClassEnrolled({
-        studioId,
-        clientId,
-        appointmentIds: [appointmentId],
-        eventId: enrolledAttendeeId,
-        series: false,
-      });
     }
 
     revalidatePath("/app/schedule");
@@ -3058,42 +3026,18 @@ export async function cancelClassAttendeeAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_attendee"));
     }
 
-    // GC-S1E-2: only a removal that actually changes a booked dancer notifies. cancel_class_attendee treats an already
-    // cancelled row as a successful no-op, so a stale or repeated click (or a dancer already removed by a series removal or a
-    // class cancellation) must not produce a "removed" notice. The status is read before the RPC, studio-scoped; unreadable = no notice.
-    const { data: priorRow } = await supabase
-      .from("appointment_attendees")
-      .select("status")
-      .eq("id", attendeeId)
-      .eq("studio_id", studioId)
-      .maybeSingle<{ status: string | null }>();
-    const wasBooked = priorRow?.status === "booked";
+    // The RPC, the booked-only notice and the error mapping live in src/lib/staff/classRoster.ts, shared with the staff API.
+    const result = await cancelClassAttendee({ supabase: supabase as never, studioId, attendeeId });
 
-    const { error } = await supabase.rpc("cancel_class_attendee", {
-      p_attendee_id: attendeeId,
-    });
-
-    if (error) {
-      console.error("Could not cancel class attendee:", error.message);
-      // GC-S1D-1: removal of a dancer with recorded terminal attendance is refused by the database
-      // (GCSD1_ATTENDEE_ATTENDANCE_RECORDED, attendee guard trigger); the roster panel also hides the control.
-      const removeMessage = String(error.message ?? "");
+    if (!result.ok) {
       redirect(
         getErrorRedirect(
           formData,
           returnTo,
-          removeMessage.includes("GCSD1_ATTENDEE_ATTENDANCE_RECORDED")
-            ? "attendee_attendance_recorded"
-            : removeMessage.includes("Not authorized")
-              ? "attendee_not_authorized"
-              : "attendee_cancel_failed",
+          result.reason === "not_found" ? "attendee_cancel_failed" : result.reason,
         ),
       );
     }
-
-    // GC-S1E-2: after the removal has committed, tell the dancer (email + push, no SMS). The attendee row id is the event identity
-    // and the notice reads the cancelled row itself.
-    if (wasBooked) await notifyGroupClassRemovedByAttendee({ studioId, attendeeId });
 
     revalidatePath("/app/schedule");
     if (appointmentId) revalidatePath(`/app/schedule/${appointmentId}`);
