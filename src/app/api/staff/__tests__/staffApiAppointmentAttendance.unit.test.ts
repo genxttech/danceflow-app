@@ -132,6 +132,11 @@ describe("PUT appointment attendance route", () => {
     expect(charge.status).toBe(409);
     expect(await charge.json()).toMatchObject({ code: "charge_failed", error: "No package is linked to this appointment." });
 
+    mocks.mark.mockResolvedValue(ok("attended", { usageSyncPending: true, packageExhausted: true }));
+    const exhausted = await call({ status: "attended" });
+    expect(exhausted.status).toBe(409);
+    expect(await code(exhausted)).toBe("package_exhausted");
+
     mocks.mark.mockResolvedValue(ok("attended", { usageSyncPending: true }));
     const pending = await call({ status: "attended" });
     expect(pending.status).toBe(409);

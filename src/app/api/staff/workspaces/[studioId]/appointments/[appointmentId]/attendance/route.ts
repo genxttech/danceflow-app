@@ -69,6 +69,14 @@ export async function PUT(request: Request, { params }: { params: Promise<{ stud
       }
     }
 
+    if (result.usageSyncPending && result.packageExhausted) {
+      return staffWriteError(
+        "package_exhausted",
+        "Attendance is recorded but the package has no credit left. Resolve the package in the web app; repeating this request will not help.",
+        409,
+      );
+    }
+
     if (result.usageSyncPending) {
       return staffWriteError(
         "usage_sync_pending",

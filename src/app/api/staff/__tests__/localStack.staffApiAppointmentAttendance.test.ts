@@ -367,7 +367,7 @@ describe.skipIf(!enabled)("staff API appointment attendance against real RLS and
       expect(noteBodies(client)).toContain("Charge policy: Package credit deducted");
     });
 
-    it("writes exactly one note when the charge fails, with a fixed known message, and a retry writes no second", async () => {
+    it("a failed charge is retryable: one note, then the same request succeeds with exactly one deduction and the note corrected", async () => {
       const client = newClient();
       const appointment = lesson({ packageId: null, client });
       const failed = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
@@ -375,13 +375,40 @@ describe.skipIf(!enabled)("staff API appointment attendance against real RLS and
       expect(await failed.json()).toMatchObject({ code: "charge_failed", error: "No package is linked to this appointment." });
       expect(noteCount(client)).toBe(1);
       expect(noteBodies(client)).toContain("Package credit requested, not applied");
-      // repeating the failed charge is a change from what was applied: refused, no second note
-      await expectCode(await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" }), 409, "outcome_conflict");
-      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      // same request again while still unlinked: fails again, still one note
+      await expectCode(await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" }), 409, "charge_failed");
       expect(noteCount(client)).toBe(1);
+      // the package gets linked (on the web); the same request now succeeds
+      const pkg = newPackage(3, { client });
+      psql(`update public.appointments set client_package_id = '${pkg}' where id = '${appointment}';`);
+      const retry = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(retry.status).toBe(200);
+      expect(remaining(pkg)).toBe(2);
+      expect(deductions(appointment)).toBe(1);
+      expect(noteCount(client)).toBe(1);
+      expect(noteBodies(client)).toContain("Package credit deducted");
+      // and repeating it is a no-op
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" })).status).toBe(200);
+      expect(remaining(pkg)).toBe(2);
     });
 
-    it("last credit race across two lessons: one deduction, the loser stays attended with usage_sync_pending on every retry", async () => {
+    it("after a failed charge, a different decision (none) is allowed; away from an applied charge is not", async () => {
+      const client = newClient();
+      const unlinked = lesson({ packageId: null, client });
+      await expectCode(await mark(USERS.frontDesk, unlinked, { status: "no_show", missedAppointmentCharge: "package" }), 409, "charge_failed");
+      expect((await mark(USERS.frontDesk, unlinked, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      expect(noteCount(client)).toBe(1);
+
+      const pkg = newPackage(3, { client });
+      const charged = lesson({ packageId: pkg, client });
+      expect((await mark(USERS.frontDesk, charged, { status: "no_show", missedAppointmentCharge: "package" })).status).toBe(200);
+      await expectCode(await mark(USERS.frontDesk, charged, { status: "no_show", missedAppointmentCharge: "none" }), 409, "outcome_conflict");
+      await expectCode(await mark(USERS.frontDesk, charged, { status: "no_show", missedAppointmentCharge: "membership" }), 409, "outcome_conflict");
+      expect(remaining(pkg)).toBe(2);
+      expect(deductions(charged)).toBe(1);
+    });
+
+    it("last credit race across two lessons: one deduction, the loser stays attended and answers package_exhausted on every retry", async () => {
       const pkg = newPackage(1);
       const first = lesson({ packageId: pkg });
       const second = lesson({ packageId: pkg });
@@ -394,8 +421,8 @@ describe.skipIf(!enabled)("staff API appointment attendance against real RLS and
       expect(outcome.deductions).toBe(1);
       const loser = deductions(first) === 1 ? second : first;
       if (statusOf(loser) === "attended") {
-        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "usage_sync_pending");
-        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "usage_sync_pending");
+        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "package_exhausted");
+        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "package_exhausted");
       } else {
         expect(statusOf(loser)).toBe("scheduled");
       }
