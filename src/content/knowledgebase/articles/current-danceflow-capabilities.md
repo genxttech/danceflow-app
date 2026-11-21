@@ -41,6 +41,8 @@ Studios can use these payment tools for package sales, membership payments, even
 
 DanceFlow events can include public event pages, ticket types, early bird pricing, registration windows, attendee records, QR tickets, confirmation emails, check-in tools, event schedules, private lesson slots, event documents, and event closeout review.
 
+Event registration and ticketing require the Organizer Suite; without it, events can be listed but registration and ticket sales are not available. Public registration for competitions is not yet generally available.
+
 This helps studios and organizers manage events from listing to registration to event-day check-in.
 
 ## Documents and e-signatures
@@ -55,13 +57,9 @@ DanceFlow public discovery helps dancers find studios, events, Partner Search pr
 
 Public discovery is controlled by visibility settings so studios and organizers can decide what should appear publicly.
 
-## Student app and wallet
+## Student portal
 
-The DanceFlow student app supports public discovery, event registration, native in-app event payments, wallet tickets, QR codes, schedule visibility, learning content, self-service booking, lesson check-in actions, and student-facing document workflows.
-
-Students can review pending client-assigned documents from the app when those documents are available to their account.
-
-The app is designed to help dancers keep important dance information in one place.
+Studios can link clients to a student portal for schedule visibility and student-facing documents on the web.
 
 ## Partner Search and Now Hiring
 

@@ -38,7 +38,7 @@ At check-in, staff can:
 
 - Search by attendee name, email, or phone
 - Enter the ticket code manually
-- Scan the attendee QR code when QR scan mode is available
+- Scan the attendee QR code with the scanner on the event check-in page, where your device and browser allow camera access
 
 The QR code is tied to the ticket code, so scanning the QR code follows the same check-in rules as entering the code manually.
 
@@ -50,11 +50,11 @@ For group classes, attendance should be tracked per session when available.
 
 This means a student can attend one class meeting without being marked attended for every class in the series.
 
-## Duplicate check-in protection
+## Duplicate check-ins
 
-DanceFlow is designed to avoid duplicate attendance records for the same attendee and session.
+If a ticket or attendee was already checked in, DanceFlow shows a warning that it was already checked in and asks staff not to admit a duplicate ticket without verifying the attendee.
 
-If a staff member tries to check someone in more than once, the system should protect the attendance record from being duplicated.
+This is a warning for staff to act on, not a guaranteed block, so confirm the attendee before admitting them.
 
 ## Best practice
 

@@ -15,7 +15,7 @@ The goal is:
 
 **Client record in your studio + client login account = client portal access**
 
-Once linked, the client can log in through **Public Account / Client Portal** and access the portal for your studio.
+Once linked, the client can log in through **Student / Dancer** on the DanceFlow login page and access the portal for your studio.
 
 ## Invite vs link
 
@@ -41,7 +41,7 @@ Before sending the invite, confirm the client record has the correct email addre
 
 ## When to link an existing account
 
-Use linking when the client already has a DanceFlow public account or portal account using the same email address.
+Use linking when the client already has a DanceFlow public account or portal account using the same email address, and that account has verified the email. If the account has not verified that email, DanceFlow will not link it; send a portal invite instead.
 
 Use this when:
 
@@ -68,10 +68,9 @@ If the email does not match, the client may log in but not see the correct porta
 ## How to send a client portal invite
 
 1. Go to **Clients**.
-2. Open the client record.
+2. Open the client record and open the **Portal / Account** tab.
 3. Confirm the client has a valid email address.
-4. Choose the portal invite option.
-5. Send the invite.
+4. Click **Send Portal Invite**.
 
 The client will receive an email from DanceFlow with a secure sign-in link.
 
@@ -82,10 +81,9 @@ When the client clicks the link, DanceFlow should activate the session and send 
 1. Go to **Clients**.
 2. Open the client record.
 3. Confirm the email matches the account the client already uses.
-4. Use the portal linking option.
-5. Save the change.
+4. Open the **Portal / Account** tab and click **Link Existing Account**.
 
-After linking, the client can log in through **Public Account / Client Portal** and access your studio portal.
+After linking, the client can log in through **Student / Dancer** and access your studio portal.
 
 ## What the client should do
 
@@ -113,10 +111,10 @@ Ask them to check:
 
 Check:
 
-- The email on the client record matches the login email
+- The email on the client record matches the login email, and the account has verified that email
 - The client record is linked to their portal account
 - The client is not duplicated in the CRM
-- The client is using **Public Account / Client Portal**, not **Studio Login**
+- The client is using **Student / Dancer**, not **Studio**
 
 ### The client used the wrong email
 

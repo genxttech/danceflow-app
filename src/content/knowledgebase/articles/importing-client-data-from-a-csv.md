@@ -23,16 +23,14 @@ Recommended columns:
 - last_name
 - email
 - phone
-- status
-- is_independent_instructor
 
-The most important fields are first name, last name, and email. If a client does not have an email address, they may not be able to use portal access until one is added.
+First name and last name are required on every row. Email is optional, but if a client does not have an email address, they may not be able to use portal access until one is added.
 
 ## Step 1: Open the import page
 
 From your studio dashboard, go to:
 
-**Settings > Import**
+**Settings > Import existing data**
 
 ## Step 2: Upload your CSV file
 
@@ -46,7 +44,7 @@ Use **Dry Run** if you want to test the file first without adding clients.
 
 Use **Create or Update** when you are ready to add or update client records.
 
-Click **Upload**.
+Click **Review Clients File**.
 
 ## Step 3: Review the uploaded file
 
@@ -64,7 +62,6 @@ Common issues include:
 
 - Missing required fields
 - Duplicate emails
-- Invalid status values
 - Incorrect column names
 - Blank rows
 - File saved in the wrong format
@@ -75,7 +72,7 @@ After fixing the CSV, upload it again and review it.
 
 Once the file review passes, open the review page.
 
-Click **Execute Import** or **Import Ready Rows**.
+Click **Execute Client Import**.
 
 DanceFlow will add the valid client records to your studio.
 
@@ -83,7 +80,7 @@ DanceFlow will add the valid client records to your studio.
 
 Go to **Clients** and confirm the new clients appear.
 
-Check a few imported client records to make sure names, email addresses, phone numbers, and status values imported correctly.
+Check a few imported client records to make sure names, email addresses, and phone numbers imported correctly.
 
 ## Common troubleshooting
 

@@ -28,9 +28,12 @@ A simple campaign workflow is:
 3. Choose the campaign audience.
 4. Write the subject, preview text, and email body.
 5. Preview the audience.
-6. Send a test email.
-7. Review the final confirmation details.
-8. Send the campaign.
+6. Prepare the send list.
+7. Send a test email.
+8. Review the send summary and tick the confirmation box.
+9. Send the campaign.
+
+Campaign sending is not generally available yet, so you may not be able to complete the final step on your account.
 
 ## Audience preview
 
@@ -57,9 +60,9 @@ Check:
 
 Only send marketing emails to contacts you are allowed to email.
 
-DanceFlow can suppress unsubscribed contacts, but each studio is responsible for using marketing tools responsibly.
+When you prepare the send list, DanceFlow checks it against unsubscribed contacts and excludes them, but each studio is responsible for sending only to contacts it is allowed to email.
 
-Marketing emails should include the studio's required footer information and a clear unsubscribe option.
+Marketing emails include an unsubscribe link. A campaign cannot be sent until the studio's mailing address is saved in Settings for the email footer. Before sending you must tick a box confirming you are allowed to email the audience.
 
 ## Best practice
 

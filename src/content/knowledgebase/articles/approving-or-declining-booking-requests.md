@@ -13,7 +13,7 @@ Approving a booking request creates a confirmed appointment. Declining a request
 
 ## Approving a request
 
-Go to **Schedule > Requests** and open the pending request.
+Go to **Self-service Requests** (the **Schedule Requests** page) and find the request on the **Pending** tab.
 
 Before approval, review:
 
@@ -24,7 +24,7 @@ Before approval, review:
 - Lesson type
 - Notes from the client
 
-When you approve, DanceFlow performs a final conflict check. If the time is still available, the appointment is created and the request is marked approved.
+When you approve, DanceFlow performs a final conflict check. If the time is still available, the appointment is created and the request moves to the **Executed** tab.
 
 ## Declining a request
 

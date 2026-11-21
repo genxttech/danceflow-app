@@ -38,9 +38,9 @@ If the email is found in spam, ask the client to mark it as not spam.
 
 Clients should use:
 
-**Public Account / Client Portal**
+**Student / Dancer**
 
-They should not use **Studio Login** unless they are staff or an instructor with workspace access.
+They should not use **Studio** unless they are staff or an instructor with workspace access.
 
 ## Step 4: Confirm the portal is linked
 
@@ -60,7 +60,6 @@ If the client already has a DanceFlow account, use the existing account linking 
 
 ## Best practices
 
-- Use notify@idanceflow.com or another verified sender.
 - Avoid sending many repeated invites in a short time.
 - Tell clients to search for DanceFlow in their inbox.
 - Use one email per client whenever possible.

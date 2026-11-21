@@ -25,9 +25,9 @@ Public intro requests are usually for new or returning leads. Portal schedule re
 
 ## Where staff reviews requests
 
-Go to **Schedule > Requests**.
+Go to **Self-service Requests** in the menu (the **Schedule Requests** page). The **Booking Requests** button on the Schedule page opens the same page.
 
-The request queue shows pending, approved, declined, and all requests.
+The request queue has tabs for pending, executed, declined, and failed requests.
 
 Each request includes client/contact details, requested time, source, notes, instructor or room preferences when available, and current status.
 
@@ -36,9 +36,10 @@ Each request includes client/contact details, requested time, source, notes, ins
 Booking requests use these statuses:
 
 - **Pending**: needs staff review
-- **Approved**: converted into an appointment
+- **Executed**: approved and carried out on the schedule
 - **Declined**: not scheduled
+- **Failed**: the request could not be carried out
 
 ## Best practice
 
-Review pending requests daily. If a requested time works, approve it and create the appointment. If it does not work, decline it with a note and follow up with the client using another available time.
+Review pending requests daily. If a requested time works, approve it so the appointment is created. If it does not work, decline it with a note and follow up with the client using another available time.

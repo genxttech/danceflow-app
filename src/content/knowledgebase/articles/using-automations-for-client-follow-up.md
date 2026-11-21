@@ -48,9 +48,9 @@ A rule can never become more permissive than its pack.
 
 ## Autonomy is not the same as delivery permission
 
-Choosing Handle automatically does not automatically give ARIA permission to send an email or text message.
+Choosing Handle automatically does not automatically give ARIA permission to send an email.
 
-External delivery still depends on the underlying rule being explicitly allowed to send.
+External delivery still depends on the underlying rule being explicitly allowed to send. ARIA automation sends email only; it does not send text messages.
 
 ## Financial safety
 

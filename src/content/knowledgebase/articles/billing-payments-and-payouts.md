@@ -26,7 +26,7 @@ Examples:
 - Updating billing information
 - Canceling or changing a plan
 
-Subscription billing is managed from the Billing & Payouts area.
+Subscription billing is managed from the Billing & Payouts area, which only the studio owner can open.
 
 ## Client payments
 
@@ -40,15 +40,14 @@ Examples:
 - Event registrations
 - General balance payments
 
-The Client Payments page helps staff search and review payment activity.
+The Payment Ledger page (open it from Take Payment / Payouts) helps staff search and review payment activity.
 
 You can filter by:
 
-- Client
+- Search (client, description, method, or reference)
 - Date range
-- Payment status
-- Payment method
-- Source
+- Status
+- Method
 - Payment type
 
 ## Payouts

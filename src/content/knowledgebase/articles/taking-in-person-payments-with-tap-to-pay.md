@@ -43,16 +43,15 @@ A separate physical card reader is not required for Stripe Dashboard Tap to Pay.
 After the Stripe payment succeeds, open the correct area in DanceFlow:
 
 - Client profile for general client payments
-- Quick Sale & Payment for package sales or package payments
+- Sell to Client (the Sell page) for package sales or package payments
 - Memberships for membership payments
 - Schedule or Daily Closeout for lesson balances
-- Payments page for ad hoc payments
+- Take Payment for ad hoc payments (choose Record collected payment)
 - Event or door-sale tools for event-related payments, when available
 
 Use:
 
-- Payment method: Card
-- Payment channel/source: In-person or Tap to Pay, when available
+- Method: Card already collected
 - Notes: Stripe Dashboard Tap to Pay
 
 ## Why a DanceFlow record is still needed

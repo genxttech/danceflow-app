@@ -46,9 +46,9 @@ ARIA Operations shows the work produced inside those boundaries.
 
 For example:
 
-**Front Desk pack = Handle automatically**
+**Sales and Retention pack = Handle automatically**
 
-ARIA can automatically perform the safe parts of supported Front Desk workflows. A cancellation or schedule conflict that still requires judgment appears in Operations for review instead of being changed automatically.
+ARIA can automatically send email for the supported rules in that pack, such as low package balance outreach. Front Desk items, such as a cancellation or an unconfirmed appointment, are surfaced in Operations for staff to handle; ARIA does not act on them automatically.
 
 ## Rule exceptions
 

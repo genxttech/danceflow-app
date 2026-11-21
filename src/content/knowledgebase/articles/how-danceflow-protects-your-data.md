@@ -113,13 +113,13 @@ DanceFlow uses rate limits, form validation, honeypot fields, timing checks, and
 
 ## Rate limiting on high-risk actions
 
-DanceFlow limits repeated attempts on sensitive actions such as login, checkout, billing, SMS, student app requests, partner messages, AI actions, and public forms.
+DanceFlow limits repeated attempts on sensitive actions such as login, checkout, billing, SMS, student app requests, partner messages, AI actions, and public forms. These limits are currently tracked in memory on each server instance rather than shared across all of them, so they reduce abuse but are not a hard global cap.
 
 **What this helps protect against:** Brute-force attempts, repeated checkout abuse, message spam, and automated abuse.
 
 ## Safer error messages
 
-DanceFlow avoids showing sensitive system, database, payment provider, SMS provider, OAuth, or webhook details in user-facing error messages.
+DanceFlow works to avoid showing sensitive system, database, payment provider, SMS provider, OAuth, or webhook details in user-facing error messages. This is still being tightened: a few screens and API responses can show the underlying error text.
 
 **What this helps protect against:** Attackers learning internal system details from public error messages.
 

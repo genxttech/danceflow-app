@@ -13,6 +13,8 @@ SMS opt-in means a client has agreed to receive text messages from the studio or
 
 Studios should not text clients who have not given permission.
 
+Text messaging is not active yet for studios. You can record consent now, but DanceFlow does not send texts until your studio's SMS registration is approved.
+
 ## What consent should cover
 
 Consent should make it clear that the client may receive text messages about studio-related communication, such as:
@@ -31,7 +33,7 @@ Clients can use other communication methods if they do not want text messages.
 
 ## Opting out
 
-Clients can opt out of SMS messages by replying STOP. They may reply HELP for help.
+Clients can opt out of SMS messages by replying STOP, and can resubscribe by replying START. They may reply HELP for help.
 
 ## Best practice
 

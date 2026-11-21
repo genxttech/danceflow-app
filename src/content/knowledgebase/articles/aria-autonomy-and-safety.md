@@ -47,9 +47,9 @@ A rule cannot be more permissive than its operational pack.
 
 Autonomy and external delivery are separate permissions.
 
-A pack being set to Handle automatically does not give every rule permission to send email or SMS.
+A pack being set to Handle automatically does not give every rule permission to send email.
 
-A communication is sent automatically only when the underlying rule explicitly allows external delivery.
+A communication is sent automatically only when the underlying rule explicitly allows external delivery. ARIA automation sends email only; it does not send text messages.
 
 ## Financial decisions are always staff-controlled
 
