@@ -24,6 +24,17 @@ export const KB_ROLES = [
 ] as const;
 export type KnowledgebaseRole = (typeof KB_ROLES)[number];
 
+/**
+ * Which consuming surface an article may be served to (KB shared retrieval, see docs/knowledgebase/KB-Shared-Retrieval-Design.md).
+ * Empty means "not yet classified": consumers must then fall back to `visibility` and `roles` only.
+ */
+export const KB_AUDIENCES = ["public_visitor", "studio_staff", "organizer", "student"] as const;
+export type KnowledgebaseAudienceKind = (typeof KB_AUDIENCES)[number];
+
+/** How freely an article's text may be quoted by an assistant. `internal` and `restricted` never go to unauthenticated callers. */
+export const KB_SENSITIVITIES = ["public", "internal", "restricted"] as const;
+export type KnowledgebaseSensitivity = (typeof KB_SENSITIVITIES)[number];
+
 export type KnowledgebaseRequirements = {
   /** Plan or add-on the feature needs, free text for now (for example "growth", "organizer_suite"). */
   plan?: string;
@@ -42,6 +53,12 @@ export type KnowledgebaseFrontmatter = {
   status: KnowledgebaseStatus;
   roles: KnowledgebaseRole[];
   requires: KnowledgebaseRequirements;
+  /** Surfaces allowed to retrieve this article (public site, Help panel, ARIA, LUMI). Empty = unclassified. */
+  audience: KnowledgebaseAudienceKind[];
+  /** Default `public`. Anything else must be `visibility: signed_in`. */
+  sensitivity: KnowledgebaseSensitivity;
+  /** Short name used when an assistant cites this article; defaults to the title when absent. */
+  citationLabel: string | null;
   /** ISO date (YYYY-MM-DD) the article was last checked against the product. Absent means never verified. */
   lastVerified: string | null;
   /** Slugs of related articles, in display order. */
@@ -68,6 +85,9 @@ const ALLOWED_KEYS = new Set([
   "visibility",
   "status",
   "roles",
+  "audience",
+  "sensitivity",
+  "citationLabel",
   "requires",
   "lastVerified",
   "related",
@@ -150,6 +170,38 @@ export function validateFrontmatter(
     }
   }
 
+  let audience: KnowledgebaseAudienceKind[] = [];
+  if (raw.audience !== undefined) {
+    if (!isStringList(raw.audience)) {
+      fail(`"audience" must be a list`);
+    } else {
+      for (const item of raw.audience) {
+        if (!(KB_AUDIENCES as readonly string[]).includes(item)) fail(`unknown audience "${item}"`);
+      }
+      if (new Set(raw.audience).size !== raw.audience.length) fail(`"audience" has duplicates`);
+      audience = raw.audience as KnowledgebaseAudienceKind[];
+    }
+  }
+
+  let sensitivity: KnowledgebaseSensitivity = "public";
+  if (raw.sensitivity !== undefined) {
+    if (!(KB_SENSITIVITIES as readonly unknown[]).includes(raw.sensitivity)) {
+      fail(`"sensitivity" must be one of ${KB_SENSITIVITIES.join(", ")}`);
+    } else {
+      sensitivity = raw.sensitivity as KnowledgebaseSensitivity;
+    }
+  }
+  if (sensitivity !== "public" && visibility === "public") fail(`"sensitivity: ${sensitivity}" requires "visibility: signed_in"`);
+
+  let citationLabel: string | null = null;
+  if (raw.citationLabel !== undefined) {
+    if (typeof raw.citationLabel !== "string" || raw.citationLabel.trim() === "" || raw.citationLabel.length > 80) {
+      fail(`"citationLabel" must be a non-empty string of at most 80 characters`);
+    } else {
+      citationLabel = raw.citationLabel;
+    }
+  }
+
   const requires: KnowledgebaseRequirements = {};
   if (raw.requires !== undefined) {
     const value = raw.requires;
@@ -211,6 +263,6 @@ export function validateFrontmatter(
 
   return {
     ok: true,
-    value: { title, slug, category, summary, order, visibility, status, roles, requires, lastVerified, related, contexts },
+    value: { title, slug, category, summary, order, visibility, status, roles, audience, sensitivity, citationLabel, requires, lastVerified, related, contexts },
   };
 }
