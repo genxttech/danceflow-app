@@ -34,6 +34,14 @@ describe("hosted Checkout URL and network boundaries", () => {
     expect(() => assertHostedCheckoutUrl("https://checkout.stripe.com/pay/cs_test_a1B2c3#fidkd")).toThrow(/refusing/);
     expect(assertHostedCheckoutUrl("https://checkout.stripe.com/c/pay/cs_test_a1_B2c3#fidkd")).toBe("cs_test_a1_B2c3");
   });
+  it("accepts exactly one lowercase letter as the first path segment (observed in run 44855994499) and nothing longer, uppercase or numeric", () => {
+    for (const letter of ["c", "b", "a"]) expect(assertHostedCheckoutUrl(`https://checkout.stripe.com/${letter}/pay/cs_test_a1B2c3#fidkd`)).toBe("cs_test_a1B2c3");
+    for (const seg of ["cc", "C", "1", "_", "c-d", "abc"]) expect(() => assertHostedCheckoutUrl(`https://checkout.stripe.com/${seg}/pay/cs_test_a1B2c3#f`), seg).toThrow(/refusing/);
+    expect(() => assertHostedCheckoutUrl("https://checkout.stripe.com//pay/cs_test_a1B2c3#f")).toThrow(/refusing/);
+    expect(() => assertHostedCheckoutUrl("https://checkout.stripe.com/b/pay/cs_live_a1B2c3#f")).toThrow(/refusing/);
+    expect(() => assertHostedCheckoutUrl("https://evil.example/b/pay/cs_test_a1B2c3#f")).toThrow(/refusing/);
+    expect(() => assertHostedCheckoutUrl("http://checkout.stripe.com/b/pay/cs_test_a1B2c3#f")).toThrow(/refusing/);
+  });
   const leaks = (url: string) => { let m = ""; try { assertHostedCheckoutUrl(url); } catch (e) { m = (e as Error).message; } return m; };
   it("a refusal prints only fixed words: scheme, the host checkout.stripe.com, and the segments c and pay; everything else is a category and a length", () => {
     const m = leaks("https://checkout.stripe.com/c/pay/cs_live_abcdef?x=1#frag");
