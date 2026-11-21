@@ -218,6 +218,14 @@ for (const spec of FILES) {
       expect(code).not.toContain("github.event.inputs");
     });
 
+    it("validate-pin has no continue-on-error, and only the validator step can write GITHUB_OUTPUT", () => {
+      expect(JSON.stringify(validate)).not.toContain("continue-on-error");
+      expect(JSON.stringify(validate)).not.toContain("GITHUB_ENV");
+      const writers = validate.steps.filter((st) => (st.run ?? "").includes("GITHUB_OUTPUT")).map((st) => st.id);
+      expect(writers).toEqual(["validate"]);
+      expect(JSON.stringify(job)).not.toContain("GITHUB_OUTPUT");
+    });
+
     it("the secret job re-checks shape and release-branch ancestry and fetches the pin by SHA", () => {
       expect(code).toContain('git -C "$SRC" fetch -q --no-tags --depth=1 origin "$CF1_PINNED_COMMIT"');
       expect(code).toContain("checkout -q --detach FETCH_HEAD");

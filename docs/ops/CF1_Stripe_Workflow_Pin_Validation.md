@@ -1,6 +1,6 @@
 # Competition Stripe TEST workflows: validated pin (replaces the CF1_PINNED_COMMIT file edit)
 
-Scope: `.github/workflows/competition-stripe-canary.yml` and `.github/workflows/competition-stripe-test-acceptance.yml` only. No change to CODEOWNERS, branch protection, the environment, or any other workflow.
+Scope: `.github/workflows/competition-stripe-canary.yml` and `.github/workflows/competition-stripe-test-acceptance.yml` only. The only governance change is one CODEOWNERS line owner-gating the validator directory (`/scripts/qa/cf1-stripe-workflow/`); no change to branch protection, the environment, or any other workflow.
 Status: DRAFT. Nothing is activated by this change. It needs the owner's code-owner review (`/.github/` is code-owned).
 
 ## Before and after
@@ -42,7 +42,7 @@ Untrusted: the `pin` input, PR titles/bodies/commit messages (never read), the c
 | Extra commits or edits smuggled into the merge commit | Checks 4 and 5. |
 | Commit not on the live line (fork, side branch, diverged) | Check 2 (API) plus the existing git re-check in the secret job. |
 | Retroactive approval after merge; dismissed approval; later change request | Check 6 (`submitted_at <= merged_at`, latest decisive review wins, change request blocks). |
-| Edit the validator in the PR being validated | Validator and workflow run from main; `/.github/` is owner-gated; the validator directory is not yet (see Residual risks). |
+| Edit the validator in the PR being validated | Validator and workflow run from main; `/.github/` is owner-gated; the validator directory is owner-gated by the CODEOWNERS line added here (see Residual risks). |
 | API outage or partial data | Fail closed; nothing runs, no approval requested. |
 | Approver is a bot / author approves own PR | Excluded (check 6). |
 
@@ -56,7 +56,15 @@ What a validator bug would allow, in the worst case: the owner is shown a PASSED
 - Files with no patch (binary/oversize) pass only when the PR-head and merge-commit blob shas are equal; a missing blob sha fails.
 - The ancestry compare uses `heads/<branch>`, so a tag with the branch's name cannot satisfy it.
 - FIRST ACTIVATION is a dry run: dispatch with a known-good pin (PR 737's merge commit) and REJECT at the environment prompt. The `github.token` read access to `commits/{sha}/pulls`, reviews and compare is unverified in Actions (only verified with the App token); if it cannot read, the validator fails closed and nothing runs.
-- `concurrency` (group per workflow, `cancel-in-progress: false`) keeps one run at a time; a newer dispatch replaces a PENDING (awaiting approval) run rather than queueing behind it, so a stale validated pin cannot be approved after a newer dispatch.
+
+### Activation checklist
+1. Merge #740 only after the final-head review and the owner's code-owner approval at that exact head.
+2. Dry run first: dispatch the canary with PR 737's merge commit (`127994122ea5ad1309a4cd80f171cba46a4f3642`); confirm `validate-pin` PASSES using `github.token` (proves it can read commit pulls, reviews and compare), then REJECT at the environment prompt.
+3. Only then dispatch with the real pin and approve after comparing the sha in the prompt.
+
+### Evidence
+Dry-run evidence against the real API (positive, negative, injected failures, tests) is recorded as a comment on the PR. It found and fixed one validator bug (approval judged as of the merge, PR 690).
+- Concurrency does not protect against a stale pin: a validated run may sit awaiting approval, and an older validated pin can still be approved. At the environment prompt compare the commit sha (run name and summary) with the intended commit.
 - "Code owner" is the set of user owners of the `/.github/` rule (currently `genxttech`); team owners are ignored. A PR needing a different owner for other paths is still accepted if the `/.github/` owner approved it.
 - Dismissal and review state are read at dispatch time; a review dismissed between validation and the owner's click is not noticed (the commit was valid when shown).
 - Squash/merge commits only (see above). Rebase merges and merge queues fail closed.
