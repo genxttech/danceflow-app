@@ -37,9 +37,13 @@ Supabase): the authenticated organizer walkthrough and the verified *this is me*
 
 ## Organizer expectations for launch
 
-- **Refunds are whole-order.** A staff refund of a competition registration refunds the entire purchase
-  and withdraws all of its entries. Refunding one entry of a multi-entry order is not supported yet
-  (Event / Competition Refund Integrity follow-up). Nothing in the buyer UI promises per-entry refunds.
+- **Refunds are Stripe-dashboard only, whole-order (until CI-D / R2).** Since PAY-WH-1A, DanceFlow refuses
+  staff refunds of order-backed registrations (`order_backed_registration_payment_locked`), so there is no
+  in-app refund for a competition order. A refund made in the Stripe dashboard is recorded order-wide: a full
+  refund withdraws every entry of the order; a partial refund marks the registration partially paid and
+  changes no entry. Refunding one entry of a multi-entry order is designed in
+  [`r2-entry-refunds.md`](r2-entry-refunds.md) and not yet available. Nothing in the buyer UI promises
+  per-entry refunds.
 - **Waivers are signed by the buyer.** The registration contact signs each required document once for the
   whole purchase (the signing page labels the signer *Event attendee* until they type their name). For a
   parent registering a child or a studio registering its dancers this is the usual practice; events that
@@ -54,4 +58,4 @@ Supabase): the authenticated organizer walkthrough and the verified *this is me*
 2. Authenticated organizer walkthrough on DEV/preview (Competitions → New Competition → wizard → Open /
    Close / Reopen → Event details → back).
 3. Verified *this is me* buyer path on DEV/preview.
-4. Owner acceptance of whole-order refunds and buyer-signed waivers for the first events.
+4. Owner acceptance of Stripe-dashboard whole-order refunds (until CI-D / R2) and buyer-signed waivers for the first events.
