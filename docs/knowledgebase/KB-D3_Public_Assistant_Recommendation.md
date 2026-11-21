@@ -76,6 +76,20 @@ Because the content is itself stale in places (KB-1 §2), better retrieval would
 3. **Coordinate** metering with the ai-entitlements session so the public assistant either has an explicit "free tier" budget or is gated like other AI features. Do not build a second accounting path.
 4. Re-run the retrieval evaluation after D7/KB-2C content changes and after any ranker change; keep the question set in the repository.
 
+## 5a. URGENT item: minimal Git-only guard proposal (added 2026-11-21)
+
+The ai-entitlements audit (PR #757) independently found the same exposure: the action has no authentication, rate limit, metering or input-length cap, and each model call sends roughly 6.5k input tokens (up to 8 articles of up to 3,200 characters). `OPENAI_API_KEY` and `AI_FEATURES_ENABLED` exist in the production environment, so if the flag is `true` there, anyone can spend provider budget with a script. Nothing here changes assistant behaviour; this is a proposal for one small follow-up PR (Git-only, no SQL, no env change):
+
+1. **Fail closed.** Add a single kill switch checked first, `KB_ASSISTANT_MODEL_ENABLED` (default off). With it off, the action keeps today's no-model path: matching articles are returned as links, no provider call is made. `AI_FEATURES_ENABLED` alone no longer enables the public model call.
+2. **Input cap.** Reject questions over 300 characters before scoring; trim and collapse whitespace.
+3. **Rate limit.** Use the shared `checkRateLimit` with `getServerActionRateLimitKey` (as other AI actions do), keyed by client IP, for example 5 model calls per minute and 30 per hour. The helper is per-instance in memory, so treat it as a speed bump, not a budget. On limit: return the article links without a model call (no error page).
+4. **Durable ceiling (needs owner OK on storage).** A global daily model-call budget (for example 500 calls/day) enforced by a counter that survives instances. The existing durable rate-limit or usage tables are SQL; if no existing durable store is acceptable, ship 1-3 first and take 4 to the ai-entitlements session so there is one accounting path.
+5. **Timeout and errors.** `AbortSignal.timeout(8000)` on the provider fetch and a try/catch that falls back to the link-only answer; cap `max_output_tokens` at 400.
+6. **Trim the prompt.** Send at most 3 articles of at most 1,500 characters each (about 1.5k tokens), which also reduces the cost per call by roughly 75%.
+7. **Tests.** Unit tests for: kill switch off makes no `fetch`; over-length rejected; rate-limited request makes no `fetch`; provider error and timeout fall back to links; exact-title search still works with the model off.
+
+Order of exposure reduction: item 1 alone closes the cost exposure; items 2-3 and 5-6 bound it if the model is turned on deliberately. A production read of `AI_FEATURES_ENABLED` and the provider spend limit (owner decision 2 below) remains the fastest way to learn whether the exposure is live today.
+
 ## 6. Decisions needed from the owner
 
 1. Is the public assistant meant to exist at all (A/B) or should it be retired (C)?
