@@ -266,6 +266,31 @@ function dropLogNoise(text, keep = 3000) {
 /** The four Phase 1A write words, the same keys as the server gate (src/lib/staff/writeGuard.ts) and the app flags (src/lib/features.ts). */
 const WRITE_WORDS = ["appointmentAttendance", "clientNotes", "clientCreate", "classRoster"];
 
+/**
+ * Seed statements for the --writes flows, run once after the standard seed (disposable stack only). Pure strings so they can be validated against a real database
+ * without the emulator (each `expect` is a count query and the number it must return).
+ *  1. lessons are free/comped, so "attended" needs no payment and a package charge has nothing to take from (the charge_failed scenario);
+ *  2. clients are ACTIVE: the staff client search lists active clients only (Staff_API_Contract), and seeded clients start as leads;
+ *  3. two more open private lessons, clones of the 10:00 one at 14:00 (Colin) and 15:00 (Ana), for the outcome_conflict and charge_failed scenarios.
+ */
+const WRITES_SEED = [
+  { sql: "update public.appointments set billing_type='free_comped' where appointment_type in ('private_lesson','intro_lesson')", expect: null },
+  { sql: "update public.clients set status='active'", expect: null },
+  ...[[4, "Colin"], [5, "Ana"]].map(([hours, client]) => ({
+    // an explicit column list: duration_minutes (and others) are generated columns and cannot be copied (run 2 never had these lessons; found by validating the seed on a real stack)
+    sql: `insert into public.appointments (id, studio_id, instructor_id, appointment_type, client_id, room_id, starts_at, ends_at, title, notes, status, price_amount, billing_type) select gen_random_uuid(), a.studio_id, a.instructor_id, a.appointment_type, (select id from public.clients where first_name='${client}' and studio_id=a.studio_id limit 1), a.room_id, a.starts_at + interval '${hours} hours', a.ends_at + interval '${hours} hours', a.title, a.notes, 'scheduled', a.price_amount, a.billing_type from public.appointments a where a.appointment_type='private_lesson' and a.status='scheduled' and a.starts_at = (select min(starts_at) from public.appointments where appointment_type='private_lesson' and status='scheduled' and studio_id=a.studio_id and instructor_id=a.instructor_id and starts_at::date = a.starts_at::date) and a.studio_id=(select id from public.studios where name='Maple Street Dance' limit 1) limit 1`,
+    expect: null,
+  })),
+];
+/** Counts that must hold after WRITES_SEED (name, query, expected). */
+const WRITES_SEED_CHECKS = [
+  ["four open private lessons in the Maple Street studio (the seed's two plus the two clones)", "select count(*) from public.appointments where appointment_type='private_lesson' and status in ('scheduled','confirmed') and studio_id=(select id from public.studios where name='Maple Street Dance' limit 1)", "4"],
+  ["a 2:00 PM Colin lesson that is open", "select count(*) from public.appointments a join public.clients c on c.id=a.client_id where a.appointment_type='private_lesson' and a.status='scheduled' and c.first_name='Colin' and (a.starts_at at time zone 'America/New_York')::time = time '14:00'", "1"],
+  ["a 3:00 PM Ana lesson that is open", "select count(*) from public.appointments a join public.clients c on c.id=a.client_id where a.appointment_type='private_lesson' and a.status='scheduled' and c.first_name='Ana' and (a.starts_at at time zone 'America/New_York')::time = time '15:00'", "1"],
+  ["no lesson has a package linked (a package charge cannot succeed: charge_failed)", "select count(*) from public.appointments where appointment_type='private_lesson' and client_package_id is not null", "0"],
+  ["every seeded client is active", "select count(*) from public.clients where status <> 'active'", "0"],
+];
+
 /** The exact check names (device-smoke.js --writes) that must all pass for a write word to be called proven. */
 const WRITE_CAPABILITY_CHECKS = {
   clientCreate: ["writes: quick-add client creates and opens the client", "writes: the same phone again offers the existing client (duplicate_client)"],
@@ -296,4 +321,4 @@ function writesEvidence({ date, commit, web, results, capabilityChecks, runOk })
   return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
 }
 
-module.exports = { WRITE_WORDS, WRITE_CAPABILITY_CHECKS, writesEvidence, dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+module.exports = { WRITES_SEED, WRITES_SEED_CHECKS, WRITE_WORDS, WRITE_CAPABILITY_CHECKS, writesEvidence, dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };

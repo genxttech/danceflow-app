@@ -311,3 +311,26 @@ describe("--writes evidence versus the real flows and the release build gate", (
     expect(gate(oneFailed, "clientNotes", SHA)).toBe("REFUSED: Refusing: the write evidence does not say RESULT: PASS.");
   });
 });
+
+describe("--writes seed (validated against a real iso-qa database)", () => {
+  it("copies lessons with an explicit column list (a generated column such as duration_minutes cannot be copied: run 2 never had these lessons)", () => {
+    const inserts = lib.WRITES_SEED.filter((s: { sql: string }) => s.sql.startsWith("insert into public.appointments"));
+    expect(inserts).toHaveLength(2);
+    for (const { sql } of inserts) {
+      expect(sql).toMatch(/insert into public\.appointments \(id, studio_id, instructor_id, appointment_type, client_id, room_id, starts_at, ends_at, title, notes, status, price_amount, billing_type\)/);
+      expect(sql).not.toContain("jsonb_populate_record");
+      expect(sql).not.toContain("duration_minutes");
+    }
+  });
+  it("makes clients active (the search lists active clients only) and lessons free/comped, and states what must hold afterwards", () => {
+    const all = lib.WRITES_SEED.map((s: { sql: string }) => s.sql).join("\n");
+    expect(all).toContain("update public.clients set status='active'");
+    expect(all).toContain("billing_type='free_comped'");
+    expect(lib.WRITES_SEED_CHECKS.length).toBeGreaterThanOrEqual(5);
+    for (const [name, query, want] of lib.WRITES_SEED_CHECKS) {
+      expect(name.length).toBeGreaterThan(5);
+      expect(query).toMatch(/^select count\(\*\)/);
+      expect(want).toMatch(/^\d+$/);
+    }
+  });
+});
