@@ -61,6 +61,12 @@ function run(cmd, args, o = {}) {
 }
 const adb = (...args) => run(ADB, args);
 const sh = (cmd) => adb("shell", cmd).stdout.replace(/\r/g, "").trim();
+/** Like psql but a failed statement stops the run, naming it: a seed statement that silently did nothing must never turn into a misleading on-screen failure later. */
+function psqlOk(sql) {
+  const r = psql(sql);
+  if (r.status !== 0) throw new Error(`seed SQL failed: ${sql.slice(0, 80)}... ${r.stderr.slice(-300)}`);
+  return r.stdout.trim();
+}
 const psql = (sql) => run("docker", ["exec", "-i", `df-isoqa-${opts.stackName}-db`, "psql", "-U", "postgres", "-At", "-q", "-v", "ON_ERROR_STOP=1", "-c", sql]);
 
 // ---------------------------------------------------------------- device helpers
@@ -654,12 +660,10 @@ async function writeFlows(owner) {
   await signIn(owner);
 
   // seed for the flows: free/comped lessons so "attended" needs no payment, a free-comped path for enrolment
-  psql("update public.appointments set billing_type='free_comped' where appointment_type in ('private_lesson','intro_lesson')");
-  // the client search lists ACTIVE clients only (Staff_API_Contract: front-desk search), and seeded clients start as leads
-  psql("update public.clients set status='active'");
-  // two more open lessons (clones of the first one, 4 and 5 hours later, other clients) for the conflict and failed-charge scenarios
-  for (const [hours, client] of [[4, 'Colin'], [5, 'Ana']]) {
-    psql(`insert into public.appointments select (jsonb_populate_record(null::public.appointments, to_jsonb(a) || jsonb_build_object('id', gen_random_uuid(), 'client_id', (select id from public.clients where first_name='${client}' and studio_id=a.studio_id limit 1), 'starts_at', a.starts_at + interval '${hours} hours', 'ends_at', a.ends_at + interval '${hours} hours', 'status', 'scheduled'))).* from public.appointments a where a.appointment_type='private_lesson' and a.status='scheduled' order by a.starts_at limit 1`);
+  for (const step of lib.WRITES_SEED) psqlOk(step.sql);
+  for (const [name, query, want] of lib.WRITES_SEED_CHECKS) {
+    const got = psqlOk(query);
+    if (got !== want) throw new Error(`seed check failed: ${name} (got ${got}, wanted ${want})`);
   }
 
   await check("writes: quick-add client creates and opens the client", async () => {
@@ -721,7 +725,7 @@ async function writeFlows(owner) {
 
   await check("writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", async () => {
     await home();
-    await tapLabel(/2:00 PM.*Colin Marsh/, { timeout: 30000 }); // not the cancelled 1:00 PM intro lesson
+    await tapLabel(/2:00\sPM.*Colin Marsh.*Private lesson/, { timeout: 30000 }); // not the cancelled 1:00 PM intro lesson
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     // someone else records it while this screen is open
     psql("update public.appointments set status='attended' where appointment_type='private_lesson' and client_id=(select id from public.clients where first_name='Colin' and last_name='Marsh' limit 1)");
@@ -733,7 +737,7 @@ async function writeFlows(owner) {
 
   await check("writes: a no-show whose charge could not be applied says so and offers Try again", async () => {
     await home();
-    await tapLabel(/3:00 PM.*Ana Rivera/, { timeout: 30000 });
+    await tapLabel(/3:00\sPM.*Ana Rivera.*Private lesson/, { timeout: 30000 });
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     await tapLabel("No-show", { scroll: true });
     await tapLabel(/^Use a package credit/, { timeout: 30000 });
@@ -743,7 +747,7 @@ async function writeFlows(owner) {
   });
 
   // Zed was created as a lead; the client list shows active clients only
-  psql("update public.clients set status='active'");
+  psqlOk("update public.clients set status='active'");
 
   await check("writes: add a dancer to the class roster", async () => {
     await home();
