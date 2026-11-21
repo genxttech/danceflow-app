@@ -23,7 +23,7 @@ import { StaffApiError, staffErrorKind, type StaffErrorKind } from "@/lib/staffA
 
 export const MUTATION_TIMEOUT_MS = 15_000;
 
-export type MutationFailureKind = StaffErrorKind | "offline" | "timeout";
+export type MutationFailureKind = StaffErrorKind | "offline" | "timeout" | "sync_pending";
 
 export type MutationFailure = {
   kind: MutationFailureKind;
@@ -37,6 +37,11 @@ export type MutationFailure = {
   /** 409 with a slice code: the raw code and the server's current state, for reconciling. */
   conflict?: { serverCode: string | null; current: unknown };
 };
+
+/** Whether a failure is a 409 the server answered with a specific code (for screens that word those themselves). */
+export function failureServerCode(failure: MutationFailure): string | null {
+  return failure.conflict?.serverCode ?? null;
+}
 
 export type MutationState<R> =
   | { status: "idle" }
@@ -63,6 +68,8 @@ export function classifyFailure(error: unknown): MutationFailure {
   if (!(error instanceof StaffApiError)) return { kind: "unavailable", error, unconfirmed: true, retryable: true };
 
   const kind = staffErrorKind(error);
+  // The server recorded the change but a follow-up step (a package or membership deduction) did not finish: the change stands, repeating the same request finishes it.
+  if (error.code === "conflict" && error.extra?.serverCode === "usage_sync_pending") return { kind: "sync_pending", error, unconfirmed: true, retryable: true };
   if (error.code === "network_error") return { kind: "offline", error, unconfirmed: true, retryable: true };
   if (error.code === "unexpected_response") return { kind: "unavailable", error, unconfirmed: true, retryable: true };
 

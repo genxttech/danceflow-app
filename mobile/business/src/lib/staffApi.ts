@@ -202,6 +202,8 @@ const CONFLICT_CODES: readonly string[] = [
   "attendee_attendance_recorded",
   "duplicate_client",
   "terminal_outcome",
+  "usage_sync_pending",
+  "charge_failed",
 ];
 
 /** The server's `code` decides; the status is only a fallback for a body without one. */
@@ -365,6 +367,10 @@ export type NewClientInput = {
   allowDuplicatePhone?: boolean;
 };
 
+export type AppointmentOutcome = "attended" | "no_show";
+export type MissedCharge = "none" | "package" | "membership";
+export type OutcomeResult = { id: string; status: string; alreadyApplied: boolean };
+
 export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
@@ -385,6 +391,13 @@ export type StaffApi = {
     status: AttendanceMark,
     idempotencyKey: string,
   ) => Promise<AttendanceResult>;
+  /** Phase 1A S1: PUT /workspaces/{id}/appointments/{appointmentId}/attendance. One-to-one lessons only. Attended and no-show are FINAL (409 outcome_conflict on a flip); there is no reset. */
+  setAppointmentOutcome: (
+    studioId: string,
+    appointmentId: string,
+    input: { status: AppointmentOutcome; missedAppointmentCharge?: MissedCharge },
+    idempotencyKey: string,
+  ) => Promise<OutcomeResult>;
   /** Phase 1A C1: POST /workspaces/{id}/clients/{clientId}/notes. `noteId` is generated once per note and resent on retries; 201 new, 200 replay. Owner, admin, front desk. */
   addClientNote: (
     studioId: string,
@@ -624,6 +637,16 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     },
     client: async (studioId, clientId) =>
       toClientDetail(await call<unknown>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}`)),
+    setAppointmentOutcome: async (studioId, appointmentId, input, idempotencyKey) => {
+      const raw = await call<{ appointment?: Record<string, unknown> }>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}/attendance`, {
+        method: "PUT",
+        body: input,
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      const a = raw.appointment;
+      if (!a || typeof a.status !== "string") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { id: typeof a.id === "string" ? a.id : appointmentId, status: a.status, alreadyApplied: a.alreadyApplied === true };
+    },
     addClientNote: async (studioId, clientId, input, idempotencyKey) => {
       const raw = await call<{ note?: Record<string, unknown> }>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}/notes`, {
         method: "POST",

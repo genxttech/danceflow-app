@@ -202,6 +202,22 @@ describe("unknown outcomes keep the optimistic value and retry with the SAME key
   });
 });
 
+describe("server-named conflicts", () => {
+  it("usage_sync_pending: the change stands, so it is unconfirmed and retryable, and nothing is rolled back", async () => {
+    const err = apiError(409, "conflict", { serverCode: "usage_sync_pending" });
+    expect(classifyFailure(err)).toMatchObject({ kind: "sync_pending", unconfirmed: true, retryable: true });
+    const { hook, optimistic } = setup(jest.fn(async () => Promise.reject(err)));
+    await act(async () => {
+      hook.result.current.submit("a");
+    });
+    expect(optimistic.rollback).not.toHaveBeenCalled();
+    expect(hook.result.current.state).toMatchObject({ status: "failed", kind: "sync_pending" });
+  });
+  it("other 409 codes stay conflicts with their raw code", () => {
+    expect(classifyFailure(apiError(409, "conflict", { serverCode: "payment_required" }))).toMatchObject({ kind: "conflict", retryable: false, conflict: { serverCode: "payment_required" } });
+  });
+});
+
 describe("timeout", () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());

@@ -59,6 +59,7 @@ describe("ConfirmSheet", () => {
 const FAILURE_KINDS: MutationFailureKind[] = [
   "offline",
   "timeout",
+  "sync_pending",
   "unavailable",
   "rate_limited",
   "conflict",
@@ -76,7 +77,7 @@ const FAILURE_KINDS: MutationFailureKind[] = [
 ];
 
 function failed(kind: MutationFailureKind, over: Record<string, unknown> = {}): MutationState<unknown> {
-  const unconfirmed = kind === "offline" || kind === "timeout";
+  const unconfirmed = kind === "offline" || kind === "timeout" || kind === "sync_pending";
   return { status: "failed", kind, error: new Error("x"), unconfirmed, retryable: unconfirmed || kind === "rate_limited" || kind === "unavailable", ...over } as MutationState<unknown>;
 }
 
@@ -98,7 +99,7 @@ describe("MutationNotice", () => {
     for (const kind of FAILURE_KINDS) {
       const copy = mutationFailureCopy({ kind, unconfirmed: kind === "offline" || kind === "timeout", retryAfterSeconds: undefined });
       expect(copy.title.length).toBeGreaterThan(3);
-      expect(copy.body).toMatch(/Nothing was changed|saved|turned off|Update it|Refresh|can't tell|unavailable/i);
+      expect(copy.body).toMatch(/Nothing was changed|saved|recorded|turned off|Update it|Refresh|can't tell|unavailable/i);
       seen.add(`${copy.title}|${copy.body}`);
     }
     expect(seen.size).toBeGreaterThanOrEqual(14);
