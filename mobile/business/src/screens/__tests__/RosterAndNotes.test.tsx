@@ -97,6 +97,21 @@ describe("roster: add a dancer", () => {
     expect(screen.getByTestId("roster-capacity").props.children).toBe("3 of 10 booked");
   });
 
+  it("labels a lead in the picker and can enrol one", async () => {
+    const api = await renderClass({ searchClients: jest.fn(async () => ({ clients: [{ id: "c9", firstName: "Zed", lastName: "Newperson", status: "lead" }], nextCursor: null })) });
+    fireEvent.press(screen.getByLabelText("Add a dancer"));
+    fireEvent.changeText(screen.getByTestId("dancer-search"), "zed");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    expect(screen.getByLabelText("Zed Newperson, Lead")).toBeTruthy();
+    fireEvent.press(screen.getByTestId("dancer-c9"));
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText("Add to class"));
+    });
+    expect((api.enrollInClass.mock.calls[0] as unknown as [string, string, Record<string, unknown>])[2]).toMatchObject({ clientId: "c9" });
+  });
+
   it("sends the chosen way to pay", async () => {
     const api = await renderClass();
     await chooseDee();
