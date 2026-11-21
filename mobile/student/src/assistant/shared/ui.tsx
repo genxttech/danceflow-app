@@ -1,6 +1,6 @@
 // GENERATED from mobile/shared/assistant/ by mobile/shared/sync-assistant.js. Do not edit here; edit the source and re-run.
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { createElement, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type TextProps } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MAX_MESSAGE_LENGTH, useAssistant, useAssistantOptional } from "./provider";
 import type { AssistantErrorKind, AssistantMessage, ResolvedLink } from "./types";
@@ -21,6 +21,12 @@ export interface AssistantTheme {
   readonly onPrimary: string;
   readonly danger: string;
   readonly scrim: string;
+  /** Max system font-scale multiplier for assistant text (Dancer caps at 1.35 like AppText; omit to follow the system scale). */
+  readonly fontCap?: number;
+}
+
+function AText({ cap, ...props }: TextProps & { cap?: number }) {
+  return createElement(Text, cap ? { maxFontSizeMultiplier: cap, ...props } : props);
 }
 
 const MIN_TOUCH = 44;
@@ -69,7 +75,7 @@ export function AssistantLauncher({ theme, bottomOffset = 0 }: { theme: Assistan
         style={[styles.launcher, { backgroundColor: theme.primary, borderColor: theme.border }]}
         testID="assistant-launcher"
       >
-        <Text style={[styles.launcherText, { color: theme.onPrimary }]}>{api.config.avatarInitials}</Text>
+        <AText cap={theme.fontCap} style={[styles.launcherText, { color: theme.onPrimary }]}>{api.config.avatarInitials}</AText>
       </Pressable>
     </View>
   );
@@ -87,21 +93,21 @@ function Bubble({ message, theme, onLink, onRetry, name }: { message: AssistantM
   if (message.status === "error") {
     return (
       <View style={[styles.bubble, styles.theirs, { backgroundColor: theme.surface, borderColor: theme.danger }]} accessibilityRole="alert">
-        <Text style={[styles.body, { color: theme.text }]}>{ERROR_COPY[message.errorKind ?? "unknown"]}</Text>
+        <AText cap={theme.fontCap} style={[styles.body, { color: theme.text }]}>{ERROR_COPY[message.errorKind ?? "unknown"]}</AText>
         <Pressable accessibilityRole="button" accessibilityLabel="Retry" onPress={onRetry} style={[styles.chip, { borderColor: theme.primary }]}>
-          <Text style={[styles.chipText, { color: theme.primary }]}>Retry</Text>
+          <AText cap={theme.fontCap} style={[styles.chipText, { color: theme.primary }]}>Retry</AText>
         </Pressable>
       </View>
     );
   }
   return (
     <View style={[styles.bubble, mine ? styles.mine : styles.theirs, mine ? { backgroundColor: theme.primary, borderColor: theme.primary } : { backgroundColor: theme.surface, borderColor: theme.border }]}>
-      <Text selectable style={[styles.body, { color: mine ? theme.onPrimary : theme.text }]}>
+      <AText cap={theme.fontCap} selectable style={[styles.body, { color: mine ? theme.onPrimary : theme.text }]}>
         {message.text}
-      </Text>
+      </AText>
       {message.links?.map((link) => (
         <Pressable key={`${link.target}-${link.href}`} accessibilityRole="link" accessibilityLabel={link.label} onPress={() => onLink(link)} style={[styles.chip, { borderColor: theme.primary }]}>
-          <Text style={[styles.chipText, { color: theme.primary }]}>{link.label}</Text>
+          <AText cap={theme.fontCap} style={[styles.chipText, { color: theme.primary }]}>{link.label}</AText>
         </Pressable>
       ))}
     </View>
@@ -145,10 +151,10 @@ export function AssistantSheet({ theme, onNavigate }: { theme: AssistantTheme; o
         >
           <View style={styles.header}>
             <View style={styles.headerTitle}>
-              <Text accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
+              <AText cap={theme.fontCap} accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
                 {api.config.name}
-              </Text>
-              {api.screenLabel ? <Text style={[styles.caption, { color: theme.muted }]}>{`Helping with: ${api.screenLabel}`}</Text> : null}
+              </AText>
+              {api.screenLabel ? <AText cap={theme.fontCap} style={[styles.caption, { color: theme.muted }]}>{`Helping with: ${api.screenLabel}`}</AText> : null}
             </View>
             <HeaderButton theme={theme} label={full ? "Show as sheet" : "Expand to full screen"} text={full ? "Shrink" : "Expand"} onPress={() => api.setMode(full ? "sheet" : "full")} />
             {api.messages.length > 0 ? <HeaderButton theme={theme} label="Clear conversation" text="Clear" onPress={api.clear} /> : null}
@@ -158,11 +164,11 @@ export function AssistantSheet({ theme, onNavigate }: { theme: AssistantTheme; o
           <ScrollView ref={scroll} style={styles.list} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
             {api.messages.length === 0 ? (
               <View accessible={false}>
-                <Text style={[styles.body, { color: theme.text }]}>{api.config.introText}</Text>
-                <Text style={[styles.caption, { color: theme.muted }]}>{api.config.disclaimer}</Text>
+                <AText cap={theme.fontCap} style={[styles.body, { color: theme.text }]}>{api.config.introText}</AText>
+                <AText cap={theme.fontCap} style={[styles.caption, { color: theme.muted }]}>{api.config.disclaimer}</AText>
                 {api.suggestions.map((s) => (
                   <Pressable key={s.id} accessibilityRole="button" accessibilityLabel={s.text} onPress={() => submit(s.text)} style={[styles.suggestion, { borderColor: theme.border, backgroundColor: theme.surface }]}>
-                    <Text style={[styles.body, { color: theme.text }]}>{s.text}</Text>
+                    <AText cap={theme.fontCap} style={[styles.body, { color: theme.text }]}>{s.text}</AText>
                   </Pressable>
                 ))}
               </View>
@@ -197,7 +203,7 @@ export function AssistantSheet({ theme, onNavigate }: { theme: AssistantTheme; o
             />
             {lastIsPending ? (
               <Pressable accessibilityRole="button" accessibilityLabel="Stop" onPress={api.cancel} style={[styles.send, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Text style={[styles.sendText, { color: theme.text }]}>Stop</Text>
+                <AText cap={theme.fontCap} style={[styles.sendText, { color: theme.text }]}>Stop</AText>
               </Pressable>
             ) : (
               <Pressable
@@ -208,7 +214,7 @@ export function AssistantSheet({ theme, onNavigate }: { theme: AssistantTheme; o
                 onPress={() => submit(draft)}
                 style={[styles.send, { backgroundColor: theme.primary, borderColor: theme.primary, opacity: draft.trim() ? 1 : 0.5 }]}
               >
-                <Text style={[styles.sendText, { color: theme.onPrimary }]}>Send</Text>
+                <AText cap={theme.fontCap} style={[styles.sendText, { color: theme.onPrimary }]}>Send</AText>
               </Pressable>
             )}
           </View>
@@ -221,7 +227,7 @@ export function AssistantSheet({ theme, onNavigate }: { theme: AssistantTheme; o
 function HeaderButton({ theme, label, text, onPress }: { theme: AssistantTheme; label: string; text: string; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={styles.headerButton} hitSlop={4}>
-      <Text style={[styles.chipText, { color: theme.primary }]}>{text}</Text>
+      <AText cap={theme.fontCap} style={[styles.chipText, { color: theme.primary }]}>{text}</AText>
     </Pressable>
   );
 }

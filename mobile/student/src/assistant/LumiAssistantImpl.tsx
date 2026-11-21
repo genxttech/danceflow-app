@@ -46,6 +46,7 @@ function Overlay() {
     onPrimary: colors.onPrimary,
     danger: colors.danger,
     scrim: "rgba(0,0,0,0.4)",
+    fontCap: 1.35,
   };
   const hidden = HIDDEN.some((p) => pathname.includes(p));
   // Sit above the tab bar (its height without the inset, which the launcher adds itself).

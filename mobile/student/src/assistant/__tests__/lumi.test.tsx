@@ -70,3 +70,11 @@ describe("route to screen context", () => {
     expect(sanitizeScreenContext(lumiConfig, descriptorForRoute("/events/x", { id: "x" }))).toEqual({ screenId: "event-detail" });
   });
 });
+
+describe("LUMI assistant text cap", () => {
+  it("Dancer maps the same 1.35 font-scale cap as AppText into the shared UI", () => {
+    const fs = require("fs") as typeof import("fs");
+    const path = require("path") as typeof import("path");
+    expect(fs.readFileSync(path.join(__dirname, "..", "LumiAssistantImpl.tsx"), "utf8")).toContain("fontCap: 1.35");
+  });
+});
