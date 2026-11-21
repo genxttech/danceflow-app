@@ -7,7 +7,7 @@ let mockSession: { user: { id: string } } | null = { user: { id: "u1" } };
 const mockAccess = jest.fn();
 jest.mock("expo-router", () => ({ router: { push: jest.fn() }, usePathname: () => mockPath, useGlobalSearchParams: () => ({}) }));
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
-jest.mock("@react-native-async-storage/async-storage", () => require("@react-native-async-storage/async-storage/jest/async-storage-mock"));
+jest.mock("@react-native-async-storage/async-storage", () => jest.requireActual("@react-native-async-storage/async-storage/jest/async-storage-mock"));
 jest.mock("@/lib/fontScale", () => ({ useFontScale: () => 1 }));
 jest.mock("@/lib/auth", () => ({ useAuth: () => ({ session: mockSession }) }));
 jest.mock("@/lib/studentAccess", () => ({ getStudentAccess: (...a: unknown[]) => mockAccess(...a) }));
