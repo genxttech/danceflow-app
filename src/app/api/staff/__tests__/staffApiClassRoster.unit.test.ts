@@ -121,7 +121,7 @@ describe("class roster routes", () => {
     ["entitlement_exhausted", 409, "entitlement_exhausted"],
     ["membership_not_active", 409, "membership_not_active"],
     ["ambiguous_funding_source", 409, "ambiguous_funding_source"],
-    ["enrollment_failed", 503, "service_unavailable"],
+    ["enrollment_failed", 409, "enrollment_failed"],
   ])("maps the enroll refusal %s to %i %s", async (reason, status, expected) => {
     mocks.enroll.mockResolvedValue({ ok: false, reason });
     const response = await post({ clientId: CLIENT });

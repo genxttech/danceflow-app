@@ -81,7 +81,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ stu
       return staffConflict("already_enrolled", "That dancer is already enrolled in this class.", null);
     }
     if (CONFLICTS[reason]) return staffConflict(reason, CONFLICTS[reason], null);
-    throw new Error(`Enroll failed: ${reason}`);
+    // Any other refusal is the database declining this enrollment (a deterministic rule, not an outage): a generic 409, never the database text.
+    return staffConflict("enrollment_failed", "This dancer can't be enrolled in this class.", null);
   } catch (failure) {
     return staffApiUnavailable(new URL(request.url).pathname, failure);
   }

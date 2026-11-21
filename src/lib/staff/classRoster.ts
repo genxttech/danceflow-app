@@ -41,6 +41,21 @@ export async function enrollClassAttendee(params: {
     return { ok: false, reason: "membership_requires_selection" };
   }
 
+  // A replay of a request that already succeeded must not reach the RPC: its capacity / cancelled-class / funding checks count the dancer's own booked row or re-evaluate
+  // entitlements, so a retry could answer class_full, class_cancelled or a funding refusal instead of the success. The read is the caller's (RLS), so it only ever
+  // finds a row the caller may see. A replay carrying different funding fields returns the existing attendee unchanged (documented in the contract).
+  if (params.treatAlreadyEnrolledAsSuccess) {
+    const { data: existing } = await supabase
+      .from("appointment_attendees")
+      .select("id")
+      .eq("studio_id", studioId)
+      .eq("appointment_id", appointmentId)
+      .eq("client_id", clientId)
+      .eq("status", "booked")
+      .maybeSingle<{ id: string }>();
+    if (existing) return { ok: true, attendeeId: existing.id, alreadyEnrolled: true };
+  }
+
   const { data: enrolledAttendeeId, error } = await supabase.rpc("enroll_class_attendee", {
     p_appointment_id: appointmentId,
     p_client_id: clientId,
