@@ -655,6 +655,8 @@ async function writeFlows(owner) {
 
   // seed for the flows: free/comped lessons so "attended" needs no payment, a free-comped path for enrolment
   psql("update public.appointments set billing_type='free_comped' where appointment_type in ('private_lesson','intro_lesson')");
+  // the client search lists ACTIVE clients only (Staff_API_Contract: front-desk search), and seeded clients start as leads
+  psql("update public.clients set status='active'");
   // two more open lessons (clones of the first one, 4 and 5 hours later, other clients) for the conflict and failed-charge scenarios
   for (const [hours, client] of [[4, 'Colin'], [5, 'Ana']]) {
     psql(`insert into public.appointments select (jsonb_populate_record(null::public.appointments, to_jsonb(a) || jsonb_build_object('id', gen_random_uuid(), 'client_id', (select id from public.clients where first_name='${client}' and studio_id=a.studio_id limit 1), 'starts_at', a.starts_at + interval '${hours} hours', 'ends_at', a.ends_at + interval '${hours} hours', 'status', 'scheduled'))).* from public.appointments a where a.appointment_type='private_lesson' and a.status='scheduled' order by a.starts_at limit 1`);
@@ -719,7 +721,7 @@ async function writeFlows(owner) {
 
   await check("writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", async () => {
     await home();
-    await tapLabel(/Colin Marsh/, { timeout: 30000 });
+    await tapLabel(/2:00 PM.*Colin Marsh/, { timeout: 30000 }); // not the cancelled 1:00 PM intro lesson
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     // someone else records it while this screen is open
     psql("update public.appointments set status='attended' where appointment_type='private_lesson' and client_id=(select id from public.clients where first_name='Colin' and last_name='Marsh' limit 1)");
@@ -739,6 +741,9 @@ async function writeFlows(owner) {
     await expectLabel("No-show saved, charge not applied", { timeout: 60000, scroll: true });
     await expectLabel("Try again", { scroll: true });
   });
+
+  // Zed was created as a lead; the client list shows active clients only
+  psql("update public.clients set status='active'");
 
   await check("writes: add a dancer to the class roster", async () => {
     await home();
