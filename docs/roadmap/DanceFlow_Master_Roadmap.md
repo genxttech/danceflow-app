@@ -1143,7 +1143,7 @@ All slices released with the public registration flag OFF. Later production depl
 
 ## Phase 13 — Marketing / Campaigns completion
 
-**STATUS:** PARTIAL — MATERIAL WORK REMAINS
+**STATUS:** PARTIAL — MATERIAL WORK REMAINS. **M-0 code MERGED 2026-10-14 (PR #218, `13c4d547f`); PROD has the stage 1 SQL applied and campaign sends are FROZEN since 2026-10-14 (read-only PROD query 2026-11-21). Stage 2, the C1 repair, the PROD preflight and M-0D are owner-gated and not verified here. M-1…M-7 are not started (as of 2026-11-21).**
 
 **OBJECTIVE:** A full campaign system: editable drafts, reopen/modify before send, block editor, images, interactive elements, DanceFlow event-link picker, segmentation, analytics, email/SMS channel selection, consent enforcement and ARIA assistance.
 
@@ -1156,7 +1156,7 @@ All slices released with the public registration flag OFF. Later production depl
 - **Editor:** a plain textarea plus one CTA label/URL rendered through the fixed branded shell; `body_html` exists in the schema but is unused; images are limited to the studio logo; the CTA URL is free text (no event-link picker).
 - **ARIA:** the draft assistant (subjects, preview, body; metered as `ai_action`) works only by copy/paste, which a studio cannot apply after creation because there is no edit form. ARIA marketing rules are suggestion-only with no send path (unchanged, locked by ENT-1 scope).
 - **Compliance gaps (live behavior):** (1) unsubscribes are applied when recipients are *generated*, not re-checked at *send*, so someone who unsubscribes from campaign A after campaign B's recipients were generated can still receive B; (2) the suppression lookup fails open (a lookup error returns an empty set); (3) no `List-Unsubscribe` / `List-Unsubscribe-Post` one-click headers; (4) no recipient-side marketing-consent basis (audiences are inferred from business relationships); (5) marketing and transactional mail use separate sender variables on one Resend account — whether the live sender domains are actually separated is unverified.
-- **Architecture:** studio and organizer campaigns are fully parallel systems (separate tables, separate unsubscribe implementations: anon RPC vs admin client). The unreferenced duplicate `marketing/campaigns/[id]/actions.ts` remains (a test pins it untouched until the dedupe).
+- **Architecture:** studio and organizer campaigns are fully parallel systems (separate tables, separate unsubscribe implementations: anon RPC vs admin client). *(Corrected 2026-11-21: the unreferenced duplicate `marketing/campaigns/[id]/actions.ts` was deleted by M-0, PR #218; that finding is closed. Compliance gaps (1)-(3) above were the M-0 scope and are addressed in code; see `docs/marketing/m0-email-compliance.md`.)*
 
 **REMAINING DELIVERABLES (v2.22; the commitments are OWNER-APPROVED — drafts, block editor, images, ARIA integration, event-link picker, plus every v2.21 item; the M-0…M-7 split is ENGINEERING SLICING)**
 - **M-0 — Campaign compliance remediation (PRIORITY 1):** re-check suppression at send time for every batch (studio and organizer); make the suppression lookup fail closed; add `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click` headers backed by a one-click endpoint; verify (and record) marketing vs transactional sender-domain separation; validate CTA URL schemes on the studio form. Developer-owned QA including a concurrency case (unsubscribe between generate and send).
