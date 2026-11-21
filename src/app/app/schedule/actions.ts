@@ -2533,14 +2533,20 @@ export async function deleteAppointmentAction(formData: FormData) {
 
     // Remove unsent appointment notifications so a mistaken appointment does not still notify anyone.
     // This is best-effort because older rows may already have been sent or the delivery table may not exist in all environments.
+    // M-0 stage 2 removes every client-role write to outbound_deliveries, so this uses the service role. The appointment
+    // was already verified for this studio above and the delete stays scoped to it. A returned error is logged, not
+    // swallowed (supabase-js returns errors instead of throwing).
     try {
-      await supabase
+      const { error: clearError } = await createAdminClient()
         .from("outbound_deliveries")
         .delete()
         .eq("studio_id", studioId)
         .eq("related_table", "appointments")
         .eq("related_id", appointmentId)
         .in("status", ["queued", "pending"]);
+      if (clearError) {
+        console.error("Could not clear queued appointment notifications:", clearError.message);
+      }
     } catch (error) {
       console.error("Could not clear queued appointment notifications:", error);
     }
