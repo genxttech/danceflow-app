@@ -1,3 +1,4 @@
+import type React from "react";
 import { useEffect, useRef } from "react";
 import { AccessibilityInfo, Modal, ScrollView, StyleSheet, View, findNodeHandle } from "react-native";
 import { Announce } from "@/components/Announce";
@@ -17,6 +18,8 @@ type Props = {
   /** The write is running: both buttons are disabled so a second tap cannot send a second request. */
   busy?: boolean;
   testID?: string;
+  /** Extra choices between the text and the buttons (for example what a no-show costs). */
+  children?: React.ReactNode;
 };
 
 /*
@@ -26,7 +29,7 @@ type Props = {
   - touch targets are 48 pt (AppButton) and text grows to 200% inside a scroll view, so nothing is clipped;
   - while busy both buttons are disabled.
 */
-export function ConfirmSheet({ visible, title, body, confirmLabel, cancelLabel = "Cancel", onConfirm, onCancel, busy, testID }: Props) {
+export function ConfirmSheet({ visible, title, body, confirmLabel, cancelLabel = "Cancel", onConfirm, onCancel, busy, testID, children }: Props) {
   const headingRef = useRef<View>(null);
 
   useEffect(() => {
@@ -52,6 +55,7 @@ export function ConfirmSheet({ visible, title, body, confirmLabel, cancelLabel =
             <AppText variant="title">{title}</AppText>
           </View>
           {body ? <AppText tone="muted">{body}</AppText> : null}
+          {children}
           <View style={styles.actions}>
             <AppButton label={confirmLabel} onPress={onConfirm} disabled={busy} loading={busy} />
             <AppButton label={cancelLabel} onPress={onCancel} variant="quiet" disabled={busy} />

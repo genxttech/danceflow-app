@@ -29,6 +29,7 @@ export function fakeApi(overrides: Partial<StaffApi> = {}): StaffApi & Record<ke
     client: jest.fn(),
     setAttendance: jest.fn(),
     addClientNote: jest.fn(),
+    setAppointmentOutcome: jest.fn(),
     createClient: jest.fn(),
     ...overrides,
   } as StaffApi & Record<keyof StaffApi, jest.Mock>;

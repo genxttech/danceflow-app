@@ -6,9 +6,12 @@ import type { MutationFailure, MutationFailureKind, MutationState } from "@/lib/
 import { colors, radius, space } from "@/theme";
 
 /** Words for each way a write can fail. Each says what happened to the change, and what the person can do. */
-export function mutationFailureCopy(failure: Pick<MutationFailure, "kind" | "unconfirmed" | "retryAfterSeconds">): { title: string; body: string } {
+export function mutationFailureCopy(failure: Pick<MutationFailure, "kind" | "unconfirmed" | "retryAfterSeconds"> & { conflict?: MutationFailure["conflict"] }): { title: string; body: string } {
+  const byCode = failure.kind === "conflict" ? CONFLICT_COPY[failure.conflict?.serverCode ?? ""] : undefined;
+  if (byCode) return byCode;
   const wait = failure.retryAfterSeconds ? ` Wait about ${failure.retryAfterSeconds} seconds.` : "";
   const table: Record<MutationFailureKind, { title: string; body: string }> = {
+    sync_pending: { title: "Saved, not finished", body: "The change was recorded, but the lesson credit has not been applied yet. Try again to finish it: nothing will be counted twice." },
     offline: { title: "Not confirmed", body: "No connection, so we can't tell if this was saved. Try again: it will not be saved twice." },
     timeout: { title: "Not confirmed", body: "This is taking too long, so we can't tell if it was saved. Try again: it will not be saved twice." },
     unavailable: failure.unconfirmed
@@ -30,6 +33,15 @@ export function mutationFailureCopy(failure: Pick<MutationFailure, "kind" | "unc
   };
   return table[failure.kind];
 }
+
+/** Words for 409 conflicts the server names, so a screen need not repeat them. Anything else uses the generic conflict copy. */
+const CONFLICT_COPY: Record<string, { title: string; body: string }> = {
+  outcome_conflict: { title: "Already recorded", body: "This lesson already has a final attendance (attended or no-show). It can't be changed in the app." },
+  payment_required: { title: "Payment needed first", body: "This lesson can't be marked attended until it's paid or covered by a package or membership. Take care of that on DanceFlow for the web, then mark it." },
+  charge_failed: { title: "No-show saved, charge not applied", body: "The no-show was recorded, but the lesson credit could not be used. Fix it on DanceFlow for the web." },
+  idempotency_conflict: { title: "Not saved", body: "That id was already used for something different. Nothing was changed. Start again." },
+  duplicate_client: { title: "This client may already exist", body: "A client with these details is already in your studio." },
+};
 
 type Props = {
   state: MutationState<unknown>;
@@ -59,12 +71,13 @@ export function MutationNotice({ state, onRetry, onDiscard, onDismiss, onRefresh
   const copy = mutationFailureCopy(state);
   const actions: { label: string; onPress: () => void; variant?: "primary" | "secondary" | "quiet" }[] = [];
   if (state.retryable) actions.push({ label: state.unconfirmed ? "Try again" : "Retry", onPress: onRetry });
-  if (state.unconfirmed) actions.push({ label: "Discard this change", onPress: onDiscard, variant: "quiet" });
+  // sync_pending: the change IS recorded, so there is nothing to discard
+  if (state.unconfirmed && state.kind !== "sync_pending") actions.push({ label: "Discard this change", onPress: onDiscard, variant: "quiet" });
   if (state.kind === "conflict" && onRefresh) actions.push({ label: "Refresh", onPress: onRefresh });
   if ((state.kind === "sign_in_again" || state.kind === "account_inactive" || state.kind === "platform_admin") && onSignInAgain) {
     actions.push({ label: state.kind === "sign_in_again" ? "Sign in again" : "Sign out", onPress: onSignInAgain });
   }
-  if (!state.unconfirmed) actions.push({ label: "Dismiss", onPress: onDismiss, variant: "quiet" });
+  if (!state.unconfirmed || state.kind === "sync_pending") actions.push({ label: "Dismiss", onPress: onDismiss, variant: "quiet" });
 
   return (
     <View style={styles.card} accessibilityRole="alert" testID={testID}>

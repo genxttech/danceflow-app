@@ -7,8 +7,9 @@ import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RosterAttendance } from "@/components/RosterAttendance";
+import { PrivateLessonCheckIn, ONE_TO_ONE_TYPES } from "@/components/PrivateLessonCheckIn";
 import { isStaffFeatureEnabled } from "@/lib/features";
-import { appointmentTypeLabel, formatDayHeading, formatTimeRange, personName } from "@/lib/format";
+import { appointmentTypeLabel, formatDayHeading, formatTimeRange, personName, statusLabel } from "@/lib/format";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import type { AppointmentDetail } from "@/lib/staffApi";
 import { appointmentHeadline } from "@/screens/TodayScreen";
@@ -124,6 +125,13 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
   const recap = appointment.recap;
   // one rule for the heading and the controls: a cancelled class is read-only
   const markNow = canMarkAttendance && appointment.status !== "cancelled";
+  // Phase 1A: check-in for a one-to-one lesson (its own flag, and the studio's markAttendance capability)
+  const canCheckInLesson =
+    isStaffFeatureEnabled("appointmentAttendance") &&
+    studio?.accessAllowed === true &&
+    studio.capabilities?.markAttendance === true &&
+    (ONE_TO_ONE_TYPES as readonly string[]).includes(appointment.appointmentType);
+  const setStatus = (status: string) => setState((current) => (current.status === "ready" ? { ...current, appointment: { ...current.appointment, status } } : current));
 
   return (
     <Screen edges={[]}>
@@ -152,6 +160,15 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
         <Field label="Instructor" value={instructor} />
         {appointment.title && appointment.appointmentType !== "group_class" ? <Field label="Title" value={appointment.title} /> : null}
       </Section>
+
+      {canCheckInLesson ? (
+        <Section title="Check in">
+          <AppText tone="muted" testID="check-in-status">
+            Status: {statusLabel(appointment.status)}
+          </AppText>
+          <PrivateLessonCheckIn studioId={studioId} appointmentId={appointment.id} clientName={client} status={appointment.status} onStatusChange={setStatus} />
+        </Section>
+      ) : null}
 
       {appointment.notes ? (
         <Section title="Teaching notes">
