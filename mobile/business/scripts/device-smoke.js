@@ -333,7 +333,13 @@ function commitPreflight() {
   const build = headOf(path.resolve(opts.buildDir));
   const web = headOf(REPO);
   log(`commits: build tree ${build}  web tree ${web}  expected ${opts.expectCommit ?? "(not given)"}`);
-  if (build === "unknown" || build !== web) throw new Error(`the build tree (${build}) and the web server tree (${web}) are not the same commit`);
+  // A1 compares a PINNED pre-A1 app build against the same current web server: both SHAs are recorded in the evidence, and staff API behavior is unchanged by A1.
+  if (opts.a1) {
+    if (build === "unknown") throw new Error("the build tree commit is unknown");
+    fs.writeFileSync(path.join(OUT, "a1-trees.txt"), `build tree ${build}
+web tree ${web}
+`);
+  } else if (build === "unknown" || build !== web) throw new Error(`the build tree (${build}) and the web server tree (${web}) are not the same commit`);
   if (opts.expectCommit && !build.startsWith(opts.expectCommit)) throw new Error(`the trees are at ${build}, not the expected ${opts.expectCommit}`);
   for (const [name, dir] of [["build", path.resolve(opts.buildDir)], ["web", REPO]]) {
     const dirty = run("git", ["-C", dir, "status", "--porcelain", "--untracked-files=no", "--", "src", "mobile/business/src", "mobile/business/app"]).stdout.trim();
@@ -444,7 +450,7 @@ function buildApk() {
     EXPO_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY,
     EXPO_PUBLIC_DANCEFLOW_WEB_URL: `http://10.0.2.2:${opts.webPort}`,
     // WRITES mode builds with the four Phase 1A write words too; they are OFF in every shipping build unless Build-ReleaseAab.ps1 passes its evidence gate.
-    EXPO_PUBLIC_STAFF_FEATURES: opts.writes ? ["pulse", "studioSchedule", ...lib.WRITE_WORDS].join(",") : "pulse,studioSchedule",
+    EXPO_PUBLIC_STAFF_FEATURES: (opts.writes ? ["pulse", "studioSchedule", ...lib.WRITE_WORDS] : opts.aria ? ["pulse", "studioSchedule", "ariaAssistant"] : ["pulse", "studioSchedule"]).join(","),
     DANCEFLOW_UPLOAD_STORE_FILE: process.env.DANCEFLOW_UPLOAD_STORE_FILE || "C:/dfr-qa/qa-only-DO-NOT-UPLOAD.keystore",
     DANCEFLOW_UPLOAD_STORE_PASSWORD: process.env.DANCEFLOW_UPLOAD_STORE_PASSWORD || "qa-only-throwaway",
     DANCEFLOW_UPLOAD_KEY_ALIAS: process.env.DANCEFLOW_UPLOAD_KEY_ALIAS || "qa-only",
@@ -522,6 +528,7 @@ async function flows(apk) {
   state.installed = true;
   const owner = "owen.owner@example.test";
   if (opts.writes) return writeFlows(owner);
+  if (opts.a1) return a1Flows(owner);
   const ownerScreens = async (tag) => {
     await check(`${tag}: Today has the My day / Studio switch and a Pulse tab`, async () => {
       await tapLabel(/^Today$/);
@@ -650,6 +657,53 @@ const WRITE_POLICY = (extra = {}) => JSON.stringify({ enabled: lib.WRITE_WORDS, 
 /** The checks that must all pass for each write word to be called proven (names are the exact check() names below). */
 const CAP_CHECKS = lib.WRITE_CAPABILITY_CHECKS;
 const GATE_CHECKS = ["writes: policy off shows 'This change is turned off'", "writes: build below the minimum shows 'Update DanceFlow Business'", "writes: 2.0 font + dark, notes and check-in screens usable"];
+
+async function a1Flows(owner) {
+  const { run: runA1 } = require("../../shared/qa-a1/a1-device-checks.js");
+  setFont("1.0");
+  setNight(false);
+  launch();
+  await signIn(owner);
+  const tab = (label) => async () => {
+    await home();
+    await tapLabel(label);
+    await sleep(2000);
+  };
+  const raw = () => adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout;
+  await runA1({
+    adb: (a) => adb(...a),
+    hierarchy: raw,
+    shot: (file) => shot(path.basename(file, ".png")),
+    record: (name, ok, detail = "") => {
+      state.results.push(lib.makeResult(name, ok, detail));
+      log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+    },
+    sleep,
+    out: OUT,
+    pkg: APP,
+    assistantName: "ARIA",
+    flagsOn: !!opts.aria,
+    density: Number((/(d+)s*$/.exec(sh("wm density")) ?? [, "420"])[1]),
+    writeFile: (p, t) => fs.writeFileSync(p, t),
+    screens: [
+      { id: "today", open: tab(/^Today$/), launcher: true },
+      { id: "pulse", open: tab(/^Pulse$/), launcher: true },
+      { id: "clients", open: tab(/^Clients$/), launcher: true },
+      { id: "more", open: tab(/^More$/), launcher: true },
+    ],
+    secondUser: async () => {
+      adb("shell", "am", "force-stop", APP);
+      adb("shell", "pm", "clear", APP);
+      launch();
+      try {
+        await signIn("ida.instructor@example.test");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+}
 
 async function openStudioDay() {
   await tapLabel(/^Today$/);

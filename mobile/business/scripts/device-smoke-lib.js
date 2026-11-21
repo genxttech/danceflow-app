@@ -30,6 +30,8 @@ function parseArgs(argv) {
     else if (arg === "--allow-busy") opts.allowBusy = true;
     else if (arg === "--a11y") opts.a11y = true;
     else if (arg === "--writes") opts.writes = true;
+    else if (arg === "--a1") opts.a1 = true; // A1 assistant device checks (mobile/shared/qa-a1); Part A with no --aria
+    else if (arg === "--aria") opts.aria = true; // bakes the ariaAssistant word into this QA build only (Part B)
     else if (arg === "--keep-emulator") opts.keepEmulator = true;
     else if (takes[arg]) {
       const value = argv[++i];
