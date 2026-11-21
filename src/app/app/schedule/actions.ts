@@ -3624,7 +3624,9 @@ export async function markAppointmentAttendedAction(formData: FormData) {
             ? "not_authorized_for_appointment"
             : result.reason === "write_failed"
               ? "attendance_failed"
-              : result.reason,
+              : result.reason === "package_changed"
+                ? "This lesson was already charged to a different package, so attendance can't be re-synced. Adjust the balance manually."
+                : result.reason,
         ),
       );
     }
@@ -3867,7 +3869,11 @@ export async function markAppointmentNoShowAction(formData: FormData) {
               ? "no_show_failed"
               : result.reason === "charge_failed"
                 ? (result.message ?? "missed_appointment_charge_failed")
-                : result.reason,
+                : result.reason === "charge_changed"
+                  ? "This no-show is already recorded with a different charge decision, so it can't be changed here."
+                  : result.reason === "package_changed"
+                    ? "This lesson was already charged to a different package. Adjust the balance manually."
+                    : result.reason,
         ),
       );
     }

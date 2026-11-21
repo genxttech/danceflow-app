@@ -28,8 +28,6 @@ const ERROR_MESSAGES: Record<string, string> = {
   attendance_sync_failed:
     "Attendance was recorded, but the package/membership charge needs attention. Try again, or adjust the balance manually.",
   appointment_no_show_failed: "Could not mark appointment no-show.",
-  charge_changed: "This no-show is already recorded with a different charge decision, so it can't be changed here.",
-  package_changed: "This lesson was already charged to a different package, so attendance can't be re-synced. Adjust the balance manually.",
   appointment_series_cancel_failed: "Could not cancel the recurring series.",
   client_archive_failed: "Could not archive client.",
   lead_update_failed: "Could not update lead.",

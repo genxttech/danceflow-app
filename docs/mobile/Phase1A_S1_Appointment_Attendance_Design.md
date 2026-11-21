@@ -68,7 +68,7 @@ The route is behind `requireStaffWrite(request, studioId, "appointmentAttendance
 - **`package_exhausted`:** only for "No matching active package credit was found for this appointment." and "The selected package has no remaining credits."; other sync failures stay `usage_sync_pending`. Test is deterministic (state built directly with the deduction trigger paused only for the insert).
 - **Zero-row UPDATE:** unit test proves no RPC, no usage clear, no charge, no note.
 - **Rejected on purpose:** deducting before the status write. It changes financial semantics (an orphan deduction on a lesson that stayed scheduled). Proposal for the owner only: a locked function doing precheck + status write (migration).
-- **Web copy:** `charge_changed` and `package_changed` now have toast text (unknown codes were shown raw).
+- **Web copy:** the web no-show and attended actions pass a readable sentence for `charge_changed` and `package_changed` (the toast shows unknown codes raw). The toast component itself is untouched: it carries an existing lint error that CI reports on any changed file.
 
 ## The note as the carrier of the decision: failure modes and tamper risk
 
