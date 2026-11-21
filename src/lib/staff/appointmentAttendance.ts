@@ -38,6 +38,8 @@ export type AppointmentAttendanceResult =
       alreadyApplied: boolean;
       /** Attended only: the package or membership deduction did not complete. The status is recorded; repeating the same request completes it. */
       usageSyncPending: boolean;
+      /** Attended only, with usageSyncPending: the package has no credit left (a lost race for the last credit), so repeating the request cannot succeed. */
+      packageExhausted?: boolean;
     }
   | {
       ok: false;
@@ -47,6 +49,8 @@ export type AppointmentAttendanceResult =
         | "attended_cannot_be_marked_no_show"
         | "no_show_cannot_be_marked_attended"
         | "payment_required"
+        | "charge_changed"
+        | "package_changed"
         | "write_failed"
         | "charge_failed";
       /** charge_failed only: the same message the web action shows. */
@@ -113,7 +117,7 @@ export async function markAppointmentAttendance(params: {
 
   return status === "attended"
     ? markAttended({ supabase, studioId, appointment, now })
-    : markNoShow({ supabase, studioId, appointment, actor, missedAppointmentCharge, now });
+    : markNoShow({ supabase, studioId, appointment, actor, missedAppointmentCharge, now, notesVisible: access.scope === "broad" });
 }
 
 async function markAttended(params: {
@@ -139,16 +143,25 @@ async function markAttended(params: {
     if (!canComplete) return { ok: false, reason: "payment_required" };
 
     const attendedAt = now();
-    const { error } = await supabase
+    const { data: written, error } = await supabase
       .from("appointments")
       .update({ status: "attended", attendance_marked_at: attendedAt, updated_at: attendedAt })
       .eq("id", appointmentId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", studioId)
+      .select("id");
     if (error) return { ok: false, reason: "write_failed" };
+    // Exactly one row, or nothing may follow: a zero-row update (RLS, a vanished row) must never reach the SECURITY DEFINER deduction RPC.
+    if (!written || written.length !== 1) return { ok: false, reason: written && written.length === 0 ? "not_found" : "write_failed" };
+  } else if (billingTypeOf(appointment) === "package_credit" && appointment.client_package_id) {
+    // A replay must not take a second credit from a DIFFERENT package: if the lesson was already charged to another package and its package link was changed
+    // afterwards, refuse instead of syncing against the new package.
+    const charged = await chargedPackageIds(supabase, appointmentId);
+    if (charged.length > 0 && !charged.includes(appointment.client_package_id)) return { ok: false, reason: "package_changed" };
   }
 
-  const billingType = normalizeLessonBillingType(appointment.billing_type, appointment.appointment_type);
+  const billingType = billingTypeOf(appointment);
   let usageSyncPending = false;
+  let packageExhausted = false;
 
   try {
     if (billingType === "membership" && appointment.client_id) {
@@ -176,6 +189,7 @@ async function markAttended(params: {
     }
   } catch (syncError) {
     usageSyncPending = true;
+    packageExhausted = syncError instanceof Error && PACKAGE_EXHAUSTED_MESSAGES.some((text) => syncError.message.includes(text));
     console.error(
       alreadyAttended
         ? "Attendance retry could not complete the pending package/membership sync."
@@ -197,6 +211,7 @@ async function markAttended(params: {
     status: "attended",
     alreadyApplied: alreadyAttended,
     usageSyncPending,
+    ...(packageExhausted ? { packageExhausted: true } : {}),
   };
 }
 
@@ -207,67 +222,193 @@ async function markNoShow(params: {
   actor: AppointmentAttendanceActor;
   missedAppointmentCharge: string;
   now: () => string;
+  /** The no-show note is the persisted decision. An instructor's client rows and notes are hidden by RLS (they cannot read or write it), so for them it cannot be consulted. */
+  notesVisible: boolean;
 }): Promise<AppointmentAttendanceResult> {
-  const { supabase, studioId, appointment, actor, missedAppointmentCharge, now } = params;
+  const { supabase, studioId, appointment, actor, missedAppointmentCharge, now, notesVisible } = params;
   const appointmentId = appointment.id;
 
   if (isTerminalType(String(appointment.appointment_type)) && appointment.status === "attended") {
     return { ok: false, reason: "attended_cannot_be_marked_no_show" };
   }
 
-  // Replay of a recorded no-show: skip the status write, the membership-usage clear and the activity note (they already happened), but still apply the requested
-  // charge, which is idempotent in the database (it picks up where a failed first attempt stopped).
+  // The decision is persisted in the ONE no-show note (it carries the appointment id), written right after the status change and BEFORE the charge, so a retry can
+  // tell "decided none" from "charge requested, not applied" with no migration. Replay rules: only a change AWAY FROM AN APPLIED decision conflicts. (1) An applied
+  // charge may only be repeated. (2) With nothing applied, a note that says "no deduction" (or "deducted") may not become a charge: the note would lie. (3) No note (a
+  // crash between the status write and the note, or a request still in flight) or a note that says "requested, not applied": the charge may be attempted again, or
+  // changed; the database makes the deduction itself idempotent.
   const alreadyApplied = appointment.status === "no_show";
   const markedAt = now();
+  const chargeKind = missedAppointmentCharge === "package" || missedAppointmentCharge === "membership" ? missedAppointmentCharge : null;
 
-  if (!alreadyApplied) {
-    const { error } = await supabase
+  let note: NoteRow | null = null;
+  if (alreadyApplied) {
+    const appliedKind = await appliedChargeKind(supabase, appointmentId);
+    note = await noShowNote(supabase, studioId, appointment);
+    if (appliedKind) {
+      if (missedAppointmentCharge !== appliedKind) return { ok: false, reason: "charge_changed" };
+      // The deduction marker is per (appointment, package): if the lesson was relinked to another package since, repeating the charge would take a SECOND credit
+      // from the new package for the same lesson.
+      if (appliedKind === "package" && !(await chargedPackageIds(supabase, appointmentId)).includes(String(appointment.client_package_id))) {
+        return { ok: false, reason: "package_changed" };
+      }
+    } else if (chargeKind && note && !note.body.includes(NOT_APPLIED_TEXT)) {
+      return { ok: false, reason: "charge_changed" };
+    } else if (chargeKind && !notesVisible) {
+      // Fail safe: with the note unreadable, a charge that has not been applied cannot be told apart from a decision not to charge.
+      return { ok: false, reason: "charge_changed" };
+    }
+  } else {
+    const { data: written, error } = await supabase
       .from("appointments")
       .update({ status: "no_show", updated_at: markedAt })
       .eq("id", appointmentId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", studioId)
+      .select("id");
     if (error) return { ok: false, reason: "write_failed" };
+    if (!written || written.length !== 1) return { ok: false, reason: written && written.length === 0 ? "not_found" : "write_failed" };
 
     await clearMembershipUsageForAppointment({ supabase, appointmentId });
   }
 
-  try {
-    await applyMissedAppointmentCharge({ supabase, studioId, appointment, chargeSource: missedAppointmentCharge });
-  } catch (chargeError) {
-    console.error("Appointment marked no-show, but deduction failed:", chargeError);
-    return {
-      ok: false,
-      reason: "charge_failed",
-      message: chargeError instanceof Error ? chargeError.message : "missed_appointment_charge_failed",
-    };
+  // A "no charge" decision after a failed charge request: record it, so a later charge request is a conflict.
+  if (alreadyApplied && !chargeKind && note && note.body.includes(NOT_APPLIED_TEXT) && !(await appliedChargeKind(supabase, appointmentId))) {
+    await rewriteNotePolicy(supabase, note, "No lesson deduction");
+    return { ok: true, appointmentId, clientId: appointment.client_id, status: "no_show", alreadyApplied, usageSyncPending: false };
   }
 
-  if (appointment.client_id && !alreadyApplied) {
+  // Ensure the note exists before the charge is attempted.
+  if (!note && appointment.client_id) {
     const label =
       typeof appointment.title === "string" && appointment.title.trim()
         ? appointment.title.trim()
         : appointmentTypeLabel(String(appointment.appointment_type));
-    const chargeLabel =
-      missedAppointmentCharge === "package"
-        ? "Package credit deducted"
-        : missedAppointmentCharge === "membership"
-          ? "Membership benefit deducted"
-          : "No lesson deduction";
-
-    const { error } = await supabase.from("client_activity_notes").insert({
-      studio_id: studioId,
-      client_id: appointment.client_id,
-      note_type: "general",
-      body: [`Appointment marked no-show: ${label}`, `Charge policy: ${chargeLabel}`].join("\n"),
-      occurred_at: markedAt,
-      created_by: actor.userId,
-    });
+    const chargeLabel = chargeKind ? `${chargeName(chargeKind)} ${NOT_APPLIED_TEXT}` : "No lesson deduction";
+    const { data: inserted, error } = await supabase
+      .from("client_activity_notes")
+      .insert({
+        studio_id: studioId,
+        client_id: appointment.client_id,
+        note_type: "general",
+        body: [`Appointment marked no-show: ${label}`, `Charge policy: ${chargeLabel}`, `${NOTE_REF_PREFIX}${appointmentId}`].join("\n"),
+        occurred_at: markedAt,
+        created_by: actor.userId,
+      })
+      .select("id, body");
     if (error) {
       console.error("Appointment was marked no-show, but the client activity note failed:", error.message);
+    } else {
+      note = ((inserted ?? [])[0] as NoteRow | undefined) ?? null;
     }
   }
 
+  let chargeFailure: string | null = null;
+  try {
+    await applyMissedAppointmentCharge({ supabase, studioId, appointment, chargeSource: missedAppointmentCharge });
+  } catch (chargeError) {
+    console.error("Appointment marked no-show, but deduction failed:", chargeError);
+    chargeFailure = safeChargeMessage(chargeError);
+    // The database may have committed the deduction before a later step threw (for example the package lifecycle reconcile). Trust the marker, not the exception.
+    if (chargeKind && (await appliedChargeKind(supabase, appointmentId).catch(() => null)) === chargeKind) chargeFailure = null;
+  }
+
+  if (chargeFailure) return { ok: false, reason: "charge_failed", message: chargeFailure };
+
+  // The charge is applied: the one note says so (best effort; the deduction is what matters).
+  if (chargeKind) await markNoteApplied(supabase, note, chargeKind);
+
   return { ok: true, appointmentId, clientId: appointment.client_id, status: "no_show", alreadyApplied, usageSyncPending: false };
+}
+
+const KNOWN_CHARGE_MESSAGES = [
+  "This appointment is not linked to a client.",
+  "No package is linked to this appointment.",
+  "No eligible membership benefit was found for this appointment.",
+  "Choose a valid missed-appointment deduction option.",
+];
+const GENERIC_CHARGE_MESSAGE = "The missed-lesson charge could not be applied.";
+
+/** Only the app-level messages applyMissedAppointmentCharge itself raises pass through; anything else (database text) becomes a fixed sentence. */
+function safeChargeMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return KNOWN_CHARGE_MESSAGES.includes(message) ? message : GENERIC_CHARGE_MESSAGE;
+}
+
+function billingTypeOf(appointment: AppointmentRow) {
+  return normalizeLessonBillingType(appointment.billing_type, appointment.appointment_type);
+}
+
+const PACKAGE_EXHAUSTED_MESSAGES = ["No matching active package credit was found for this appointment.", "The selected package has no remaining credits."];
+const NOTE_REF_PREFIX = "Appointment ref: ";
+
+/** The charge actually applied to this appointment, from the deduction marker or the membership usage row (null = nothing applied). */
+async function appliedChargeKind(supabase: SupabaseClient, appointmentId: string): Promise<"package" | "membership" | null> {
+  if ((await chargedPackageIds(supabase, appointmentId)).length > 0) return "package";
+  const { data, error } = await supabase.from("client_membership_usage").select("id").eq("reference_type", "appointment").eq("reference_id", appointmentId).limit(1);
+  if (error) throw new Error(`Usage lookup failed: ${error.message}`);
+  return (data ?? []).length > 0 ? "membership" : null;
+}
+
+type NoteRow = { id: string; body: string };
+
+async function noShowNote(supabase: SupabaseClient, studioId: string, appointment: AppointmentRow): Promise<NoteRow | null> {
+  if (!appointment.client_id) return null;
+  const ref = `${NOTE_REF_PREFIX}${appointment.id}`;
+  // The OLDEST note that quotes the ref, validated in code: it must be the system's own shape (first line "Appointment marked no-show", last line exactly the ref), so an
+  // ordinary note that merely quotes the id, or a later copy, cannot decide.
+  const { data, error } = await supabase
+    .from("client_activity_notes")
+    .select("id, body")
+    .eq("studio_id", studioId)
+    .eq("client_id", appointment.client_id)
+    .like("body", `%${ref}%`)
+    .order("created_at", { ascending: true })
+    .limit(10);
+  if (error) throw new Error(`Note lookup failed: ${error.message}`);
+  const rows = (data ?? []) as NoteRow[];
+  return (
+    rows.find((row) => {
+      const lines = String(row.body).split("\n");
+      return lines[0].startsWith("Appointment marked no-show") && lines[lines.length - 1] === ref;
+    }) ?? null
+  );
+}
+
+const NOT_APPLIED_TEXT = "requested, not applied";
+const chargeName = (kind: "package" | "membership") => (kind === "package" ? "Package credit" : "Membership benefit");
+
+async function rewriteNotePolicy(supabase: SupabaseClient, note: NoteRow, policy: string) {
+  try {
+    await supabase
+      .from("client_activity_notes")
+      .update({ body: note.body.replace(/Charge policy: .*/, `Charge policy: ${policy}`) })
+      .eq("id", note.id);
+  } catch (error) {
+    console.error("The no-show note could not be updated.", error);
+  }
+}
+
+async function markNoteApplied(supabase: SupabaseClient, note: NoteRow | null, kind: "package" | "membership") {
+  if (!note || !note.body.includes(NOT_APPLIED_TEXT)) return;
+  try {
+    await supabase
+      .from("client_activity_notes")
+      .update({ body: note.body.replace(/Charge policy: .*/, `Charge policy: ${chargeName(kind)} deducted`) })
+      .eq("id", note.id);
+  } catch (error) {
+    console.error("The no-show note could not be updated after the charge.", error);
+  }
+}
+
+const DEDUCTION_TYPES = ["lesson_deduction", "appointment_attendance"];
+
+async function chargedPackageIds(supabase: SupabaseClient, appointmentId: string): Promise<string[]> {
+  const { data, error } = await supabase.from("lesson_transactions").select("client_package_id, transaction_type").eq("appointment_id", appointmentId);
+  if (error) throw new Error(`Deduction lookup failed: ${error.message}`);
+  return (data ?? [])
+    .filter((row: { transaction_type: string }) => DEDUCTION_TYPES.includes(String(row.transaction_type)))
+    .map((row: { client_package_id: string | null }) => row.client_package_id)
+    .filter((value: string | null): value is string => Boolean(value));
 }
 
 // ---- Moved verbatim from src/app/app/schedule/actions.ts (supabase param types widened to SupabaseClient) ----

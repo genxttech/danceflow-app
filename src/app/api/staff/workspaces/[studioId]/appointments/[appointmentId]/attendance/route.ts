@@ -56,6 +56,10 @@ export async function PUT(request: Request, { params }: { params: Promise<{ stud
           return staffConflict("outcome_conflict", "This lesson is already marked attended and can't be changed.", { status: "attended" });
         case "no_show_cannot_be_marked_attended":
           return staffConflict("outcome_conflict", "This lesson is already marked no-show and can't be changed.", { status: "no_show" });
+        case "charge_changed":
+          return staffConflict("outcome_conflict", "This no-show is already recorded with a different charge decision and can't be changed.", { status: "no_show" });
+        case "package_changed":
+          return staffConflict("outcome_conflict", "This lesson was charged to a different package; change it on the web.", { status });
         case "payment_required":
           return staffWriteError("payment_required", "This lesson isn't paid or covered yet. Record payment on the web first.", 409);
         case "charge_failed":
@@ -63,6 +67,14 @@ export async function PUT(request: Request, { params }: { params: Promise<{ stud
         default:
           throw new Error(`Attendance write failed: ${result.reason}`);
       }
+    }
+
+    if (result.usageSyncPending && result.packageExhausted) {
+      return staffWriteError(
+        "package_exhausted",
+        "Attendance is recorded but the package has no credit left. Resolve the package in the web app; repeating this request will not help.",
+        409,
+      );
     }
 
     if (result.usageSyncPending) {

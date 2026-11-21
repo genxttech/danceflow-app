@@ -117,6 +117,8 @@ describe("PUT appointment attendance route", () => {
     ["attended_cannot_be_marked_no_show", 409, "outcome_conflict"],
     ["no_show_cannot_be_marked_attended", 409, "outcome_conflict"],
     ["payment_required", 409, "payment_required"],
+    ["charge_changed", 409, "outcome_conflict"],
+    ["package_changed", 409, "outcome_conflict"],
   ])("maps the lib refusal %s to %i %s", async (reason, status, expected) => {
     mocks.mark.mockResolvedValue({ ok: false, reason });
     const response = await call({ status: "attended" });
@@ -129,6 +131,11 @@ describe("PUT appointment attendance route", () => {
     const charge = await call({ status: "no_show", missedAppointmentCharge: "package" });
     expect(charge.status).toBe(409);
     expect(await charge.json()).toMatchObject({ code: "charge_failed", error: "No package is linked to this appointment." });
+
+    mocks.mark.mockResolvedValue(ok("attended", { usageSyncPending: true, packageExhausted: true }));
+    const exhausted = await call({ status: "attended" });
+    expect(exhausted.status).toBe(409);
+    expect(await code(exhausted)).toBe("package_exhausted");
 
     mocks.mark.mockResolvedValue(ok("attended", { usageSyncPending: true }));
     const pending = await call({ status: "attended" });
