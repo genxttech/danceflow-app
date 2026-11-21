@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, KeyboardAvoidingView, Platform } from "react-native";
 import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -182,6 +182,7 @@ function AddDancerSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={busy ? undefined : onClose} statusBarTranslucent>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.avoid}>
       <View style={styles.scrim} accessible={false} importantForAccessibility="no-hide-descendants" onTouchEnd={busy ? undefined : onClose} />
       <View style={styles.sheet} accessibilityViewIsModal testID="add-dancer-sheet">
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -272,6 +273,7 @@ function AddDancerSheet({
           </View>
         </ScrollView>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -279,6 +281,7 @@ function AddDancerSheet({
 const styles = StyleSheet.create({
   box: { gap: space.md },
   gap: { gap: space.sm },
+  avoid: { flex: 1 },
   scrim: { flex: 1, backgroundColor: "rgba(43, 27, 42, 0.45)" },
   sheet: { maxHeight: "92%", backgroundColor: colors.raised, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, borderWidth: 1, borderColor: colors.border },
   content: { gap: space.md, padding: space.xl },

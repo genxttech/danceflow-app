@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, KeyboardAvoidingView, Platform } from "react-native";
 import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -77,6 +77,7 @@ export function ClientNoteSheet({ studioId, clientId, clientName, visible, onClo
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={mutation.pending ? undefined : onClose} statusBarTranslucent>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.avoid}>
       <View style={styles.scrim} importantForAccessibility="no-hide-descendants" accessible={false} onTouchEnd={mutation.pending ? undefined : onClose} />
       <View style={styles.sheet} accessibilityViewIsModal testID="client-note-sheet">
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -148,11 +149,13 @@ export function ClientNoteSheet({ studioId, clientId, clientName, visible, onClo
           </View>
         </ScrollView>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  avoid: { flex: 1 },
   scrim: { flex: 1, backgroundColor: "rgba(43, 27, 42, 0.45)" },
   sheet: { maxHeight: "92%", backgroundColor: colors.raised, borderTopLeftRadius: radius.card, borderTopRightRadius: radius.card, borderWidth: 1, borderColor: colors.border },
   content: { gap: space.md, padding: space.xl },

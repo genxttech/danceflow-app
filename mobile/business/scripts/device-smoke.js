@@ -636,6 +636,17 @@ async function openStudioDay() {
   await expectLabel("Studio today", { timeout: 30000 });
 }
 
+/** Back out of whatever is open (keyboard, sheet, detail screens) until the tab bar is showing, so each flow starts from a known place and one failed check cannot cascade into the next. */
+async function home() {
+  hideKeyboard();
+  for (let i = 0; i < 6; i++) {
+    if (lib.findTappable(dump(), /^Today$/)) return;
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+  }
+  throw new Error("could not get back to the tab bar");
+}
+
 async function writeFlows(owner) {
   setFont("1.0");
   setNight(false);
@@ -664,16 +675,16 @@ async function writeFlows(owner) {
   await check("writes: add a note, it is saved and appears in the notes list", async () => {
     await expectLabel("Notes", { scroll: true, timeout: 30000 });
     await tapLabel("Add a note", { scroll: true });
-    await typeInto("Note", "Smoke note one");
+    await typeInto("Note", "Smokenoteone");
     hideKeyboard();
     await tapLabel("Save note");
     await expectLabel("Note saved.", { scroll: true, timeout: 60000 });
-    await expectLabel(/Smoke note one/, { scroll: true, timeout: 60000 });
+    await expectLabel(/Smokenoteone/, { scroll: true, timeout: 60000 });
   });
 
   await check("writes: the same phone again offers the existing client (duplicate_client)", async () => {
-    adb("shell", "input", "keyevent", "4"); // back to the clients list
-    await sleep(1500);
+    await home();
+    await tapLabel(/^Clients$/);
     await tapLabel("Add a client", { timeout: 30000 });
     await typeInto("First name", "Dup");
     await typeInto("Last name", "Test");
@@ -686,6 +697,7 @@ async function writeFlows(owner) {
   });
 
   await check("writes: private lesson marked attended (final, no undo)", async () => {
+    await home();
     await openStudioDay();
     await tapLabel(/Ana Rivera/, { timeout: 30000 });
     await expectLabel("Check in", { timeout: 30000, scroll: true });
@@ -696,8 +708,7 @@ async function writeFlows(owner) {
   });
 
   await check("writes: private lesson marked no-show with no charge", async () => {
-    adb("shell", "input", "keyevent", "4");
-    await sleep(1500);
+    await home();
     await tapLabel(/Sam Okafor/, { timeout: 30000 });
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     await tapLabel("No-show", { scroll: true });
@@ -707,8 +718,7 @@ async function writeFlows(owner) {
   });
 
   await check("writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", async () => {
-    adb("shell", "input", "keyevent", "4");
-    await sleep(1500);
+    await home();
     await tapLabel(/Colin Marsh/, { timeout: 30000 });
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     // someone else records it while this screen is open
@@ -720,8 +730,7 @@ async function writeFlows(owner) {
   });
 
   await check("writes: a no-show whose charge could not be applied says so and offers Try again", async () => {
-    adb("shell", "input", "keyevent", "4");
-    await sleep(1500);
+    await home();
     await tapLabel(/3:00 PM.*Ana Rivera/, { timeout: 30000 });
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     await tapLabel("No-show", { scroll: true });
@@ -732,8 +741,7 @@ async function writeFlows(owner) {
   });
 
   await check("writes: add a dancer to the class roster", async () => {
-    adb("shell", "input", "keyevent", "4");
-    await sleep(1500);
+    await home();
     await tapLabel(/Beginner Salsa/, { timeout: 30000 });
     await expectLabel("Add a dancer", { timeout: 30000, scroll: true });
     await tapLabel("Add a dancer", { scroll: true });
@@ -753,13 +761,14 @@ async function writeFlows(owner) {
   // the kill switch: same build, server policy off -> a write is refused in words
   await restartWeb(WRITE_POLICY({ enabled: [] }));
   await check("writes: policy off shows 'This change is turned off'", async () => {
+    await home();
     await tapLabel(/^Clients$/);
     await tapLabel(/^Zed/, { timeout: 30000 }).catch(async () => {
       await typeInto("Search clients", "Zed");
       await tapLabel(/^Zed/, { timeout: 30000 });
     });
     await tapLabel("Add a note", { scroll: true });
-    await typeInto("Note", "Should be refused");
+    await typeInto("Note", "Shouldberefused");
     hideKeyboard();
     await tapLabel("Save note");
     await expectLabel("This change is turned off", { timeout: 60000, scroll: true });
@@ -782,8 +791,7 @@ async function writeFlows(owner) {
     await tapLabel(/^Clients$/);
     await tapLabel("Add a client", { timeout: 30000, scroll: true });
     await expectLabel("First name", { cls: "EditText", timeout: 30000 });
-    adb("shell", "input", "keyevent", "4");
-    await sleep(1500);
+    await home();
     await openStudioDay();
     await tapLabel(/Ana Rivera/, { timeout: 30000 });
     await expectLabel("Check in", { timeout: 30000, scroll: true });
