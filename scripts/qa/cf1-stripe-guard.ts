@@ -9,6 +9,7 @@ import { appendFileSync, writeFileSync } from "node:fs";
 import Stripe from "stripe";
 import { runStripeGuard, serializeReport, summarizeReport } from "../../src/lib/e2e/stripeGuard";
 import { redactSecrets } from "../../src/lib/e2e/stripeRelay";
+import { payHostedCheckoutInBrowser } from "./cf1-hosted-checkout";
 
 async function main() {
   const key = process.env.E2E_STRIPE_TEST_SECRET_KEY ?? "";
@@ -18,7 +19,7 @@ async function main() {
   if (!/^acct_[A-Za-z0-9]+$/.test(expectPlatform) || !/^acct_[A-Za-z0-9]+$/.test(connectedAccount) || expectPlatform === connectedAccount) throw new Error("refusing: account ids");
   if (!/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(base)) throw new Error("refusing: E2E_BASE_URL is not loopback");
   const stripe = new Stripe(key);
-  const report = await runStripeGuard({ stripe, key, config: { expectPlatform, connectedAccount, successUrl: `${base}/cf1-canary?session={CHECKOUT_SESSION_ID}`, cancelUrl: `${base}/cf1-canary-cancel` } });
+  const report = await runStripeGuard({ stripe, key, config: { expectPlatform, connectedAccount, successUrl: `${base}/cf1-canary?session={CHECKOUT_SESSION_ID}`, cancelUrl: `${base}/cf1-canary-cancel`, payHosted: (url) => payHostedCheckoutInBrowser(url, `${base}/cf1-canary?session=`) } });
   const summary = summarizeReport(report);
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
