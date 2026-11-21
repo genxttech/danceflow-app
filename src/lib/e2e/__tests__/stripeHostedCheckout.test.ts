@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertHostedCheckoutUrl, browserEnv, detectChallenge, driveHostedCheckout, isAllowedHost, isLoopbackHost, TEST_CARD, type HostedPage } from "../stripeHostedCheckout";
+import { assertHostedCheckoutUrl, browserEnv, describeUrlShape, detectChallenge, driveHostedCheckout, isAllowedHost, isLoopbackHost, TEST_CARD, type HostedPage } from "../stripeHostedCheckout";
 
 const URL_OK = "https://checkout.stripe.com/c/pay/cs_test_a1B2c3#fidkdWxOYHwnPyd1blpxYHZxWjA0";
 const SUCCESS = "http://127.0.0.1:3000/cf1-canary?session=";
@@ -28,7 +28,19 @@ describe("hosted Checkout URL and network boundaries", () => {
     expect(assertHostedCheckoutUrl(URL_OK)).toBe("cs_test_a1B2c3");
     const bad = [undefined, null, "", "http://checkout.stripe.com/c/pay/cs_test_x", "https://checkout.stripe.com/c/pay/cs_live_x#f", "https://checkout.stripe.com.evil.example/c/pay/cs_test_x", "https://evil.example/c/pay/cs_test_x", "https://checkout.stripe.com/c/pay/cs_test_x/../../y", "https://user@checkout.stripe.com/c/pay/cs_test_x"];
     for (const url of bad) expect(() => assertHostedCheckoutUrl(url)).toThrow();
-    try { assertHostedCheckoutUrl("https://evil.example/c/pay/cs_test_SECRETFRAGMENT#frag"); } catch (e) { expect(String((e as Error).message)).not.toMatch(/SECRETFRAGMENT|frag/); }
+    try { assertHostedCheckoutUrl("https://evil.example/c/pay/cs_test_SECRETFRAGMENT#frag"); } catch (e) { expect(String((e as Error).message)).not.toMatch(/SECRETFRAGMENT|#frag/); }
+  });
+  it("also accepts the legacy /pay/ path on the same host", () => {
+    expect(assertHostedCheckoutUrl("https://checkout.stripe.com/pay/cs_test_a1B2c3#fidkd")).toBe("cs_test_a1B2c3");
+  });
+  it("a refusal shows the URL's shape (scheme, host, path structure) but never an id, query value or fragment", () => {
+    const url = "https://pay.example.com/x/y/cs_test_SECRETID123456789?token=QUERYSECRET#FRAGSECRET";
+    let message = "";
+    try { assertHostedCheckoutUrl(url); } catch (e) { message = (e as Error).message; }
+    expect(message).toMatch(/host=pay\.example\.com path=\/x\/y\/<\d+ chars, test session id> query=yes fragment=yes/);
+    expect(message).not.toMatch(/SECRETID|QUERYSECRET|FRAGSECRET|token=/);
+    expect(describeUrlShape(null)).toBe("not a string (null)");
+    expect(describeUrlShape("https://checkout.stripe.com/c/pay/cs_live_abc")).toMatch(/LIVE session id/);
   });
   it("allows only Stripe hosts and the loopback", () => {
     for (const h of ["checkout.stripe.com", "js.stripe.com", "m.stripe.network", "q.stripecdn.com", "stripe.com"]) expect(isAllowedHost(h), h).toBe(true);

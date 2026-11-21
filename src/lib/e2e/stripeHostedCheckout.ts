@@ -14,13 +14,28 @@
 export const TEST_CARD = { number: "4242424242424242", expiry: "12 / 34", cvc: "123", name: "CF1 Canary", postal: "12345" } as const;
 export const CANARY_EMAIL = "cf1-canary@example.com";
 
-const CHECKOUT_URL = /^https:\/\/checkout\.stripe\.com\/c\/pay\/(cs_test_[A-Za-z0-9]+)(?:[?#].*)?$/;
+const CHECKOUT_URL = /^https:\/\/checkout\.stripe\.com\/(?:c\/)?pay\/(cs_test_[A-Za-z0-9]+)(?:[?#].*)?$/;
 
-/** Returns the session id; throws on anything that is not a TEST hosted Checkout URL. Never echoes the URL (its fragment is a bearer-like blob). */
+/**
+ * A non-secret description of a URL's shape for failure messages: scheme, host, path segments (long or id-like segments reduced to their length) and
+ * whether a query or fragment exists. The fragment and query values, and every identifier, are never included.
+ */
+export function describeUrlShape(url: unknown): string {
+  if (typeof url !== "string") return `not a string (${url === null ? "null" : typeof url})`;
+  try {
+    const u = new URL(url);
+    const segments = u.pathname.split("/").filter(Boolean).map((seg) => (/^[a-z]{1,12}$/.test(seg) ? seg : `<${seg.length} chars${/^cs_(test|live)_/.test(seg) ? `, ${seg.startsWith("cs_live_") ? "LIVE" : "test"} session id` : ""}>`));
+    return `scheme=${u.protocol.replace(":", "")} host=${/^[a-z0-9.-]{1,60}$/i.test(u.hostname) ? u.hostname : "<unprintable>"} path=/${segments.join("/")} query=${u.search ? "yes" : "no"} fragment=${u.hash ? "yes" : "no"}`;
+  } catch {
+    return `unparseable (${url.length} chars)`;
+  }
+}
+
+/** Returns the session id; throws on anything that is not a TEST hosted Checkout URL. The error shows the URL's shape, never its values. */
 export function assertHostedCheckoutUrl(url: unknown): string {
   if (typeof url !== "string") throw new Error("the Checkout Session has no hosted URL");
   const match = CHECKOUT_URL.exec(url);
-  if (!match) throw new Error("refusing: the Checkout URL is not https://checkout.stripe.com/c/pay/cs_test_...");
+  if (!match) throw new Error(`refusing: the Checkout URL is not https://checkout.stripe.com/c/pay/cs_test_... (seen: ${describeUrlShape(url)})`);
   return match[1];
 }
 
