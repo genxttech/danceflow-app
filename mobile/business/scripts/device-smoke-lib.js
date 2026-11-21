@@ -17,12 +17,13 @@ const DEFAULTS = {
   apk: null,
   keysFrom: null,
   buildDir: null,
+  expectCommit: null,
 };
 
 /** `--apk <file>` skips the Gradle build; otherwise `--build-dir <short-path worktree>` builds it (see DEVICE_QA.md). */
 function parseArgs(argv) {
   const opts = { ...DEFAULTS };
-  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--memory": "memory", "--apk": "apk", "--keys-from": "keysFrom", "--build-dir": "buildDir" };
+  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--memory": "memory", "--apk": "apk", "--keys-from": "keysFrom", "--build-dir": "buildDir", "--expect-commit": "expectCommit" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--dry-run") opts.dryRun = true;
