@@ -110,7 +110,7 @@ export function PrivateLessonCheckIn({ studioId, appointmentId, clientName, stat
         visible={confirm === "attended"}
         title={`Mark ${who} attended?`}
         body="This records the lesson as attended. If it is paid with a package or membership, that is used. It can't be changed in the app."
-        confirmLabel="Mark attended"
+        confirmLabel="Yes, mark attended"
         onConfirm={send}
         onCancel={() => setConfirm(null)}
         testID="confirm-attended"
@@ -120,7 +120,7 @@ export function PrivateLessonCheckIn({ studioId, appointmentId, clientName, stat
         visible={confirm === "no_show"}
         title={`Mark ${who} as a no-show?`}
         body="Choose what happens to the lesson credit. It can't be changed in the app."
-        confirmLabel="Mark no-show"
+        confirmLabel="Yes, mark no-show"
         onConfirm={send}
         onCancel={() => setConfirm(null)}
         testID="confirm-no-show"

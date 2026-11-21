@@ -66,7 +66,7 @@ describe("private-lesson check-in", () => {
     expect(screen.getByText("Mark Ana Rivera attended?")).toBeTruthy();
     expect(outcome).not.toHaveBeenCalled();
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     });
     expect(outcome).toHaveBeenCalledTimes(1);
     const [studio, appt, input, key] = outcome.mock.calls[0] as unknown as [string, string, Record<string, unknown>, string];
@@ -85,7 +85,7 @@ describe("private-lesson check-in", () => {
     const d = deferred<{ id: string; status: string; alreadyApplied: boolean }>();
     const { outcome } = await renderLesson({ outcome: jest.fn(() => d.promise) });
     fireEvent.press(screen.getByLabelText("Mark attended"));
-    fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+    fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     expect(status()).toBe("Status: Attended");
     expect(screen.getByTestId("check-in-notice-saving")).toBeTruthy();
     expect(screen.queryByLabelText("No-show")).toBeNull(); // controls are gone while saving: no second tap
@@ -99,7 +99,7 @@ describe("private-lesson check-in", () => {
     expect(screen.getByText("Mark Ana Rivera as a no-show?")).toBeTruthy();
     fireEvent.press(screen.getByTestId("charge-package"));
     await act(async () => {
-      fireEvent.press(screen.getByLabelText("Mark no-show"));
+      fireEvent.press(screen.getByLabelText("Yes, mark no-show"));
     });
     expect(outcome.mock.calls[0][2]).toEqual({ status: "no_show", missedAppointmentCharge: "package" });
     expect(status()).toBe("Status: No-show");
@@ -109,7 +109,7 @@ describe("private-lesson check-in", () => {
     const { outcome } = await renderLesson();
     fireEvent.press(screen.getByLabelText("No-show"));
     await act(async () => {
-      fireEvent.press(screen.getByLabelText("Mark no-show"));
+      fireEvent.press(screen.getByLabelText("Yes, mark no-show"));
     });
     expect(outcome.mock.calls[0][2]).toEqual({ status: "no_show", missedAppointmentCharge: "none" });
   });
@@ -119,7 +119,7 @@ describe("private-lesson check-in", () => {
     await renderLesson({ outcome: jest.fn(async () => Promise.reject(conflict)) });
     fireEvent.press(screen.getByLabelText("Mark attended"));
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     });
     expect(screen.getByText("Already recorded")).toBeTruthy();
     expect(status()).toBe("Status: No-show");
@@ -132,7 +132,7 @@ describe("private-lesson check-in", () => {
     await renderLesson({ outcome: jest.fn(async () => Promise.reject(e)) });
     fireEvent.press(screen.getByLabelText("Mark attended"));
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     });
     expect(screen.getByText("Payment needed first")).toBeTruthy();
     expect(status()).toBe("Status: Scheduled");
@@ -147,7 +147,7 @@ describe("private-lesson check-in", () => {
     await renderLesson({ outcome });
     fireEvent.press(screen.getByLabelText("Mark attended"));
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     });
     expect(screen.getByText("Saved, not finished")).toBeTruthy();
     expect(status()).toBe("Status: Attended");
@@ -166,7 +166,7 @@ describe("private-lesson check-in", () => {
     await renderLesson({ outcome });
     fireEvent.press(screen.getByLabelText("Mark attended"));
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     });
     expect(screen.getByText("Not confirmed")).toBeTruthy();
     expect(status()).toBe("Status: Attended");
@@ -181,7 +181,7 @@ describe("private-lesson check-in", () => {
     await renderLesson({ outcome: jest.fn(async () => Promise.reject(new StaffApiError(0, "network_error", "x"))) });
     fireEvent.press(screen.getByLabelText("Mark attended"));
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     });
     fireEvent.press(screen.getByLabelText("Discard this change"));
     expect(status()).toBe("Status: Scheduled");
@@ -195,7 +195,7 @@ describe("private-lesson check-in", () => {
     await renderLesson({ outcome: jest.fn(async () => Promise.reject(error)) });
     fireEvent.press(screen.getByLabelText("Mark attended"));
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Mark attended").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
     });
     expect(screen.getByText(title)).toBeTruthy();
     expect(status()).toBe("Status: Scheduled");

@@ -11,6 +11,7 @@ const DEFAULTS = {
   memory: 2048,
   dryRun: false,
   a11y: false,
+  writes: false,
   allowBusy: false,
   keepEmulator: false,
   apk: null,
@@ -27,6 +28,7 @@ function parseArgs(argv) {
     if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--allow-busy") opts.allowBusy = true;
     else if (arg === "--a11y") opts.a11y = true;
+    else if (arg === "--writes") opts.writes = true;
     else if (arg === "--keep-emulator") opts.keepEmulator = true;
     else if (takes[arg]) {
       const value = argv[++i];
@@ -47,6 +49,7 @@ function buildPlan(opts) {
   steps.push(`emulator: boot ${opts.avd} if none is running, wait for the system UI to be quiet, record font scale and night mode, check the emulator reaches the stack and web app on 10.0.2.2`);
   steps.push("flows: owner light 1.0, dark 1.0, dark 2.0, light 2.0, live font change, empty day, 403 and recovery, 401 and re-sign-in, instructor");
   if (opts.a11y) steps.push("a11y: also save the accessibility tree (.xml) of every check, plus sign-in, class roster, client and More; then run node scripts/a11y-audit.js <out>");
+  if (opts.writes) steps.push("WRITES mode: the build carries the four Phase 1A write words and the web app runs with STAFF_API_WRITE_POLICY enabling them; flows replace the default matrix: quick-add client and duplicate_client, add note and notes list, private-lesson attended and no-show, roster add and remove, writes_disabled (policy off), upgrade_required (minimum above the build), then a 2.0 font + dark pass; emits business-writes-isoqa-smoke.txt (the evidence the release build gate reads)");
   steps.push("summary: out/summary.json, screenshots, exit code 0 only if every check passed");
   steps.push("teardown (always): restore font scale and night mode, uninstall the app, stop web, remove the stack, stop the emulator only if this run started it");
   return steps;
@@ -260,4 +263,29 @@ function dropLogNoise(text, keep = 3000) {
 }
 
 
-module.exports = { dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/** The four Phase 1A write words, the same keys as the server gate (src/lib/staff/writeGuard.ts) and the app flags (src/lib/features.ts). */
+const WRITE_WORDS = ["appointmentAttendance", "clientNotes", "clientCreate", "classRoster"];
+
+/**
+ * The evidence file docs/mobile/tools/Test-StaffFeatures.ps1 reads before a build may carry a write word. `results` are the smoke's check results (name, ok); `capabilityChecks` maps each
+ * word to the exact check names that prove it. A word gets its CAPABILITY line only when every one of its checks passed; RESULT is PASS only when the whole run passed.
+ * `commit` is the commit the APP was built from; `web` the commit of the server code the smoke ran against. Never says production: the stack is always iso-qa.
+ */
+function writesEvidence({ date, commit, web, results, capabilityChecks, runOk }) {
+  const byName = new Map(results.map((r) => [r.name, r.ok]));
+  const lines = [
+    "Business Phase 1A write smoke (iso-qa device smoke, disposable stack; never production)",
+    `Date: ${date}`,
+    `kind=iso-qa-device-smoke  stack=iso-qa  commit=${commit}  web=${web}`,
+  ];
+  for (const word of WRITE_WORDS) {
+    const names = capabilityChecks[word] ?? [];
+    if (names.length > 0 && names.every((n) => byName.get(n) === true)) lines.push(`CAPABILITY ${word} PASS`);
+    else lines.push(`CAPABILITY ${word} NOT-PROVEN`);
+  }
+  const allWords = WRITE_WORDS.every((w) => (capabilityChecks[w] ?? []).length > 0 && capabilityChecks[w].every((n) => byName.get(n) === true));
+  lines.push(`RESULT: ${runOk && allWords ? "PASS" : "FAIL"}`);
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}
+
+module.exports = { WRITE_WORDS, writesEvidence, dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
