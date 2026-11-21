@@ -6,7 +6,7 @@ import {
   staffApiJson,
   staffApiUnavailable,
 } from "@/lib/auth/staffApiAuth";
-import { clientLookupScope, decodeCursor, searchClients } from "@/lib/staff/clients";
+import { clientLookupScope, decodeCursor, isClientStatus, searchClients } from "@/lib/staff/clients";
 import { quickAddClient } from "@/lib/staff/clientCreate";
 import { requireStaffWrite } from "@/lib/staff/writeGuard";
 import { readEntityId, readIdempotencyKey, readJsonBody, staffConflict, staffWriteError } from "@/lib/staff/writeSupport";
@@ -28,6 +28,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ stud
   const q = (url.searchParams.get("q") ?? "").trim();
   if (q.length > MAX_QUERY) return staffApiError("invalid_request", `q must be at most ${MAX_QUERY} characters.`, 400);
 
+  // Instructors search only the clients they teach and cannot read status, so the filter does not apply to them.
+  const rawStatus = url.searchParams.get("status");
+  if (rawStatus !== null && !isClientStatus(rawStatus)) return staffApiError("invalid_request", "status is not a client status.", 400);
+  const status = rawStatus !== null && isClientStatus(rawStatus) ? rawStatus : null;
+
   const rawLimit = url.searchParams.get("limit");
   const limit = rawLimit === null ? DEFAULT_LIMIT : Number(rawLimit);
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
@@ -38,7 +43,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ stud
   if (cursor === "invalid") return staffApiError("invalid_request", "cursor is not valid.", 400);
 
   try {
-    return staffApiJson(await searchClients({ supabase: guard.supabase, studioId: guard.studioId, scope, q, cursor, limit }));
+    return staffApiJson(await searchClients({ supabase: guard.supabase, studioId: guard.studioId, scope, q, status, cursor, limit }));
   } catch (failure) {
     return staffApiUnavailable(url.pathname, failure);
   }
