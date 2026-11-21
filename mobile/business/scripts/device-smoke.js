@@ -252,7 +252,7 @@ async function check(name, fn) {
   }
   try {
     shot(slug(name));
-    if (opts.a11y) saveTree(slug(name));
+    if (opts.a11y || (opts.writes && !ok)) saveTree(slug(name)); // a failed write check keeps the screen tree, so a selector miss can be diagnosed from the evidence
   } catch {
     /* a screenshot failure never hides the result */
   }
@@ -725,7 +725,7 @@ async function writeFlows(owner) {
 
   await check("writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", async () => {
     await home();
-    await tapLabel(/2:00\sPM.*Colin Marsh.*Private lesson/, { timeout: 30000 }); // not the cancelled 1:00 PM intro lesson
+    await tapLabel(/2:00\sPM.*Colin Marsh.*Private lesson/, { timeout: 30000, scroll: true }); // not the cancelled 1:00 PM intro lesson
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     // someone else records it while this screen is open
     psql("update public.appointments set status='attended' where appointment_type='private_lesson' and client_id=(select id from public.clients where first_name='Colin' and last_name='Marsh' limit 1)");
@@ -737,7 +737,7 @@ async function writeFlows(owner) {
 
   await check("writes: a no-show whose charge could not be applied says so and offers Try again", async () => {
     await home();
-    await tapLabel(/3:00\sPM.*Ana Rivera.*Private lesson/, { timeout: 30000 });
+    await tapLabel(/3:00\sPM.*Ana Rivera.*Private lesson/, { timeout: 30000, scroll: true }); // below the fold in a six-row day
     await expectLabel("Check in", { timeout: 30000, scroll: true });
     await tapLabel("No-show", { scroll: true });
     await tapLabel(/^Use a package credit/, { timeout: 30000 });
@@ -751,7 +751,7 @@ async function writeFlows(owner) {
 
   await check("writes: add a dancer to the class roster", async () => {
     await home();
-    await tapLabel(/Beginner Salsa/, { timeout: 30000 });
+    await tapLabel(/Beginner Salsa/, { timeout: 30000, scroll: true }); // the 7:00 PM row is below the fold
     await expectLabel("Add a dancer", { timeout: 30000, scroll: true });
     await tapLabel("Add a dancer", { scroll: true });
     await typeInto("Find a client", "Sam");
@@ -772,10 +772,7 @@ async function writeFlows(owner) {
   await check("writes: policy off shows 'This change is turned off'", async () => {
     await home();
     await tapLabel(/^Clients$/);
-    await tapLabel(/^Zed/, { timeout: 30000 }).catch(async () => {
-      await typeInto("Search clients", "Zed");
-      await tapLabel(/^Zed/, { timeout: 30000 });
-    });
+    await tapLabel(/^Zed/, { timeout: 30000, scroll: true });
     await tapLabel("Add a note", { scroll: true });
     await typeInto("Note", "Shouldberefused");
     hideKeyboard();
