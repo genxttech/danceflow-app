@@ -286,6 +286,12 @@ describe("organizer create: content validation order and stored values", () => {
     expect(inserted("organizer_marketing_campaigns")[0]).toMatchObject({ audience_type: audienceType, audience_event_id: "ev-1" });
   });
 
+  it("the create action does not know specific_event_registered_not_checked_in (the update action does)", async () => {
+    expect(await run(createOrganizerCampaignDraftAction, { ...organizer, audienceType: "specific_event_registered_not_checked_in", audienceEventId: "ev-1" })).toContain(
+      "campaign_error=invalid_audience",
+    );
+  });
+
   it("a posted event id is stored even for a non-event audience (existing behaviour)", async () => {
     await run(createOrganizerCampaignDraftAction, { ...organizer, audienceEventId: "ev-1" });
     expect(inserted("organizer_marketing_campaigns")[0]).toMatchObject({ audience_type: "all_organizer_contacts", audience_event_id: "ev-1" });

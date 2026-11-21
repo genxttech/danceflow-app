@@ -155,6 +155,13 @@ describe("organizer update: content validation order and stored values", () => {
     expect(row()).toMatchObject({ audience_type: "all_organizer_contacts", audience_event_id: "ev-1" });
   });
 
+  it("the update action accepts specific_event_registered_not_checked_in (a type the create action does not know)", async () => {
+    seed([{ id: "ev-1", organizer_id: ORG }]);
+    expect(await update({ ...valid, audienceType: "specific_event_registered_not_checked_in" })).toContain("campaign_error=event_required");
+    expect(await update({ ...valid, audienceType: "specific_event_registered_not_checked_in", audienceEventId: "ev-1" })).toContain("campaign_saved=1");
+    expect(row().audience_type).toBe("specific_event_registered_not_checked_in");
+  });
+
   it("defaults the audience to all_organizer_contacts", async () => {
     const { audienceType: _a, ...noAudience } = valid;
     await update(noAudience);
