@@ -1,5 +1,8 @@
 "use server";
 
+import { callOpenAiResponses, isAiFeatureEnabled } from "@/lib/ai/providerCall";
+import { checkRateLimit, getServerActionRateLimitKey } from "@/lib/security/rate-limit";
+
 import { getPublicKnowledgebaseArticles } from "@/lib/knowledgebase/articles";
 import type { KnowledgebaseArticle } from "@/lib/knowledgebase/schema";
 
@@ -144,11 +147,30 @@ function buildArticleContext(articles: KnowledgebaseArticle[]) {
     .join("\n\n---\n\n");
 }
 
+async function withinPublicRateLimit() {
+  // Per-IP, per instance (see rate-limit.ts): a speed bump for casual abuse, not a hard budget.
+  const perMinute = checkRateLimit(await getServerActionRateLimitKey("ai:kb-public:min"), { limit: 5, windowMs: 60 * 1000 });
+  if (!perMinute.allowed) return false;
+  const perHour = checkRateLimit(await getServerActionRateLimitKey("ai:kb-public:hour"), { limit: 30, windowMs: 60 * 60 * 1000 });
+  return perHour.allowed;
+}
+
+// Public, unauthenticated surface: every model call is paid by DanceFlow, so it is bounded (see lib/ai/providerCall.ts).
+const MAX_QUESTION_CHARS = 300;
+const KB_MODEL_TIMEOUT_MS = 8000;
+
 export async function askKnowledgebaseAssistantAction(
   _previousState: KnowledgebaseAssistantState,
   formData: FormData,
 ): Promise<KnowledgebaseAssistantState> {
-  const question = getString(formData, "question");
+  const question = getString(formData, "question").replace(/\s+/g, " ");
+
+  if (question.length > MAX_QUESTION_CHARS) {
+    return {
+      ok: false,
+      error: `Please keep your question under ${MAX_QUESTION_CHARS} characters.`,
+    };
+  }
 
   if (question.length < 3) {
     return {
@@ -172,7 +194,13 @@ export async function askKnowledgebaseAssistantAction(
     (article) => normalize(article.title) === normalize(question),
   );
 
-  if (process.env.AI_FEATURES_ENABLED !== "true" || !process.env.OPENAI_API_KEY) {
+  // Link-only answer (no provider call) when AI is off, the public feature is switched off (AI_DISABLED_FEATURES=kb_public),
+  // or this caller is over the per-IP limit.
+  const modelAllowed =
+    isAiFeatureEnabled("kb_public") &&
+    (await withinPublicRateLimit());
+
+  if (!modelAllowed) {
     const top = exactTitle ?? relevantArticles[0];
     return {
       ok: true,
@@ -188,40 +216,35 @@ export async function askKnowledgebaseAssistantAction(
     };
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
   const articleContext = buildArticleContext(relevantArticles);
   const model =
     process.env.OPENAI_MODEL_KNOWLEDGEBASE_ASSISTANT ??
     process.env.OPENAI_MODEL_REPORT_INSIGHTS ??
     "gpt-4.1-mini";
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      max_output_tokens: 850,
-      input: [
-        {
-          role: "system",
-          content:
-            "You are a helpful DanceFlow support assistant. Answer only from the provided knowledgebase article excerpts. Use plain, practical language for studio owners, organizers, instructors, and dancers. When an exact matching article is provided, clearly name it and direct the user to the related article link. If the articles do not answer the question, say the available guides do not fully answer it. Do not mention prompts, internal implementation, model names, database details, roadmap phases, or unsupported product claims. Do not provide legal, tax, medical, or financial advice. Keep the answer concise and action-oriented.",
-        },
-        {
-          role: "user",
-          content: `Question or article search:\n${question}\n\nRelevant DanceFlow knowledgebase articles:\n${articleContext}\n\nReturn a helpful answer using only these articles.`,
-        },
-      ],
-    }),
+  const result = await callOpenAiResponses({
+    feature: "kb_public",
+    model,
+    temperature: 0.2,
+    maxOutputTokens: 850,
+    maxInputChars: 36000,
+    timeoutMs: KB_MODEL_TIMEOUT_MS,
+    // Best-effort global ceiling per server instance (in-memory); a durable budget needs storage and is a separate decision.
+    budget: { limit: Number.parseInt(process.env.KB_ASSISTANT_INSTANCE_HOURLY_BUDGET ?? "", 10) || 300, windowMs: 60 * 60 * 1000 },
+    input: [
+      {
+        role: "system",
+        content:
+          "You are a helpful DanceFlow support assistant. Answer only from the provided knowledgebase article excerpts. Use plain, practical language for studio owners, organizers, instructors, and dancers. When an exact matching article is provided, clearly name it and direct the user to the related article link. If the articles do not answer the question, say the available guides do not fully answer it. Do not mention prompts, internal implementation, model names, database details, roadmap phases, or unsupported product claims. Do not provide legal, tax, medical, or financial advice. Keep the answer concise and action-oriented.",
+      },
+      {
+        role: "user",
+        content: `Question or article search:\n${question}\n\nRelevant DanceFlow knowledgebase articles:\n${articleContext}\n\nReturn a helpful answer using only these articles.`,
+      },
+    ],
   });
 
-  const data = (await response.json().catch(() => ({}))) as OpenAiResponse;
-
-  if (!response.ok) {
+  if (!result.ok) {
     return {
       ok: true,
       answer: exactTitle
@@ -236,7 +259,7 @@ export async function askKnowledgebaseAssistantAction(
     };
   }
 
-  const answer = getOutputText(data);
+  const answer = result.text;
 
   return {
     ok: true,

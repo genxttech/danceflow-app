@@ -3,11 +3,15 @@
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { resolveLumiPortalAccess } from "@/lib/lumi/portal";
 import {
-  getLumiUsageAllowance,
-  recordLumiUsage,
-  resolveLumiPortalAccess,
-} from "@/lib/lumi/portal";
+  getLumiUsageSnapshot,
+  lumiRefusalMessage,
+  releaseLumiUsage,
+  reserveLumiUsage,
+  settleLumiUsage,
+} from "@/lib/lumi/usage";
+import { callOpenAiResponses, isAiFeatureEnabled } from "@/lib/ai/providerCall";
 
 export type LumiAssistantState = {
   ok: boolean;
@@ -87,24 +91,6 @@ export async function completeLumiGoalAction(formData: FormData) {
   redirect(`${returnTo}?success=goal-completed`);
 }
 
-type OpenAiResponse = {
-  output_text?: string;
-  output?: Array<{ content?: Array<{ text?: string }> }>;
-  error?: { message?: string };
-};
-
-function outputText(data: OpenAiResponse) {
-  return (
-    data.output_text?.trim() ||
-    data.output
-      ?.flatMap((item) => item.content ?? [])
-      .map((item) => item.text ?? "")
-      .join("\n")
-      .trim() ||
-    ""
-  );
-}
-
 function parseJson(text: string) {
   try {
     return JSON.parse(text);
@@ -153,16 +139,29 @@ export async function generateLumiPlanAction(
     return { ok: false, error: "LUMI is not available for this portal right now." };
   }
 
-  const allowance = await getLumiUsageAllowance(access);
-  if (!allowance.allowed) {
-    return {
-      ok: false,
-      error: "Your studio's monthly AI allowance has been used. Try again after it renews.",
-    };
+  if (!isAiFeatureEnabled("lumi_plan")) {
+    return { ok: false, error: "LUMI is not configured yet." };
   }
 
-  if (process.env.AI_FEATURES_ENABLED !== "true" || !process.env.OPENAI_API_KEY) {
-    return { ok: false, error: "LUMI is not configured yet." };
+  const snapshot = await getLumiUsageSnapshot(access);
+  if (!snapshot.allowed) {
+    return { ok: false, error: lumiRefusalMessage(snapshot.reason) };
+  }
+
+  // Rate limit BEFORE any context query or provider spend. Keyed by the signed-in dancer + studio (not only the IP).
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("ai:lumi", [studioSlug, access.client.id, task]),
+    { limit: 8, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
+  }
+
+  // Reserve capacity BEFORE the provider call (concurrency-safe: see lib/lumi/usage.ts).
+  const reservation = await reserveLumiUsage(access, task);
+  if (!reservation.ok) {
+    return { ok: false, error: lumiRefusalMessage(reservation.reason) };
   }
 
   const nowIso = new Date().toISOString();
@@ -257,48 +256,47 @@ export async function generateLumiPlanAction(
     upcomingLessons: upcoming,
   };
 
-  const rateLimit = checkRateLimit(
-    await getServerActionRateLimitKey("ai:lumi", [studioSlug, task]),
-    { limit: 8, windowMs: 10 * 60 * 1000 },
-  );
-
-  if (!rateLimit.allowed) {
-    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
-  }
-
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model:
-        process.env.OPENAI_MODEL_LUMI ??
-        process.env.OPENAI_MODEL_LESSON_ASSISTANT ??
-        "gpt-4.1-mini",
-      temperature: 0.35,
-      max_output_tokens: 900,
-      input: [
-        {
-          role: "system",
-          content:
-            "You are LUMI, a warm student-facing dance journey assistant. Use only the provided student-visible goals, private lesson recaps, group lesson recaps, syllabus progress, and schedule. Reinforce the instructor's coaching and never override it. Do not invent technique, progress, results, diagnoses, guarantees, or private studio information. Give practical, encouraging priorities and questions the dancer can discuss with the instructor. Return only valid JSON with keys: headline, summary, practicePriorities (array of up to 4 short strings), instructorQuestions (array of up to 3 short strings), encouragement.",
-        },
-        {
-          role: "user",
-          content: `Create the requested dance journey guidance from this context:\n${JSON.stringify(context, null, 2)}`,
-        },
-      ],
-    }),
+  const result = await callOpenAiResponses({
+    feature: "lumi_plan",
+    model:
+      process.env.OPENAI_MODEL_LUMI ??
+      process.env.OPENAI_MODEL_LESSON_ASSISTANT ??
+      "gpt-4.1-mini",
+    temperature: 0.35,
+    maxOutputTokens: 900,
+    maxInputChars: 40000,
+    input: [
+      {
+        role: "system",
+        content:
+          "You are LUMI, a warm student-facing dance journey assistant. Use only the provided student-visible goals, private lesson recaps, group lesson recaps, syllabus progress, and schedule. Reinforce the instructor's coaching and never override it. Do not invent technique, progress, results, diagnoses, guarantees, or private studio information. Give practical, encouraging priorities and questions the dancer can discuss with the instructor. Return only valid JSON with keys: headline, summary, practicePriorities (array of up to 4 short strings), instructorQuestions (array of up to 3 short strings), encouragement.",
+      },
+      {
+        role: "user",
+        content: `Create the requested dance journey guidance from this context:\n${JSON.stringify(context, null, 2)}`,
+      },
+    ],
   });
 
-  const data = (await response.json().catch(() => ({}))) as OpenAiResponse;
-  if (!response.ok) {
-    return { ok: false, error: data.error?.message ?? "LUMI could not prepare guidance right now." };
+  if (!result.ok) {
+    // The provider never produced billable output (disabled, too large, rejected): give the reserved capacity back.
+    // A timeout may still have been billed by the provider, so it stays counted.
+    if (result.reason === "timeout") {
+      await settleLumiUsage(access, reservation.id, task, { outcome: "timeout" });
+    } else {
+      await releaseLumiUsage(access, reservation.id, task);
+    }
+    return { ok: false, error: result.message };
   }
 
-  const parsed = parseJson(outputText(data)) as {
+  // The provider was reached and produced output: this request is billable whether or not the JSON parses.
+  await settleLumiUsage(access, reservation.id, task, {
+    outcome: "ok",
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+  });
+
+  const parsed = parseJson(result.text) as {
     headline?: unknown;
     summary?: unknown;
     practicePriorities?: unknown;
@@ -308,7 +306,6 @@ export async function generateLumiPlanAction(
 
   if (!parsed) return { ok: false, error: "LUMI did not return readable guidance." };
 
-  await recordLumiUsage(access, { task });
   const list = (value: unknown, max: number) =>
     Array.isArray(value)
       ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, max)

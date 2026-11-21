@@ -1,6 +1,9 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
+import { callOpenAiResponses } from "@/lib/ai/providerCall";
+import { studioHasFeature } from "@/lib/billing/access";
+import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 export type ReportInsightsMetrics = {
   range: string;
   plan: string;
@@ -119,20 +122,26 @@ function getOutputText(data: OpenAiResponse) {
 }
 
 export async function generateReportInsights(metrics: ReportInsightsMetrics) {
-  if (process.env.AI_FEATURES_ENABLED !== "true") {
+  const canUseAi = await studioHasFeature("ai_assistant");
+
+  if (!canUseAi) {
     return {
       ok: false,
-      error: "AI insights are not enabled yet.",
+      error: "AI report insights is available on Growth and Pro plans.",
     };
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const allowance = await getUsageAllowance({ featureKey: "ai_action" });
 
-  if (!apiKey) {
+  if (!allowance.allowed) {
     return {
       ok: false,
-      error: "AI insights are not configured yet.",
+      error: getUsageLimitMessage(allowance, "AI action"),
     };
+  }
+
+  if (JSON.stringify(metrics ?? {}).length > 12000) {
+    return { ok: false, error: "That report is too large for AI insights." };
   }
 
   const model = process.env.OPENAI_MODEL_REPORT_INSIGHTS ?? "gpt-4.1-mini";
@@ -146,17 +155,13 @@ export async function generateReportInsights(metrics: ReportInsightsMetrics) {
     return { ok: false, error: rateLimitErrorMessage(rateLimit) };
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.3,
-      max_output_tokens: 750,
-      input: [
+  const result = await callOpenAiResponses({
+    feature: "report_insights",
+    model,
+    temperature: 0.3,
+    maxOutputTokens: 750,
+    maxInputChars: 20000,
+    input: [
         {
           role: "system",
           content:
@@ -166,29 +171,20 @@ export async function generateReportInsights(metrics: ReportInsightsMetrics) {
           role: "user",
           content: `Review these DanceFlow report metrics and return:\n\nSummary\nA short 2-3 sentence overview.\n\nWhat to watch\n3 short bullet points.\n\nSuggested next steps\n3-5 numbered action steps.\n\nMetrics:\n${JSON.stringify(metrics, null, 2)}`,
         },
-      ],
-    }),
+    ],
   });
 
-  const data = (await response.json().catch(() => ({}))) as OpenAiResponse;
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      error:
-        data.error?.message ??
-        "AI insights could not be generated right now. Please try again.",
-    };
+  if (!result.ok) {
+    return { ok: false, error: result.message };
   }
 
-  const text = getOutputText(data);
+  const text = result.text;
 
-  if (!text) {
-    return {
-      ok: false,
-      error: "AI insights did not return a readable response.",
-    };
-  }
+  await recordUsageEvent({
+    featureKey: "ai_action",
+    source: "report_ai_insights",
+    metadata: { range: String(metrics.range ?? "").slice(0, 40) },
+  });
 
   return {
     ok: true,

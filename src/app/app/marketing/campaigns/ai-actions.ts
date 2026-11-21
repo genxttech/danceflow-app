@@ -1,6 +1,7 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
+import { callOpenAiResponses } from "@/lib/ai/providerCall";
 import { studioHasFeature } from "@/lib/billing/access";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -98,22 +99,6 @@ export async function generateCampaignDraftAssistantAction(
     };
   }
 
-  if (process.env.AI_FEATURES_ENABLED !== "true") {
-    return {
-      ok: false,
-      error: "AI writing help is not enabled yet.",
-    };
-  }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return {
-      ok: false,
-      error: "AI writing help is not configured yet.",
-    };
-  }
-
   const audienceLabel = getString(formData, "audienceLabel") || "selected audience";
   const campaignContext = getString(formData, "campaignContext") || "dance business";
   const eventName = getString(formData, "eventName");
@@ -152,17 +137,13 @@ export async function generateCampaignDraftAssistantAction(
     return { ok: false, error: rateLimitErrorMessage(rateLimit) };
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.45,
-      max_output_tokens: 900,
-      input: [
+  const result = await callOpenAiResponses({
+    feature: "campaign_draft",
+    model,
+    temperature: 0.45,
+    maxOutputTokens: 900,
+    maxInputChars: 20000,
+    input: [
         {
           role: "system",
           content:
@@ -172,29 +153,14 @@ export async function generateCampaignDraftAssistantAction(
           role: "user",
           content: `Create campaign copy using this context:\n${JSON.stringify(prompt, null, 2)}`,
         },
-      ],
-    }),
+    ],
   });
 
-  const data = (await response.json().catch(() => ({}))) as OpenAiResponse;
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      error:
-        data.error?.message ??
-        "AI writing help could not generate a draft right now. Please try again.",
-    };
+  if (!result.ok) {
+    return { ok: false, error: result.message };
   }
 
-  const text = getOutputText(data);
-
-  if (!text) {
-    return {
-      ok: false,
-      error: "AI writing help did not return a readable response.",
-    };
-  }
+  const text = result.text;
 
   const parsed = parseJsonFromText(text) as
     | {

@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getIncludedUsageAllowance } from "@/lib/usage/addons";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 import { resolveStudioBillingPlan } from "@/lib/billing/access";
 
@@ -179,80 +178,4 @@ export async function resolveLumiPortalAccess(
     allowed: reason === "available",
     reason,
   };
-}
-
-export async function getLumiUsageAllowance(
-  access: LumiPortalAccess,
-  quantity = 1,
-) {
-  const periodStart = new Date(
-    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
-  );
-  const periodEnd = new Date(
-    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1),
-  );
-  const periodStartKey = periodStart.toISOString().slice(0, 10);
-  const periodEndKey = periodEnd.toISOString().slice(0, 10);
-  const includedAllowance = getIncludedUsageAllowance({
-    planCode: access.planCode,
-    featureKey: "ai_action",
-  });
-
-  const [{ data: summary }, { data: entitlements }] = await Promise.all([
-    access.admin
-      .from("usage_monthly_summaries")
-      .select("quantity_used")
-      .eq("studio_id", access.studio.id)
-      .eq("feature_key", "ai_action")
-      .eq("period_start", periodStartKey)
-      .limit(1)
-      .maybeSingle(),
-    access.admin
-      .from("usage_addon_entitlements")
-      .select("quantity_included")
-      .eq("studio_id", access.studio.id)
-      .eq("feature_key", "ai_action")
-      .eq("status", "active"),
-  ]);
-
-  const addonAllowance = (entitlements ?? []).reduce(
-    (sum, row) => sum + Math.max(0, row.quantity_included ?? 0),
-    0,
-  );
-  const used = Math.max(0, summary?.quantity_used ?? 0);
-  const total = includedAllowance + addonAllowance;
-
-  return {
-    allowed: access.allowed && total > 0 && used + quantity <= total,
-    used,
-    total,
-    remaining: Math.max(0, total - used),
-    periodStart: periodStartKey,
-    periodEnd: periodEndKey,
-  };
-}
-
-export async function recordLumiUsage(
-  access: LumiPortalAccess,
-  metadata: Record<string, unknown>,
-) {
-  const allowance = await getLumiUsageAllowance(access, 1);
-  if (!allowance.allowed) return false;
-
-  const { error } = await access.admin.rpc("record_usage_event", {
-    p_studio_id: access.studio.id,
-    p_organizer_id: null,
-    p_workspace_type: "studio",
-    p_feature_key: "ai_action",
-    p_quantity: 1,
-    p_source: "lumi_journey_assistant",
-    p_related_table: "clients",
-    p_related_id: access.client.id,
-    p_metadata: metadata,
-    p_period_start: allowance.periodStart,
-    p_period_end: allowance.periodEnd,
-  });
-
-  if (error) console.error("LUMI usage recording failed", error.message);
-  return !error;
 }

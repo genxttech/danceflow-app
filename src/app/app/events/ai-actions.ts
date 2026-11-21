@@ -1,6 +1,9 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
+import { callOpenAiResponses } from "@/lib/ai/providerCall";
+import { studioHasFeature } from "@/lib/billing/access";
+import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 export type EventDescriptionAIState = {
   ok: boolean;
   error?: string;
@@ -25,7 +28,7 @@ type OpenAiResponse = {
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" ? value.trim().slice(0, 4000) : "";
 }
 
 function getOutputText(data: OpenAiResponse) {
@@ -69,19 +72,21 @@ export async function generateEventDescriptionAssistantAction(
   _previousState: EventDescriptionAIState,
   formData: FormData,
 ): Promise<EventDescriptionAIState> {
-  if (process.env.AI_FEATURES_ENABLED !== "true") {
+  const canUseAi = await studioHasFeature("ai_assistant");
+
+  if (!canUseAi) {
     return {
       ok: false,
-      error: "AI writing help is not enabled yet.",
+      error: "AI event writing help is available on Growth and Pro plans.",
     };
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const allowance = await getUsageAllowance({ featureKey: "ai_action" });
 
-  if (!apiKey) {
+  if (!allowance.allowed) {
     return {
       ok: false,
-      error: "AI writing help is not configured yet.",
+      error: getUsageLimitMessage(allowance, "AI action"),
     };
   }
 
@@ -132,17 +137,13 @@ export async function generateEventDescriptionAssistantAction(
     return { ok: false, error: rateLimitErrorMessage(rateLimit) };
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.45,
-      max_output_tokens: 900,
-      input: [
+  const result = await callOpenAiResponses({
+    feature: "event_description",
+    model,
+    temperature: 0.45,
+    maxOutputTokens: 900,
+    maxInputChars: 16000,
+    input: [
         {
           role: "system",
           content:
@@ -152,29 +153,20 @@ export async function generateEventDescriptionAssistantAction(
           role: "user",
           content: `Create event or class copy using this context:\n${JSON.stringify(prompt, null, 2)}`,
         },
-      ],
-    }),
+    ],
   });
 
-  const data = (await response.json().catch(() => ({}))) as OpenAiResponse;
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      error:
-        data.error?.message ??
-        "AI writing help could not generate copy right now. Please try again.",
-    };
+  if (!result.ok) {
+    return { ok: false, error: result.message };
   }
 
-  const text = getOutputText(data);
+  const text = result.text;
 
-  if (!text) {
-    return {
-      ok: false,
-      error: "AI writing help did not return a readable response.",
-    };
-  }
+  await recordUsageEvent({
+    featureKey: "ai_action",
+    source: "event_ai_assistant",
+    metadata: { task },
+  });
 
   const parsed = parseJsonFromText(text) as
     | {
