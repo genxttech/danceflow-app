@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { canEditClients } from "@/lib/auth/permissions";
+import { canEditClients, canViewClients } from "@/lib/auth/permissions";
 import { normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
-import { staffApiError, staffApiJson, staffApiUnavailable } from "@/lib/auth/staffApiAuth";
-import { addClientActivityNote, validateClientNoteInput } from "@/lib/staff/clientNotes";
+import { requireStaffApi, staffApiError, staffApiJson, staffApiUnavailable } from "@/lib/auth/staffApiAuth";
+import { addClientActivityNote, decodeNoteCursor, listClientNotes, validateClientNoteInput } from "@/lib/staff/clientNotes";
 import { requireStaffWrite } from "@/lib/staff/writeGuard";
 import { readEntityId, readIdempotencyKey, readJsonBody, staffConflict, staffWriteError } from "@/lib/staff/writeSupport";
 
@@ -92,5 +92,49 @@ export async function POST(request: Request, { params }: { params: Promise<{ stu
     return result.created ? NextResponse.json({ note: result.note }, { status: 201, headers: ok.headers }) : ok;
   } catch (failure) {
     return staffApiUnavailable(new URL(request.url).pathname, failure);
+  }
+}
+
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 50;
+
+/**
+ * The client's notes, newest first (what the web client page shows). Reads are not behind the write guard. Roles: canViewClients (owner, admin,
+ * front desk); instructors cannot read client records, so they cannot read notes either.
+ */
+export async function GET(request: Request, { params }: { params: Promise<{ studioId: string; clientId: string }> }) {
+  const { studioId, clientId } = await params;
+  const guard = await requireStaffApi(request, studioId);
+  if (!guard.ok) return guard.response;
+
+  if (!canViewClients(guard.studioRole)) {
+    return staffApiError("role_not_permitted", "Your role cannot read client notes.", 403);
+  }
+
+  const normalizedClientId = normalizeStudentApiUuid(clientId);
+  if (!normalizedClientId) return staffApiError("invalid_request", "A valid client id is required.", 400);
+
+  const url = new URL(request.url);
+  const rawLimit = url.searchParams.get("limit");
+  const limit = rawLimit === null ? DEFAULT_LIMIT : Number(rawLimit);
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
+    return staffApiError("invalid_request", `limit must be an integer from 1 to ${MAX_LIMIT}.`, 400);
+  }
+  const cursor = decodeNoteCursor(url.searchParams.get("cursor"));
+  if (cursor === "invalid") return staffApiError("invalid_request", "cursor is not valid.", 400);
+
+  try {
+    const result = await listClientNotes({
+      supabase: guard.supabase,
+      studioId: guard.studioId,
+      clientId: normalizedClientId.toLowerCase(),
+      userId: guard.user.id,
+      cursor,
+      limit,
+    });
+    if (!result) return staffApiError("not_found", "Client not found.", 404);
+    return staffApiJson(result);
+  } catch (failure) {
+    return staffApiUnavailable(url.pathname, failure);
   }
 }

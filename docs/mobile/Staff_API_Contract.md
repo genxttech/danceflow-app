@@ -294,6 +294,28 @@ A client summary with no money and no contact details. Same role rules as the se
 - `nextAppointment` is the earliest upcoming `scheduled`, `confirmed` or `rescheduled` appointment, or `null`. For owners, admins and front desk that means a lesson where the client is the primary or partner client, or a group class they're booked into. For instructors it is only the instructor's own lessons with that client.
 - `status` is `null` for instructors, as in the search.
 
+## `GET /api/staff/workspaces/{studioId}/clients/{clientId}/notes?cursor=&limit=` (client notes read)
+
+The client's notes, newest first: the same notes the web client page shows (the web applies no per-note privacy or instructor-visibility rule; access is by role). Reads are not behind the write guard (no `X-DanceFlow-App` header or kill switch needed).
+
+- **Roles:** owners, admins and front desk (`canViewClients`). Instructors (including independent instructors) and organizer roles get `403 role_not_permitted`, because they cannot read client records on the web either.
+- `limit`: 1–50, default 25. `cursor`: the `nextCursor` of the previous page, used as-is; a cursor that does not decode (or has any other shape) is `400 invalid_request`.
+- Ordered by `occurredAt`, then `createdAt`, then `id`, all descending. Paging is keyset-based, so a note added while the app is paging never duplicates or skips a note on pages already fetched (a newer note shows up on a refresh from the top).
+- A client that does not exist or belongs to another studio is `404 not_found`; a workspace the caller does not belong to is `403 not_a_member`.
+
+```json
+{
+  "notes": [
+    { "id": "uuid", "clientId": "uuid", "noteType": "follow_up", "body": "Called about the showcase.", "occurredAt": "2026-11-20T15:30:00+00:00", "createdAt": "2026-11-20T15:30:02.123456+00:00", "authorName": "Fran Desk", "isMine": true }
+  ],
+  "nextCursor": null
+}
+```
+
+- `isMine` is true for notes the caller wrote. `authorName` is the author's profile name, but profiles are readable only for the caller's own row (the web client page's author column behaves the same), so in practice it is the caller's name on their own notes and `null` on a colleague's; show "Staff" or nothing for `null`. No email address is ever returned.
+- Timestamps here are the database form (`+00:00`, microseconds kept so a cursor can resume exactly); parse them as instants.
+- `nextCursor: null` means there are no more pages.
+
 ## `POST /api/staff/workspaces/{studioId}/clients/{clientId}/notes` (client slice C1)
 
 Adds an activity note to a client. It is the web "Add note" action's own write (shared module `src/lib/staff/clientNotes.ts`), so validation, columns and the database guards are the same.
