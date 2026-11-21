@@ -11,13 +11,13 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { studioHasFeature } from "@/lib/billing/access";
 import { signLinkExpiryForDueDate } from "@/lib/documents/signing-integrity";
 import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
+import { findClientByEmail, insertClient, normalizeClientPayload } from "@/lib/staff/clientCreate";
 import { CLIENT_PHOTO_BUCKET, parseClientPhotoObjectPath } from "@/lib/clients/clientPhotoAccess";
 import {
   CLIENT_REFERRAL_SOURCE_OPTIONS,
   CLIENT_SKILL_LEVEL_OPTIONS,
   CLIENT_STATUS_OPTIONS,
   isAllowedOptionValue,
-  normalizeOptionValue,
 } from "@/lib/forms/options";
 import {
   cleanFormText,
@@ -246,88 +246,6 @@ function validateClientDropdowns(params: {
 
   return null;
 }
-
-function normalizeClientPayload(params: {
-  firstName: string;
-  lastName: string;
-  email: string | null;
-  phone: string | null;
-  birthday: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  danceStyles: string[];
-  danceInterests?: string;
-  danceGoals?: string[];
-  includeDanceGoals?: boolean;
-  skillLevel: string;
-  notes: string;
-  referralSource: string;
-  status: string;
-  linkedInstructorId: string | null;
-  isIndependentInstructor: boolean;
-}) {
-  const {
-    firstName,
-    lastName,
-    email,
-    phone,
-    birthday,
-    addressLine1,
-    addressLine2,
-    city,
-    state,
-    postalCode,
-    country,
-    danceStyles,
-    danceInterests,
-    danceGoals,
-    includeDanceGoals = false,
-    skillLevel,
-    notes,
-    referralSource,
-    status,
-    linkedInstructorId,
-    isIndependentInstructor,
-  } = params;
-
-  const normalizedLinkedInstructorId = isIndependentInstructor
-    ? linkedInstructorId
-    : null;
-  const normalizedDanceInterests = danceStyles.length
-    ? danceStyles.join(", ")
-    : danceInterests ?? "";
-
-  return {
-    first_name: firstName,
-    last_name: lastName,
-    email: email || null,
-    phone: phone || null,
-    birthday: birthday || null,
-    address_line1: addressLine1 || null,
-    address_line2: addressLine2 || null,
-    city: city || null,
-    state: state || null,
-    postal_code: postalCode || null,
-    country: country || null,
-    dance_interests: normalizedDanceInterests || null,
-    ...(includeDanceGoals ? { dance_goals: danceGoals?.length ? danceGoals : null } : {}),
-    skill_level: skillLevel
-      ? normalizeOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)
-      : null,
-    notes: notes || null,
-    referral_source: referralSource
-      ? normalizeOptionValue(CLIENT_REFERRAL_SOURCE_OPTIONS, referralSource)
-      : null,
-    status: normalizeOptionValue(CLIENT_STATUS_OPTIONS, status) ?? "lead",
-    is_independent_instructor: isIndependentInstructor,
-    linked_instructor_id: normalizedLinkedInstructorId,
-  };
-}
-
 
 export type OnboardingDocumentOption = {
   id: string;
@@ -819,13 +737,7 @@ export async function createClientAction(
     }
 
     if (email) {
-      const { data: duplicateClient } = await supabase
-        .from("clients")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("email", email)
-        .limit(1)
-        .maybeSingle();
+      const duplicateClient = await findClientByEmail({ supabase, studioId, email });
 
       if (duplicateClient) {
         return {
@@ -836,13 +748,7 @@ export async function createClientAction(
     }
 
     if (partnerEmail) {
-      const { data: duplicatePartner } = await supabase
-        .from("clients")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("email", partnerEmail)
-        .limit(1)
-        .maybeSingle();
+      const duplicatePartner = await findClientByEmail({ supabase, studioId, email: partnerEmail });
 
       if (duplicatePartner) {
         return {
@@ -889,15 +795,16 @@ export async function createClientAction(
 
     const partnerClientId = createPartner ? randomUUID() : null;
 
-    const { error } = await supabase.from("clients").insert({
-      id: clientId,
-      studio_id: studioId,
-      ...payload,
-      photo_url: photoResult.path,
+    const inserted = await insertClient({
+      supabase,
+      studioId,
+      clientId,
+      payload,
+      photoPath: photoResult.path,
     });
 
-    if (error) {
-      return { error: `Client creation failed: ${error.message}` };
+    if (!inserted.ok) {
+      return { error: `Client creation failed: ${inserted.message}` };
     }
 
     if (createPartner && partnerClientId) {

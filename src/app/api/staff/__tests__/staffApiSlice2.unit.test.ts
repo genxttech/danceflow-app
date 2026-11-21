@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientLookupScope, decodeCursor, encodeCursor } from "@/lib/staff/clients";
+import { CLIENT_STATUSES, clientLookupScope, decodeCursor, encodeCursor, isClientStatus } from "@/lib/staff/clients";
 import { MARKABLE_ATTENDANCE_STATUSES } from "@/lib/staff/classAttendance";
 import { toIsoUtc } from "@/lib/staff/instructorToday";
 
@@ -22,6 +22,14 @@ describe("client lookup scope", () => {
   it("would map platform_admin to broad, which is why requireStaffApi refuses platform admins before any route runs", () => {
     // canViewClients includes platform_admin; the staff API boundary (not this mapping) is what keeps them out in v1.
     expect(clientLookupScope("platform_admin")).toBe("broad");
+  });
+});
+
+describe("client status filter", () => {
+  it("accepts exactly the web CRM statuses", () => {
+    expect([...CLIENT_STATUSES]).toEqual(["lead", "contacted", "consultation_booked", "converted", "lost", "active", "inactive", "archived"]);
+    for (const status of CLIENT_STATUSES) expect(isClientStatus(status)).toBe(true);
+    for (const bad of ["", "Lead", "ACTIVE", "all", "lead,active", "active;", "unknown"]) expect(isClientStatus(bad)).toBe(false);
   });
 });
 
