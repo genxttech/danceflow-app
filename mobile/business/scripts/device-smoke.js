@@ -327,6 +327,21 @@ function preflight() {
   if (run("docker", ["info", "--format", "{{.ServerVersion}}"]).status !== 0) throw new Error("docker is not running");
 }
 
+/** The build tree, the web server tree and (when given) --expect-commit must all be the same commit and clean, or the evidence file would name a build that was not tested. A stale build already cost a run. */
+function commitPreflight() {
+  if (!opts.buildDir) return;
+  const build = headOf(path.resolve(opts.buildDir));
+  const web = headOf(REPO);
+  log(`commits: build tree ${build}  web tree ${web}  expected ${opts.expectCommit ?? "(not given)"}`);
+  if (build === "unknown" || build !== web) throw new Error(`the build tree (${build}) and the web server tree (${web}) are not the same commit`);
+  if (opts.expectCommit && !build.startsWith(opts.expectCommit)) throw new Error(`the trees are at ${build}, not the expected ${opts.expectCommit}`);
+  for (const [name, dir] of [["build", path.resolve(opts.buildDir)], ["web", REPO]]) {
+    const dirty = run("git", ["-C", dir, "status", "--porcelain", "--untracked-files=no", "--", "src", "mobile/business/src", "mobile/business/app"]).stdout.trim();
+    if (dirty) throw new Error(`the ${name} tree has uncommitted app changes:
+${dirty}`);
+  }
+}
+
 async function bringUpStack() {
   const up = run("node", ["scripts/qa/iso-qa.mjs", "up", "baseline", "--name", opts.stackName, "--auth"], { cwd: REPO });
   if (up.status !== 0) throw new Error(`iso-qa up failed: ${up.stderr.slice(-400)}`);
@@ -772,7 +787,9 @@ async function writeFlows(owner) {
   await check("writes: policy off shows 'This change is turned off'", async () => {
     await home();
     await tapLabel(/^Clients$/);
-    await tapLabel(/^Zed/, { timeout: 30000, scroll: true });
+    // regression check for #746: the quick-added lead is in the Clients list after coming back to the tab, with no search typed
+    await expectLabel(/^Zed Newperson, Lead/, { timeout: 30000, scroll: true });
+    await tapLabel(/^Zed Newperson/, { timeout: 30000, scroll: true });
     await tapLabel("Add a note", { scroll: true });
     await typeInto("Note", "Shouldberefused");
     hideKeyboard();
@@ -850,6 +867,7 @@ async function teardown() {
   try {
     log("preflight");
     preflight();
+    commitPreflight();
     if (opts.apk && !opts.keysFrom) throw new Error("an APK holds the anon key of the stack that built it: pass --keys-from <stack.json of that build run> (or build with --build-dir)");
     if (opts.keysFrom) process.env.ISO_QA_JWT_SECRET = lib.secretFromStackJson(fs.readFileSync(opts.keysFrom, "utf8"));
     log("stack");
