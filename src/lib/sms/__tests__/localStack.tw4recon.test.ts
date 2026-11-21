@@ -69,6 +69,7 @@ const CLEANUP = `
 begin;
 set local session_replication_role = replica;
 delete from public.studio_sms_inbound_recoveries where legal_entity_id in (${ENTITIES});
+do $c$ begin if to_regclass('public.studio_sms_inbound_start_signals') is not null then delete from public.studio_sms_inbound_start_signals where studio_id in (${STUDIOS}); end if; end $c$;
 delete from public.studio_sms_inbound_unresolved where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_inbound_scan_cursors where legal_entity_id in (${ENTITIES});
 delete from public.studio_sms_reconcile_runs where runner like 'tw4recon:%';
@@ -979,7 +980,7 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
       expect(JSON.stringify(o)).not.toContain(texter);
     });
 
-    it("R8 DanceFlow's own record of a contact-originated START also suppresses an older recovered STOP (custom opt-in keywords the provider lookup cannot read)", async () => {
+    it("R8 DanceFlow's own record of a contact-originated START (its PROCESSING time) never suppresses a recovered STOP on its own: the STOP is applied and listed (20270218090000)", async () => {
       await ready(EA, SA);
       const texter = "+15125550180";
       const reset = () => aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'; delete from public.sms_message_logs where studio_id = '${SA}' and direction = 'inbound'`);
@@ -994,13 +995,14 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
       reset();
       aged(`insert into public.sms_message_logs (studio_id, phone_e164, direction, message_type, body, segment_count, status, provider, sent_at)
             values ('${SA}', '${texter}', 'inbound', 'start', 'REJOINDRE', 1, 'received', 'twilio', now() - interval '1 hour')`);
-      expect(await recoverStop()).toMatchObject({ consent_applied: false, consent_note: "not_applied_newer_start" });
-      expect(stops()).toBe(0);
+      // its time is when the webhook ran, not when the texter sent it (a START sent before the STOP can arrive later): applied, fail closed, listed
+      expect(await recoverStop()).toMatchObject({ consent_applied: true, consent_note: "applied_order_unverified" });
+      expect(stops()).toBe(1);
       // an inbound START in the consent history after the STOP: same
       reset();
       aged(`insert into public.sms_consent_history (studio_id, phone_e164, previous_consent_status, new_consent_status, event_type, changed_at)
             values ('${SA}', '${texter}', 'opted_out', 'opted_in', 'inbound_start', now() - interval '1 hour')`);
-      expect(await recoverStop()).toMatchObject({ consent_note: "not_applied_newer_start" });
+      expect(await recoverStop()).toMatchObject({ consent_applied: true, consent_note: "applied_order_unverified" });
       // within 2 minutes of the STOP's own time: not provable -> applied, listed
       reset();
       aged(`insert into public.sms_message_logs (studio_id, phone_e164, direction, message_type, body, segment_count, status, provider, sent_at)
@@ -1017,6 +1019,87 @@ describe.skipIf(!enabled)("TW-4F scheduled usage reconciliation (real schema, fa
             values ('${SB}', '${texter}', 'opted_out', 'opted_in', 'inbound_start', now() - interval '1 hour')`);
       expect(await recoverStop()).toMatchObject({ consent_note: "applied" });
       aged(`delete from public.sms_consent_history where studio_id = '${SB}'`);
+    });
+
+    it("R9 START signals (20270218090000): recorded per MessageSid, read back only for the right texter and business, and ordered by Twilio's time", async () => {
+      await ready(EA, SA);
+      const texter = "+15125550181";
+      const stops = () => Number(psql(`select count(*) from public.sms_consent_history where studio_id = '${SA}' and phone_e164 = '${texter}' and event_type in ('inbound_stop', 'unknown_phone_stop')`));
+      const reset = () => aged(`delete from public.sms_consent_history where studio_id = '${SA}'; delete from public.sms_contact_permissions where studio_id = '${SA}'; delete from public.studio_sms_inbound_start_signals where studio_id in (${STUDIOS})`);
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const recoverStop = async (later: string) =>
+        ((await withRun((runId) => rpc("tw4_inbound_recover", {
+          p_run_id: runId, p_account_sid: ACC_A,
+          p_evidence: { ...inboundMsg({ body: "STOP", date_created: twoHoursAgo }), body: undefined, classification: "compliance", keyword: true, keyword_kind: "stop", from: texter, later_keyword: later },
+        }))).data ?? {}) as { consent_applied?: boolean; consent_note?: string };
+      const record = (studio: string | null, phone: string | null, messageSid: string | null) => rpc("sms_inbound_start_signal_record", { p_studio_id: studio, p_phone_e164: phone, p_message_sid: messageSid });
+
+      // the write: validated (false, never an error that could echo the number), idempotent per studio + SID
+      reset();
+      const custom = sid();
+      expect((await record(SA, texter, custom)).data).toBe(true);
+      expect((await record(SA, texter, custom)).data).toBe(true);
+      expect(psql(`select count(*) from public.studio_sms_inbound_start_signals where message_sid = '${custom}'`)).toBe("1");
+      for (const [studio, phone, s] of [[SA, "5125550181", sid()], [SA, texter, "not-a-sid"], [randomUUID(), texter, sid()], [null, texter, sid()], [SA, null, sid()]] as const) {
+        const r = await record(studio, phone, s);
+        expect(r.error, `${studio} ${phone} ${s}`).toBeNull();
+        expect(r.data, `${studio} ${phone} ${s}`).toBe(false);
+      }
+
+      // the read: only SIDs DanceFlow handled as a START from THIS texter in a location of THIS subaccount's business (signal or inbound 'start' log)
+      const logged = sid();
+      aged(`insert into public.sms_message_logs (studio_id, phone_e164, direction, message_type, body, segment_count, status, provider, provider_message_id, sent_at)
+            values ('${SA}', '${texter}', 'inbound', 'start', 'START', 1, 'received', 'twilio', '${logged}', now() - interval '1 hour')`);
+      const other = sid();
+      expect((await record(SB, texter, other)).data).toBe(true);   // business B's location
+      const ordinary = sid();
+      const read = (account: string, from: string, sids: string[]) => rpc("tw4_inbound_start_sids", { p_account_sid: account, p_from: from, p_sids: sids });
+      expect((await read(ACC_A, texter, [custom, logged, other, ordinary, "junk"])).data).toEqual([custom, logged].sort());
+      expect((await read(ACC_A, "+15125550999", [custom, logged])).data).toEqual([]);   // another texter
+      expect((await read(ACC_B, texter, [custom, other])).data).toEqual([other]);   // the other business sees only its own
+      expect((await read(ACC_A, "not a number", [custom])).error?.code).toBe("22023");
+      expect((await read(ACC_A, texter, Array.from({ length: 1001 }, () => sid()))).error?.code).toBe("22023");
+      expect((await read(`AC${"0".repeat(32)}`, texter, [custom])).error?.code).toBe("42501");
+      aged(`delete from public.sms_message_logs where studio_id = '${SA}' and provider_message_id = '${logged}'`);
+
+      // defect (2): a START signal processed an hour AFTER the STOP's time, which the provider lookup could NOT place after the STOP (a START sent before
+      // the STOP and delivered late): the STOP is applied (fail closed) and listed, never suppressed
+      reset();
+      aged(`insert into public.studio_sms_inbound_start_signals (studio_id, message_sid, phone_e164, processed_at) values ('${SA}', '${sid()}', '${texter}', now() - interval '1 hour')`);
+      expect(await recoverStop("none")).toMatchObject({ consent_applied: true, consent_note: "applied_order_unverified" });
+      expect(stops()).toBe(1);
+      // defect (1): the same signal with the provider lookup proving a later START (the app matched its SID, ordered by Twilio's time): not applied
+      reset();
+      aged(`insert into public.studio_sms_inbound_start_signals (studio_id, message_sid, phone_e164, processed_at) values ('${SA}', '${sid()}', '${texter}', now() - interval '1 hour')`);
+      expect(await recoverStop("start")).toMatchObject({ consent_applied: false, consent_note: "not_applied_newer_start" });
+      expect(stops()).toBe(0);
+      // a signal from before the STOP plays no part
+      reset();
+      aged(`insert into public.studio_sms_inbound_start_signals (studio_id, message_sid, phone_e164, processed_at) values ('${SA}', '${sid()}', '${texter}', now() - interval '5 hours')`);
+      expect(await recoverStop("none")).toMatchObject({ consent_applied: true, consent_note: "applied" });
+
+      // privileges: the service role only, through the two functions; the table is reachable by nobody directly
+      for (const role of ["anon", "authenticated"]) {
+        expect(psql(`select has_function_privilege('${role}', 'public.sms_inbound_start_signal_record(uuid, text, text)', 'execute')`), role).toBe("f");
+        expect(psql(`select has_function_privilege('${role}', 'public.tw4_inbound_start_sids(text, text, text[])', 'execute')`), role).toBe("f");
+      }
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        expect(psql(`select has_table_privilege('${role}', 'public.studio_sms_inbound_start_signals', 'select') or has_table_privilege('${role}', 'public.studio_sms_inbound_start_signals', 'insert')`), role).toBe("f");
+      }
+      expect(psql("select has_function_privilege('service_role', 'public.tw4_inbound_recover(uuid, text, jsonb)', 'execute')")).toBe("t");
+      // rollback round trip inside a transaction that is rolled back: the rollback restores 20261205's recover function exactly and drops only what 0218 made
+      const file = (f: string) => readFileSync(join(process.cwd(), "src/lib/supabase/migrations", f), "utf8").replace(/\r/g, "");
+      const rollback0218 = file("rollback/20270218090000_twilio_inbound_start_order_rollback.sql").replace(/^begin;$/m, "").replace(/^commit;$/m, "").replace(/^notify pgrst.*$/m, "");
+      const orig = file("20261205090000_twilio_usage_reconciliation.sql");
+      const start = orig.indexOf("create or replace function public.tw4_inbound_recover(");
+      const recover1205 = orig.slice(start, orig.indexOf("\nend $;", start) + "\nend $;".length);
+      const md5 = "select md5(prosrc) from pg_proc where oid = 'public.tw4_inbound_recover(uuid, text, jsonb)'::regprocedure;";
+      const round = psqlFile(`begin;\n${rollback0218}\n${md5}\nselect coalesce(to_regclass('public.studio_sms_inbound_start_signals')::text, 'none') || ',' || coalesce(to_regprocedure('public.tw4_inbound_start_sids(text, text, text[])')::text, 'none') || ',' || coalesce(to_regprocedure('public.sms_inbound_start_signal_record(uuid, text, text)')::text, 'none') || ',' || has_function_privilege('service_role', 'public.tw4_inbound_recover(uuid, text, jsonb)', 'execute');\n${recover1205}\n${md5}\nrollback;`).trim().split("\n");
+      expect(round[1]).toBe("none,none,none,true");
+      expect(round[0]).toMatch(/^[0-9a-f]{32}$/);
+      expect(round[2]).toBe(round[0]);   // the restored body IS 20261205's
+      expect(psql("select to_regclass('public.studio_sms_inbound_start_signals') is not null")).toBe("t");   // rolled back: still installed
+      reset();
     });
 
     it("R4 a repeated read that learns nothing new adds no history row", async () => {

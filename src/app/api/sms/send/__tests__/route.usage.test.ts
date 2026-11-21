@@ -285,7 +285,7 @@ describe("end to end with the real billing library", () => {
     const res = await POST(sendRequest());
     expect(res.status).toBe(402);
     expect((h.provider as FakeBilledSmsProvider).sent).toHaveLength(0);
-    expect(h.db!.rpcCalls.map((c) => c.name)).toEqual(["tw4_usage_begin"]);
+    expect(h.db!.rpcCalls.map((c) => c.name).filter((n) => n !== "sms_pending_opt_out_blocks")).toEqual(["tw4_usage_begin"]);
   });
 
   it("sender no longer ready at the marker: 503 'not set up', never reported as uncertain; the provider is untouched and nothing is recorded as an outcome", async () => {
@@ -303,7 +303,7 @@ describe("end to end with the real billing library", () => {
     expect(json.ok).toBe(false);
     expect(json.error).toBe(actual.BILLED_REFUSAL_MESSAGE.no_billed_sender);
     expect((h.provider as FakeBilledSmsProvider).sent).toHaveLength(0);
-    expect(h.db!.rpcCalls.map((c) => c.name)).toEqual(["tw4_usage_begin", "tw4_usage_dispatching"]);
+    expect(h.db!.rpcCalls.map((c) => c.name).filter((n) => n !== "sms_pending_opt_out_blocks")).toEqual(["tw4_usage_begin", "tw4_usage_dispatching"]);
   });
 
   it("credentials unavailable (prepare fails): 503, no dispatch marker, provider untouched; the attempt stays reserved for a retry of the same key", async () => {
@@ -319,6 +319,6 @@ describe("end to end with the real billing library", () => {
     expect(res.status).toBe(503);
     expect((await res.json()).uncertain).toBeUndefined();
     expect((h.provider as FakeBilledSmsProvider).sent).toHaveLength(0);
-    expect(h.db!.rpcCalls.map((c) => c.name)).toEqual(["tw4_usage_begin"]);
+    expect(h.db!.rpcCalls.map((c) => c.name).filter((n) => n !== "sms_pending_opt_out_blocks")).toEqual(["tw4_usage_begin"]);
   });
 });

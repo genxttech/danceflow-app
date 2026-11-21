@@ -1,3 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 import {
   getSmsSendingUnavailableMessage,
   isSmsSendingApproved,
@@ -5,6 +8,10 @@ import {
 } from "@/lib/sms/compliance";
 
 export type TwilioSendSmsInput = {
+  /** The studio texting: a parked opt-out for this studio + number suppresses the send (src/lib/sms/sendSuppression.ts). */
+  studioId: string;
+  /** Database client for that check (server-side admin client by default). */
+  admin?: Pick<SupabaseClient, "rpc">;
   to: string;
   body: string;
   /** SMS-A2P-2: the studio's own approved Messaging Service. There is no global fallback. */
@@ -102,6 +109,15 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
     return { ok: false, error: "Enter a message before sending a text." };
   }
 
+  // last gate before the provider call: a parked STOP suppresses the text, and so does "cannot establish" (fail closed)
+  const suppression = await pendingOptOutState(input.admin ?? createAdminClient(), input.studioId, normalizedTo);
+  if (suppression === "blocked") {
+    return { ok: false, error: "This number has opted out of texts from your studio.", errorCode: "sms_opted_out" };
+  }
+  if (suppression === "unknown") {
+    return { ok: false, error: "SMS consent could not be verified.", errorCode: "sms_consent_check_failed" };
+  }
+
   const params = new URLSearchParams();
   params.set("To", normalizedTo);
   params.set("MessagingServiceSid", messagingServiceSid);
@@ -153,10 +169,25 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
 export function mapTwilioStatusToSmsLogStatus(status: string | null | undefined) {
   const normalized = String(status ?? "").toLowerCase();
 
-  if (normalized === "delivered") return "delivered";
-  if (normalized === "failed" || normalized === "undelivered") return "failed";
+  if (normalized === "delivered" || normalized === "read") return "delivered";
+  if (normalized === "failed" || normalized === "undelivered" || normalized === "canceled") return "failed";
   if (normalized === "sent") return "sent";
   if (normalized === "received") return "received";
 
   return "queued";
+}
+
+/**
+ * TW-4F: the message-log statuses a status callback (already mapped by `mapTwilioStatusToSmsLogStatus`) may replace. Twilio does not guarantee that
+ * callbacks arrive in order, so a late `sent` or `sending` after `delivered` must not move the log back: `queued` < `sent` < failed < delivered.
+ * Delivered is final (a handset receipt is the strongest evidence, and Twilio's `failed` means never sent, so it cannot validly follow); a failed log
+ * may still become delivered. Logs in any other state (suppressed, received) are never changed by a callback. (The status route also lets `sent`
+ * replace a log the reconciler released as never sent, failed / not_sent.)
+ */
+export function smsLogStatusesReplaceableBy(mapped: string): string[] {
+  if (mapped === "delivered") return ["draft", "queued", "sent", "failed", "delivered"];
+  if (mapped === "failed") return ["draft", "queued", "sent", "failed"];
+  if (mapped === "sent") return ["draft", "queued", "sent"];
+  if (mapped === "received") return ["received"];
+  return ["draft", "queued"];
 }
