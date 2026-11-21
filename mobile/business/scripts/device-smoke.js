@@ -343,8 +343,35 @@ async function bringUpStack() {
   }
 }
 
+/** In WRITES mode the server policy enables the four Phase 1A write capabilities (src/lib/staff/writeGuard.ts); everywhere else the variable stays unset (writes disabled, fail closed). */
+function webEnv(policy) {
+  return { ...process.env, NEXT_PUBLIC_SUPABASE_URL: state.stack.TW4A_LOCAL_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY: state.stack.ISO_QA_SERVICE_ROLE_KEY, NODE_OPTIONS: "--max-old-space-size=8192", ...(policy ? { STAFF_API_WRITE_POLICY: policy } : {}) };
+}
+
+async function waitWebUp() {
+  for (let i = 0; i < 60; i++) {
+    try {
+      const r = await fetch(`http://localhost:${opts.webPort}/api/staff/me`);
+      if (r.status === 401) return;
+    } catch {
+      /* not up yet */
+    }
+    await sleep(2000);
+  }
+  throw new Error("the web app did not come up");
+}
+
+/** Restart `next start` (the build is kept) with another write policy: the kill switch and the minimum-version gate are driven by this variable. */
+async function restartWeb(policy) {
+  if (state.webProc) (WIN ? run("taskkill", ["/PID", String(state.webProc.pid), "/T", "/F"]) : state.webProc.kill());
+  await sleep(3000);
+  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env: webEnv(policy), stdio: "ignore", shell: WIN });
+  await waitWebUp();
+  log(`web restarted with policy ${policy}`);
+}
+
 async function startWeb() {
-  const env = { ...process.env, NEXT_PUBLIC_SUPABASE_URL: state.stack.TW4A_LOCAL_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY: state.stack.ISO_QA_SERVICE_ROLE_KEY, NODE_OPTIONS: "--max-old-space-size=8192" };
+  const env = webEnv(opts.writes ? WRITE_POLICY() : null);
   log("next build (production; several minutes)");
   const build = run("npx", ["next", "build"], { cwd: REPO, env });
   if (build.status !== 0) throw new Error(`next build failed (exit ${build.status}): ${(build.stderr || build.stdout).slice(-400)}`);
@@ -395,7 +422,8 @@ function buildApk() {
     EXPO_PUBLIC_SUPABASE_URL: `http://10.0.2.2:${port}`,
     EXPO_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY,
     EXPO_PUBLIC_DANCEFLOW_WEB_URL: `http://10.0.2.2:${opts.webPort}`,
-    EXPO_PUBLIC_STAFF_FEATURES: "pulse,studioSchedule",
+    // WRITES mode builds with the four Phase 1A write words too; they are OFF in every shipping build unless Build-ReleaseAab.ps1 passes its evidence gate.
+    EXPO_PUBLIC_STAFF_FEATURES: opts.writes ? ["pulse", "studioSchedule", ...lib.WRITE_WORDS].join(",") : "pulse,studioSchedule",
     DANCEFLOW_UPLOAD_STORE_FILE: process.env.DANCEFLOW_UPLOAD_STORE_FILE || "C:/dfr-qa/qa-only-DO-NOT-UPLOAD.keystore",
     DANCEFLOW_UPLOAD_STORE_PASSWORD: process.env.DANCEFLOW_UPLOAD_STORE_PASSWORD || "qa-only-throwaway",
     DANCEFLOW_UPLOAD_KEY_ALIAS: process.env.DANCEFLOW_UPLOAD_KEY_ALIAS || "qa-only",
@@ -472,6 +500,7 @@ async function flows(apk) {
   if (adb("install", "-r", apk).status !== 0) throw new Error("adb install failed");
   state.installed = true;
   const owner = "owen.owner@example.test";
+  if (opts.writes) return writeFlows(owner);
   const ownerScreens = async (tag) => {
     await check(`${tag}: Today has the My day / Studio switch and a Pulse tab`, async () => {
       await tapLabel(/^Today$/);
@@ -592,6 +621,172 @@ async function flows(apk) {
   }
 }
 
+// ---------------------------------------------------------------- WRITES mode (Phase 1A): add note + list, quick-add client + duplicate, private-lesson attended / no-show, roster add / remove,
+// writes_disabled, upgrade_required, 2.0 font + dark. Every check asserts on the screen's text. The evidence file for the release build gate is written from these results.
+
+const WRITE_POLICY = (extra = {}) => JSON.stringify({ enabled: lib.WRITE_WORDS, ...extra });
+
+/** The checks that must all pass for each write word to be called proven (names are the exact check() names below). */
+const CAP_CHECKS = {
+  clientCreate: ["writes: quick-add client creates and opens the client", "writes: the same phone again offers the existing client (duplicate_client)"],
+  clientNotes: ["writes: add a note, it is saved and appears in the notes list"],
+  appointmentAttendance: ["writes: private lesson marked attended (final, no undo)", "writes: private lesson marked no-show with no charge"],
+  classRoster: ["writes: add a dancer to the class roster", "writes: remove a dancer from the class roster"],
+};
+const GATE_CHECKS = ["writes: policy off shows 'This change is turned off'", "writes: build below the minimum shows 'Update DanceFlow Business'", "writes: 2.0 font + dark, notes and check-in screens usable"];
+
+async function openStudioDay() {
+  await tapLabel(/^Today$/);
+  await tapLabel(/^Studio$/);
+  await expectLabel("Studio today", { timeout: 30000 });
+}
+
+async function writeFlows(owner) {
+  setFont("1.0");
+  setNight(false);
+  launch();
+  await signIn(owner);
+
+  // seed for the flows: free/comped lessons so "attended" needs no payment, a free-comped path for enrolment
+  psql("update public.appointments set billing_type='free_comped' where appointment_type in ('private_lesson','intro_lesson')");
+
+  await check("writes: quick-add client creates and opens the client", async () => {
+    await tapLabel(/^Clients$/);
+    await tapLabel("Add a client", { timeout: 30000 });
+    await expectLabel("First name", { cls: "EditText", timeout: 30000 });
+    await typeInto("First name", "Zed");
+    await typeInto("Last name", "Newperson");
+    await typeInto("Phone", "5550109999");
+    hideKeyboard();
+    await tapLabel("Add client");
+    await expectLabel("Zed Newperson", { timeout: 60000 });
+  });
+
+  await check("writes: add a note, it is saved and appears in the notes list", async () => {
+    await expectLabel("Notes", { scroll: true, timeout: 30000 });
+    await tapLabel("Add a note", { scroll: true });
+    await typeInto("Note", "Smoke note one");
+    hideKeyboard();
+    await tapLabel("Save note");
+    await expectLabel("Note saved.", { scroll: true, timeout: 60000 });
+    await expectLabel(/Smoke note one/, { scroll: true, timeout: 60000 });
+  });
+
+  await check("writes: the same phone again offers the existing client (duplicate_client)", async () => {
+    adb("shell", "input", "keyevent", "4"); // back to the clients list
+    await sleep(1500);
+    await tapLabel("Add a client", { timeout: 30000 });
+    await typeInto("First name", "Dup");
+    await typeInto("Last name", "Test");
+    await typeInto("Phone", "5550109999");
+    hideKeyboard();
+    await tapLabel("Add client");
+    await expectLabel("This client may already exist", { timeout: 60000 });
+    await tapLabel("Open that client");
+    await expectLabel("Zed Newperson", { timeout: 60000 });
+  });
+
+  await check("writes: private lesson marked attended (final, no undo)", async () => {
+    await openStudioDay();
+    await tapLabel(/Ana Rivera/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await tapLabel("Mark attended", { scroll: true });
+    await tapLabel("Yes, mark attended", { timeout: 30000 });
+    await expectLabel(/Marked attended/, { timeout: 60000, scroll: true });
+    if (lib.hasLabel(dump(), "No-show")) throw new Error("a recorded outcome must not offer No-show again");
+  });
+
+  await check("writes: private lesson marked no-show with no charge", async () => {
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+    await tapLabel(/Sam Okafor/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await tapLabel("No-show", { scroll: true });
+    await expectLabel("No charge", { timeout: 30000 });
+    await tapLabel("Yes, mark no-show");
+    await expectLabel(/Marked no-show/, { timeout: 60000, scroll: true });
+  });
+
+  await check("writes: add a dancer to the class roster", async () => {
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+    await tapLabel(/Beginner Salsa/, { timeout: 30000 });
+    await expectLabel("Add a dancer", { timeout: 30000, scroll: true });
+    await tapLabel("Add a dancer", { scroll: true });
+    await typeInto("Find a client", "Sam");
+    await tapLabel(/^Sam Okafor/, { timeout: 30000 });
+    await tapLabel(/^Free \(comped\)/);
+    await tapLabel("Add to class");
+    await expectLabel("Dancer added.", { timeout: 60000, scroll: true });
+  });
+
+  await check("writes: remove a dancer from the class roster", async () => {
+    await tapLabel(/^Remove Colin/, { timeout: 30000, scroll: true });
+    await tapLabel("Yes, remove", { timeout: 30000 });
+    await expectLabel("Dancer removed.", { timeout: 60000, scroll: true });
+  });
+
+  // the kill switch: same build, server policy off -> a write is refused in words
+  await restartWeb(WRITE_POLICY({ enabled: [] }));
+  await check("writes: policy off shows 'This change is turned off'", async () => {
+    await tapLabel(/^Clients$/);
+    await tapLabel(/^Zed/, { timeout: 30000 }).catch(async () => {
+      await typeInto("Search clients", "Zed");
+      await tapLabel(/^Zed/, { timeout: 30000 });
+    });
+    await tapLabel("Add a note", { scroll: true });
+    await typeInto("Note", "Should be refused");
+    hideKeyboard();
+    await tapLabel("Save note");
+    await expectLabel("This change is turned off", { timeout: 60000, scroll: true });
+  });
+
+  await restartWeb(WRITE_POLICY({ minimumCode: { android: 9999 } }));
+  await check("writes: build below the minimum shows 'Update DanceFlow Business'", async () => {
+    await tapLabel("Dismiss", { scroll: true });
+    await tapLabel("Save note", { scroll: true });
+    await expectLabel("Update DanceFlow Business", { timeout: 60000, scroll: true });
+  });
+
+  // back to a working policy, then the large-text dark pass on the screens this build added
+  await restartWeb(WRITE_POLICY());
+  setFont("2.0");
+  setNight(true);
+  launch();
+  await check("writes: 2.0 font + dark, notes and check-in screens usable", async () => {
+    await expectLabel(/^Today$/, { timeout: 60000 });
+    await tapLabel(/^Clients$/);
+    await tapLabel("Add a client", { timeout: 30000, scroll: true });
+    await expectLabel("First name", { cls: "EditText", timeout: 30000 });
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+    await openStudioDay();
+    await tapLabel(/Ana Rivera/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await expectLabel(/Status: Attended/, { timeout: 30000, scroll: true });
+  });
+}
+
+/** The commit a directory is at, or "unknown". */
+function headOf(dir) {
+  const r = run("git", ["-C", dir, "rev-parse", "HEAD"]);
+  return r.status === 0 ? r.stdout.trim() : "unknown";
+}
+
+/** WRITES mode: the evidence file Build-ReleaseAab.ps1 (Test-StaffFeatures.ps1) reads before a build may carry a write word. */
+function emitWritesEvidence(runOk) {
+  const text = lib.writesEvidence({
+    date: new Date().toISOString(),
+    commit: opts.buildDir ? headOf(path.resolve(opts.buildDir)) : "unknown",
+    web: headOf(REPO),
+    results: state.results.map((r) => ({ name: r.name, ok: r.result === "PASS" })),
+    capabilityChecks: CAP_CHECKS,
+    runOk,
+  });
+  fs.writeFileSync(path.join(OUT, "business-writes-isoqa-smoke.txt"), text);
+  log(`evidence file: ${path.join(OUT, "business-writes-isoqa-smoke.txt")}`);
+}
+
 // ---------------------------------------------------------------- teardown (always)
 async function teardown() {
   log("teardown");
@@ -647,6 +842,7 @@ async function teardown() {
     await teardown();
   }
   const summary = lib.summarize(state.results);
+  if (opts.writes) emitWritesEvidence(!fatal && summary.ok);
   fs.writeFileSync(path.join(OUT, "summary.json"), JSON.stringify({ ...summary, results: state.results }, null, 2));
   console.log(`\n${summary.passed}/${summary.total} passed${summary.ok ? "" : `; FAILED: ${summary.failed.join(" | ")}`}`);
   console.log(`evidence: ${OUT}`);

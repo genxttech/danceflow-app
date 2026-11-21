@@ -102,7 +102,7 @@ export function ClassRosterEditor({ studioId, appointmentId, attendees, canMark,
         visible={removing !== null}
         title={`Remove ${removing?.name ?? "this dancer"} from the class?`}
         body="They are told they were removed. This only works while no attendance is recorded for them."
-        confirmLabel="Remove"
+        confirmLabel="Yes, remove"
         onConfirm={confirmRemove}
         onCancel={() => setRemoving(null)}
         testID="confirm-remove"

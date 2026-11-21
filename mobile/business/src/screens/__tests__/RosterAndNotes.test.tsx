@@ -192,7 +192,7 @@ describe("roster: remove a dancer", () => {
     expect(api.removeFromClass).not.toHaveBeenCalled();
     expect(screen.getByText("Remove Ana Rivera from the class?")).toBeTruthy();
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Remove").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, remove"));
     });
     expect(api.removeFromClass).toHaveBeenCalledTimes(1);
     expect((api.removeFromClass.mock.calls[0] as unknown[]).slice(0, 3)).toEqual([STUDIO_ID, "class-1", "c1"]);
@@ -205,7 +205,7 @@ describe("roster: remove a dancer", () => {
     await renderClass({ removeFromClass: jest.fn(async () => Promise.reject(new StaffApiError(409, "conflict", "x", undefined, { serverCode: "attendance_recorded", current: null }))) });
     fireEvent.press(screen.getByLabelText("Remove Ana Rivera from the class"));
     await act(async () => {
-      fireEvent.press(screen.getAllByLabelText("Remove").at(-1)!);
+      fireEvent.press(screen.getByLabelText("Yes, remove"));
     });
     expect(screen.getByText("Can't remove this dancer")).toBeTruthy();
     expect(screen.getByText("Ana Rivera")).toBeTruthy();

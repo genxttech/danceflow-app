@@ -221,3 +221,48 @@ describe("summarize", () => {
     expect(mixed).toMatchObject({ passed: 1, failed: ["b"], ok: false });
   });
 });
+
+describe("--writes mode", () => {
+  it("is off by default, parsed as a flag, and described in the plan", () => {
+    expect(lib.parseArgs(["--build-dir", "C:/dfq"]).writes).toBe(false);
+    const opts = lib.parseArgs(["--writes", "--build-dir", "C:/dfq"]);
+    expect(opts.writes).toBe(true);
+    expect(lib.buildPlan(opts).join("\n")).toContain("WRITES mode");
+    expect(lib.buildPlan(lib.parseArgs(["--build-dir", "C:/dfq"])).join("\n")).not.toContain("WRITES mode");
+  });
+
+  it("knows the four write words, the same as the app flags and the server gate", () => {
+    expect([...lib.WRITE_WORDS]).toEqual(["appointmentAttendance", "clientNotes", "clientCreate", "classRoster"]);
+  });
+
+  const checks = {
+    appointmentAttendance: ["att1", "att2"],
+    clientNotes: ["note"],
+    clientCreate: ["create", "dup"],
+    classRoster: ["add", "remove"],
+  };
+  const all = (ok: boolean) => ["att1", "att2", "note", "create", "dup", "add", "remove"].map((name) => ({ name, ok }));
+
+  it("writes the evidence the build gate reads: iso-qa kind and stack, the commit, one CAPABILITY PASS per proven word, RESULT PASS only when everything passed", () => {
+    const text = lib.writesEvidence({ date: "2026-11-21T12:00:00.000Z", commit: "0123456789abcdef0123456789abcdef01234567", web: "fedcba9876543210fedcba9876543210fedcba98", results: all(true), capabilityChecks: checks, runOk: true });
+    expect(text).toContain("kind=iso-qa-device-smoke  stack=iso-qa  commit=0123456789abcdef0123456789abcdef01234567  web=fedcba9876543210fedcba9876543210fedcba98");
+    for (const word of lib.WRITE_WORDS) expect(text).toContain(`CAPABILITY ${word} PASS`);
+    expect(text).toContain("RESULT: PASS");
+    expect(text).toMatch(/^Date: 2026-11-21T12:00:00.000Z$/m);
+    expect(text).not.toContain("www.idanceflow.com");
+  });
+
+  it("a word is proven only if ALL of its checks passed; one failing check makes it NOT-PROVEN and the run FAIL", () => {
+    const results = all(true).map((r) => (r.name === "dup" ? { ...r, ok: false } : r));
+    const text = lib.writesEvidence({ date: "d", commit: "abc1234", web: "def5678", results, capabilityChecks: checks, runOk: false });
+    expect(text).toContain("CAPABILITY clientCreate NOT-PROVEN");
+    expect(text).toContain("CAPABILITY clientNotes PASS");
+    expect(text).toContain("RESULT: FAIL");
+  });
+
+  it("RESULT is FAIL when the run itself failed or a word has no checks, even if the listed checks passed", () => {
+    expect(lib.writesEvidence({ date: "d", commit: "abc1234", web: "w", results: all(true), capabilityChecks: checks, runOk: false })).toContain("RESULT: FAIL");
+    expect(lib.writesEvidence({ date: "d", commit: "abc1234", web: "w", results: all(true), capabilityChecks: { ...checks, classRoster: [] }, runOk: true })).toContain("CAPABILITY classRoster NOT-PROVEN");
+    expect(lib.writesEvidence({ date: "d", commit: "abc1234", web: "w", results: [], capabilityChecks: checks, runOk: true })).not.toContain("CAPABILITY clientNotes PASS");
+  });
+});
