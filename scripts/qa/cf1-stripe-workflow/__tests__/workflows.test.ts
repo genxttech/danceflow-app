@@ -117,6 +117,18 @@ describe("canary specifics", () => {
     expect(code).toContain('"$rc" = "2"');
     expect(code).toContain("do NOT request sandbox onboarding");
   });
+  it("uses the runner's installed Chrome for the hosted Checkout payment: fixed path, checked, nothing downloaded, no browser install step", () => {
+    expect(code).toContain('CF1_CHROME_PATH: "/usr/bin/google-chrome"');
+    expect(code).toContain('[ -x "$CF1_CHROME_PATH" ]');
+    for (const word of ["playwright install", "apt-get", "apt install", "sudo", "curl ", "wget "]) expect(code).not.toContain(word);
+  });
+  it("the Chrome check step never sees the Stripe key", () => {
+    const doc2 = yaml.load(text) as Wf;
+    const check = doc2.jobs.canary.steps.find((st) => st.name?.startsWith("Check the runner"));
+    expect(check).toBeDefined();
+    expect(JSON.stringify(check)).not.toContain("secrets.");
+    expect(JSON.stringify(check)).not.toContain("STRIPE");
+  });
 });
 
 describe("acceptance specifics", () => {
