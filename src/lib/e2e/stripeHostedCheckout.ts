@@ -15,12 +15,14 @@ export const TEST_CARD = { number: "4242424242424242", expiry: "12 / 34", cvc: "
 export const CANARY_EMAIL = "cf1-canary@example.com";
 
 /**
- * The one accepted layout: https://checkout.stripe.com/c/pay/cs_test_<id>[#fragment]. Evidence: Stripe's Checkout Sessions documentation (the session `url`),
+ * The accepted layout: https://checkout.stripe.com/<one lowercase letter>/pay/cs_test_<id>[#fragment]. The letter is c in Stripe's documentation, but run
+ * 44855994499 (2026-11-20) observed that the session this account's canary B creates has a one-character first segment that is not c (its value is
+ * deliberately not logged), so exactly one lowercase letter is accepted and nothing longer. Evidence for the rest: Stripe's Checkout Sessions documentation (the session `url`),
  * this repo's payment harness (src/lib/payment-harness/browser.ts: host set {checkout.stripe.com}, session-id pattern cs_[a-zA-Z0-9_]+) and its unit tests.
  * Underscores are allowed in the id because that existing pattern allows them. The legacy /pay/ layout is NOT accepted: only a comment in the harness
  * mentions it, and no observed session has used it.
  */
-const CHECKOUT_URL = /^https:\/\/checkout\.stripe\.com\/c\/pay\/(cs_test_[A-Za-z0-9_]+)(?:[?#].*)?$/;
+const CHECKOUT_URL = /^https:\/\/checkout\.stripe\.com\/[a-z]\/pay\/(cs_test_[A-Za-z0-9_]+)(?:[?#].*)?$/;
 
 /** Fixed vocabulary that may be printed verbatim. Everything else is reduced to a length or a category, so no URL value can reach a log. */
 const SHOWN_HOST = new Set(["checkout.stripe.com"]);
