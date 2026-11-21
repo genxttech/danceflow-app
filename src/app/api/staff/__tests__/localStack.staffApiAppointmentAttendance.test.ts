@@ -155,6 +155,13 @@ function newPackage(remaining: number | null, options: { expires?: string; unlim
 const remaining = (packageId: string) => Number(psql(`select quantity_remaining from public.client_package_items where client_package_id = '${packageId}' and usage_type = 'private_lesson';`));
 const deductions = (appointmentId: string) =>
   Number(psql(`select count(*) from public.lesson_transactions where appointment_id = '${appointmentId}' and transaction_type::text in ('lesson_deduction','appointment_attendance');`));
+function newClient() {
+  const clientId = id();
+  psql(`insert into public.clients (id, studio_id, first_name, last_name, status) values ('${clientId}', '${STUDIO_A}', 'Fresh', 'Dancer', 'active');`);
+  return clientId;
+}
+const noteBodies = (clientId: string) => psql(`select coalesce(string_agg(body, ' || ' order by created_at), '') from public.client_activity_notes where client_id = '${clientId}';`);
+const noteCount = (clientId: string) => Number(psql(`select count(*) from public.client_activity_notes where client_id = '${clientId}';`));
 const statusOf = (appointmentId: string) => psql(`select status from public.appointments where id = '${appointmentId}';`);
 const notes = (clientId: string, needle: string) =>
   Number(psql(`select count(*) from public.client_activity_notes where client_id = '${clientId}' and body like '%${needle}%';`));
@@ -327,6 +334,91 @@ describe.skipIf(!enabled)("staff API appointment attendance against real RLS and
       await expectCode(await mark(USERS.frontDesk, missed, { status: "attended" }), 409, "outcome_conflict");
       expect(statusOf(missed)).toBe("no_show");
       expect(remaining(pkg)).toBe(4);
+    });
+  });
+
+  describe("follow-up review findings", () => {
+    it("refuses a no-show replay that asks for a charge that was not applied, and takes nothing", async () => {
+      const client = newClient();
+      const pkg = newPackage(3, { client });
+      const appointment = lesson({ packageId: pkg, client });
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      const changed = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(changed.status).toBe(409);
+      const body = await changed.json();
+      expect(body).toMatchObject({ code: "outcome_conflict", current: { status: "no_show" } });
+      expect(remaining(pkg)).toBe(3);
+      expect(deductions(appointment)).toBe(0);
+      expect(noteCount(client)).toBe(1);
+      expect(noteBodies(client)).toContain("Charge policy: No lesson deduction");
+    });
+
+    it("repeats an applied charge as a no-op (200, one deduction, one note)", async () => {
+      const client = newClient();
+      const pkg = newPackage(3, { client });
+      const appointment = lesson({ packageId: pkg, client });
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" })).status).toBe(200);
+      const replay = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).appointment.alreadyApplied).toBe(true);
+      expect(remaining(pkg)).toBe(2);
+      expect(deductions(appointment)).toBe(1);
+      expect(noteCount(client)).toBe(1);
+      expect(noteBodies(client)).toContain("Charge policy: Package credit deducted");
+    });
+
+    it("writes exactly one note when the charge fails, with a fixed known message, and a retry writes no second", async () => {
+      const client = newClient();
+      const appointment = lesson({ packageId: null, client });
+      const failed = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(failed.status).toBe(409);
+      expect(await failed.json()).toMatchObject({ code: "charge_failed", error: "No package is linked to this appointment." });
+      expect(noteCount(client)).toBe(1);
+      expect(noteBodies(client)).toContain("Package credit requested, not applied");
+      // repeating the failed charge is a change from what was applied: refused, no second note
+      await expectCode(await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" }), 409, "outcome_conflict");
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      expect(noteCount(client)).toBe(1);
+    });
+
+    it("last credit race across two lessons: one deduction, the loser stays attended with usage_sync_pending on every retry", async () => {
+      const pkg = newPackage(1);
+      const first = lesson({ packageId: pkg });
+      const second = lesson({ packageId: pkg });
+      const [a, b] = await Promise.all([mark(USERS.frontDesk, first, { status: "attended" }), mark(USERS.owner, second, { status: "attended" })]);
+      const results = [a.status, b.status].sort();
+      const outcome = { first: statusOf(first), second: statusOf(second), remaining: remaining(pkg), deductions: deductions(first) + deductions(second), statuses: results };
+      // Documented outcome (see the design note): never more than one credit; if both passed the pre-check, the loser is attended with no deduction and keeps answering
+      // usage_sync_pending.
+      expect(outcome.remaining).toBeGreaterThanOrEqual(0);
+      expect(outcome.deductions).toBe(1);
+      const loser = deductions(first) === 1 ? second : first;
+      if (statusOf(loser) === "attended") {
+        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "usage_sync_pending");
+        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "usage_sync_pending");
+      } else {
+        expect(statusOf(loser)).toBe("scheduled");
+      }
+      expect(remaining(pkg)).toBe(0);
+    });
+
+    it("refuses a replay after the lesson's package link was changed, and takes nothing from the new package", async () => {
+      const original = newPackage(3);
+      const other = newPackage(3);
+      const appointment = lesson({ packageId: original });
+      expect((await mark(USERS.frontDesk, appointment, { status: "attended" })).status).toBe(200);
+      psql(`update public.appointments set client_package_id = '${other}' where id = '${appointment}';`);
+      const replay = await mark(USERS.frontDesk, appointment, { status: "attended" });
+      expect(replay.status).toBe(409);
+      expect(await replay.json()).toMatchObject({ code: "outcome_conflict", current: { status: "attended" } });
+      expect(remaining(original)).toBe(2);
+      expect(remaining(other)).toBe(3);
+    });
+
+    it("can mark a future-dated lesson, as the web can (the web has no date guard)", async () => {
+      const appointment = lesson({ billing: "free_comped" });
+      expect(psql(`select (starts_at > now())::text from public.appointments where id = '${appointment}';`)).toBe("true");
+      expect((await mark(USERS.frontDesk, appointment, { status: "attended" })).status).toBe(200);
     });
   });
 

@@ -117,6 +117,8 @@ describe("PUT appointment attendance route", () => {
     ["attended_cannot_be_marked_no_show", 409, "outcome_conflict"],
     ["no_show_cannot_be_marked_attended", 409, "outcome_conflict"],
     ["payment_required", 409, "payment_required"],
+    ["charge_changed", 409, "outcome_conflict"],
+    ["package_changed", 409, "outcome_conflict"],
   ])("maps the lib refusal %s to %i %s", async (reason, status, expected) => {
     mocks.mark.mockResolvedValue({ ok: false, reason });
     const response = await call({ status: "attended" });

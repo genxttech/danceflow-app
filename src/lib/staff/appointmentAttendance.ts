@@ -47,6 +47,8 @@ export type AppointmentAttendanceResult =
         | "attended_cannot_be_marked_no_show"
         | "no_show_cannot_be_marked_attended"
         | "payment_required"
+        | "charge_changed"
+        | "package_changed"
         | "write_failed"
         | "charge_failed";
       /** charge_failed only: the same message the web action shows. */
@@ -139,15 +141,23 @@ async function markAttended(params: {
     if (!canComplete) return { ok: false, reason: "payment_required" };
 
     const attendedAt = now();
-    const { error } = await supabase
+    const { data: written, error } = await supabase
       .from("appointments")
       .update({ status: "attended", attendance_marked_at: attendedAt, updated_at: attendedAt })
       .eq("id", appointmentId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", studioId)
+      .select("id");
     if (error) return { ok: false, reason: "write_failed" };
+    // Exactly one row, or nothing may follow: a zero-row update (RLS, a vanished row) must never reach the SECURITY DEFINER deduction RPC.
+    if (!written || written.length !== 1) return { ok: false, reason: written && written.length === 0 ? "not_found" : "write_failed" };
+  } else if (billingTypeOf(appointment) === "package_credit" && appointment.client_package_id) {
+    // A replay must not take a second credit from a DIFFERENT package: if the lesson was already charged to another package and its package link was changed
+    // afterwards, refuse instead of syncing against the new package.
+    const charged = await chargedPackageIds(supabase, appointmentId);
+    if (charged.length > 0 && !charged.includes(appointment.client_package_id)) return { ok: false, reason: "package_changed" };
   }
 
-  const billingType = normalizeLessonBillingType(appointment.billing_type, appointment.appointment_type);
+  const billingType = billingTypeOf(appointment);
   let usageSyncPending = false;
 
   try {
@@ -215,44 +225,47 @@ async function markNoShow(params: {
     return { ok: false, reason: "attended_cannot_be_marked_no_show" };
   }
 
-  // Replay of a recorded no-show: skip the status write, the membership-usage clear and the activity note (they already happened), but still apply the requested
-  // charge, which is idempotent in the database (it picks up where a failed first attempt stopped).
+  // Replay of a recorded no-show: the status write, the membership-usage clear and the note already happened, so they are skipped. A replay may only repeat the
+  // charge that was applied (a no-op in the database); asking for a charge that has NOT been applied is a change of decision on a recorded outcome and is refused.
   const alreadyApplied = appointment.status === "no_show";
   const markedAt = now();
 
+  if (alreadyApplied && (missedAppointmentCharge === "package" || missedAppointmentCharge === "membership")) {
+    const applied = await chargeAlreadyApplied(supabase, appointmentId, missedAppointmentCharge);
+    if (!applied) return { ok: false, reason: "charge_changed" };
+  }
+
   if (!alreadyApplied) {
-    const { error } = await supabase
+    const { data: written, error } = await supabase
       .from("appointments")
       .update({ status: "no_show", updated_at: markedAt })
       .eq("id", appointmentId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", studioId)
+      .select("id");
     if (error) return { ok: false, reason: "write_failed" };
+    if (!written || written.length !== 1) return { ok: false, reason: written && written.length === 0 ? "not_found" : "write_failed" };
 
     await clearMembershipUsageForAppointment({ supabase, appointmentId });
   }
 
+  let chargeFailure: string | null = null;
   try {
     await applyMissedAppointmentCharge({ supabase, studioId, appointment, chargeSource: missedAppointmentCharge });
   } catch (chargeError) {
     console.error("Appointment marked no-show, but deduction failed:", chargeError);
-    return {
-      ok: false,
-      reason: "charge_failed",
-      message: chargeError instanceof Error ? chargeError.message : "missed_appointment_charge_failed",
-    };
+    chargeFailure = safeChargeMessage(chargeError);
   }
 
+  // The note records the decision once, at the transition, whether or not the charge succeeded (a failed charge is retried by repeating the request, which writes no
+  // second note).
   if (appointment.client_id && !alreadyApplied) {
     const label =
       typeof appointment.title === "string" && appointment.title.trim()
         ? appointment.title.trim()
         : appointmentTypeLabel(String(appointment.appointment_type));
-    const chargeLabel =
-      missedAppointmentCharge === "package"
-        ? "Package credit deducted"
-        : missedAppointmentCharge === "membership"
-          ? "Membership benefit deducted"
-          : "No lesson deduction";
+    const requested =
+      missedAppointmentCharge === "package" ? "Package credit" : missedAppointmentCharge === "membership" ? "Membership benefit" : null;
+    const chargeLabel = !requested ? "No lesson deduction" : chargeFailure ? `${requested} requested, not applied` : `${requested} deducted`;
 
     const { error } = await supabase.from("client_activity_notes").insert({
       studio_id: studioId,
@@ -267,7 +280,45 @@ async function markNoShow(params: {
     }
   }
 
+  if (chargeFailure) return { ok: false, reason: "charge_failed", message: chargeFailure };
+
   return { ok: true, appointmentId, clientId: appointment.client_id, status: "no_show", alreadyApplied, usageSyncPending: false };
+}
+
+const KNOWN_CHARGE_MESSAGES = [
+  "This appointment is not linked to a client.",
+  "No package is linked to this appointment.",
+  "No eligible membership benefit was found for this appointment.",
+  "Choose a valid missed-appointment deduction option.",
+];
+const GENERIC_CHARGE_MESSAGE = "The missed-lesson charge could not be applied.";
+
+/** Only the app-level messages applyMissedAppointmentCharge itself raises pass through; anything else (database text) becomes a fixed sentence. */
+function safeChargeMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return KNOWN_CHARGE_MESSAGES.includes(message) ? message : GENERIC_CHARGE_MESSAGE;
+}
+
+function billingTypeOf(appointment: AppointmentRow) {
+  return normalizeLessonBillingType(appointment.billing_type, appointment.appointment_type);
+}
+
+const DEDUCTION_TYPES = ["lesson_deduction", "appointment_attendance"];
+
+async function chargedPackageIds(supabase: SupabaseClient, appointmentId: string): Promise<string[]> {
+  const { data, error } = await supabase.from("lesson_transactions").select("client_package_id, transaction_type").eq("appointment_id", appointmentId);
+  if (error) throw new Error(`Deduction lookup failed: ${error.message}`);
+  return (data ?? [])
+    .filter((row: { transaction_type: string }) => DEDUCTION_TYPES.includes(String(row.transaction_type)))
+    .map((row: { client_package_id: string | null }) => row.client_package_id)
+    .filter((value: string | null): value is string => Boolean(value));
+}
+
+async function chargeAlreadyApplied(supabase: SupabaseClient, appointmentId: string, kind: "package" | "membership") {
+  if (kind === "package") return (await chargedPackageIds(supabase, appointmentId)).length > 0;
+  const { data, error } = await supabase.from("client_membership_usage").select("id").eq("reference_type", "appointment").eq("reference_id", appointmentId).limit(1);
+  if (error) throw new Error(`Usage lookup failed: ${error.message}`);
+  return (data ?? []).length > 0;
 }
 
 // ---- Moved verbatim from src/app/app/schedule/actions.ts (supabase param types widened to SupabaseClient) ----
