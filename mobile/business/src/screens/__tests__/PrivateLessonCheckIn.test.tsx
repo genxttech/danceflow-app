@@ -160,6 +160,54 @@ describe("private-lesson check-in", () => {
     expect(screen.queryByText("Saved, not finished")).toBeNull();
   });
 
+  it("a no-show whose charge failed stays No-show, says so, and Try again (same key) retries the charge", async () => {
+    const failed = new StaffApiError(409, "conflict", "x", undefined, { serverCode: "charge_failed" });
+    const outcome = jest.fn().mockRejectedValueOnce(failed).mockResolvedValueOnce({ id: "lesson-1", status: "no_show", alreadyApplied: true });
+    await renderLesson({ outcome });
+    fireEvent.press(screen.getByLabelText("No-show"));
+    fireEvent.press(screen.getByTestId("charge-package"));
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText("Yes, mark no-show"));
+    });
+    expect(screen.getByText("No-show saved, charge not applied")).toBeTruthy();
+    expect(status()).toBe("Status: No-show");
+    expect(screen.queryByLabelText("Discard this change")).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText("Try again"));
+    });
+    expect(outcome.mock.calls[1][2]).toEqual({ status: "no_show", missedAppointmentCharge: "package" });
+    expect(outcome.mock.calls[1][3]).toBe(outcome.mock.calls[0][3]);
+    expect(screen.queryByText("No-show saved, charge not applied")).toBeNull();
+  });
+
+  it("package_exhausted keeps the status, says to check the web app, and offers no retry", async () => {
+    const e = new StaffApiError(409, "conflict", "x", undefined, { serverCode: "package_exhausted" });
+    await renderLesson({ outcome: jest.fn(async () => Promise.reject(e)) });
+    fireEvent.press(screen.getByLabelText("Mark attended"));
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText("Yes, mark attended"));
+    });
+    expect(screen.getByText("No credit left on the package")).toBeTruthy();
+    expect(screen.getByText(/Check this lesson in the web app/)).toBeTruthy();
+    expect(status()).toBe("Status: Attended");
+    expect(screen.queryByLabelText("Retry")).toBeNull();
+    expect(screen.queryByLabelText("Try again")).toBeNull();
+  });
+
+  it("a no-show replayed with a different charge is outcome_conflict: worded, status as the server says, no retry", async () => {
+    const e = new StaffApiError(409, "conflict", "x", undefined, { serverCode: "outcome_conflict", current: { status: "no_show" } });
+    await renderLesson({ outcome: jest.fn(async () => Promise.reject(e)) });
+    fireEvent.press(screen.getByLabelText("No-show"));
+    fireEvent.press(screen.getByTestId("charge-package"));
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText("Yes, mark no-show"));
+    });
+    expect(screen.getByText("Already recorded")).toBeTruthy();
+    expect(screen.getByText(/different charge was already recorded/)).toBeTruthy();
+    expect(status()).toBe("Status: No-show");
+    expect(screen.queryByLabelText("Try again")).toBeNull();
+  });
+
   it("a lost answer keeps the optimistic status with Try again (same key) or Discard (rolls back)", async () => {
     const lost = new StaffApiError(0, "network_error", "x");
     const outcome = jest.fn().mockRejectedValueOnce(lost).mockResolvedValueOnce({ id: "lesson-1", status: "attended", alreadyApplied: false });

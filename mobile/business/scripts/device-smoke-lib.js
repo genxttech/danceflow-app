@@ -266,6 +266,14 @@ function dropLogNoise(text, keep = 3000) {
 /** The four Phase 1A write words, the same keys as the server gate (src/lib/staff/writeGuard.ts) and the app flags (src/lib/features.ts). */
 const WRITE_WORDS = ["appointmentAttendance", "clientNotes", "clientCreate", "classRoster"];
 
+/** The exact check names (device-smoke.js --writes) that must all pass for a write word to be called proven. */
+const WRITE_CAPABILITY_CHECKS = {
+  clientCreate: ["writes: quick-add client creates and opens the client", "writes: the same phone again offers the existing client (duplicate_client)"],
+  clientNotes: ["writes: add a note, it is saved and appears in the notes list"],
+  appointmentAttendance: ["writes: private lesson marked attended (final, no undo)", "writes: private lesson marked no-show with no charge", "writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", "writes: a no-show whose charge could not be applied says so and offers Try again"],
+  classRoster: ["writes: add a dancer to the class roster", "writes: remove a dancer from the class roster"],
+};
+
 /**
  * The evidence file docs/mobile/tools/Test-StaffFeatures.ps1 reads before a build may carry a write word. `results` are the smoke's check results (name, ok); `capabilityChecks` maps each
  * word to the exact check names that prove it. A word gets its CAPABILITY line only when every one of its checks passed; RESULT is PASS only when the whole run passed.
@@ -288,4 +296,4 @@ function writesEvidence({ date, commit, web, results, capabilityChecks, runOk })
   return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
 }
 
-module.exports = { WRITE_WORDS, writesEvidence, dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+module.exports = { WRITE_WORDS, WRITE_CAPABILITY_CHECKS, writesEvidence, dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };

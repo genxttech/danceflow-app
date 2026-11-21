@@ -136,6 +136,7 @@ describe("roster: add a dancer", () => {
     ["ambiguous_funding_source", "Needs a billing decision"],
     ["invalid_funding", "That package doesn't fit"],
     ["membership_not_active", "Membership not active"],
+    ["enrollment_failed", "Couldn't add the dancer"],
   ])("%s is said in words and adds nobody", async (serverCode, title) => {
     await renderClass({ enrollInClass: jest.fn(async () => Promise.reject(new StaffApiError(409, "conflict", "x", undefined, { serverCode, current: null }))) });
     await chooseDee();
