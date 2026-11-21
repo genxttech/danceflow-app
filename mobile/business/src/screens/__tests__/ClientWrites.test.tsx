@@ -260,7 +260,7 @@ describe("entry points are gated by the flag AND the editClients capability", ()
 
   async function renderDetail(ws = EDITOR) {
     render(
-      <StaffTestProviders api={fakeApi({ client: jest.fn(async () => DETAIL) })} ws={ws}>
+      <StaffTestProviders api={fakeApi({ client: jest.fn(async () => DETAIL), clientNotes: jest.fn(async () => ({ notes: [], nextCursor: null })) })} ws={ws}>
         <ClientDetailScreen clientId="c1" studioId={STUDIO_ID} />
       </StaffTestProviders>,
     );

@@ -40,6 +40,15 @@ const CONFLICT_COPY: Record<string, { title: string; body: string }> = {
   payment_required: { title: "Payment needed first", body: "This lesson can't be marked attended until it's paid or covered by a package or membership. Take care of that on DanceFlow for the web, then mark it." },
   charge_failed: { title: "No-show saved, charge not applied", body: "The no-show was recorded, but the lesson credit could not be used. Fix it on DanceFlow for the web." },
   idempotency_conflict: { title: "Not saved", body: "That id was already used for something different. Nothing was changed. Start again." },
+  class_full: { title: "The class is full", body: "There are no seats left. Nobody was added." },
+  class_cancelled: { title: "The class is cancelled", body: "This class was cancelled, so nobody can be added." },
+  already_enrolled: { title: "Already in the class", body: "This dancer is already on the roster." },
+  no_eligible_entitlement: { title: "No package or membership", body: "This dancer has nothing that covers a class. Choose pay as you go or free, or sell a package on the web. Nobody was added." },
+  entitlement_exhausted: { title: "Nothing left to use", body: "This dancer has no class credit or allowance left. Choose another way to pay, or add credit on the web. Nobody was added." },
+  membership_not_active: { title: "Membership not active", body: "That membership is not active. Nobody was added." },
+  ambiguous_funding_source: { title: "Needs a billing decision", body: "This dancer has more than one package or membership. Ask an owner, admin or front desk to add them on the web." },
+  invalid_funding: { title: "That package doesn't fit", body: "The package or membership is not an active one of this dancer. Nobody was added." },
+  attendance_recorded: { title: "Can't remove this dancer", body: "Their attendance is already recorded, so they stay on the roster." },
   duplicate_client: { title: "This client may already exist", body: "A client with these details is already in your studio." },
 };
 

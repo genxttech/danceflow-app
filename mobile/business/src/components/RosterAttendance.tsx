@@ -63,11 +63,14 @@ export function RosterAttendance({
   appointmentId,
   attendees,
   canMark,
+  onRemove,
 }: {
   studioId: string;
   appointmentId: string;
   attendees: Attendee[];
   canMark: boolean;
+  /** Phase 1A: offered per dancer with no attendance recorded yet (the server refuses a removal after attendance). */
+  onRemove?: (clientId: string, name: string) => void;
 }) {
   const api = useStaffApi();
   const { signOut } = useStaffSession();
@@ -219,6 +222,9 @@ export function RosterAttendance({
                   {row.error}
                 </AppText>
               </>
+            ) : null}
+            {onRemove && row.status === null && !row.saving ? (
+              <AppButton label={`Remove ${name} from the class`} variant="quiet" onPress={() => onRemove(attendee.clientId, name)} />
             ) : null}
             {row.exit ? <AppButton label={row.exit} variant="secondary" onPress={() => void signOut()} /> : null}
           </View>

@@ -5,6 +5,7 @@ import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { ClientNoteSheet } from "@/components/ClientNoteSheet";
+import { ClientNotesList } from "@/components/ClientNotesList";
 import { Screen } from "@/components/Screen";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
@@ -70,6 +71,7 @@ export function ClientDetailScreen({ clientId, studioId }: { clientId: string; s
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
+  const [notesKey, setNotesKey] = useState(0);
   const canAddNote = isStaffFeatureEnabled("clientNotes") && workspace?.capabilities?.editClients === true;
 
   // Retry: show the loading state, then fetch again.
@@ -197,6 +199,7 @@ export function ClientDetailScreen({ clientId, studioId }: { clientId: string; s
               setNoteOpen(true);
             }}
           />
+          <ClientNotesList studioId={studioId} clientId={client.id} timeZone={client.timeZone} reloadKey={notesKey} />
           <ClientNoteSheet
             studioId={studioId}
             clientId={client.id}
@@ -206,6 +209,7 @@ export function ClientDetailScreen({ clientId, studioId }: { clientId: string; s
             onSaved={() => {
               setNoteOpen(false);
               setNoteSaved(true);
+              setNotesKey((k) => k + 1);
             }}
           />
         </View>

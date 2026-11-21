@@ -204,6 +204,8 @@ const CONFLICT_CODES: readonly string[] = [
   "terminal_outcome",
   "usage_sync_pending",
   "charge_failed",
+  "invalid_funding",
+  "attendance_recorded",
 ];
 
 /** The server's `code` decides; the status is only a fallback for a body without one. */
@@ -371,6 +373,12 @@ export type AppointmentOutcome = "attended" | "no_show";
 export type MissedCharge = "none" | "package" | "membership";
 export type OutcomeResult = { id: string; status: string; alreadyApplied: boolean };
 
+export type ClientNoteEntry = ClientNote & { authorName: string | null; isMine: boolean };
+export type ClientNotesPage = { notes: ClientNoteEntry[]; nextCursor: string | null };
+export type RosterBilling = "package_credit" | "pay_as_you_go" | "free_comped";
+export type RosterEnrollResult = { attendeeId: string; clientId: string; alreadyEnrolled: boolean };
+export type RosterRemoveResult = { removed: boolean; alreadyApplied: boolean };
+
 export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
@@ -398,6 +406,12 @@ export type StaffApi = {
     input: { status: AppointmentOutcome; missedAppointmentCharge?: MissedCharge },
     idempotencyKey: string,
   ) => Promise<OutcomeResult>;
+  /** Client notes read: GET /workspaces/{id}/clients/{clientId}/notes?cursor=&limit= (newest first). Owner, admin, front desk. */
+  clientNotes: (studioId: string, clientId: string, params?: { cursor?: string | null; limit?: number }) => Promise<ClientNotesPage>;
+  /** Phase 1A S2: POST /workspaces/{id}/appointments/{appointmentId}/roster. Natural key: a dancer already enrolled is 200 alreadyEnrolled. A package credit is taken later, at attendance. */
+  enrollInClass: (studioId: string, appointmentId: string, input: { clientId: string; billingType?: RosterBilling }, idempotencyKey: string) => Promise<RosterEnrollResult>;
+  /** Phase 1A S2: DELETE /workspaces/{id}/appointments/{appointmentId}/roster/{clientId}. Already removed is 200 alreadyApplied; recorded attendance is 409 attendance_recorded. */
+  removeFromClass: (studioId: string, appointmentId: string, clientId: string, idempotencyKey: string) => Promise<RosterRemoveResult>;
   /** Phase 1A C1: POST /workspaces/{id}/clients/{clientId}/notes. `noteId` is generated once per note and resent on retries; 201 new, 200 replay. Owner, admin, front desk. */
   addClientNote: (
     studioId: string,
@@ -646,6 +660,39 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
       const a = raw.appointment;
       if (!a || typeof a.status !== "string") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
       return { id: typeof a.id === "string" ? a.id : appointmentId, status: a.status, alreadyApplied: a.alreadyApplied === true };
+    },
+    clientNotes: async (studioId, clientId, params = {}) => {
+      const query = new URLSearchParams();
+      if (params.cursor) query.set("cursor", params.cursor);
+      if (params.limit && Number.isInteger(params.limit) && params.limit > 0) query.set("limit", String(Math.min(params.limit, 50)));
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const raw = await call<{ notes?: unknown; nextCursor?: unknown }>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}/notes${suffix}`);
+      const notes = Array.isArray(raw.notes)
+        ? raw.notes.flatMap((n: Record<string, unknown>) =>
+            typeof n?.id === "string" && typeof n.body === "string"
+              ? [{ id: n.id, clientId: typeof n.clientId === "string" ? n.clientId : clientId, noteType: str(n.noteType) ?? "general", body: n.body, occurredAt: str(n.occurredAt) ?? "", createdAt: str(n.createdAt) ?? "", authorName: str(n.authorName), isMine: n.isMine === true }]
+              : [],
+          )
+        : [];
+      return { notes, nextCursor: str(raw.nextCursor) };
+    },
+    enrollInClass: async (studioId, appointmentId, input, idempotencyKey) => {
+      const raw = await call<{ attendee?: Record<string, unknown> }>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}/roster`, {
+        method: "POST",
+        body: input,
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      const a = raw.attendee;
+      if (!a || typeof a.id !== "string") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { attendeeId: a.id, clientId: typeof a.clientId === "string" ? a.clientId : input.clientId, alreadyEnrolled: a.alreadyEnrolled === true };
+    },
+    removeFromClass: async (studioId, appointmentId, clientId, idempotencyKey) => {
+      const raw = await call<{ removed?: unknown; alreadyApplied?: unknown }>(
+        `${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}/roster/${encodeURIComponent(clientId)}`,
+        { method: "DELETE", headers: { "Idempotency-Key": idempotencyKey } },
+      );
+      if (raw.removed !== true) throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { removed: true, alreadyApplied: raw.alreadyApplied === true };
     },
     addClientNote: async (studioId, clientId, input, idempotencyKey) => {
       const raw = await call<{ note?: Record<string, unknown> }>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}/notes`, {
