@@ -4,6 +4,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AriaAssistantRoot } from "@/assistant/AriaAssistantRoot";
 import { LayoutProbe } from "@/components/LayoutProbe";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useFontScale } from "@/lib/fontScale";
@@ -41,7 +42,7 @@ function StaffProviders({ children }: { children: React.ReactNode }) {
         {/* The real adapter (expo-notifications) is provided here once the dependency lands; null means no push UI. */}
         <PushProvider value={nativePush}>
           <PushTapRouter />
-          {children}
+          <AriaAssistantRoot>{children}</AriaAssistantRoot>
         </PushProvider>
       </StaffSessionProvider>
     </StaffApiProvider>

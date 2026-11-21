@@ -8,6 +8,7 @@ import { useFontScale } from "@/lib/fontScale";
 import { guestMayView } from "@/lib/guestAccess";
 import { rememberPostSignInRoute } from "@/lib/postSignInRoute";
 import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
+import { LumiAssistantRoot } from "@/assistant/LumiAssistantRoot";
 import { colorsForScheme, hydrateAppearanceMode } from "@/constants/theme";
 
 const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
@@ -39,7 +40,7 @@ function AppStack() {
   }, [blockedForGuest, pathname, router]);
 
   return (
-    <>
+    <LumiAssistantRoot>
       <StatusBar style={scheme === "light" ? "dark" : "light"} />
       <Stack
         key={`font-${fontScale}`}
@@ -254,7 +255,7 @@ function AppStack() {
           }}
         />
       </Stack>
-    </>
+    </LumiAssistantRoot>
   );
 }
 
