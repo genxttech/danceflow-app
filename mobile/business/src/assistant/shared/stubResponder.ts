@@ -36,27 +36,26 @@ export function createStubResponder(options: StubOptions): StubResponder {
       const call = calls;
       return new Promise<AssistantReply>((resolve, reject) => {
         if (signal.aborted) return reject(new AssistantError("unknown", "aborted"));
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        let limit: ReturnType<typeof setTimeout> | undefined;
-        const finish = () => {
-          if (timer) clearTimeout(timer);
-          if (limit) clearTimeout(limit);
-          signal.removeEventListener("abort", onAbort);
-        };
-        const onAbort = () => {
-          finish();
-          reject(new AssistantError("unknown", "aborted"));
-        };
-        signal.addEventListener("abort", onAbort);
-        limit = setTimeout(() => {
+        // Timers and the abort listener reference each other; the callbacks only run later, so `const` is safe.
+        const limit = setTimeout(() => {
           finish();
           reject(new AssistantError("timeout"));
         }, timeoutMs);
-        timer = setTimeout(() => {
+        const timer = setTimeout(() => {
           finish();
           if (options.failWith && (options.failOnCall === undefined || options.failOnCall === call)) return reject(new AssistantError(options.failWith));
           resolve(pick(options, request));
         }, options.delayMs ?? 0);
+        function finish() {
+          clearTimeout(timer);
+          clearTimeout(limit);
+          signal.removeEventListener("abort", onAbort);
+        }
+        function onAbort() {
+          finish();
+          reject(new AssistantError("unknown", "aborted"));
+        }
+        signal.addEventListener("abort", onAbort);
       });
     },
   };

@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { conversationReducer, emptyConversation, historyBefore, questionFor, type ConversationState } from "./reducer";
 import { resolveReplyLinks } from "./links";
-import { findScreen, sameContext, sanitizeScreenContext } from "./screenContext";
+import { findScreen, sanitizeScreenContext } from "./screenContext";
 import {
   AssistantError,
   type AssistantConfig,
@@ -69,7 +69,10 @@ export function AssistantProvider({
   const [screens, setScreens] = useState<{ key: number; context: ScreenContext }[]>([]);
 
   const stateRef = useRef<ConversationState>(state);
-  stateRef.current = state;
+  // Refs are synced after each commit (not during render); the handlers below run after a commit.
+  useEffect(() => {
+    stateRef.current = state;
+  });
   const controller = useRef<AbortController | null>(null);
   const screenKey = useRef(0);
   const mounted = useRef(true);
@@ -85,7 +88,9 @@ export function AssistantProvider({
   // The most recently registered live screen wins (a modal over a tab reports itself; closing it restores the tab).
   const context = screens.length ? screens[screens.length - 1].context : null;
   const contextRef = useRef<ScreenContext | null>(context);
-  contextRef.current = context;
+  useEffect(() => {
+    contextRef.current = context;
+  });
 
   const run = useCallback(
     (pendingId: string, questionId: string, message: string, messages: readonly AssistantMessage[]) => {
@@ -227,17 +232,13 @@ export function useAssistant(): AssistantApi {
 export function useAssistantScreen(ctx: { screenId: string; entityIds?: Record<string, string> } | null): void {
   const api = useAssistantOptional();
   const register = api?.registerScreen;
-  const last = useRef<ScreenContext | null>(null);
-  const stable = useMemo(() => {
-    if (!ctx) return null;
-    if (last.current && sameContext(last.current, ctx)) return last.current;
-    last.current = ctx;
-    return ctx;
-  }, [ctx]);
+  // Keyed by value so an inline object does not re-register every render.
+  const key = ctx ? JSON.stringify({ s: ctx.screenId, e: ctx.entityIds ?? null }) : null;
   useEffect(() => {
-    if (!register || !stable) return undefined;
-    return register(stable);
-  }, [register, stable]);
+    if (!register || !key) return undefined;
+    const parsed = JSON.parse(key) as { s: string; e: Record<string, string> | null };
+    return register({ screenId: parsed.s, entityIds: parsed.e ?? undefined });
+  }, [register, key]);
 }
 
 /** While mounted (and `active`), asks the launcher to step aside: a modal or another sheet is up. Inert with no provider. */
