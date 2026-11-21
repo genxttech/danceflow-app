@@ -14,13 +14,49 @@
 export const TEST_CARD = { number: "4242424242424242", expiry: "12 / 34", cvc: "123", name: "CF1 Canary", postal: "12345" } as const;
 export const CANARY_EMAIL = "cf1-canary@example.com";
 
-const CHECKOUT_URL = /^https:\/\/checkout\.stripe\.com\/c\/pay\/(cs_test_[A-Za-z0-9]+)(?:[?#].*)?$/;
+/**
+ * The one accepted layout: https://checkout.stripe.com/c/pay/cs_test_<id>[#fragment]. Evidence: Stripe's Checkout Sessions documentation (the session `url`),
+ * this repo's payment harness (src/lib/payment-harness/browser.ts: host set {checkout.stripe.com}, session-id pattern cs_[a-zA-Z0-9_]+) and its unit tests.
+ * Underscores are allowed in the id because that existing pattern allows them. The legacy /pay/ layout is NOT accepted: only a comment in the harness
+ * mentions it, and no observed session has used it.
+ */
+const CHECKOUT_URL = /^https:\/\/checkout\.stripe\.com\/c\/pay\/(cs_test_[A-Za-z0-9_]+)(?:[?#].*)?$/;
 
-/** Returns the session id; throws on anything that is not a TEST hosted Checkout URL. Never echoes the URL (its fragment is a bearer-like blob). */
+/** Fixed vocabulary that may be printed verbatim. Everything else is reduced to a length or a category, so no URL value can reach a log. */
+const SHOWN_HOST = new Set(["checkout.stripe.com"]);
+const SHOWN_SEGMENT = new Set(["c", "pay"]);
+
+/**
+ * A structural description of a URL for failure messages. Printed verbatim: only the scheme (https/http), the host when it is exactly checkout.stripe.com,
+ * and path segments that are exactly "c" or "pay". Every other host or path segment is reduced to a category and a length, whatever its content (short
+ * lowercase words included), and a query, fragment, userinfo or port is reported only as present. No identifier or value is ever included.
+ */
+export function describeUrlShape(url: unknown): string {
+  if (typeof url !== "string") return `not a string (${url === null ? "null" : typeof url})`;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    const hostText = SHOWN_HOST.has(host) ? host : `<${isAllowedHost(host) ? "other Stripe-owned host" : "non-Stripe host"}, ${host.length} chars, ${host.split(".").length} labels>`;
+    const parts = u.pathname.split("/").filter(Boolean);
+    const shown = parts.slice(0, 6).map((seg) => {
+      if (SHOWN_SEGMENT.has(seg)) return seg;
+      const kind = seg.startsWith("cs_test_") ? "test session id" : seg.startsWith("cs_live_") ? "LIVE session id" : "other";
+      return `<${kind}, ${seg.length} chars>`;
+    });
+    if (parts.length > shown.length) shown.push(`<${parts.length - shown.length} more>`);
+    const scheme = u.protocol === "https:" ? "https" : u.protocol === "http:" ? "http" : "other";
+    const extras = `userinfo=${u.username || u.password ? "yes" : "no"} port=${u.port ? "yes" : "no"} query=${u.search ? "yes" : "no"} fragment=${u.hash ? "yes" : "no"}`;
+    return `scheme=${scheme} host=${hostText} path=/${shown.join("/")} ${extras}`;
+  } catch {
+    return `unparseable (${url.length} chars)`;
+  }
+}
+
+/** Returns the session id; throws on anything that is not a TEST hosted Checkout URL. The error shows the URL's shape, never its values. */
 export function assertHostedCheckoutUrl(url: unknown): string {
   if (typeof url !== "string") throw new Error("the Checkout Session has no hosted URL");
   const match = CHECKOUT_URL.exec(url);
-  if (!match) throw new Error("refusing: the Checkout URL is not https://checkout.stripe.com/c/pay/cs_test_...");
+  if (!match) throw new Error(`refusing: the Checkout URL is not https://checkout.stripe.com/c/pay/cs_test_... (seen: ${describeUrlShape(url)})`);
   return match[1];
 }
 

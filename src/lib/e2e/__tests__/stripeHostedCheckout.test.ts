@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertHostedCheckoutUrl, browserEnv, detectChallenge, driveHostedCheckout, isAllowedHost, isLoopbackHost, TEST_CARD, type HostedPage } from "../stripeHostedCheckout";
+import { assertHostedCheckoutUrl, browserEnv, describeUrlShape, detectChallenge, driveHostedCheckout, isAllowedHost, isLoopbackHost, TEST_CARD, type HostedPage } from "../stripeHostedCheckout";
 
 const URL_OK = "https://checkout.stripe.com/c/pay/cs_test_a1B2c3#fidkdWxOYHwnPyd1blpxYHZxWjA0";
 const SUCCESS = "http://127.0.0.1:3000/cf1-canary?session=";
@@ -28,7 +28,47 @@ describe("hosted Checkout URL and network boundaries", () => {
     expect(assertHostedCheckoutUrl(URL_OK)).toBe("cs_test_a1B2c3");
     const bad = [undefined, null, "", "http://checkout.stripe.com/c/pay/cs_test_x", "https://checkout.stripe.com/c/pay/cs_live_x#f", "https://checkout.stripe.com.evil.example/c/pay/cs_test_x", "https://evil.example/c/pay/cs_test_x", "https://checkout.stripe.com/c/pay/cs_test_x/../../y", "https://user@checkout.stripe.com/c/pay/cs_test_x"];
     for (const url of bad) expect(() => assertHostedCheckoutUrl(url)).toThrow();
-    try { assertHostedCheckoutUrl("https://evil.example/c/pay/cs_test_SECRETFRAGMENT#frag"); } catch (e) { expect(String((e as Error).message)).not.toMatch(/SECRETFRAGMENT|frag/); }
+    try { assertHostedCheckoutUrl("https://evil.example/c/pay/cs_test_SECRETFRAGMENT#frag"); } catch (e) { expect(String((e as Error).message)).not.toMatch(/SECRETFRAGMENT|#frag/); }
+  });
+  it("does NOT accept the unobserved legacy /pay/ layout, and accepts underscores in the id only because the existing harness pattern allows them", () => {
+    expect(() => assertHostedCheckoutUrl("https://checkout.stripe.com/pay/cs_test_a1B2c3#fidkd")).toThrow(/refusing/);
+    expect(assertHostedCheckoutUrl("https://checkout.stripe.com/c/pay/cs_test_a1_B2c3#fidkd")).toBe("cs_test_a1_B2c3");
+  });
+  const leaks = (url: string) => { let m = ""; try { assertHostedCheckoutUrl(url); } catch (e) { m = (e as Error).message; } return m; };
+  it("a refusal prints only fixed words: scheme, the host checkout.stripe.com, and the segments c and pay; everything else is a category and a length", () => {
+    const m = leaks("https://checkout.stripe.com/c/pay/cs_live_abcdef?x=1#frag");
+    expect(m).toContain("(seen: scheme=https host=checkout.stripe.com path=/c/pay/<LIVE session id, 14 chars> userinfo=no port=no query=yes fragment=yes)");
+    expect(describeUrlShape(null)).toBe("not a string (null)");
+    expect(describeUrlShape(undefined)).toBe("not a string (undefined)");
+  });
+  it("short lowercase secrets in the host, path, query, fragment or userinfo are never printed (they were the gap in the first version)", () => {
+    const secrets = ["abc", "tok", "secretz", "hunter2", "zzzqqq", "pw"];
+    const urls = [
+      "https://abc.tok.example.com/secretz/hunter2?zzzqqq=pw#pw",
+      "https://user:pw@checkout.stripe.com/abc/c/tok/pay/secretz/cs_test_hunter2",
+      "https://sub.stripe.com/abc/secretz?tok=hunter2#zzzqqq",
+      "http://hunter2.checkout.stripe.com/c/pay/cs_test_zzzqqq",
+      "https://checkout.stripe.com:8443/c/pay/abc/def/ghi/jkl/mno/pqr/stu",
+    ];
+    for (const url of urls) {
+      const m = leaks(url);
+      expect(m, url).toMatch(/\(seen: scheme=/);
+      for (const secret of secrets) expect(m.replace(/not https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_\.\.\./, ""), `${url} leaked ${secret}`).not.toContain(secret);
+    }
+    expect(leaks(urls[0])).toContain("host=<non-Stripe host, 19 chars, 4 labels> path=/<other, 7 chars>/<other, 7 chars> userinfo=no port=no query=yes fragment=yes");
+    expect(leaks(urls[2])).toContain("host=<other Stripe-owned host, 14 chars, 3 labels>");
+  });
+  it("long identifiers, session ids and fragments are never printed either, and a very long path is truncated", () => {
+    const id = "cs_test_a1B2c3D4e5F6g7H8i9J0kLmNoPqRsTuVwXyZ";
+    const frag = "fidkdWxOYHwnPyd1blpxYHZxWjA0LONGFRAGMENT";
+    const m = leaks(`https://checkout.stripe.com/c/pay/${id}/extra/more/more/more/more/more#${frag}`);
+    expect(m).not.toContain(id);
+    expect(m).not.toContain(frag);
+    expect(m).not.toContain("extra");
+    expect(m).toMatch(/<\d+ more>/);
+  });
+  it("unparseable input is described by length only", () => {
+    expect(describeUrlShape("not a url secretvalue")).toBe("unparseable (21 chars)");
   });
   it("allows only Stripe hosts and the loopback", () => {
     for (const h of ["checkout.stripe.com", "js.stripe.com", "m.stripe.network", "q.stripecdn.com", "stripe.com"]) expect(isAllowedHost(h), h).toBe(true);
