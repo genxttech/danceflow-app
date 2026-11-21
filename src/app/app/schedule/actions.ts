@@ -2,7 +2,6 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { reconcileClientPackageLifecycle } from "@/lib/packages/lifecycle";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -19,7 +18,18 @@ import { mapGroupClassConflictDbError, toSafeConflict } from "@/lib/schedule/gro
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
 import { validateMembershipEntitlement } from "@/lib/memberships/entitlements";
-import { packageUsageTypeForAppointment, validateClientPackageForBooking } from "@/lib/packages/entitlement";
+import { validateClientPackageForBooking } from "@/lib/packages/entitlement";
+import {
+  appointmentTypeLabel,
+  applyMissedAppointmentCharge,
+  canMarkAppointmentAttendedWithoutPaymentWarning,
+  clearMembershipUsageForAppointment,
+  markAppointmentAttendance,
+  normalizeLessonBillingType,
+  syncMembershipUsageForAppointment,
+  syncPackageUsageForAttendedAppointment as syncPackageUsageForAttendedAppointmentLib,
+  type LessonBillingType,
+} from "@/lib/staff/appointmentAttendance";
 import { getZonedDateKey } from "@/lib/booking/selfServiceAvailability";
 import { sendAppointmentSchedulePush, sendGroupClassCancellationPush } from "@/lib/notifications/schedulePush";
 import { isSmsSendingApproved } from "@/lib/sms/compliance";
@@ -146,34 +156,6 @@ type FloorRentalSlot = {
   endTime: string;
 };
 
-type LessonBillingType =
-  | "package_credit"
-  | "membership"
-  | "pay_as_you_go"
-  | "free_comped";
-
-function normalizeLessonBillingType(
-  value: string | null,
-  appointmentType: string,
-): LessonBillingType {
-  if (
-    appointmentType === "floor_space_rental" ||
-    appointmentType === "room_unavailable"
-  ) {
-    return "package_credit";
-  }
-
-  if (
-    value === "package_credit" ||
-    value === "membership" ||
-    value === "pay_as_you_go" ||
-    value === "free_comped"
-  ) {
-    return value;
-  }
-
-  return "package_credit";
-}
 
 function getBillingNoteForSave(value: string | null) {
   return value && value.trim() ? value.trim() : null;
@@ -256,9 +238,6 @@ function toIsoFromLocalDateTime(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
   return zonedDateTimeToUtc(date, time, timeZone).toISOString();
 }
 
-function datePart(value: string) {
-  return value.slice(0, 10);
-}
 
 function getDateInTimeZone(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
   const parts = getTimeZoneParts(new Date(value), timeZone);
@@ -423,18 +402,6 @@ function normalizeAppointmentRelations(params: {
 function firstRelationRow<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
-function appointmentTypeLabel(value: string) {
-  if (value === "private_lesson") return "Private Lesson";
-  if (value === "group_class") return "Group Class";
-  if (value === "intro_lesson") return "Intro Lesson";
-  if (value === "practice_party") return "Practice Party";
-  if (value === "coaching") return "Coaching";
-  if (value === "floor_space_rental") return "Floor Space Rental";
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function normalizePhoneForDelivery(value: string | null | undefined) {
@@ -924,318 +891,6 @@ async function promoteLeadClientAfterBookedAppointment(params: {
   }
 }
 
-function getUsageBenefitTypeForAppointmentType(appointmentType: string) {
-  switch (appointmentType) {
-    case "private_lesson":
-    case "intro_lesson":
-    case "coaching":
-      return "private_lesson";
-    case "group_class":
-      return "group_class";
-    default:
-      return null;
-  }
-}
-
-function getMembershipBenefitTypesForAppointmentType(appointmentType: string) {
-  const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
-
-  if (usageType === "private_lesson") {
-    return [
-      "included_private_lessons",
-      "discount_private_lessons_percent",
-      "discount_private_lessons_fixed",
-    ];
-  }
-
-  if (usageType === "group_class") {
-    return [
-      "included_group_classes",
-      "discount_group_classes_percent",
-      "discount_group_classes_fixed",
-    ];
-  }
-
-  return [];
-}
-
-function membershipBenefitAppliesToAppointmentType(
-  benefit: { applies_to?: string | null },
-  appointmentType: string,
-) {
-  const appliesTo = benefit.applies_to?.trim();
-  if (!appliesTo || appliesTo === "all") return true;
-
-  const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
-
-  return (
-    appliesTo === appointmentType ||
-    Boolean(usageType && appliesTo === usageType)
-  );
-}
-
-async function clearMembershipUsageForAppointment(params: {
-  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
-  appointmentId: string;
-}) {
-  const { supabase, appointmentId } = params;
-
-  const { error } = await supabase
-    .from("client_membership_usage")
-    .delete()
-    .eq("reference_type", "appointment")
-    .eq("reference_id", appointmentId);
-
-  if (error) {
-    throw new Error(`Could not clear membership usage: ${error.message}`);
-  }
-}
-
-async function syncMembershipUsageForAppointment(params: {
-  supabase: Awaited<
-    ReturnType<typeof requireAppointmentCreateAccess>
-  >["supabase"];
-  studioId: string;
-  appointmentId: string;
-  clientId: string;
-  appointmentType: string;
-  status: string;
-  startsAtIso: string;
-  clientMembershipId?: string | null;
-}) {
-  const {
-    supabase,
-    studioId,
-    appointmentId,
-    clientId,
-    appointmentType,
-    status,
-    startsAtIso,
-    clientMembershipId = null,
-  } = params;
-
-  const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
-
-  // Membership Usage-Period Alignment / P6d/P6e: private-lesson membership
-  // usage (included_private_lessons on private_lesson/intro_lesson/
-  // coaching) is now owned EXCLUSIVELY by the canonical DB trigger
-  // (sync_membership_usage_for_private_lesson_appointment), which is
-  // preservation-first (P6d: never deletes existing usage automatically)
-  // and backstopped by enforce_private_lesson_membership_capacity and
-  // enforce_private_lesson_attendance_lifecycle (P6e). This check MUST
-  // run before the unconditional clear below, not after it -- a prior
-  // version of this function cleared first and checked the type second,
-  // which meant every call from markAppointmentAttendedAction for a
-  // membership-funded private lesson immediately deleted the usage row
-  // the DB trigger had just correctly created moments earlier in the same
-  // action, silently defeating the entire DB-side sync for its most
-  // common case. This function now never touches client_membership_usage
-  // at all for private-lesson-family types -- it only ever acts on
-  // appointment types the DB engine does not yet own (e.g. group_class).
-  if (usageType === "private_lesson") return;
-
-  await clearMembershipUsageForAppointment({
-    supabase,
-    appointmentId,
-  });
-
-  if (status !== "attended") return;
-  if (!usageType) return;
-
-  const usageDate = datePart(startsAtIso);
-
-  const { data: activeMemberships, error: membershipsError } = await supabase
-    .from("client_memberships")
-    .select("id, membership_plan_id, current_period_start, current_period_end")
-    .eq("studio_id", studioId)
-    .eq("client_id", clientId)
-    .in("status", ["active", "trialing", "past_due", "unpaid"]);
-
-  if (membershipsError) {
-    throw new Error(
-      `Could not load active memberships: ${membershipsError.message}`,
-    );
-  }
-
-  const matchingMembership = (activeMemberships ?? []).find((membership) => {
-    if (clientMembershipId && membership.id !== clientMembershipId) return false;
-    const startsOk =
-      !membership.current_period_start ||
-      membership.current_period_start <= usageDate;
-    const endsOk =
-      !membership.current_period_end ||
-      membership.current_period_end >= usageDate;
-    return startsOk && endsOk;
-  });
-
-  if (!matchingMembership) return;
-
-  const membershipBenefitTypes = getMembershipBenefitTypesForAppointmentType(
-    appointmentType,
-  );
-
-  if (membershipBenefitTypes.length === 0) return;
-
-  const { data: planBenefits, error: benefitsError } = await supabase
-    .from("membership_plan_benefits")
-    .select("id, benefit_type, applies_to")
-    .eq("membership_plan_id", matchingMembership.membership_plan_id)
-    .in("benefit_type", membershipBenefitTypes);
-
-  if (benefitsError) {
-    throw new Error(
-      `Could not load membership benefits: ${benefitsError.message}`,
-    );
-  }
-
-  const benefit = (planBenefits ?? []).find((candidate) =>
-    membershipBenefitAppliesToAppointmentType(candidate, appointmentType),
-  );
-  if (!benefit) return;
-
-  const { data: membershipPeriod, error: periodError } = await supabase
-    .from("client_membership_periods")
-    .select("id, payment_status")
-    .eq("client_membership_id", matchingMembership.id)
-    .lte("period_start", usageDate)
-    .gte("period_end", usageDate)
-    .limit(1)
-    .maybeSingle();
-
-  if (periodError) {
-    throw new Error(`Could not load membership period: ${periodError.message}`);
-  }
-
-  if (!membershipPeriod) {
-    throw new Error("Membership usage cannot be recorded because no renewal period covers this appointment.");
-  }
-
-  const { data: membershipSettings, error: membershipSettingsError } = await supabase
-    .from("studio_settings")
-    .select("block_unpaid_membership_booking")
-    .eq("studio_id", studioId)
-    .single();
-
-  if (membershipSettingsError || !membershipSettings) {
-    throw new Error("Studio membership booking settings could not be loaded.");
-  }
-
-  const paymentStatus = String(membershipPeriod.payment_status ?? "due");
-  if (["void"].includes(paymentStatus)) {
-    throw new Error("Membership usage cannot be recorded against a void renewal period.");
-  }
-  if (
-    membershipSettings.block_unpaid_membership_booking &&
-    !["paid", "waived"].includes(paymentStatus)
-  ) {
-    throw new Error("Membership usage cannot be recorded against an unpaid renewal period.");
-  }
-
-  const { error: usageInsertError } = await supabase
-    .from("client_membership_usage")
-    .insert({
-      client_membership_id: matchingMembership.id,
-      client_membership_period_id: membershipPeriod.id,
-      membership_plan_benefit_id: benefit.id,
-      usage_date: usageDate,
-      quantity_used: 1,
-      reference_type: "appointment",
-      reference_id: appointmentId,
-    });
-
-  if (usageInsertError) {
-    throw new Error(
-      `Could not record membership usage: ${usageInsertError.message}`,
-    );
-  }
-}
-
-/**
- * Package credit deduction for an attended appointment is performed
- * atomically and idempotently by the `deduct_package_credit_when_appointment_attended`
- * database trigger (fires on `appointments.status -> 'attended'`), which marks
- * its work with a `lesson_transactions` row of `transaction_type: "lesson_deduction"`.
- *
- * This function defers to the `deduct_package_credit_for_appointment` RPC for
- * the actual deduction, rather than doing its own read-then-write against
- * `client_package_items`, so the two mechanisms can never deduct
- * independently for the same appointment and two concurrent deductions
- * against the same package (e.g. this function running for one appointment
- * while the trigger fires for a different one) can't race and lose an
- * update:
- *   - Normal attendance marking: the trigger already ran (synchronously, as
- *     part of the preceding `appointments` update) by the time this function
- *     is called, so the RPC finds its marker already present and only
- *     mirrors the resulting balance into the legacy `client_packages.lessons_*`
- *     columns.
- *   - Missed-appointment charges applied on cancel/no-show (`applyMissedAppointmentCharge`):
- *     the appointment's status is `cancelled`/`no_show`, not `attended`, so the
- *     trigger never fires. The RPC performs the single deduction itself,
- *     under a row lock on the package item, so a later genuine `attended`
- *     transition (or a replay of this same call) is correctly recognized as
- *     already handled.
- *
- * The RPC recognizes both the current (`lesson_deduction`) and legacy
- * (`appointment_attendance`) transaction markers as evidence of a prior
- * deduction, so replaying this for an appointment attended before the
- * `lesson_deduction` marker existed cannot consume a second credit.
- */
-export async function syncPackageUsageForAttendedAppointment(params: {
-  supabase: Awaited<
-    ReturnType<typeof requireAppointmentCreateAccess>
-  >["supabase"];
-  studioId: string;
-  appointmentId: string;
-  clientId: string | null;
-  appointmentType: string;
-  clientPackageId: string | null;
-}) {
-  const {
-    supabase,
-    studioId,
-    appointmentId,
-    clientId,
-    appointmentType,
-    clientPackageId,
-  } = params;
-
-  if (!clientId || !clientPackageId) return;
-
-  const usageType = packageUsageTypeForAppointment(appointmentType);
-  if (!usageType) return;
-
-  const { data, error } = await supabase.rpc(
-    "deduct_package_credit_for_appointment",
-    {
-      p_studio_id: studioId,
-      p_client_id: clientId,
-      p_client_package_id: clientPackageId,
-      p_appointment_id: appointmentId,
-      p_usage_type: usageType,
-    },
-  );
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  const result = Array.isArray(data) ? data[0] : data;
-
-  if (!result?.found_item) {
-    // Already deducted and the package has since been reconciled to
-    // inactive (e.g. it was fully depleted) — nothing left to do.
-    return;
-  }
-
-  if (result.is_unlimited) return;
-
-  await reconcileClientPackageLifecycle({
-    supabase,
-    studioId,
-    clientId,
-    clientPackageId,
-  });
-}
 
 async function recomputeFloorRentalPaymentStatus(params: {
   supabase: Awaited<
@@ -3655,81 +3310,6 @@ export async function recordPayAsYouGoClassAttendeePaymentAction(formData: FormD
   }
 }
 
-async function applyMissedAppointmentCharge(params: {
-  supabase: Awaited<ReturnType<typeof requireAppointmentEditAccess>>["supabase"];
-  studioId: string;
-  appointment: {
-    id: string;
-    client_id: string | null;
-    appointment_type: string;
-    starts_at: string;
-    client_package_id: string | null;
-    billing_type: string | null;
-    client_membership_id?: string | null;
-  };
-  chargeSource: string;
-}) {
-  const { supabase, studioId, appointment, chargeSource } = params;
-
-  if (chargeSource === "none") return;
-
-  if (!appointment.client_id) {
-    throw new Error("This appointment is not linked to a client.");
-  }
-
-  if (chargeSource === "package") {
-    if (!appointment.client_package_id) {
-      throw new Error("No package is linked to this appointment.");
-    }
-
-    await syncPackageUsageForAttendedAppointment({
-      supabase,
-      studioId,
-      appointmentId: appointment.id,
-      clientId: appointment.client_id,
-      appointmentType: appointment.appointment_type,
-      clientPackageId: appointment.client_package_id,
-    });
-
-    return;
-  }
-
-  if (chargeSource === "membership") {
-    await syncMembershipUsageForAppointment({
-      supabase,
-      studioId,
-      appointmentId: appointment.id,
-      clientId: appointment.client_id,
-      appointmentType: appointment.appointment_type,
-      status: "attended",
-      startsAtIso: appointment.starts_at,
-      clientMembershipId: appointment.client_membership_id ?? null,
-    });
-
-    const { data: usageRows, error: usageLookupError } = await supabase
-      .from("client_membership_usage")
-      .select("id")
-      .eq("reference_type", "appointment")
-      .eq("reference_id", appointment.id)
-      .limit(1);
-
-    if (usageLookupError) {
-      throw new Error(
-        `Could not verify membership deduction: ${usageLookupError.message}`,
-      );
-    }
-
-    if ((usageRows ?? []).length === 0) {
-      throw new Error(
-        "No eligible membership benefit was found for this appointment.",
-      );
-    }
-
-    return;
-  }
-
-  throw new Error("Choose a valid missed-appointment deduction option.");
-}
 
 export async function cancelAppointmentAction(formData: FormData) {
   const fallback = "/app/schedule";
@@ -4003,113 +3583,13 @@ export async function cancelAppointmentAction(formData: FormData) {
   }
 }
 
-async function packageHasAvailableCreditForAttendance(params: {
-  supabase: Awaited<ReturnType<typeof requireAttendanceAccess>>["supabase"];
-  studioId: string;
-  clientId: string | null;
-  appointmentType: string;
-  clientPackageId: string | null;
-}) {
-  const { supabase, studioId, clientId, appointmentType, clientPackageId } =
-    params;
 
-  if (!clientId || !clientPackageId) return false;
-
-  const usageType = packageUsageTypeForAppointment(appointmentType);
-  if (!usageType) return false;
-
-  const { data: packageItem, error: packageItemError } = await supabase
-    .from("client_package_items")
-    .select(
-      `
-      id,
-      quantity_remaining,
-      is_unlimited,
-      client_packages!inner (
-        id,
-        studio_id,
-        client_id,
-        active
-      )
-    `,
-    )
-    .eq("client_package_id", clientPackageId)
-    .eq("usage_type", usageType)
-    .eq("client_packages.studio_id", studioId)
-    .eq("client_packages.client_id", clientId)
-    .eq("client_packages.active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (packageItemError) {
-    throw new Error(
-      `Could not load package credit: ${packageItemError.message}`,
-    );
-  }
-
-  if (!packageItem) return false;
-  if (packageItem.is_unlimited) return true;
-
-  return Number(packageItem.quantity_remaining ?? 0) > 0;
-}
-
-async function canMarkAppointmentAttendedWithoutPaymentWarning(params: {
-  supabase: Awaited<ReturnType<typeof requireAttendanceAccess>>["supabase"];
-  studioId: string;
-  appointment: {
-    id: string;
-    client_id: string | null;
-    appointment_type: string;
-    starts_at: string;
-    client_package_id: string | null;
-    client_membership_id: string | null;
-    price_amount: number | string | null;
-    payment_status: string | null;
-    billing_type: string | null;
-  };
-}) {
-  const { supabase, studioId, appointment } = params;
-
-  const usageType = packageUsageTypeForAppointment(
-    appointment.appointment_type,
-  );
-  if (!usageType) return true;
-
-  const billingType = normalizeLessonBillingType(
-    appointment.billing_type,
-    appointment.appointment_type,
-  );
-  const paymentStatus = (appointment.payment_status ?? "").toLowerCase();
-
-  if (billingType === "free_comped") {
-    return true;
-  }
-
-  if (billingType === "pay_as_you_go") {
-    return paymentStatus === "paid";
-  }
-
-  if (billingType === "membership") {
-    const validation = await validateMembershipEntitlement({
-      supabase,
-      studioId,
-      clientId: appointment.client_id ?? "",
-      appointmentType: appointment.appointment_type,
-      startsAtIso: appointment.starts_at,
-      clientMembershipId: appointment.client_membership_id ?? null,
-      excludeAppointmentId: appointment.id,
-      includeFutureReservations: false,
-    });
-    return validation.ok;
-  }
-
-  return packageHasAvailableCreditForAttendance({
-    supabase,
-    studioId,
-    clientId: appointment.client_id,
-    appointmentType: appointment.appointment_type,
-    clientPackageId: appointment.client_package_id,
-  });
+// Kept as an action-file export for existing callers; the logic is in
+// src/lib/staff/appointmentAttendance.ts.
+export async function syncPackageUsageForAttendedAppointment(
+  params: Parameters<typeof syncPackageUsageForAttendedAppointmentLib>[0],
+) {
+  return syncPackageUsageForAttendedAppointmentLib(params);
 }
 
 export async function markAppointmentAttendedAction(formData: FormData) {
@@ -4124,157 +3604,36 @@ export async function markAppointmentAttendedAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
-    // FC-1B5D2 D2A: relationship authorization happens before any
-    // downstream membership/package deduction or instructor-pay staging --
-    // an instructor may only mark attendance for an appointment currently
-    // assigned to them.
-    const relationshipResult = await requireAppointmentRelationshipAccess<{
-      id: string;
-      studio_id: string;
-      client_id: string | null;
-      instructor_id: string | null;
-      appointment_type: string;
-      starts_at: string;
-      client_package_id: string | null;
-      client_membership_id: string | null;
-      price_amount: number | null;
-      payment_status: string | null;
-      billing_type: string | null;
-      status: string;
-    }>({
-      supabase,
+    // The rules (relationship authorization, terminal-outcome guard, payment
+    // gate, idempotent replay, package/membership sync, earning staging) live in
+    // src/lib/staff/appointmentAttendance.ts, shared with the staff API.
+    const result = await markAppointmentAttendance({
+      supabase: supabase as never,
       studioId,
-      studioRole,
-      isPlatformAdmin,
-      userId: user.id,
       appointmentId,
-      select:
-        "starts_at, client_package_id, client_membership_id, price_amount, payment_status, billing_type, status",
+      status: "attended",
+      actor: { userId: user.id, studioRole, isPlatformAdmin },
     });
 
-    if (!relationshipResult.ok) {
-      redirect(getErrorRedirect(formData, fallback, "not_authorized_for_appointment"));
-    }
-
-    const appointment = relationshipResult.appointment;
-
-    // Product decision (Membership Usage-Period Alignment, terminal
-    // attendance lifecycle): a no-show cannot be reclassified as attended
-    // -- both are terminal, completed outcomes for private_lesson/
-    // intro_lesson/coaching. Correcting a recorded outcome belongs in a
-    // future, explicit Attendance Correction / Reversal workflow.
-    // Backstopped at the DB level by
-    // enforce_private_lesson_attendance_lifecycle (P6e).
-    if (
-      ["private_lesson", "intro_lesson", "coaching"].includes(
-        String(appointment.appointment_type),
-      ) &&
-      appointment.status === "no_show"
-    ) {
+    if (!result.ok) {
       redirect(
-        getErrorRedirect(formData, fallback, "no_show_cannot_be_marked_attended"),
+        getErrorRedirect(
+          formData,
+          fallback,
+          result.reason === "not_found" || result.reason === "not_markable"
+            ? "not_authorized_for_appointment"
+            : result.reason === "write_failed"
+              ? "attendance_failed"
+              : result.reason,
+        ),
       );
-    }
-
-    // Already attended: this is a replay (double-submit, retried request,
-    // an intentional re-click after a prior sync failure, etc), not a fresh
-    // attendance decision. Don't re-run the payment-required gate or
-    // rewrite appointments.status/attendance_marked_at — but DO still
-    // attempt the package/membership sync below. That sync is now
-    // idempotent (deduct_package_credit_for_appointment locks and
-    // re-checks its own marker), so replaying it is always safe: a
-    // deduction that already completed is a no-op, and a deduction that
-    // previously failed partway (status flipped to "attended" but the sync
-    // threw) gets a chance to actually complete instead of being silently
-    // stranded forever behind a guard that reports success without
-    // finishing the job.
-    const alreadyAttended = appointment.status === "attended";
-
-    if (!alreadyAttended) {
-      const canCompleteAttendance =
-        await canMarkAppointmentAttendedWithoutPaymentWarning({
-          supabase,
-          studioId,
-          appointment,
-        });
-
-      if (!canCompleteAttendance) {
-        redirect(getErrorRedirect(formData, fallback, "payment_required"));
-      }
-
-      const attendedAt = new Date().toISOString();
-
-      const { error: updateError } = await supabase
-        .from("appointments")
-        .update({
-          status: "attended",
-          attendance_marked_at: attendedAt,
-          updated_at: attendedAt,
-        })
-        .eq("id", appointmentId)
-        .eq("studio_id", studioId);
-
-      if (updateError) {
-        redirect(getErrorRedirect(formData, fallback, "attendance_failed"));
-      }
-    }
-
-    const billingType = normalizeLessonBillingType(
-      appointment.billing_type,
-      appointment.appointment_type,
-    );
-
-    let syncFailed = false;
-
-    try {
-      if (billingType === "membership" && appointment.client_id) {
-        await syncMembershipUsageForAppointment({
-          supabase,
-          studioId,
-          appointmentId,
-          clientId: appointment.client_id,
-          appointmentType: appointment.appointment_type,
-          status: "attended",
-          startsAtIso: appointment.starts_at,
-          clientMembershipId: appointment.client_membership_id ?? null,
-        });
-      }
-
-      if (billingType === "package_credit" && appointment.client_id) {
-        await syncPackageUsageForAttendedAppointment({
-          supabase,
-          studioId,
-          appointmentId,
-          clientId: appointment.client_id,
-          appointmentType: appointment.appointment_type,
-          clientPackageId: appointment.client_package_id,
-        });
-      }
-    } catch (syncError) {
-      syncFailed = true;
-      console.error(
-        alreadyAttended
-          ? "Attendance retry could not complete the pending package/membership sync."
-          : "Attendance was marked, but usage sync failed.",
-        syncError,
-      );
-    }
-
-    try {
-      await stageInstructorEarningForAppointment({
-        supabase,
-        studioId,
-        appointmentId,
-      });
-    } catch (earningError) {
-      console.error("Attendance was marked, but instructor earning staging failed.", earningError);
     }
 
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
-    revalidatePath(`/app/clients/${appointment.client_id}`);
+    revalidatePath(`/app/clients/${result.clientId}`);
 
-    if (syncFailed) {
+    if (result.usageSyncPending) {
       redirect(getErrorRedirect(formData, fallback, "attendance_sync_failed"));
     }
 
@@ -4487,135 +3846,36 @@ export async function markAppointmentNoShowAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
-    // FC-1B5D2 D2A: relationship authorization happens before the status
-    // mutation or the missed-lesson charge below -- an instructor may only
-    // mark no-show for an appointment currently assigned to them.
-    const relationshipResult = await requireAppointmentRelationshipAccess<{
-      id: string;
-      studio_id: string;
-      client_id: string | null;
-      instructor_id: string | null;
-      appointment_type: string;
-      starts_at: string;
-      title: string | null;
-      client_package_id: string | null;
-      client_membership_id: string | null;
-      billing_type: string | null;
-      status: string;
-    }>({
-      supabase,
+    // Shared with the staff API: src/lib/staff/appointmentAttendance.ts.
+    const result = await markAppointmentAttendance({
+      supabase: supabase as never,
       studioId,
-      studioRole,
-      isPlatformAdmin,
-      userId: user.id,
       appointmentId,
-      select:
-        "starts_at, title, client_package_id, client_membership_id, billing_type, status",
+      status: "no_show",
+      missedAppointmentCharge,
+      actor: { userId: user.id, studioRole, isPlatformAdmin },
     });
 
-    if (!relationshipResult.ok) {
-      redirect(getErrorRedirect(formData, fallback, "not_authorized_for_appointment"));
-    }
-
-    const appointment = relationshipResult.appointment;
-
-    // Product decision (Membership Usage-Period Alignment, terminal
-    // attendance lifecycle): an already-attended lesson cannot be
-    // reclassified as a no-show -- both are terminal, delivered/completed
-    // outcomes for private_lesson/intro_lesson/coaching. Correcting a
-    // recorded attendance outcome belongs in a future, explicit
-    // Attendance Correction / Reversal workflow. Backstopped at the DB
-    // level by enforce_private_lesson_attendance_lifecycle (P6e).
-    if (
-      ["private_lesson", "intro_lesson", "coaching"].includes(
-        String(appointment.appointment_type),
-      ) &&
-      appointment.status === "attended"
-    ) {
-      redirect(
-        getErrorRedirect(formData, fallback, "attended_cannot_be_marked_no_show"),
-      );
-    }
-
-    const markedAt = new Date().toISOString();
-
-    const { error: updateError } = await supabase
-      .from("appointments")
-      .update({
-        status: "no_show",
-        updated_at: markedAt,
-      })
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId);
-
-    if (updateError) {
-      redirect(getErrorRedirect(formData, fallback, "no_show_failed"));
-    }
-
-    await clearMembershipUsageForAppointment({
-      supabase,
-      appointmentId,
-    });
-
-    try {
-      await applyMissedAppointmentCharge({
-        supabase,
-        studioId,
-        appointment,
-        chargeSource: missedAppointmentCharge,
-      });
-    } catch (chargeError) {
-      console.error("Appointment marked no-show, but deduction failed:", chargeError);
+    if (!result.ok) {
       redirect(
         getErrorRedirect(
           formData,
           fallback,
-          chargeError instanceof Error
-            ? chargeError.message
-            : "missed_appointment_charge_failed",
+          result.reason === "not_found" || result.reason === "not_markable"
+            ? "not_authorized_for_appointment"
+            : result.reason === "write_failed"
+              ? "no_show_failed"
+              : result.reason === "charge_failed"
+                ? (result.message ?? "missed_appointment_charge_failed")
+                : result.reason,
         ),
       );
     }
 
-    if (appointment.client_id) {
-      const appointmentLabel =
-        typeof appointment.title === "string" && appointment.title.trim()
-          ? appointment.title.trim()
-          : appointmentTypeLabel(String(appointment.appointment_type));
-
-      const chargeLabel =
-        missedAppointmentCharge === "package"
-          ? "Package credit deducted"
-          : missedAppointmentCharge === "membership"
-            ? "Membership benefit deducted"
-            : "No lesson deduction";
-
-      const { error: activityError } = await supabase
-        .from("client_activity_notes")
-        .insert({
-          studio_id: studioId,
-          client_id: appointment.client_id,
-          note_type: "general",
-          body: [
-            `Appointment marked no-show: ${appointmentLabel}`,
-            `Charge policy: ${chargeLabel}`,
-          ].join("\n"),
-          occurred_at: markedAt,
-          created_by: user.id,
-        });
-
-      if (activityError) {
-        console.error(
-          "Appointment was marked no-show, but the client activity note failed:",
-          activityError.message,
-        );
-      }
-    }
-
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
-    if (appointment.client_id) {
-      revalidatePath(`/app/clients/${appointment.client_id}`);
+    if (result.clientId) {
+      revalidatePath(`/app/clients/${result.clientId}`);
     }
     redirect(getSuccessRedirect(formData, fallback, "appointment_no_show"));
   } catch (error) {

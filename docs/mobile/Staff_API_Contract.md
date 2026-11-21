@@ -268,6 +268,39 @@ Removes a dancer, addressed by client id (the roster the app shows lists clients
 - `404 not_found`: class missing, in another studio, not the caller's, or the client was never on the roster. `409 attendance_recorded`: the dancer's attendance is already recorded, so they can't be removed. Roles as above.
 - The removal notice to the dancer is sent only when the removal actually changed a booked dancer.
 
+## `PUT /api/staff/workspaces/{studioId}/appointments/{appointmentId}/attendance` (Phase 1A, S1)
+
+Marks a one-to-one appointment (`private_lesson`, `intro_lesson`, `coaching`) attended or no-show. It runs the same code as the web "Mark attended" and "No-show" buttons (`src/lib/staff/appointmentAttendance.ts`), so the package or membership deduction, payment gate and instructor-earning staging are identical. It is behind the write gate (capability `appointmentAttendance`, `X-DanceFlow-App` header). Group classes keep their per-dancer route above.
+
+Request:
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "status": "attended" }
+{ "status": "no_show", "missedAppointmentCharge": "none" }
+```
+
+- `status` is `attended` or `no_show`. Anything else is `400 invalid_request`.
+- `missedAppointmentCharge` (no-show only) is `none` (default), `package` or `membership`: the same "charge policy" choice the web no-show form offers. `package` takes one credit from the package linked to the appointment, `membership` records the membership benefit. It is ignored for `attended`; any other value is `400 invalid_request`.
+- Idempotency is **state-based** (pattern 1). Keys are not stored. A repeated or concurrent request for the status the appointment already has writes nothing new, never takes a second credit (the deduction is exactly-once in the database) and returns `200` with `alreadyApplied: true`.
+
+Response `200`:
+
+```json
+{ "appointment": { "id": "uuid", "status": "attended", "alreadyApplied": false } }
+```
+
+Who may call it and what each answer means:
+- **Roles:** owners, admins and front desk for any one-to-one appointment in the studio. An instructor only for an appointment currently assigned to them (the package deduction under their own session depends on the instructor SQL gate, D4). Independent instructors and organizer roles get `403 role_not_permitted`.
+- `404 not_found`: missing, another studio's, or not the caller's to mark (indistinguishable).
+- `409 not_markable`: not a one-to-one appointment type, or cancelled.
+- `409 outcome_conflict` (with `current: { "status": "attended" | "no_show" }`): `attended` and `no_show` are final for these appointment types. Marking a no-show lesson attended, or an attended one no-show, is refused (database rule `enforce_private_lesson_attendance_lifecycle`). **There is no reset**: the web has none either and a correction workflow is not designed yet. The app must not offer "undo" on a recorded outcome.
+- `409 payment_required`: `attended` on a pay-as-you-go lesson that is unpaid, a package lesson with no usable credit, or a membership lesson the membership does not cover. Payment stays on the web.
+- `409 usage_sync_pending`: `attended` is recorded but the package or membership deduction did not complete. Repeat the same request: the retry completes it without a second deduction.
+- `409 charge_failed`: `no_show` is recorded but the requested charge could not be applied (`error` carries the reason, for example no package linked). Repeat with `none`, or fix on the web.
+
 ## `GET /api/staff/workspaces/{studioId}/clients?q=&cursor=&limit=` (slice 2)
 
 Client lookup.
