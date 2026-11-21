@@ -408,25 +408,80 @@ describe.skipIf(!enabled)("staff API appointment attendance against real RLS and
       expect(deductions(charged)).toBe(1);
     });
 
-    it("last credit race across two lessons: one deduction, the loser stays attended and answers package_exhausted on every retry", async () => {
-      const pkg = newPackage(1);
-      const first = lesson({ packageId: pkg });
-      const second = lesson({ packageId: pkg });
-      const [a, b] = await Promise.all([mark(USERS.frontDesk, first, { status: "attended" }), mark(USERS.owner, second, { status: "attended" })]);
-      const results = [a.status, b.status].sort();
-      const outcome = { first: statusOf(first), second: statusOf(second), remaining: remaining(pkg), deductions: deductions(first) + deductions(second), statuses: results };
-      // Documented outcome (see the design note): never more than one credit; if both passed the pre-check, the loser is attended with no deduction and keeps answering
-      // usage_sync_pending.
-      expect(outcome.remaining).toBeGreaterThanOrEqual(0);
-      expect(outcome.deductions).toBe(1);
-      const loser = deductions(first) === 1 ? second : first;
-      if (statusOf(loser) === "attended") {
-        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "package_exhausted");
-        await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "package_exhausted");
-      } else {
-        expect(statusOf(loser)).toBe("scheduled");
-      }
+    it("package_exhausted is deterministic: an attended lesson on a spent package answers package_exhausted on every retry, never a deduction", async () => {
+      // The state a lost race for the last credit leaves behind, built directly (the deduction trigger is paused only while the row is inserted).
+      const pkg = newPackage(0);
+      const loser = id();
+      psql(`alter table public.appointments disable trigger appointments_deduct_package_credit_attended;
+        insert into public.appointments (id, studio_id, instructor_id, appointment_type, client_id, starts_at, ends_at, title, status, billing_type, client_package_id)
+          values ('${loser}', '${STUDIO_A}', '${INS}', 'private_lesson', '${ANA}', '${day(1)}', '${day(1, "15:45")}', 'Loser', 'attended', 'package_credit', '${pkg}');
+        alter table public.appointments enable trigger appointments_deduct_package_credit_attended;`);
+      await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "package_exhausted");
+      await expectCode(await mark(USERS.owner, loser, { status: "attended" }), 409, "package_exhausted");
       expect(remaining(pkg)).toBe(0);
+      expect(deductions(loser)).toBe(0);
+    });
+
+    it("a request interrupted after the status write (no note, no charge) is completed by the same request: one deduction, one note", async () => {
+      const client = newClient();
+      const pkg = newPackage(3, { client });
+      const appointment = lesson({ packageId: pkg, client });
+      psql(`update public.appointments set status = 'no_show' where id = '${appointment}';`); // what a crash right after the status UPDATE leaves
+      expect(noteCount(client)).toBe(0);
+      const retry = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(retry.status).toBe(200);
+      expect(remaining(pkg)).toBe(2);
+      expect(deductions(appointment)).toBe(1);
+      expect(noteCount(client)).toBe(1);
+      expect(noteBodies(client)).toContain("Package credit deducted");
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" })).status).toBe(200);
+      expect(deductions(appointment)).toBe(1);
+      expect(noteCount(client)).toBe(1);
+    });
+
+    it("a charge that fails with database text returns the fixed sentence, never the text", async () => {
+      const client = newClient();
+      const spent = newPackage(0, { client });
+      const appointment = lesson({ packageId: spent, client });
+      const failed = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(failed.status).toBe(409);
+      expect(await failed.json()).toMatchObject({ code: "charge_failed", error: "The missed-lesson charge could not be applied." });
+      expect(statusOf(appointment)).toBe("no_show");
+      expect(deductions(appointment)).toBe(0);
+    });
+
+    it("an instructor repeats an applied package charge on their own lesson (the replay gates read under their own RLS), and cannot change it", async () => {
+      const client = newClient();
+      const pkg = newPackage(3, { client });
+      const appointment = lesson({ packageId: pkg, client, instructor: INS });
+      expect((await mark(USERS.instructor, appointment, { status: "no_show", missedAppointmentCharge: "package" })).status).toBe(200);
+      const replay = await mark(USERS.instructor, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).appointment.alreadyApplied).toBe(true);
+      await expectCode(await mark(USERS.instructor, appointment, { status: "no_show", missedAppointmentCharge: "none" }), 409, "outcome_conflict");
+      expect(remaining(pkg)).toBe(2);
+      expect(deductions(appointment)).toBe(1);
+      // An instructor's RLS hides client rows, so the note insert is denied (also on DEV): no note, and the replay gates fall back to the deduction marker.
+      expect(noteCount(client)).toBe(0);
+      // With the note unreadable, a charge that was never applied is refused rather than guessed.
+      const unapplied = lesson({ packageId: pkg, client, instructor: INS });
+      expect((await mark(USERS.instructor, unapplied, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      await expectCode(await mark(USERS.instructor, unapplied, { status: "no_show", missedAppointmentCharge: "package" }), 409, "outcome_conflict");
+      expect(deductions(unapplied)).toBe(0);
+    });
+
+    it("membership no-show replay: an applied membership charge repeats as 200, one never applied is outcome_conflict", async () => {
+      const client = ANA; // the seeded membership belongs to Ana
+      const unapplied = lesson({ billing: "membership", membershipId: MEMBERSHIP, client });
+      expect((await mark(USERS.frontDesk, unapplied, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      await expectCode(await mark(USERS.frontDesk, unapplied, { status: "no_show", missedAppointmentCharge: "membership" }), 409, "outcome_conflict");
+
+      const applied = lesson({ billing: "membership", membershipId: MEMBERSHIP, client });
+      psql(`update public.appointments set status = 'no_show' where id = '${applied}';
+        insert into public.client_membership_usage (client_membership_id, client_membership_period_id, membership_plan_benefit_id, usage_date, quantity_used, reference_type, reference_id)
+          values ('${MEMBERSHIP}', '${PERIOD}', '${BENEFIT}', current_date, 1, 'appointment', '${applied}');`);
+      expect((await mark(USERS.frontDesk, applied, { status: "no_show", missedAppointmentCharge: "membership" })).status).toBe(200);
+      await expectCode(await mark(USERS.frontDesk, applied, { status: "no_show", missedAppointmentCharge: "none" }), 409, "outcome_conflict");
     });
 
     it("refuses a replay after the lesson's package link was changed, and takes nothing from the new package", async () => {
