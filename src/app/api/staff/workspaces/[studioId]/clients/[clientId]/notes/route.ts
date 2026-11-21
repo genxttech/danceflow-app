@@ -128,6 +128,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ stud
       supabase: guard.supabase,
       studioId: guard.studioId,
       clientId: normalizedClientId.toLowerCase(),
+      userId: guard.user.id,
       cursor,
       limit,
     });

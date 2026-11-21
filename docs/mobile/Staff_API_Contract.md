@@ -306,13 +306,13 @@ The client's notes, newest first: the same notes the web client page shows (the 
 ```json
 {
   "notes": [
-    { "id": "uuid", "clientId": "uuid", "noteType": "follow_up", "body": "Called about the showcase.", "occurredAt": "2026-11-20T15:30:00+00:00", "createdAt": "2026-11-20T15:30:02.123456+00:00", "authorName": "Fran Desk" }
+    { "id": "uuid", "clientId": "uuid", "noteType": "follow_up", "body": "Called about the showcase.", "occurredAt": "2026-11-20T15:30:00+00:00", "createdAt": "2026-11-20T15:30:02.123456+00:00", "authorName": "Fran Desk", "isMine": true }
   ],
   "nextCursor": null
 }
 ```
 
-- `authorName` is the author's profile name, or `null` when the author is no longer known. No email address is returned.
+- `isMine` is true for notes the caller wrote. `authorName` is the author's profile name, but profiles are readable only for the caller's own row (the web client page's author column behaves the same), so in practice it is the caller's name on their own notes and `null` on a colleague's; show "Staff" or nothing for `null`. No email address is ever returned.
 - Timestamps here are the database form (`+00:00`, microseconds kept so a cursor can resume exactly); parse them as instants.
 - `nextCursor: null` means there are no more pages.
 

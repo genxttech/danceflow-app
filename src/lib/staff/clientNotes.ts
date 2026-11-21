@@ -151,7 +151,7 @@ export async function addClientActivityNote(params: {
 
 // ---- Read: the notes list for the Staff API (GET .../clients/{clientId}/notes) ------------------------------------------------------------
 
-export type ClientNoteListItem = ClientNoteRow & { authorName: string | null };
+export type ClientNoteListItem = ClientNoteRow & { authorName: string | null; isMine: boolean };
 
 type NoteCursor = { o: string; c: string; i: string };
 
@@ -182,21 +182,25 @@ export function decodeNoteCursor(value: string | null): NoteCursor | null | "inv
 
 const quoted = (value: string) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
-type NoteListDbRow = NoteDbRow & { profiles: { full_name: string | null } | { full_name: string | null }[] | null };
+type NoteListDbRow = NoteDbRow & {
+  created_by: string | null; profiles: { full_name: string | null } | { full_name: string | null }[] | null };
 
 /**
  * The same notes the web client page shows (studio + client, newest occurred_at first), read with the caller's own client so RLS applies.
- * Keyset paging on (occurred_at, created_at, id), all descending. The author is the profile name only: no email, as nowhere else in the API.
+ * Keyset paging on (occurred_at, created_at, id), all descending. The author is the profile name only (no email, as nowhere else in the API).
+ * profiles is readable only for the caller's own row (the web page's embed behaves the same), so authorName is the caller's name on their own notes
+ * and null on a colleague's; isMine tells the app which is which.
  * Returns null when the client is not in the studio (404 for the caller).
  */
 export async function listClientNotes(params: {
   supabase: SupabaseClient;
   studioId: string;
   clientId: string;
+  userId: string;
   cursor: NoteCursor | null;
   limit: number;
 }): Promise<{ notes: ClientNoteListItem[]; nextCursor: string | null } | null> {
-  const { supabase, studioId, clientId, cursor, limit } = params;
+  const { supabase, studioId, clientId, userId, cursor, limit } = params;
 
   const { data: client, error: clientError } = await supabase
     .from("clients")
@@ -209,7 +213,7 @@ export async function listClientNotes(params: {
 
   let query = supabase
     .from("client_activity_notes")
-    .select(`${NOTE_COLUMNS}, profiles:created_by ( full_name )`)
+    .select(`${NOTE_COLUMNS}, created_by, profiles:created_by ( full_name )`)
     .eq("studio_id", studioId)
     .eq("client_id", clientId);
 
@@ -230,7 +234,7 @@ export async function listClientNotes(params: {
   const page = rows.slice(0, limit);
   const notes = page.map((row) => {
     const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-    return { ...toNote(row), authorName: profile?.full_name ?? null };
+    return { ...toNote(row), authorName: profile?.full_name ?? null, isMine: row.created_by === userId };
   });
   const last = notes[notes.length - 1];
   return { notes, nextCursor: rows.length > limit && last ? encodeNoteCursor(last) : null };

@@ -91,7 +91,7 @@ const read = (user: string, clientId: string, query = "", studioId = STUDIO_A) =
     { params: Promise.resolve({ studioId, clientId }) },
   );
 
-type Page = { notes: { id: string; body: string; noteType: string; occurredAt: string; createdAt: string; authorName: string | null; clientId: string }[]; nextCursor: string | null };
+type Page = { notes: { id: string; body: string; noteType: string; occurredAt: string; createdAt: string; authorName: string | null; isMine: boolean; clientId: string }[]; nextCursor: string | null };
 const page = async (response: Response) => (await response.json()) as Page;
 
 async function expectCode(response: Response, status: number, code: string) {
@@ -136,7 +136,7 @@ describe.skipIf(!enabled)("staff API client notes read against real RLS", () => 
     route = (await import("../workspaces/[studioId]/clients/[clientId]/notes/route")).GET as unknown as Handler;
   });
 
-  it("owner, admin and front desk read the client notes newest first with the author name, no email, and only that client's notes", async () => {
+  it("owner, admin and front desk read the client notes newest first with no email, the author name only where profiles allow it, and only that client's notes", async () => {
     for (const user of [USERS.owner, USERS.admin, USERS.frontDesk]) {
       const response = await read(user, ANA);
       expect(response.status).toBe(200);
@@ -148,10 +148,12 @@ describe.skipIf(!enabled)("staff API client notes read against real RLS", () => 
       const json = await page(response);
       expect(json.notes.map((n) => n.body)).toEqual(["newest", "tie same stamps lower id", "tie second made", "tie first made", "oldest"]);
       expect(json.nextCursor).toBeNull();
-      expect(json.notes[0]).toMatchObject({ id: NOTE(5), clientId: ANA, noteType: "concern", authorName: `Name ${USERS.frontDesk.slice(0, 4)}` });
-      expect(Object.keys(json.notes[0]).sort()).toEqual(["authorName", "body", "clientId", "createdAt", "id", "noteType", "occurredAt"]);
-      // a note whose author is gone is still listed, with no name
-      expect(json.notes.find((n) => n.id === NOTE(4))!.authorName).toBeNull();
+      // profiles RLS: a staff user can read only their own profile, so the name shows on their own notes and is null on a colleague's (as on the web page)
+      const mine = user === USERS.frontDesk;
+      expect(json.notes[0]).toMatchObject({ id: NOTE(5), clientId: ANA, noteType: "concern", isMine: mine, authorName: mine ? `Name ${USERS.frontDesk.slice(0, 4)}` : null });
+      expect(Object.keys(json.notes[0]).sort()).toEqual(["authorName", "body", "clientId", "createdAt", "id", "isMine", "noteType", "occurredAt"]);
+      // a note whose author is gone is still listed, with no name and not mine
+      expect(json.notes.find((n) => n.id === NOTE(4))).toMatchObject({ authorName: null, isMine: false });
     }
   });
 
