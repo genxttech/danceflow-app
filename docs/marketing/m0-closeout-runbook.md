@@ -12,6 +12,8 @@ The queries are committed next to this file in `docs/marketing/m0-closeout/` (si
 4. **Unfreeze is low-risk on data but gated on four things:** the app is confirmed (above), the M-0D bounce/complaint webhook decision, the sender-domain check, and an owner go. See section 3.
 5. **Finding that changes the rollback story:** stage 1 can no longer be re-applied after a rollback, because its authorization-state precondition predates the RFL policy `rfl_admin_alerts_not_staff_visible` on `outbound_deliveries` (migration 20261211). Rolling back stage 1 on PROD would strand it. Section 5 explains and gives the fix (a one-hash precondition update, a CODEOWNERS migration change, needs the owner).
 
+**Update 2026-11-21 (later):** a stage-2 precondition defect (user-client delete of queued appointment notifications, PR #762) is live on PROD and needs a live-line release; see section 7.
+
 ## 1. PROD reconciliation (read-only, 2026-11-21)
 
 Query: `docs/marketing/m0-closeout/m0_state_reconcile_readonly.sql` (and `m0_c1_repair_candidates_readonly.sql`). Run both with `sb.sh prod-read`.
@@ -62,6 +64,7 @@ Steps 1-6 of the existing release procedure (`m0-email-compliance.md` section 6)
 
 | # | Step | Gate / evidence to record |
 |---|---|---|
+| A0 | Deploy the #762 fix (queued appointment notifications deleted with the service role) on the live line | developer-owned QA; cherry-pick onto `release/website-embeds`; **[OWNER]** release approval |
 | A | Confirm the live deployment SHA and that it is on the M-0 line | owner-gated read; record SHA. Run `node scripts/m0-rollback-build-smoke.mjs https://www.idanceflow.com`; expect `ROLLBACK TARGET VERIFIED` |
 | B | Re-run `m0_state_reconcile_readonly.sql` and `m0_c1_repair_candidates_readonly.sql` on PROD | all values as in section 1; C1 R3 = 0 |
 | C | **Sender-domain separation check** (read-only): confirm `MARKETING_FROM_EMAIL` and the transactional sender use different from-addresses, and decide whether marketing gets its own sending subdomain (open decision #17: marketing subdomain / reputation isolation). Verify SPF, DKIM, DMARC alignment for the marketing sender in Resend and DNS | **[OWNER]** reading Vercel env/Resend (no secrets printed) and the subdomain decision |
@@ -139,14 +142,34 @@ After step F:
 
 Go / no-go: **GO** requires every box above ticked and the owner's explicit approval of the unfreeze file and SHA. Any `NOT A VALID ROLLBACK TARGET`, any non-zero C9/C10/R3, or a fingerprint other than the PROD value is **NO-GO** until explained.
 
-## 7. SMS and consent dependencies (handed to the TWILIO coordinator)
+## 7. SMS and consent dependencies, and the stage-2 precondition inventory
 
-Nothing in M-0 reads or writes SMS consent or the TW-4F tables. The touch points are shared infrastructure:
+TWILIO's written answers (read-only review of main, 2026-11-21):
 
-1. `outbound_deliveries` carries `channel = 'sms'` rows. Stage 1 added a client-write guard that rebuilds appointment notification payloads for channel `email` and `sms`, and **stage 2 (live on PROD) removed every client-role write** to that table. Question: does any SMS/TW-4F or appointment-reminder path still insert or update `outbound_deliveries` with the signed-in user's client rather than the service role?
-2. `claim_outbound_deliveries` was replaced by M-0 (hold commercial email while frozen; commercial = `channel = 'email'` with `aria_execution_*` or `automation_*` keys). SMS rows are not held. Question: does TW-4F rely on a different claim function or on this one's exact body (md5 `aa4c7c08...`)?
-3. The RFL policy `rfl_admin_alerts_not_staff_visible` on `outbound_deliveries` blocks re-applying stage 1 (section 5). Question: is that policy final, and will TW-4F add more policies to `outbound_deliveries` that must be added to the stage-1 signature?
-4. Marketing SMS stays locked. Confirm no marketing SMS/consent change is planned that would reuse `marketing_email_suppressions` or the email unsubscribe tables.
+1. All SMS/TW-4F inserts into `outbound_deliveries` use the service role (`schedule/actions.ts` via `createAdminClient`, `lib/sms/providerFeeAlerts/sink.ts`, the dispatcher with the server client the cron route passes). No TW-4F path writes it as a signed-in user.
+2. **Behavior to preserve:** `dispatch.ts` calls `claim_outbound_deliveries(p_owner, p_limit, p_lease_seconds)` and must keep receiving queued `channel = 'sms'` rows (and non-held email rows), leased, with the same columns. M-0 only holds `channel = 'email'` marketing-family rows (`aria_execution_*`, `automation_*`) while frozen; SMS return semantics are unchanged. There is no other claim function. Any future edit of the claim function must keep this.
+3. `rfl_admin_alerts_not_staff_visible` (20261211090000) is final for TW-4F and is the only policy it adds to `outbound_deliveries`; TW-4F plans no new policies there (any new one needs a re-check of the M-0 preconditions, section 5). **Verified applied on PROD** by a read-only query on 2026-11-21 (the restrictive SELECT policy is present on PROD and DEV).
+4. Marketing SMS stays locked; no TW-4F or marketing-SMS/consent work reuses `marketing_email_suppressions` or the email unsubscribe tables.
+
+### Stage-2 precondition inventory (every write to `outbound_deliveries` and the marketing recipient tables, non-test code on main `d8aa8831`)
+
+Stage 2 removes client-role writes, so every writer must use the service role. Method: scan of `.from("outbound_deliveries" | "marketing_campaign_recipients" | "organizer_marketing_campaign_recipients")` followed by insert/update/delete/upsert, then the client's origin checked.
+
+| Writer | Operation | Client |
+|---|---|---|
+| `app/api/cron/aria-digest/route.ts` | insert | admin |
+| `app/app/automations/actions.ts` (10 call sites) | insert / update | admin (`adminSupabase` or `createAdminClient()`) |
+| `app/app/clients/[id]/actions.ts`, `documents/actions.ts`, `documents/sign/actions.ts` | insert | admin |
+| `app/app/schedule/actions.ts` (appointment notification queue) | insert | admin (`notificationSupabase`) |
+| `app/book/[studioSlug]/actions.ts` | insert | admin |
+| `app/portal/[studioSlug]/schedule/actions.ts` | insert | admin (client passed as admin) |
+| `lib/notifications/outbound.ts` (`queueOutboundDelivery`, all callers) | insert | admin |
+| `lib/notifications/dispatch.ts` | update | admin |
+| `lib/sms/providerFeeAlerts/sink.ts` | read/insert | admin |
+| `lib/marketing/compliance/campaignDelivery.ts` (recipient tables) | RPC | service role |
+| **`app/app/schedule/actions.ts` `deleteAppointmentAction` (queued appointment notifications)** | **delete** | **USER client: the one violation** |
+
+The violation (found by TWILIO review, confirmed here) silently fails under stage 2 because the delete is best-effort and supabase-js returns the error instead of throwing, so a deleted appointment could leave queued reminders that still send. Because **PROD already has stage 2**, this is live now. Fix: PR #762 (one call switched to `createAdminClient()`, test added). `schedule/actions.ts` is byte-identical on main and the live line (`release/website-embeds`, tip `053346219`), so the same commit cherry-picks cleanly onto the live line; it must ride a live-line release. **Add to the unfreeze preconditions: #762 deployed on the live line.** Reads (selects) by the signed-in user remain allowed by stage 2 and are unaffected.
 
 ## 8. Owner decision list
 
