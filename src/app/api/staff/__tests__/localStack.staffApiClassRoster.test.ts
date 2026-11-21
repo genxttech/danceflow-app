@@ -189,6 +189,16 @@ describe.skipIf(!enabled)("staff API class roster against real RLS and the enrol
       expect(rowsFor(classId, C1)).toBe(1);
     });
 
+    it("enrolls a lead (a client added from the app), as the web does: the RPC checks the studio, not the CRM status", async () => {
+      const lead = randomUUID();
+      psql(`insert into public.clients (id, studio_id, first_name, last_name, status) values ('${lead}', '${STUDIO_A}', 'New', 'Lead', 'lead');`);
+      const classId = newClass();
+      const response = await add(USERS.frontDesk, classId, { clientId: lead, billingType: "free_comped" });
+      expect(response.status).toBe(201);
+      expect((await response.json()).attendee).toMatchObject({ clientId: lead, alreadyEnrolled: false });
+      expect(rowsFor(classId, lead)).toBe(1);
+    });
+
     it("keeps one row when the same enroll races", async () => {
       const classId = newClass();
       const responses = await Promise.all(Array.from({ length: 5 }, () => add(USERS.owner, classId, { clientId: C2, billingType: "free_comped" })));

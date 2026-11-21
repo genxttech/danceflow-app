@@ -19,6 +19,12 @@ export function clientLookupScope(role: string): ClientLookupScope | null {
   return null;
 }
 
+// The CRM statuses a client can have (the web clients list filter). The default search shows every status except archived, like the web
+// enroll-student and new-appointment pickers; `status` narrows it to one status (archived included).
+export const CLIENT_STATUSES = ["lead", "contacted", "consultation_booked", "converted", "lost", "active", "inactive", "archived"] as const;
+export type ClientStatus = (typeof CLIENT_STATUSES)[number];
+export const isClientStatus = (value: string): value is ClientStatus => (CLIENT_STATUSES as readonly string[]).includes(value);
+
 export type ClientListItem = { id: string; firstName: string; lastName: string; status: string | null };
 
 type Cursor = { l: string; f: string; i: string };
@@ -93,10 +99,11 @@ export async function searchClients(params: {
   studioId: string;
   scope: ClientLookupScope;
   q: string;
+  status?: ClientStatus | null;
   cursor: Cursor | null;
   limit: number;
 }) {
-  const { supabase, studioId, scope, q, cursor, limit } = params;
+  const { supabase, studioId, scope, q, status = null, cursor, limit } = params;
 
   if (scope === "teaching") {
     const needle = q.toLocaleLowerCase();
@@ -112,8 +119,8 @@ export async function searchClients(params: {
   let query = supabase
     .from("clients")
     .select("id, first_name, last_name, status")
-    .eq("studio_id", studioId)
-    .eq("status", "active");
+    .eq("studio_id", studioId);
+  query = status ? query.eq("status", status) : query.or("status.is.null,status.neq.archived");
 
   if (q) {
     const pattern = quoted(containsPattern(q));

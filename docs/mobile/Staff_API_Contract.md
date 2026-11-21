@@ -311,12 +311,13 @@ Who may call it and what each answer means:
 ## `GET /api/staff/workspaces/{studioId}/clients?q=&cursor=&limit=` (slice 2)
 
 Client lookup.
-- **Owners, admins and front desk** (`capabilities.viewClients`) search the studio's `active` clients.
+- **Owners, admins and front desk** (`capabilities.viewClients`) search the studio's clients: every status except `archived` by default, like the web enroll-student and new-appointment pickers, so a just-created `lead` is found and can be enrolled or booked (neither the web nor the enroll RPC requires `active`).
 - **Instructors** search only the clients they teach. This is the teaching relationship rule above: their current and upcoming lessons, plus attended lessons from the last 14 days.
 - **Other roles** get `403 role_not_permitted`.
 
 Parameters:
 - `q`: optional, at most 80 characters, matched case-insensitively against first and last name. Wildcard characters are treated literally.
+- `status`: optional, one of the statuses below; returns only clients with that status (`archived` included). Anything else is `400 invalid_request`. Ignored for instructors, who cannot read client status.
 - `limit`: 1–50, default 25.
 - `cursor`: the `nextCursor` from the previous page, used as-is. A cursor that doesn't decode is `400`.
 
@@ -328,7 +329,7 @@ Parameters:
 ```
 
 - Ordered by last name, then first name, then id.
-- `status` is the client's CRM status (`lead`, `contacted`, `consultation_booked`, `converted`, `lost`, `active`, `inactive`, `archived`). It is always `active` in a front-desk search, and `null` for instructors, who can't read client records.
+- `status` is the client's CRM status (`lead`, `contacted`, `consultation_booked`, `converted`, `lost`, `active`, `inactive`, `archived`). A client added from the app starts as `lead` (as on the web), so show a "Lead" badge for `lead` (and `contacted`, `consultation_booked`) rows; a lead can be enrolled into a group class and booked like any other client. `status` is `null` for instructors, who can't read client records.
 - `nextCursor: null` means there are no more pages.
 
 ## `GET /api/staff/workspaces/{studioId}/clients/{clientId}` (slice 2)
