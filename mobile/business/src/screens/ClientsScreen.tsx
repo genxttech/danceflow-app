@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -83,6 +83,19 @@ function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolea
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Coming back to the list (after adding a client, or opening one) re-reads it, so a client added in the app is there without a new search. The first focus is the mount, which already loaded.
+  const focusedBefore = useRef(false);
+  const latestLoad = useRef(load);
+  useEffect(() => {
+    latestLoad.current = load;
+  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      if (focusedBefore.current) void latestLoad.current();
+      focusedBefore.current = true;
+    }, []),
+  );
 
   async function loadMore() {
     if (state.status !== "ready" || !state.nextCursor || state.loadingMore) return;
