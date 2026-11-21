@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, BookOpen } from "lucide-react";
+import ArticleBody from "@/components/knowledgebase/ArticleBody";
 import { JsonLd } from "@/components/seo/JsonLd";
 import {
   getKnowledgebaseArticleBySlug,
@@ -13,95 +14,6 @@ type PageProps = {
     slug: string;
   }>;
 };
-
-function renderArticleContent(content: string) {
-  const lines = content.trim().split("\n");
-  const elements: React.ReactNode[] = [];
-  let listItems: string[] = [];
-
-  function flushList() {
-    if (listItems.length === 0) return;
-
-    elements.push(
-      <ul
-        key={`list-${elements.length}`}
-        className="my-5 list-disc space-y-2 pl-6 text-slate-700"
-      >
-        {listItems.map((item) => (
-          <li key={item}>{formatInlineText(item)}</li>
-        ))}
-      </ul>
-    );
-
-    listItems = [];
-  }
-
-  lines.forEach((line, index) => {
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      flushList();
-      return;
-    }
-
-    if (trimmed.startsWith("- ")) {
-      listItems.push(trimmed.slice(2));
-      return;
-    }
-
-    flushList();
-
-    if (trimmed.startsWith("## ")) {
-      elements.push(
-        <h2
-          key={`h2-${index}`}
-          className="mt-9 text-2xl font-semibold tracking-tight text-slate-950"
-        >
-          {trimmed.replace("## ", "")}
-        </h2>
-      );
-      return;
-    }
-
-    if (trimmed.startsWith("# ")) {
-      elements.push(
-        <h1
-          key={`h1-${index}`}
-          className="mt-9 text-3xl font-semibold tracking-tight text-slate-950"
-        >
-          {trimmed.replace("# ", "")}
-        </h1>
-      );
-      return;
-    }
-
-    elements.push(
-      <p key={`p-${index}`} className="my-4 text-base leading-8 text-slate-700">
-        {formatInlineText(trimmed)}
-      </p>
-    );
-  });
-
-  flushList();
-
-  return elements;
-}
-
-function formatInlineText(text: string) {
-  const parts = text.split(/(\*\*.*?\*\*)/g);
-
-  return parts.map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return (
-        <strong key={`${part}-${index}`} className="font-semibold text-slate-950">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-
-    return part;
-  });
-}
 
 export function generateStaticParams() {
   return getPublicKnowledgebaseArticles().map((article) => ({
@@ -244,7 +156,7 @@ export default async function KnowledgebaseArticlePage({ params }: PageProps) {
         <div className="grid gap-8 xl:grid-cols-[1fr_320px]">
           <article className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
             <div className="prose prose-slate max-w-none">
-              {renderArticleContent(article.content)}
+              <ArticleBody markdown={article.content} />
             </div>
           </article>
 
