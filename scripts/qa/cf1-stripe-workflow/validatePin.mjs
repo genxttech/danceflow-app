@@ -119,18 +119,25 @@ export async function validatePin({ sha, repo, branch, api, codeownersText }) {
 
   // 5. approval provenance from the reviews API
   const reviews = await paged(api, `/repos/${repo}/pulls/${pr.number}/reviews`);
-  const latest = new Map();
-  for (const r of reviews) {
-    const login = r?.user?.login;
-    if (!LOGIN_RE.test(login ?? "") || !DECISIVE.has(r.state)) continue;
-    const key = login.toLowerCase();
-    const prev = latest.get(key);
-    if (!prev || Number(r.id) > Number(prev.id)) latest.set(key, r); // review ids grow with time
-  }
-  for (const [login, r] of latest) if (owners.has(login) && r.state === "CHANGES_REQUESTED") fail("changes-requested", `code owner ${login} has an open change request`);
+  const latestOf = (list) => {
+    const m = new Map();
+    for (const r of list) {
+      const login = r?.user?.login;
+      if (!LOGIN_RE.test(login ?? "") || !DECISIVE.has(r.state)) continue;
+      const key = login.toLowerCase();
+      const prev = m.get(key);
+      if (!prev || Number(r.id) > Number(prev.id)) m.set(key, r); // review ids grow with time
+    }
+    return m;
+  };
+  const mergedAt = Date.parse(pr.merged_at);
+  const isTime = (r) => Number.isFinite(Date.parse(r?.submitted_at));
+  // A change request at ANY time blocks (fail closed). Approval is judged as of the merge: reviews submitted after the merge (e.g. a re-approval) neither grant nor revoke it.
+  for (const [login, r] of latestOf(reviews)) if (owners.has(login) && r.state === "CHANGES_REQUESTED") fail("changes-requested", `code owner ${login} has an open change request`);
+  const latest = latestOf(reviews.filter((r) => isTime(r) && Date.parse(r.submitted_at) <= mergedAt));
   const approvals = [...latest.entries()].filter(([login, r]) => owners.has(login) && r.state === "APPROVED" && r.user.type === "User" && login !== author.toLowerCase());
   if (approvals.length === 0) fail("not-approved", "no code owner's latest review is an APPROVED review (dismissed, missing, own PR or not a code owner)");
-  const good = approvals.filter(([, r]) => r.commit_id === head && Date.parse(r.submitted_at) <= Date.parse(pr.merged_at));
+  const good = approvals.filter(([, r]) => r.commit_id === head);
   if (good.length === 0) fail("approval-stale", "the code-owner approval is not on the PR head at merge, or was submitted after the merge");
   const [reviewer, review] = good[0];
 
@@ -192,7 +199,7 @@ async function main() {
     const text = renderFailure(err);
     console.error(text);
     out(env.GITHUB_STEP_SUMMARY, text);
-    process.exit(1);
+    process.exitCode = 1; // not process.exit(): on Windows it can abort inside libuv with a pending fetch timer (exit 127); still non-zero, no output sha
   }
 }
 

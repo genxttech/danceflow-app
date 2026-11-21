@@ -150,7 +150,12 @@ describe("validatePin: negative matrix (all fail closed)", () => {
     expect(await code({ reviews: [{ ...review(1, "genxttech", "APPROVED"), user: { login: "genxttech", type: "Bot" } }] })).toBe("not-approved");
   });
   it("N15 approval submitted after the merge", async () => {
-    expect(await code({ reviews: [review(1, "genxttech", "APPROVED", HEAD, { submitted_at: "2026-11-19T12:00:01Z" })] })).toBe("approval-stale");
+    expect(await code({ reviews: [review(1, "genxttech", "APPROVED", HEAD, { submitted_at: "2026-11-19T12:00:01Z" })] })).toBe("not-approved");
+  });
+  it("N15b real case (PR 690): a valid approval before the merge plus a re-approval after it passes; the post-merge review neither grants nor revokes", async () => {
+    const r = await run({ reviews: [review(1, "genxttech", "APPROVED"), review(2, "genxttech", "APPROVED", HEAD, { submitted_at: "2026-11-19T12:09:00Z" })] });
+    expect(r.review.id).toBe(1);
+    expect(await code({ reviews: [review(1, "genxttech", "DISMISSED"), review(2, "genxttech", "APPROVED", HEAD, { submitted_at: "2026-11-19T12:09:00Z" })] })).toBe("not-approved");
   });
   it("N16 extra commits beyond the PR: merge commit's second parent is not the head", async () => {
     expect(await code({ commit: { sha: SHA, parents: [{ sha: PARENT }, { sha: OTHER }] } })).toBe("extra-commits");
