@@ -1050,16 +1050,18 @@ async function pastRegistrationsScenario(link) {
   record("past-registrations: Upcoming events still lists the upcoming registrations (the seeded baseline and 'QA Upcoming Registered')", first.includes("QA Social Dance Night") && first.includes("QA Upcoming Registered"), "");
   record("past-registrations: a 'Past events' section exists below Upcoming", first.includes("Past events"), "");
   record("past-registrations: ended registrations WITH a ticket, WITHOUT a ticket and cancelled+refunded are all in history (newest ended first)", ["QA Past With Ticket", "QA Past No Ticket", "QA Past Cancelled Refunded"].every((n) => first.includes(n)) && first.indexOf("QA Past With Ticket") < first.indexOf("QA Past No Ticket") && first.indexOf("QA Past No Ticket") < first.indexOf("QA Past Cancelled Refunded"), "");
-  record("past-registrations: the cancelled+refunded registration shows its own status wording ('refunded'), the no-ticket one shows 'Registration'", /text="refunded"/.test(first) && /text="Registration"/.test(first), "");
+  record("past-registrations: the cancelled+refunded registration shows its own status wording ('refunded'), the no-ticket one shows 'Registration'", /text="REFUNDED"/.test(first) && /text="Registration"/.test(first), "");
   const shown = pastNames(first);
   const moreM = /text="Show more \((\d+) more\)"/.exec(first);
-  const expectedTotal = 16 + (privateProbe ? 1 : 0);
+  const privateResolved = first.includes("QA Private Ended");
+  const privateGeneric = /text="Event"/.test(first) && /Not set/.test(first);
+  const expectedTotal = 16 + (privateResolved ? 1 : 0);
   record("past-registrations: exactly 12 past items are shown first, then 'Show more (" + (expectedTotal - 12) + " more)'", shown.size === 12 && moreM && Number(moreM[1]) === expectedTotal - 12,
     "shown " + [...shown].length + " named cards; button " + (moreM ? moreM[0] : "absent"));
   record("past-registrations: no crash or ANR dialog", !crashed(first), "");
 
   // Private-event probe (observation, not a pass/fail of the feature): does the events embed return a private event's end date to the registered dancer?
-  record("past-registrations (observation, real DB): the PRIVATE ended event the dancer registered for " + (first.includes("QA Private Ended") ? "resolves its name and is in history, so the events embed returns it" : "was NOT resolved by name in the first page (check pr-schedule-events.xml); if the embed returns null for it the registration shows a generic name and no end date"), true, "probe " + (privateProbe ? "seeded" : "skipped"));
+  record("past-registrations (observation, real DB): the PRIVATE ended event the dancer registered for " + (privateResolved ? "RESOLVES (name shown, in history): the events embed returns private events to their registrant" : privateGeneric ? "is NOT resolved: the card reads 'Event' / 'Not set' in UPCOMING (the events embed returns null for a private event, so no name and no end date; it can never move to Past)" : "was not found (see pr-schedule-events.xml)"), true, "probe " + (privateProbe ? "seeded" : "skipped"));
 
   // 2. Show more reveals the rest and removes itself.
   // scroll down to the button, tap it, read again to the end
@@ -1084,6 +1086,8 @@ async function pastRegistrationsScenario(link) {
   sh(["shell", "input", "keyevent", "224"]);
   openLink("danceflow://schedule/events");
   await sleep(9000);
+  for (let i = 0; i < 10; i++) { sh(["shell", "input", "swipe", "540", "700", "540", "1900", "300"]); await sleep(400); } // the route keeps its scroll position: back to the top first
+  await sleep(1500);
   let tapped = false;
   for (let i = 0; i < 6 && !tapped; i++) {
     tapped = tapNode(hierarchy(), 'text="QA Past No Ticket"');
@@ -1105,8 +1109,9 @@ async function pastRegistrationsScenario(link) {
   await sleep(4000);
   const big = await read("schedule-events-2.0-dark", "danceflow://schedule/events", { scrolls: 14 });
   record("past-registrations font 2.0 + dark: Upcoming and Past events headings present, Show more reachable, no crash", big.includes("Upcoming events") && big.includes("Past events") && /text="Show more \(/.test(big) && !crashed(big), "");
-  const lowest = [...big.matchAll(/text="Show more \(\d+ more\)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)].map((m) => Number(m[4]) - Number(m[2]));
-  record("past-registrations font 2.0: the Show more button is at least 44dp tall (touch target)", lowest.length > 0 && lowest.every((h) => h >= 44 * (Number(state.density ?? 420) / 160) * 0.9), "heights px " + JSON.stringify(lowest.slice(0, 3)));
+  const lowest = [...big.matchAll(/content-desc="Show more past events[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)].map((m) => Number(m[4]) - Number(m[2]));
+  const dpr = Number(state.density ?? 420) / 160;
+  record("past-registrations font 2.0: the Show more button (the control, not its label) is at least 44dp tall", lowest.length > 0 && lowest.every((h) => h >= 44 * dpr), "heights px " + JSON.stringify(lowest.slice(0, 3)) + " = " + lowest.slice(0, 1).map((h) => (h / dpr).toFixed(1) + "dp").join(""));
 }
 
 async function teardown() {

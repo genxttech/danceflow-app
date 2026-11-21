@@ -20,6 +20,9 @@ from (values
   ('44444444-4444-4444-8444-44444444aa04', 'QA Upcoming Registered',     'qa-upcoming-reg',      (current_date + 20))
 ) as v(id, name, slug, sd)
 on conflict (id) do nothing;
+-- The event page of a registered event only opens for events in the public directory (pre-existing: the detail loader requires public_directory_enabled, for upcoming events too), so the two
+-- events the scenario taps through to are in the directory. (Run 2 showed Event unavailable for an event that is not.)
+update events set public_directory_enabled = true where name in ('QA Past With Ticket', 'QA Past No Ticket');
 
 -- 13 more ended events (oldest first by date): total ended registrations = 3 named + 13 bulk (+1 private probe) > 12
 insert into events (id, studio_id, name, slug, event_type, start_date, end_date, start_time, end_time, timezone, visibility, status,
