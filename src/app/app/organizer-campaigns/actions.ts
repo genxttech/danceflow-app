@@ -4,36 +4,16 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageOrganizerCampaigns } from "@/lib/auth/permissions";
-
-const AUDIENCE_TYPES = new Set([
-  "all_organizer_contacts",
-  "specific_event_registrants",
-  "specific_event_ticket_buyers",
-  "specific_event_unpaid_pending",
-  "specific_event_checked_in",
-  "specific_event_no_shows",
-  "specific_event_refunded",
-  "paid_registration_contacts",
-]);
-
-const EVENT_REQUIRED_AUDIENCES = new Set([
-  "specific_event_registrants",
-  "specific_event_ticket_buyers",
-  "specific_event_unpaid_pending",
-  "specific_event_checked_in",
-  "specific_event_no_shows",
-  "specific_event_refunded",
-]);
+import {
+  ORGANIZER_CREATE_AUDIENCE_TYPES,
+  ORGANIZER_CREATE_EVENT_REQUIRED_AUDIENCES,
+  hasOrganizerRequiredContent,
+  normalizeCampaignCtaUrlLax,
+  readTrimmedFormString,
+} from "@/lib/marketing/campaignContent";
 
 function getString(formData: FormData, key: string) {
-  const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function normalizeUrl(url: string) {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  return `https://${url}`;
+  return readTrimmedFormString(formData, key);
 }
 
 function appendQuery(url: string, key: string, value: string) {
@@ -101,7 +81,7 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
   const previewText = getString(formData, "previewText");
   const bodyText = getString(formData, "bodyText");
   const ctaLabel = getString(formData, "ctaLabel");
-  const ctaUrl = normalizeUrl(getString(formData, "ctaUrl"));
+  const ctaUrl = normalizeCampaignCtaUrlLax(getString(formData, "ctaUrl"));
   const audienceType = getString(formData, "audienceType") || "all_organizer_contacts";
   const audienceEventId = getString(formData, "audienceEventId");
   const source = getString(formData, "source");
@@ -112,15 +92,15 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
     redirectTo = appendQuery(redirectTo, "organizer", organizerId);
   }
 
-  if (!organizerId || !name || !subject || !bodyText) {
+  if (!organizerId || !hasOrganizerRequiredContent({ name, subject, bodyText })) {
     redirect(appendQuery(redirectTo, "campaign_error", "missing_required_fields"));
   }
 
-  if (!AUDIENCE_TYPES.has(audienceType)) {
+  if (!ORGANIZER_CREATE_AUDIENCE_TYPES.has(audienceType)) {
     redirect(appendQuery(redirectTo, "campaign_error", "invalid_audience"));
   }
 
-  if (EVENT_REQUIRED_AUDIENCES.has(audienceType) && !audienceEventId) {
+  if (ORGANIZER_CREATE_EVENT_REQUIRED_AUDIENCES.has(audienceType) && !audienceEventId) {
     redirect(appendQuery(redirectTo, "campaign_error", "event_required"));
   }
 

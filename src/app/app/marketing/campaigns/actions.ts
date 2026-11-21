@@ -31,22 +31,17 @@ import {
   type PackageWithItems,
 } from "@/lib/packages/entitlement";
 import {
+  STUDIO_AUDIENCE_TYPES,
+  isStudioSpecificEventAudience,
+  normalizeCampaignCtaUrl,
+  readTrimmedFormString,
+  studioCampaignContentIssue,
+} from "@/lib/marketing/campaignContent";
+import {
   buildCampaignEmailHtml,
   buildCampaignEmailText,
   type CampaignEmailParams,
 } from "./campaignEmail";
-
-const AUDIENCE_TYPES = new Set([
-  "manual",
-  "all_active_clients",
-  "new_leads",
-  "inactive_clients",
-  "event_attendees",
-  "specific_event_registrants",
-  "specific_event_checked_in",
-  "clients_no_upcoming_lesson",
-  "low_package_credits",
-]);
 
 const MAX_CAMPAIGN_SENDS_PER_ACTION = 500;
 
@@ -82,8 +77,7 @@ type StudioMarketingFooterSettings = {
 };
 
 function getString(formData: FormData, key: string) {
-  const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
+  return readTrimmedFormString(formData, key);
 }
 
 function appendQueryParam(url: string, key: string, value: string) {
@@ -107,21 +101,6 @@ function requireCommunicationsAccessOrRedirect(
   }
 }
 
-function normalizeUrl(url: string) {
-  const value = url.trim();
-  if (!value) return "";
-
-  try {
-    const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-    const parsed = new URL(candidate);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? parsed.toString()
-      : "";
-  } catch {
-    return "";
-  }
-}
-
 function normalizeEmail(value: unknown) {
   return String(value ?? "")
     .trim()
@@ -132,12 +111,7 @@ function buildName(firstName: unknown, lastName: unknown) {
   return `${String(firstName ?? "").trim()} ${String(lastName ?? "").trim()}`.trim();
 }
 
-function isSpecificEventAudience(audienceType: string) {
-  return (
-    audienceType === "specific_event_registrants" ||
-    audienceType === "specific_event_checked_in"
-  );
-}
+const isSpecificEventAudience = isStudioSpecificEventAudience;
 
 function escapeHtml(value: string) {
   return value
@@ -720,13 +694,13 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
     const bodyText = getString(formData, "bodyText");
     const ctaLabel = getString(formData, "ctaLabel");
     const rawCtaUrl = getString(formData, "ctaUrl");
-    const ctaUrl = normalizeUrl(rawCtaUrl);
+    const ctaUrl = normalizeCampaignCtaUrl(rawCtaUrl);
 
     if (!name) {
       redirect(appendQueryParam(fallback, "campaign_error", "missing_name"));
     }
 
-    if (!AUDIENCE_TYPES.has(audienceType)) {
+    if (!STUDIO_AUDIENCE_TYPES.has(audienceType)) {
       redirect(
         appendQueryParam(fallback, "campaign_error", "invalid_audience"),
       );
@@ -749,16 +723,9 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       }
     }
 
-    if (!subject) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_subject"));
-    }
-
-    if (!bodyText) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_body"));
-    }
-
-    if (rawCtaUrl && !ctaUrl) {
-      redirect(appendQueryParam(fallback, "campaign_error", "invalid_cta_url"));
+    const contentIssue = studioCampaignContentIssue({ subject, bodyText, rawCtaUrl, ctaUrl });
+    if (contentIssue) {
+      redirect(appendQueryParam(fallback, "campaign_error", contentIssue));
     }
 
     const { error } = await supabase.from("marketing_campaigns").insert({
@@ -832,7 +799,7 @@ export async function updateMarketingCampaignDraftAction(formData: FormData) {
     const bodyText = getString(formData, "bodyText");
     const ctaLabel = getString(formData, "ctaLabel");
     const rawCtaUrl = getString(formData, "ctaUrl");
-    const ctaUrl = normalizeUrl(rawCtaUrl);
+    const ctaUrl = normalizeCampaignCtaUrl(rawCtaUrl);
 
     if (!campaignId) {
       redirect(appendQueryParam(fallback, "campaign_error", "not_found"));
@@ -842,7 +809,7 @@ export async function updateMarketingCampaignDraftAction(formData: FormData) {
       redirect(appendQueryParam(fallback, "campaign_error", "missing_name"));
     }
 
-    if (!AUDIENCE_TYPES.has(audienceType)) {
+    if (!STUDIO_AUDIENCE_TYPES.has(audienceType)) {
       redirect(appendQueryParam(fallback, "campaign_error", "invalid_audience"));
     }
 
@@ -850,16 +817,9 @@ export async function updateMarketingCampaignDraftAction(formData: FormData) {
       redirect(appendQueryParam(fallback, "campaign_error", "missing_event"));
     }
 
-    if (!subject) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_subject"));
-    }
-
-    if (!bodyText) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_body"));
-    }
-
-    if (rawCtaUrl && !ctaUrl) {
-      redirect(appendQueryParam(fallback, "campaign_error", "invalid_cta_url"));
+    const contentIssue = studioCampaignContentIssue({ subject, bodyText, rawCtaUrl, ctaUrl });
+    if (contentIssue) {
+      redirect(appendQueryParam(fallback, "campaign_error", contentIssue));
     }
 
     if (await isMarketingSendPaused(supabase)) {

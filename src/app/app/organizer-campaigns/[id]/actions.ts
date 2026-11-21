@@ -18,29 +18,13 @@ import { authorizeCampaignTestSend, testSendRefusalCode } from "@/lib/marketing/
 import { isMarketingSendPaused } from "@/lib/marketing/compliance/sendFreeze";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { reserveCampaignSendAllowance, settleCampaignBatch } from "@/lib/usage/campaignAllowance";
+import {
+  ORGANIZER_UPDATE_AUDIENCE_TYPES,
+  ORGANIZER_UPDATE_EVENT_REQUIRED_AUDIENCES,
+  hasOrganizerRequiredContent,
+  normalizeCampaignCtaUrl,
+} from "@/lib/marketing/campaignContent";
 import { renderStudioBrandedEmail } from "@/lib/notifications/email-branding";
-
-const AUDIENCE_TYPES = new Set([
-  "all_organizer_contacts",
-  "specific_event_registrants",
-  "specific_event_ticket_buyers",
-  "specific_event_unpaid_pending",
-  "specific_event_checked_in",
-  "specific_event_no_shows",
-  "specific_event_registered_not_checked_in",
-  "specific_event_refunded",
-  "paid_registration_contacts",
-]);
-
-const EVENT_REQUIRED_AUDIENCES = new Set([
-  "specific_event_registrants",
-  "specific_event_ticket_buyers",
-  "specific_event_unpaid_pending",
-  "specific_event_checked_in",
-  "specific_event_no_shows",
-  "specific_event_registered_not_checked_in",
-  "specific_event_refunded",
-]);
 
 const MAX_ORGANIZER_CAMPAIGN_SENDS_PER_ACTION = 500;
 
@@ -104,21 +88,6 @@ function getString(formData: FormData, key: string) {
 function appendQuery(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
-}
-
-function normalizeUrl(url: string) {
-  const value = url.trim();
-  if (!value) return "";
-
-  try {
-    const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-    const parsed = new URL(candidate);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? parsed.toString()
-      : "";
-  } catch {
-    return "";
-  }
 }
 
 function cleanFooterPart(value: unknown) {
@@ -452,7 +421,7 @@ async function getOrganizerCampaignRecipients(params: {
   });
   let contacts: OrganizerContactRow[] = [];
 
-  if (EVENT_REQUIRED_AUDIENCES.has(audienceType) && !eventId) {
+  if (ORGANIZER_UPDATE_EVENT_REQUIRED_AUDIENCES.has(audienceType) && !eventId) {
     return [];
   }
 
@@ -567,12 +536,12 @@ export async function updateOrganizerCampaignDraftAction(formData: FormData) {
   const bodyText = getString(formData, "bodyText");
   const ctaLabel = getString(formData, "ctaLabel");
   const rawCtaUrl = getString(formData, "ctaUrl");
-  const ctaUrl = normalizeUrl(rawCtaUrl);
+  const ctaUrl = normalizeCampaignCtaUrl(rawCtaUrl);
   const audienceType =
     getString(formData, "audienceType") || "all_organizer_contacts";
   const audienceEventId = getString(formData, "audienceEventId");
 
-  if (!campaignId || !name || !subject || !bodyText) {
+  if (!campaignId || !hasOrganizerRequiredContent({ name, subject, bodyText })) {
     redirect(
       appendQuery(fallback, "campaign_error", "missing_required_fields"),
     );
@@ -582,11 +551,11 @@ export async function updateOrganizerCampaignDraftAction(formData: FormData) {
     redirect(appendQuery(fallback, "campaign_error", "invalid_cta_url"));
   }
 
-  if (!AUDIENCE_TYPES.has(audienceType)) {
+  if (!ORGANIZER_UPDATE_AUDIENCE_TYPES.has(audienceType)) {
     redirect(appendQuery(fallback, "campaign_error", "invalid_audience"));
   }
 
-  if (EVENT_REQUIRED_AUDIENCES.has(audienceType) && !audienceEventId) {
+  if (ORGANIZER_UPDATE_EVENT_REQUIRED_AUDIENCES.has(audienceType) && !audienceEventId) {
     redirect(appendQuery(fallback, "campaign_error", "event_required"));
   }
 
