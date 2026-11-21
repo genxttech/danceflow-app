@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fakeStripeReader, paidLive } from "@/lib/competition/__tests__/helpers/settlementStripeFake";
 import { handleCheckoutSessionCompleted, handleCompetitionRegistrationCheckoutEvent } from "@/app/api/payments/webhook/route";
 
 /**
@@ -46,7 +47,7 @@ function session(overrides: Record<string, unknown> = {}) {
   } as unknown as Stripe.Checkout.Session;
 }
 
-const stripe = {} as Stripe;
+const stripe = fakeStripeReader(paidLive({ session: { id: "cs_comp_1", amount_total: 10330 }, intent: { amount_received: 10330 } })).stripe as unknown as Stripe;
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);

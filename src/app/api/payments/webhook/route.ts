@@ -1520,6 +1520,7 @@ export async function handleCompetitionRegistrationCheckoutEvent(
 ) {
   if (getString(session.metadata?.source) !== COMPETITION_REGISTRATION_SOURCE) return false;
   const result = await applyCompetitionCheckoutEvent(supabase, {
+    stripe,
     eventType: stripeEventType,
     session,
     stripeAccountId,
