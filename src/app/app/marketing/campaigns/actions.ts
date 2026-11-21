@@ -791,6 +791,158 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
   redirect(appendQueryParam(fallback, "campaign_saved", "1"));
 }
 
+/**
+ * Marketing M-1a: edit a studio campaign draft (parity with updateOrganizerCampaignDraftAction).
+ * Refuses unless the campaign is a draft with no recipient that has started delivery, refuses while marketing sends are
+ * frozen, and applies the create action's validation. It never sends and never touches recipients.
+ */
+export async function updateMarketingCampaignDraftAction(formData: FormData) {
+  const campaignId = getString(formData, "campaignId");
+  const fallback = campaignId
+    ? `/app/marketing/campaigns/${campaignId}`
+    : "/app/marketing/campaigns";
+  const requestedAudienceType =
+    getString(formData, "audienceType") || "all_active_clients";
+
+  await requireStudioFeature("marketing_campaigns");
+
+  if (
+    requestedAudienceType === "event_attendees" ||
+    isSpecificEventAudience(requestedAudienceType)
+  ) {
+    await requireStudioFeature("marketing_event_audiences");
+  }
+
+  try {
+    const supabase = await createClient();
+    const context = await getCurrentStudioContext();
+    const studioId = context.studioId;
+
+    if (!studioId) {
+      redirect("/login");
+    }
+
+    requireCommunicationsAccessOrRedirect(context.studioRole, fallback);
+
+    const name = getString(formData, "name");
+    const audienceType = requestedAudienceType;
+    const audienceEventId = getString(formData, "audienceEventId");
+    const subject = getString(formData, "subject");
+    const previewText = getString(formData, "previewText");
+    const bodyText = getString(formData, "bodyText");
+    const ctaLabel = getString(formData, "ctaLabel");
+    const rawCtaUrl = getString(formData, "ctaUrl");
+    const ctaUrl = normalizeUrl(rawCtaUrl);
+
+    if (!campaignId) {
+      redirect(appendQueryParam(fallback, "campaign_error", "not_found"));
+    }
+
+    if (!name) {
+      redirect(appendQueryParam(fallback, "campaign_error", "missing_name"));
+    }
+
+    if (!AUDIENCE_TYPES.has(audienceType)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "invalid_audience"));
+    }
+
+    if (isSpecificEventAudience(audienceType) && !audienceEventId) {
+      redirect(appendQueryParam(fallback, "campaign_error", "missing_event"));
+    }
+
+    if (!subject) {
+      redirect(appendQueryParam(fallback, "campaign_error", "missing_subject"));
+    }
+
+    if (!bodyText) {
+      redirect(appendQueryParam(fallback, "campaign_error", "missing_body"));
+    }
+
+    if (rawCtaUrl && !ctaUrl) {
+      redirect(appendQueryParam(fallback, "campaign_error", "invalid_cta_url"));
+    }
+
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
+
+    const { data: campaign, error: campaignError } = await supabase
+      .from("marketing_campaigns")
+      .select("id, studio_id, status")
+      .eq("id", campaignId)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+    if (campaignError || !campaign) {
+      redirect(appendQueryParam(fallback, "campaign_error", "not_found"));
+    }
+
+    if (campaign.status !== "draft") {
+      redirect(appendQueryParam(fallback, "campaign_error", "campaign_locked"));
+    }
+
+    // Same rule as the organizer draft edit: once delivery has started for any recipient, the content is locked so
+    // remaining recipients (and an uncertain retry) get the identical message.
+    const { count: startedCount, error: startedError } = await supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaign.id)
+      .eq("studio_id", studioId)
+      .in("status", ["sent", "sending", "failed", "delivery_unknown"]);
+
+    if (startedError || startedCount === null || startedCount === undefined) {
+      redirect(appendQueryParam(fallback, "campaign_error", "save_failed"));
+    }
+
+    if (Number(startedCount) > 0) {
+      redirect(appendQueryParam(fallback, "campaign_error", "campaign_started"));
+    }
+
+    if (isSpecificEventAudience(audienceType)) {
+      const { data: event, error: eventError } = await supabase
+        .from("events")
+        .select("id")
+        .eq("id", audienceEventId)
+        .eq("studio_id", studioId)
+        .maybeSingle();
+
+      if (eventError || !event) {
+        redirect(appendQueryParam(fallback, "campaign_error", "invalid_event"));
+      }
+    }
+
+    const { error } = await supabase
+      .from("marketing_campaigns")
+      .update({
+        name,
+        audience_type: audienceType,
+        audience_event_id: isSpecificEventAudience(audienceType)
+          ? audienceEventId
+          : null,
+        subject,
+        preview_text: previewText || null,
+        body_text: bodyText,
+        cta_label: ctaLabel || null,
+        cta_url: ctaUrl || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", campaign.id)
+      .eq("studio_id", studioId)
+      .eq("status", "draft");
+
+    if (error) {
+      console.error("update marketing campaign draft failed", error);
+      redirect(appendQueryParam(fallback, "campaign_error", "save_failed"));
+    }
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    console.error("updateMarketingCampaignDraftAction failed", error);
+    redirect(appendQueryParam(fallback, "campaign_error", "save_failed"));
+  }
+
+  redirect(appendQueryParam(fallback, "campaign_saved", "1"));
+}
+
 export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
   await requireStudioFeature("marketing_campaigns");
   const campaignId = getString(formData, "campaignId");
