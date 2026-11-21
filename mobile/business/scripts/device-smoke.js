@@ -746,16 +746,16 @@ async function writeFlows(owner) {
     await expectLabel("Try again", { scroll: true });
   });
 
-  // Zed was created as a lead; the client list shows active clients only
-  psqlOk("update public.clients set status='active'");
+  // Zed was quick-added in the app, so he is a lead: the staff search lists leads (PR 741) and the roster takes him. Nothing here makes him active.
 
   await check("writes: add a dancer to the class roster", async () => {
     await home();
     await tapLabel(/Beginner Salsa/, { timeout: 30000, scroll: true }); // the 7:00 PM row is below the fold
     await expectLabel("Add a dancer", { timeout: 30000, scroll: true });
     await tapLabel("Add a dancer", { scroll: true });
-    await typeInto("Find a client", "Sam");
-    await tapLabel(/^Sam Okafor/, { timeout: 30000 });
+    await typeInto("Find a client", "Zed");
+    await expectLabel(/^Zed Newperson, Lead/, { timeout: 30000 }); // the picker labels a lead
+    await tapLabel(/^Zed Newperson, Lead/, { timeout: 30000 });
     await tapLabel(/^Free \(comped\)/);
     await tapLabel("Add to class");
     await expectLabel("Dancer added.", { timeout: 60000, scroll: true });

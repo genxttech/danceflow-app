@@ -6,7 +6,7 @@ import { AppText } from "@/components/AppText";
 import { ConfirmSheet } from "@/components/ConfirmSheet";
 import { MutationNotice } from "@/components/MutationNotice";
 import { RosterAttendance } from "@/components/RosterAttendance";
-import { personName } from "@/lib/format";
+import { clientStatusLabel, personName } from "@/lib/format";
 import { useStaffMutation } from "@/lib/mutation";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import type { ClientSummary, RosterBilling, RosterEnrollResult, RosterRemoveResult } from "@/lib/staffApi";
@@ -221,9 +221,11 @@ function AddDancerSheet({
               {shownResults && shownResults.length === 0 ? <AppText tone="muted">No matching clients who aren&apos;t already on the roster.</AppText> : null}
               {shownResults?.map((client) => {
                 const name = personName({ id: client.id, firstName: client.firstName, lastName: client.lastName }) ?? "Client";
+                const status = clientStatusLabel(client.status);
                 return (
-                  <Pressable key={client.id} accessibilityRole="button" accessibilityLabel={name} onPress={() => setChosen(client)} style={styles.result} testID={`dancer-${client.id}`}>
-                    <AppText variant="lead">{name}</AppText>
+                  <Pressable key={client.id} accessibilityRole="button" accessibilityLabel={status ? `${name}, ${status}` : name} onPress={() => setChosen(client)} style={[styles.result, styles.resultRow]} testID={`dancer-${client.id}`}>
+                    <AppText variant="lead" style={styles.resultName}>{name}</AppText>
+                    {status ? <AppText variant="caption" tone="muted">{status}</AppText> : null}
                   </Pressable>
                 );
               })}
@@ -287,6 +289,8 @@ const styles = StyleSheet.create({
   content: { gap: space.md, padding: space.xl },
   input: { minHeight: 48, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.control, paddingHorizontal: space.md, backgroundColor: colors.surface, color: colors.text, ...type.body },
   result: { minHeight: 48, justifyContent: "center", paddingHorizontal: space.md, borderRadius: radius.row, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  resultRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  resultName: { flexShrink: 1, flexGrow: 1 },
   option: { minHeight: 48, justifyContent: "center", paddingHorizontal: space.lg, borderRadius: radius.control, borderWidth: 1.5, borderColor: colors.plum, backgroundColor: colors.raised },
   optionSelected: { backgroundColor: colors.plum },
 });

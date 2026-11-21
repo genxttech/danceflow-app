@@ -91,6 +91,10 @@ const CLIENT_STATUS_LABELS: Record<string, string> = {
   inactive: "Inactive",
   lead: "Lead",
   prospect: "Prospect",
+  contacted: "Lead (contacted)",
+  consultation_booked: "Lead (consultation booked)",
+  converted: "Converted",
+  lost: "Lost",
   archived: "Archived",
 };
 
