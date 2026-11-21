@@ -15,7 +15,7 @@ jest.mock("@/lib/features", () => ({
   ...jest.requireActual("@/lib/features"),
   isStaffFeatureEnabled: (feature: string) => (feature === "clientNotes" ? flags.clientNotes : feature === "clientCreate" ? flags.clientCreate : true),
 }));
-jest.mock("expo-router", () => ({ router: { push: jest.fn(), replace: jest.fn() } }));
+jest.mock("expo-router", () => ({ router: { push: jest.fn(), replace: jest.fn() }, useFocusEffect: (effect: () => void | (() => void)) => jest.requireActual<typeof import("react")>("react").useEffect(effect, [effect]), }));
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");
   return { SafeAreaView: View };

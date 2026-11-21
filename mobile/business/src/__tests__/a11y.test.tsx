@@ -17,7 +17,7 @@ import SignInScreen from "../../app/sign-in";
 import { auditA11y } from "@/test-utils/a11y";
 import { fakeApi, STUDIO_ID, StaffTestProviders, workspace } from "@/test-utils/staff";
 
-jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+jest.mock("expo-router", () => ({ router: { push: jest.fn() }, useFocusEffect: (effect: () => void | (() => void)) => jest.requireActual<typeof import("react")>("react").useEffect(effect, [effect]), }));
 jest.mock("react-native-safe-area-context", () => {
   const { View: RNView } = jest.requireActual("react-native");
   return { SafeAreaView: RNView };
