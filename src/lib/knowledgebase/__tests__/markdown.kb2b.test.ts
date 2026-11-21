@@ -2,7 +2,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import ArticleBody from "@/components/knowledgebase/ArticleBody";
-import { knowledgebaseArticles } from "@/content/knowledgebase/articles";
+import { getKnowledgebaseArticles } from "../articles";
+
+const knowledgebaseArticles = getKnowledgebaseArticles();
 import { classifyHref, parseArticleMarkdown, parseInline, slugifyHeading } from "../markdown";
 
 const html = (markdown: string) => renderToStaticMarkup(createElement(ArticleBody, { markdown }));

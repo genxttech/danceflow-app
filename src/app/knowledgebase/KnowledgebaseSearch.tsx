@@ -14,7 +14,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import type { KnowledgebaseArticle } from "@/content/knowledgebase/articles";
+import type { KnowledgebaseArticle } from "@/lib/knowledgebase/schema";
 
 type Props = {
   articles: KnowledgebaseArticle[];
@@ -62,7 +62,7 @@ function scoreArticle(article: KnowledgebaseArticle, rawQuery: string) {
   const title = normalize(article.title);
   const slug = normalize(article.slug);
   const category = normalize(article.category);
-  const description = normalize(article.description);
+  const description = normalize(article.summary);
   const content = normalize(article.content);
   const terms = queryTerms(rawQuery);
 
@@ -209,7 +209,7 @@ export default function KnowledgebaseSearch({
                     </div>
                   </div>
                   <p className="mt-3 text-sm leading-6 text-slate-600">
-                    {article.description}
+                    {article.summary}
                   </p>
                   <p className="mt-4 text-xs font-semibold text-violet-700">
                     Read article →

@@ -53,10 +53,9 @@ describe("Organizer Suite (was 'DanceFlow Organizer Workspace')", () => {
   });
 
   it("the public knowledgebase article title follows (slug unchanged so links keep working)", () => {
-    const articles = read("src", "content", "knowledgebase", "articles.ts");
-    expect(articles).toContain('slug: "getting-started-with-organizer-workspace"');
-    expect(articles).toContain('title: "Getting Started with Organizer Suite"');
-    expect(articles).not.toContain("Getting Started with Your Organizer Workspace");
+    const article = read("src", "content", "knowledgebase", "articles", "getting-started-with-organizer-workspace.md");
+    expect(article).toContain('title: "Getting Started with Organizer Suite"');
+    expect(article).not.toContain("Getting Started with Your Organizer Workspace");
   });
 });
 

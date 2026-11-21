@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import ArticleBody from "@/components/knowledgebase/ArticleBody";
 import { JsonLd } from "@/components/seo/JsonLd";
 import {
   getKnowledgebaseArticleBySlug,
   getPublicKnowledgebaseArticles,
-} from "@/content/knowledgebase/articles";
+  getRelatedPublicKnowledgebaseArticles,
+  resolvePublicKnowledgebaseSlug,
+} from "@/lib/knowledgebase/articles";
+import { knowledgebaseRedirects } from "@/content/knowledgebase/redirects";
 
 type PageProps = {
   params: Promise<{
@@ -16,16 +19,26 @@ type PageProps = {
 };
 
 export function generateStaticParams() {
-  return getPublicKnowledgebaseArticles().map((article) => ({
-    slug: article.slug,
-  }));
+  // Retired slugs are prerendered too, so their permanent redirect is served without a runtime content read.
+  return [
+    ...getPublicKnowledgebaseArticles().map((article) => article.slug),
+    ...Object.keys(knowledgebaseRedirects),
+  ].map((slug) => ({ slug }));
+}
+
+function getServedArticle(slug: string) {
+  const resolution = resolvePublicKnowledgebaseSlug(slug);
+  if (resolution.kind === "redirect") permanentRedirect(`/knowledgebase/${resolution.slug}`);
+  if (resolution.kind === "missing") return null;
+  return getKnowledgebaseArticleBySlug(resolution.slug);
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const article = getKnowledgebaseArticleBySlug(slug);
+  const resolution = resolvePublicKnowledgebaseSlug(slug);
+  const article = resolution.kind === "article" ? getKnowledgebaseArticleBySlug(resolution.slug) : null;
 
-  if (!article || article.audience === "app") {
+  if (!article) {
     return {
       title: "Knowledgebase Article",
       description:
@@ -37,13 +50,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   return {
     title: article.title,
-    description: article.description,
+    description: article.summary,
     alternates: {
       canonical: canonicalUrl,
     },
     openGraph: {
       title: `${article.title} | DanceFlow Knowledgebase`,
-      description: article.description,
+      description: article.summary,
       url: canonicalUrl,
       siteName: "DanceFlow",
       type: "article",
@@ -59,7 +72,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     twitter: {
       card: "summary_large_image",
       title: `${article.title} | DanceFlow Knowledgebase`,
-      description: article.description,
+      description: article.summary,
       images: ["/brand/danceflow-og-1200x630.png"],
     },
   };
@@ -67,15 +80,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function KnowledgebaseArticlePage({ params }: PageProps) {
   const { slug } = await params;
-  const article = getKnowledgebaseArticleBySlug(slug);
+  const article = getServedArticle(slug);
 
-  if (!article || article.audience === "app") {
+  if (!article) {
     notFound();
   }
 
-  const relatedArticles = getPublicKnowledgebaseArticles()
-    .filter((item) => item.slug !== article.slug)
-    .slice(0, 3);
+  const relatedArticles = getRelatedPublicKnowledgebaseArticles(article);
 
   const articleUrl = `https://www.idanceflow.com/knowledgebase/${article.slug}`;
 
@@ -83,7 +94,7 @@ export default async function KnowledgebaseArticlePage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: article.title,
-    description: article.description,
+    description: article.summary,
     url: articleUrl,
     mainEntityOfPage: articleUrl,
     author: {
@@ -147,7 +158,7 @@ export default async function KnowledgebaseArticlePage({ params }: PageProps) {
                 {article.title}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                {article.description}
+                {article.summary}
               </p>
             </div>
           </div>

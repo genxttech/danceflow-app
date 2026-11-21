@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@/lib/supabase/server";
-import { knowledgebaseArticles } from "@/content/knowledgebase/articles";
+import { getPublicKnowledgebaseArticles } from "@/lib/knowledgebase/articles";
 
 const siteUrl = "https://www.idanceflow.com";
 
@@ -200,8 +200,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
-  const articleRoutes: MetadataRoute.Sitemap = knowledgebaseArticles
-    .filter((article) => article.audience !== "app")
+  const articleRoutes: MetadataRoute.Sitemap = getPublicKnowledgebaseArticles()
     .map((article) => ({
       url: `${siteUrl}/knowledgebase/${article.slug}`,
       lastModified: now,
