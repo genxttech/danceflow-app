@@ -77,7 +77,7 @@ test('P2. each required condition failing blocks attestation and names the faili
   const cases = {
     'wrong approved policy hash': [{}, { expectPolicySha: 'bad' }, '1.policy-integrity'],
     'pilot disabled': [{ policyMut: (p) => { p.pilot.enabled = false; return p; } }, {}, '2.enabled'],
-    'window too short': [{ now: Date.parse('2026-11-16T22:00:00Z') }, {}, '2.window'],
+    'window too short': [{ now: Date.parse('2026-11-16T23:30:00Z') }, {}, '2.window'],
     'authorization without expiry': [{ authsMut: (a) => a.map(({ not_after, ...x }) => x) }, {}, '2.auth-expiry'],
     'queue item without authorization': [{ queueMut: (q) => { q.items.push({ id: 'Q9', template: 'u18-rollback-rehearsal', params: {}, deps: [] }); return q; } }, {}, '3.scope'],
     'class G item authorized': [{ authsMut: (a) => [...a, { id: 'Q5', template: 'prod-sql-apply', params: {}, deps: ['Q1', 'Q3'], scope_sha: 'x', by: 'owner', not_after: NA }] }, {}, '1.source+validity'],
