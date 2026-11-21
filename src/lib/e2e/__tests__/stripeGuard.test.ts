@@ -3,14 +3,16 @@ import { assertFeeRecorded, classifyStripeError, redactReport, runStripeGuard, s
 
 const PLATFORM = "acct_PLATFORM1";
 const CONNECTED = "acct_CONNECTED1";
-const config: GuardConfig = { expectPlatform: PLATFORM, connectedAccount: CONNECTED, successUrl: "http://127.0.0.1:3000/ok", cancelUrl: "http://127.0.0.1:3000/no" };
+/** The browser driver is faked: fakeStripe installs what "paying on the hosted page" does to the fake Stripe state (the real driver is tested in stripeHostedCheckout.test.ts). */
+let activePay: (url: string) => Promise<void> = async () => { throw new Error("no fake installed"); };
+const config: GuardConfig = { expectPlatform: PLATFORM, connectedAccount: CONNECTED, successUrl: "http://127.0.0.1:3000/ok", cancelUrl: "http://127.0.0.1:3000/no", payHosted: (url) => activePay(url) };
 const KEY = "sk_test_unit123";
 
 type Overrides = Partial<{
   live: boolean; platformId: string; createError: unknown; piError: unknown; confirmError: unknown; fee: number | null; chargeFee: string | null; chargeFeeAmount: number | null; received: number; expireStatus: string;
 }>;
 
-type FakeSession = { id: string; status: string; payment_status: string; livemode: boolean; payment_intent: string | null; customer_email: null };
+type FakeSession = { id: string; status: string; payment_status: string; livemode: boolean; payment_intent: string | null; customer_email: null; url: string; amount_total: number };
 
 /** A Stripe-shaped fake that records calls; every call that needs the connected account must pass stripeAccount. */
 function fakeStripe(o: Overrides = {}) {
@@ -30,7 +32,7 @@ function fakeStripe(o: Overrides = {}) {
           calls.push(`create:${opts?.stripeAccount}`);
           if (o.createError) throw o.createError;
           const id = `cs_test_${++n}`;
-          sessions.set(id, { id, status: "open", payment_status: "unpaid", livemode: false, payment_intent: null, customer_email: null });
+          sessions.set(id, { id, status: "open", payment_status: "unpaid", livemode: false, payment_intent: null, customer_email: null, url: `https://checkout.stripe.com/c/pay/${id}#fidkdWxOYHwnPyd1blpxYHZxWjA0`, amount_total: 100 });
           return sessions.get(id)!;
         },
         expire: async (id: string, _p: unknown, opts: { stripeAccount?: string }) => {
@@ -43,16 +45,7 @@ function fakeStripe(o: Overrides = {}) {
       },
     },
     paymentMethods: { create: async () => ({ id: "pm_1" }) },
-    rawRequest: async (method: string, path: string) => {
-      if (method === "POST") {
-        calls.push("confirm");
-        if (o.confirmError) throw o.confirmError;
-        const s = sessions.get(path.split("/")[3])!;
-        s.status = "complete";
-        s.payment_status = "paid";
-        s.payment_intent = "pi_1";
-        return {};
-      }
+    rawRequest: async (_method: string, path: string) => {
       if (path === "/v1/account") { calls.push("account-read"); return { id: o.platformId ?? PLATFORM }; }
       return { livemode: false, total_summary: { due: 100 } };
     },
@@ -67,11 +60,20 @@ function fakeStripe(o: Overrides = {}) {
         };
       },
       retrieve: async () => ({
+        status: "succeeded",
         amount_received: o.received ?? 100,
         application_fee_amount: o.fee === undefined ? 10 : o.fee,
         latest_charge: { application_fee: o.chargeFee === undefined ? "fee_1" : o.chargeFee, application_fee_amount: o.chargeFeeAmount === undefined ? 10 : o.chargeFeeAmount },
       }),
     },
+  };
+  activePay = async (url: string) => {
+    calls.push("confirm");
+    if (o.confirmError) throw o.confirmError;
+    const s = sessions.get(url.split("/c/pay/")[1].split("#")[0])!;
+    s.status = "complete";
+    s.payment_status = "paid";
+    s.payment_intent = "pi_1";
   };
   return { stripe: stripe as never, calls };
 }
@@ -395,5 +397,49 @@ describe("assertFeeRecorded (unit)", () => {
   it("never puts an id in its message (types and numbers only)", () => {
     try { assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: null, application_fee: "fee_SECRETISH123" }), 9); } catch (e) { expect(String((e as Error).message)).not.toMatch(/fee_SECRETISH123/); }
     expect(() => assertFeeRecorded({ application_fee_amount: 10 }, charge({ application_fee_amount: null, application_fee: null }), 10)).toThrow(/application_fee=null/);
+  });
+});
+
+describe("canary B pays on the Stripe-hosted page (owner decision 2026-11-20)", () => {
+  it("fails closed when no browser driver is configured: no payment attempt, the run fails", async () => {
+    const { stripe, calls } = fakeStripe();
+    const report = await runStripeGuard({ stripe, key: KEY, config: { ...config, payHosted: undefined } });
+    expect(report.ok).toBe(false);
+    expect(report.failures?.map((f) => f.step.slice(0, 8))).toEqual(["canary B"]);
+    expect(report.failures?.[0].failure.message).toBe("no hosted-Checkout payment driver is configured");
+    expect(calls).not.toContain("confirm");
+  });
+
+  it("passes the TEST hosted Checkout URL it created to the driver", async () => {
+    const seen: string[] = [];
+    const { stripe } = fakeStripe();
+    const inner = activePay;
+    const report = await runStripeGuard({ stripe, key: KEY, config: { ...config, payHosted: async (url) => { seen.push(url); await inner(url); } } });
+    expect(report.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatch(/^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_\d+#/);
+  });
+
+  it("a driver that returns without the session being paid is NOT a pass: success comes only from the API read", async () => {
+    const { stripe } = fakeStripe();
+    const report = await runStripeGuard({ stripe, key: KEY, config: { ...config, payHosted: async () => undefined } });
+    expect(report.ok).toBe(false);
+    expect(report.failures?.[0].failure.message).toMatch(/session is open\/unpaid, not complete\/paid/);
+  });
+
+  it("a browser failure or an INCONCLUSIVE challenge fails the run with its message and does not hide canaries C and A", async () => {
+    const { stripe } = fakeStripe();
+    const report = await runStripeGuard({ stripe, key: KEY, config: { ...config, payHosted: async () => { throw new Error("INCONCLUSIVE: a security challenge frame is present after submitting payment; the test does not bypass it"); } } });
+    expect(report.ok).toBe(false);
+    expect(report.steps.filter((x) => x.ok && x.name.startsWith("canary")).map((x) => x.name.slice(0, 8))).toEqual(["canary C", "canary A"]);
+    expect(report.failures?.[0].failure.message).toMatch(/^INCONCLUSIVE: /);
+  });
+
+  it("a wrong amount or a missing fee after the browser payment fails", async () => {
+    for (const over of [{ fee: 5 }, { received: 99 }, { chargeFee: null, chargeFeeAmount: null }] as Overrides[]) {
+      const { stripe } = fakeStripe(over);
+      const report = await runStripeGuard({ stripe, key: KEY, config });
+      expect(report.ok, JSON.stringify(over)).toBe(false);
+    }
   });
 });

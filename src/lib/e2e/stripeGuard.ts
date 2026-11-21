@@ -12,14 +12,17 @@
  *   3. canary C (first, owner decision 2026-11-20): a direct $1 PaymentIntent on the connected account, confirmed with a TEST card and the same application fee
  *      (documented endpoints only): proves the ACCOUNT can take a card payment and carry the fee, whatever key type is used and whether or not Checkout works;
  *   4. canary A: create one $1 Checkout Session on the connected account WITH an application fee, then expire it. This proves session creation only;
- *   5. canary B (Checkout payment probe): create a second $1 session, pay it through the payment page (an undocumented endpoint that no restricted-key
- *      permission is documented to cover) with a TEST card, and verify the session is paid and the fee is on the PaymentIntent and the charge.
+ *   5. canary B (Checkout payment): create a second $1 session through the documented API and pay it on the Stripe-hosted page in a browser with the
+ *      documented TEST card (the injected payHosted driver; see stripeHostedCheckout.ts). Success is decided only by documented API reads: the session is
+ *      complete/paid for 100 cents in TEST mode, the PaymentIntent succeeded, and the fee is on the PaymentIntent and the charge. The undocumented
+ *      /v1/payment_pages confirm call is no longer used (run 44806898241: 400 checkout_confirm_error).
  *      B creates its own session, so a refused A does not hide B's answer.
  * Effects are injected (a Stripe-shaped object), so the unit tests need no Stripe account. Nothing here logs a key; only Stripe's error fields
  * (type, code, message, param, request id) are reported, because the run must STOP and quote the exact error before any onboarding is requested.
  */
 import type Stripe from "stripe";
 import { assertTestKey, redactSecrets } from "./stripeRelay";
+import { assertHostedCheckoutUrl, CANARY_EMAIL } from "./stripeHostedCheckout";
 
 export type StripeFailure = {
   kind: "capability" | "permission" | "authentication" | "other";
@@ -49,7 +52,7 @@ export function classifyStripeError(error: unknown): StripeFailure {
   return failure;
 }
 
-export type GuardConfig = { expectPlatform: string; connectedAccount: string; successUrl: string; cancelUrl: string; applicationFeeCents?: number; cardToken?: string };
+export type GuardConfig = { expectPlatform: string; connectedAccount: string; successUrl: string; cancelUrl: string; applicationFeeCents?: number; payHosted?: (checkoutUrl: string) => Promise<void> };
 
 export type GuardReport = {
   ok: boolean;
@@ -84,7 +87,7 @@ export function summarizeReport(report: GuardReport): string {
   return redactSecrets(lines.join("\n"));
 }
 
-type StripeLike = Pick<Stripe, "accounts" | "balance" | "checkout" | "paymentIntents"> & { rawRequest: Stripe["rawRequest"]; paymentMethods: Stripe["paymentMethods"] };
+type StripeLike = Pick<Stripe, "accounts" | "balance" | "checkout" | "paymentIntents"> & { rawRequest: Stripe["rawRequest"] };
 
 const sessionParams = (config: GuardConfig, label: string): Stripe.Checkout.SessionCreateParams => ({
   mode: "payment",
@@ -92,17 +95,8 @@ const sessionParams = (config: GuardConfig, label: string): Stripe.Checkout.Sess
   payment_intent_data: { application_fee_amount: config.applicationFeeCents ?? 10 },
   success_url: config.successUrl, cancel_url: config.cancelUrl,
   metadata: { cf1_canary: label },
+  ...(label.startsWith("B") ? { customer_email: CANARY_EMAIL } : {}),
 });
-
-/** Pays an open Checkout Session in TEST mode through the payment page (the way `stripe trigger` does); returns nothing, throws Stripe's error. */
-export async function payCheckoutSessionPlain(stripe: Pick<StripeLike, "rawRequest" | "checkout" | "paymentMethods">, account: string, sessionId: string, token = "tok_visa") {
-  const onAccount = { stripeAccount: account };
-  const page = (await stripe.rawRequest("GET", `/v1/payment_pages/${sessionId}`, {}, onAccount)) as unknown as { total_summary?: { due?: number }; livemode?: boolean };
-  if (page.livemode !== false) throw new Error("payment page is not TEST mode");
-  const session = await stripe.checkout.sessions.retrieve(sessionId, {}, onAccount);
-  const method = await stripe.paymentMethods.create({ type: "card", card: { token }, billing_details: { name: "CF1 canary", email: session.customer_email ?? undefined } }, onAccount);
-  await stripe.rawRequest("POST", `/v1/payment_pages/${sessionId}/confirm`, { payment_method: method.id, expected_amount: page.total_summary?.due }, onAccount);
-}
 
 /**
  * The fee must be recorded on BOTH the PaymentIntent and the charge. On the charge the documented amount field (`application_fee_amount`) is the assertion;
@@ -201,16 +195,23 @@ export async function runStripeGuard(input: { stripe: StripeLike; key: string; c
       },
     },
     {
-      id: "B", name: "canary B: pay a $1 Checkout Session with a TEST card (payment page confirm)",
+      id: "B", name: "canary B: pay a $1 Checkout Session on the Stripe-hosted page with the TEST card 4242 (browser)",
       run: async () => {
         const paying = await stripe.checkout.sessions.create(sessionParams(config, "B-pay"), onAccount);
-        await payCheckoutSessionPlain(stripe, config.connectedAccount, paying.id, config.cardToken);
+        if (paying.livemode !== false) throw new Error("canary B session is not a TEST session");
+        // The payment is made the way a customer makes it: in a browser on the Stripe-hosted page (documented behavior only). Fail closed without a driver.
+        if (!config.payHosted) throw new Error("no hosted-Checkout payment driver is configured");
+        assertHostedCheckoutUrl(paying.url);
+        await config.payHosted(paying.url as string);
+        // Success is decided only by documented API reads, never by what the browser saw.
         const paid = await stripe.checkout.sessions.retrieve(paying.id, {}, onAccount);
         if (paid.status !== "complete" || paid.payment_status !== "paid") throw new Error(`session is ${paid.status}/${paid.payment_status}, not complete/paid`);
+        if (paid.amount_total !== 100 || paid.livemode !== false) throw new Error(`session amount_total is ${paid.amount_total}, expected 100 in TEST mode`);
         const intent = await stripe.paymentIntents.retrieve(String(paid.payment_intent), { expand: ["latest_charge"] }, onAccount);
+        if (intent.status !== "succeeded") throw new Error(`PaymentIntent is ${intent.status}, not succeeded`);
         if (intent.amount_received !== 100) throw new Error(`received ${intent.amount_received} cents, expected 100`);
         assertFeeRecorded(intent, intent.latest_charge as Stripe.Charge | null, fee);
-        return { name: "canary B: card payment confirmed through Checkout; application fee recorded on the PaymentIntent and the charge", detail: { amount_received: intent.amount_received, application_fee_amount: intent.application_fee_amount } };
+        return { name: "canary B: card payment confirmed through the Stripe-hosted Checkout page in a browser; application fee recorded on the PaymentIntent and the charge", detail: { amount_received: intent.amount_received, application_fee_amount: intent.application_fee_amount } };
       },
     },
   ];
