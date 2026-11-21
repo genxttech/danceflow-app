@@ -49,7 +49,7 @@ describe("callOpenAiResponses (shared provider-call wrapper)", () => {
   });
 
   function logged() {
-    return infoSpy.mock.calls.map((call) => JSON.parse(String(call[0])));
+    return infoSpy.mock.calls.map((call: unknown[]) => JSON.parse(String(call[0])));
   }
 
   it("fails closed without calling the provider when the master flag is not exactly true", async () => {
