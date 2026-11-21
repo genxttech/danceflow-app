@@ -285,7 +285,9 @@ describe("source invariants (active code)", () => {
     expect(actions).toContain("const admin = createAdminClient();\n  const { error: uploadError } = await admin.storage");
     expect(actions).toContain("upsert: false,");
     expect(actions).toContain("return { path: photoPath, error: null as string | null };");
-    expect(actions).toContain("photo_url: photoResult.path,");
+    // the create insert now lives in src/lib/staff/clientCreate.ts (shared with the Staff API): the bare upload path is handed to it and stored as photo_url
+    expect(actions).toContain("photoPath: photoResult.path,");
+    expect(read("src/lib/staff/clientCreate.ts")).toContain("photo_url: params.photoPath");
     expect(actions).toContain("...(photoResult.path ? { photo_url: photoResult.path } : {})");
   });
 
