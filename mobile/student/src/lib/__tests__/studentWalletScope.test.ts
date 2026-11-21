@@ -55,7 +55,7 @@ describe("guest buyers (no linked studio, no client record)", () => {
     await loadStudentWallet([], "Buyer@Example.test", { force: true });
     const reg = callsFor("my_event_registrations");
     expect(reg.find((c) => c.method === "eq")?.args).toEqual(["attendee_email", "buyer@example.test"]);
-    expect(reg.find((c) => c.method === "in")?.args).toEqual(["status", ["confirmed", "checked_in", "pending", "waitlisted"]]);
+    expect(reg.find((c) => c.method === "in")?.args).toEqual(["status", ["confirmed", "checked_in", "pending", "waitlisted", "cancelled"]]);
     expect(callsFor("commerce_entitlements").find((c) => c.method === "eq")?.args).toEqual(["user_id", "user-1"]);
   });
 });
