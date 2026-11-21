@@ -14,6 +14,7 @@ const OTHER = "d".repeat(40);
 const CODEOWNERS = "# c\n/.github/ @genxttech\n/package.json @genxttech @someone-else\n";
 
 type Any = any; // eslint-disable-line @typescript-eslint/no-explicit-any
+const BLOB = "e".repeat(40);
 const file = (name: string, extra: Any = {}) => ({ filename: name, status: "modified", additions: 3, deletions: 1, patch: "@@ -1,2 +1,4 @@\n a\n-b\n+c\n+d\n+e", sha: "x", ...extra });
 const review = (id: number, login: string, state: string, commit_id = HEAD, extra: Any = {}) => ({ id, user: { login, type: "User" }, state, commit_id, submitted_at: "2026-11-19T10:00:00Z", ...extra });
 
@@ -49,7 +50,7 @@ function fakeApi(s: Any) {
       for (const [frag, status] of Object.entries(s.errors as Record<string, number>)) if (p.includes(frag)) return { status, body: { message: "boom" } };
       const ok = (body: unknown) => ({ status: 200, body });
       if (p === `/repos/${REPO}/commits/${SHA}`) return s.commit === null ? { status: 404, body: {} } : ok(s.commit);
-      if (p === `/repos/${REPO}/compare/${SHA}...${BRANCH}`) return ok(s.compare);
+      if (p === `/repos/${REPO}/compare/${SHA}...heads/${BRANCH}`) return ok(s.compare);
       if (p === `/repos/${REPO}/commits/${SHA}/pulls`) return ok(page(s.assoc, url));
       if (p === `/repos/${REPO}/pulls/7`) return ok(s.pr);
       if (p === `/repos/${REPO}/pulls/7/commits`) return ok(page(s.prCommits, url));
@@ -137,7 +138,7 @@ describe("validatePin: negative matrix (all fail closed)", () => {
     expect(await code({ prCommits: [{ sha: HEAD }, { sha: OTHER }] })).toBe("push-after");
     expect(await code({ pr: { ...scenario().pr, commits: 3 } })).toBe("push-after");
   });
-  it("N12 dismissed review", async () => {
+  it("N12 dismissed review, including approval later dismissed with no force-push (same head, no new commit)", async () => {
     expect(await code({ reviews: [review(1, "genxttech", "DISMISSED")] })).toBe("not-approved");
     expect(await code({ reviews: [review(1, "genxttech", "APPROVED"), review(2, "genxttech", "DISMISSED")] })).toBe("not-approved");
   });
@@ -189,6 +190,28 @@ describe("validatePin: negative matrix (all fail closed)", () => {
     expect(await code({}, { repo: "x" })).toBe("input");
     expect(await code({}, { branch: "a..b" })).toBe("input");
     expect(await code({}, { branch: "a b" })).toBe("input");
+  });
+});
+
+describe("review follow-ups (N1-N3)", () => {
+  it("N2 the ancestry compare uses the qualified heads/ ref only; a bare-name route (tag ambiguity) is never called", async () => {
+    const api = fakeApi(scenario());
+    await validatePin({ sha: SHA, repo: REPO, branch: BRANCH, api, codeownersText: CODEOWNERS });
+    expect(api.calls.some((c) => c.includes(`...heads/${BRANCH}`))).toBe(true);
+    expect(api.calls.some((c) => c.includes(`...${BRANCH}`) && !c.includes(`...heads/${BRANCH}`))).toBe(false);
+  });
+  it("N3 binary or oversize file (no patch): passes only when PR and commit blob shas are equal; missing or different blob sha fails", async () => {
+    const bin = (o: Any = {}) => file("img.png", { patch: undefined, sha: BLOB, ...o });
+    const s = scenario();
+    expect((await run({ prFiles: [s.prFiles[0], bin()], commitFiles: [s.commitFiles[0], bin()] })).pr.files).toBe(2);
+    expect(await code({ prFiles: [s.prFiles[0], bin()], commitFiles: [s.commitFiles[0], bin({ sha: "f".repeat(40) })] })).toBe("diff");
+    expect(await code({ prFiles: [s.prFiles[0], bin({ sha: undefined })], commitFiles: [s.commitFiles[0], bin({ sha: undefined })] })).toBe("diff");
+    expect(await code({ prFiles: [s.prFiles[0], bin()], commitFiles: [s.commitFiles[0], file("img.png")] })).toBe("diff");
+  });
+  it("N1 precondition, pinned by test: the diff base is the commit's first parent, and its provenance is NOT verified (documented release-ruleset precondition)", async () => {
+    const api = fakeApi(scenario());
+    await validatePin({ sha: SHA, repo: REPO, branch: BRANCH, api, codeownersText: CODEOWNERS });
+    expect(api.calls.some((c) => c.includes(`/compare/${PARENT}...${SHA}`))).toBe(true);
   });
 });
 

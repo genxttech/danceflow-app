@@ -72,7 +72,10 @@ async function paged(api, path, key) {
 const normPatch = (p) => (typeof p === "string" ? p.split("\n").filter((l) => !l.startsWith("@@")).join("\n") : null);
 function fileKey(f) {
   if (typeof f?.filename !== "string") fail("api", "file entry without a name");
-  return JSON.stringify([f.filename, f.status, f.previous_filename ?? null, f.additions, f.deletions, normPatch(f.patch)]);
+  // Binary or oversize files have no patch: then the blob sha (PR head vs merge commit) is the only content proof, and it must exist.
+  const blob = typeof f.patch === "string" ? null : f.sha;
+  if (typeof f.patch !== "string" && !/^[0-9a-f]{40}$/.test(blob ?? "")) fail("diff", "a changed file has neither a patch nor a blob sha to compare");
+  return JSON.stringify([f.filename, f.status, f.previous_filename ?? null, f.additions, f.deletions, normPatch(f.patch), blob]);
 }
 
 export async function validatePin({ sha, repo, branch, api, codeownersText }) {
@@ -88,7 +91,7 @@ export async function validatePin({ sha, repo, branch, api, codeownersText }) {
   if (parents.length < 1 || parents.length > 2 || !parents.every((p) => SHA_RE.test(p))) fail("commit", "the commit must have one parent (squash) or two (merge commit)");
 
   // 2. ancestry: sha is an ancestor of (or equal to) the release branch tip
-  const cmp = await getOk(api, `/repos/${repo}/compare/${sha}...${branch}`);
+  const cmp = await getOk(api, `/repos/${repo}/compare/${sha}...heads/${branch}`); // qualified: a tag with the branch's name must not win
   if (!["ahead", "identical"].includes(cmp.status) || cmp.merge_base_commit?.sha !== sha) fail("ancestry", `the commit is not an ancestor of ${branch} (compare status: ${String(cmp.status)})`);
 
   // 3. exactly one merged PR into the release branch whose merge commit is this sha

@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -225,3 +225,17 @@ for (const spec of FILES) {
     });
   });
 }
+
+describe("trust root is owner-gated", () => {
+  const owners = readFileSync(join(REPO, ".github", "CODEOWNERS"), "utf8").split(/\r?\n/).filter((l) => !l.trim().startsWith("#"));
+  it("CODEOWNERS lists /.github/ and the validator directory for the same owner", () => {
+    expect(owners).toContain("/.github/ @genxttech");
+    expect(owners).toContain("/scripts/qa/cf1-stripe-workflow/ @genxttech");
+  });
+  it("the validator, its tests and these tripwires live under that directory", () => {
+    for (const f of ["validatePin.mjs", "__tests__/validatePin.test.ts", "__tests__/workflows.test.ts"]) expect(existsSync(join(REPO, "scripts", "qa", "cf1-stripe-workflow", f)), f).toBe(true);
+  });
+  it("the workflows run the validator from that directory", () => {
+    for (const spec of FILES) expect(readFileSync(join(REPO, ".github", "workflows", spec.file), "utf8")).toContain("scripts/qa/cf1-stripe-workflow/validatePin.mjs");
+  });
+});
