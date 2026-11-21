@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react-native";
+import { act, renderHook, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
 import { AssistantProvider, useAssistant, useAssistantOptional, useAssistantScreen } from "../shared/provider";
 import { createStubResponder } from "../shared/stubResponder";
@@ -101,7 +101,7 @@ describe("AssistantProvider", () => {
     const { result } = setup(stub);
     act(() => result.current.setMode("sheet"));
     await act(async () => result.current.send("  hello  "));
-    await act(async () => undefined);
+    await waitFor(() => expect(result.current.busy).toBe(false));
     expect(result.current.messages.map((m) => [m.role, m.text, m.status])).toEqual([["user", "hello", "sent"], ["assistant", "ok", "sent"]]);
     act(() => result.current.setMode("closed"));
     expect(result.current.messages).toHaveLength(2);
@@ -114,9 +114,9 @@ describe("AssistantProvider", () => {
     // Registering from outside a screen component.
     act(() => void result.current.registerScreen({ screenId: "client-detail", entityIds: { clientId: ID, name: "Pat" } }));
     await act(async () => result.current.send("one"));
-    await act(async () => undefined);
+    await waitFor(() => expect(result.current.busy).toBe(false));
     await act(async () => result.current.send("two"));
-    await act(async () => undefined);
+    await waitFor(() => expect(result.current.busy).toBe(false));
     expect((seen[0] as { context: unknown }).context).toEqual({ screenId: "client-detail", entityIds: { clientId: ID } });
     expect((seen[1] as { history: unknown }).history).toEqual([{ role: "user", text: "one" }, { role: "assistant", text: "r" }]);
   });
@@ -125,12 +125,12 @@ describe("AssistantProvider", () => {
     const stub = createStubResponder({ fallback: "worked", failWith: "network", failOnCall: 1 });
     const { result } = setup(stub);
     await act(async () => result.current.send("q"));
-    await act(async () => undefined);
+    await waitFor(() => expect(result.current.busy).toBe(false));
     const failed = result.current.messages[1];
     expect(failed.status).toBe("error");
     expect(failed.errorKind).toBe("network");
     await act(async () => result.current.retry(failed.id));
-    await act(async () => undefined);
+    await waitFor(() => expect(result.current.busy).toBe(false));
     expect(result.current.messages.map((m) => m.status)).toEqual(["sent", "sent"]);
     expect(result.current.messages[1].text).toBe("worked");
   });
@@ -175,7 +175,7 @@ describe("AssistantProvider", () => {
     const responder: AssistantResponder = { respond: async () => ({ text: "see", links: [{ target: "https://x.y", label: "bad" }, { target: "today", label: "Today" }] }) };
     const { result } = setup(responder);
     await act(async () => result.current.send("q"));
-    await act(async () => undefined);
+    await waitFor(() => expect(result.current.busy).toBe(false));
     expect(result.current.messages[1].links).toEqual([{ target: "today", href: "/today", label: "Today" }]);
     expect(result.current.messages[1].text).toContain("bad");
   });
@@ -183,7 +183,7 @@ describe("AssistantProvider", () => {
   it("an unknown rejection becomes kind unknown", async () => {
     const { result } = setup({ respond: () => Promise.reject(new Error("boom")) });
     await act(async () => result.current.send("q"));
-    await act(async () => undefined);
+    await waitFor(() => expect(result.current.busy).toBe(false));
     expect(result.current.messages[1].errorKind).toBe("unknown");
     expect(new AssistantError("timeout").kind).toBe("timeout");
   });
