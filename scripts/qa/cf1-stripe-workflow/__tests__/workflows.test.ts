@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -14,8 +14,8 @@ const REPO = join(HERE, "..", "..", "..", "..");
 const yaml = createRequire(import.meta.url)("js-yaml") as { load(s: string): unknown };
 
 type Step = { name?: string; id?: string; if?: string; uses?: string; run?: string; env?: Record<string, string>; with?: Record<string, unknown> };
-type Job = { if?: string; "runs-on"?: string; "timeout-minutes"?: number; environment?: unknown; permissions?: Record<string, string>; env?: Record<string, string>; steps: Step[] };
-type Wf = { on: Record<string, unknown>; permissions?: Record<string, string>; concurrency?: { group?: string; "cancel-in-progress"?: boolean }; env?: Record<string, string>; jobs: Record<string, Job> };
+type Job = { if?: string; needs?: string | string[]; outputs?: Record<string, string>; "runs-on"?: string; "timeout-minutes"?: number; environment?: unknown; permissions?: Record<string, string>; env?: Record<string, string>; steps: Step[] };
+type Wf = { "run-name"?: string; on: Record<string, unknown>; permissions?: Record<string, string>; concurrency?: { group?: string; "cancel-in-progress"?: boolean }; env?: Record<string, string>; jobs: Record<string, Job> };
 
 const SECRET = "CF1_STRIPE_TEST_SECRET_KEY";
 const FILES = [
@@ -30,15 +30,25 @@ for (const spec of FILES) {
   const code = text.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
 
   describe(spec.file, () => {
-    it("the only trigger is workflow_dispatch, with no inputs; no other trigger name appears outside comments", () => {
+    it("the only trigger is workflow_dispatch with exactly one required string input, pin; no other trigger name appears outside comments", () => {
       expect(Object.keys(doc.on)).toEqual(["workflow_dispatch"]);
-      const wd = doc.on.workflow_dispatch;
-      expect(wd === null || (typeof wd === "object" && Object.keys(wd as object).length === 0)).toBe(true);
+      const wd = doc.on.workflow_dispatch as { inputs?: Record<string, { required?: boolean; type?: string }> };
+      expect(Object.keys(wd.inputs ?? {})).toEqual(["pin"]);
+      expect(wd.inputs?.pin?.required).toBe(true);
+      expect(wd.inputs?.pin?.type).toBe("string");
       for (const bad of ["pull_request_target", "pull_request", "push:", "schedule", "workflow_run", "repository_dispatch", "issue_comment", "workflow_call", "release:"]) expect(code).not.toContain(bad);
     });
 
-    it("one job, bound to the protected competition-stripe-test environment, for a manual dispatch of main in the real repository", () => {
-      expect(Object.keys(doc.jobs)).toEqual([spec.job]);
+    it("two jobs: validate-pin (no environment) then the job bound to the protected competition-stripe-test environment, both for a manual dispatch of main in the real repository", () => {
+      expect(Object.keys(doc.jobs)).toEqual(["validate-pin", spec.job]);
+      const v = doc.jobs["validate-pin"];
+      expect(v.environment).toBeUndefined();
+      for (const j of [v, job]) {
+        expect(j.if).toContain("github.event_name == 'workflow_dispatch'");
+        expect(j.if).toContain("github.repository == 'genxttech/danceflow-app'");
+        expect(j.if).toContain("github.ref == 'refs/heads/main'");
+        expect(j.if).not.toContain("||");
+      }
       const env = job.environment;
       expect(typeof env === "string" ? env : (env as { name?: string })?.name).toBe("competition-stripe-test");
       expect(job.if).toContain("github.event_name == 'workflow_dispatch'");
@@ -55,10 +65,12 @@ for (const spec of FILES) {
       expect(doc.concurrency?.["cancel-in-progress"]).toBe(false);
       expect(doc.permissions).toEqual({ contents: "read" });
       expect(job.permissions).toEqual({ contents: "read" });
+      expect(doc.jobs["validate-pin"].permissions).toEqual({ contents: "read", "pull-requests": "read" });
+      expect(doc.jobs["validate-pin"]["timeout-minutes"]).toBeLessThanOrEqual(10);
     });
 
     it("every action is pinned to a full commit SHA", () => {
-      const uses = job.steps.map((step) => step.uses).filter(Boolean) as string[];
+      const uses = [...doc.jobs["validate-pin"].steps, ...job.steps].map((step) => step.uses).filter(Boolean) as string[];
       expect(uses.length).toBeGreaterThan(0);
       for (const use of uses) expect(use, use).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
     });
@@ -84,8 +96,8 @@ for (const spec of FILES) {
       }
     });
 
-    it("INERT until its pins are real: the pinned commit is a placeholder, and the guards step refuses placeholders", () => {
-      expect(job.env?.CF1_PINNED_COMMIT).toMatch(/^PLACEHOLDER|^[0-9a-f]{40}$/);
+    it("the pin is the validated output of validate-pin (never a literal, never the raw input), and the guards step still refuses placeholders and bad shapes", () => {
+      expect(job.env?.CF1_PINNED_COMMIT).toBe("${{ needs.validate-pin.outputs.sha }}");
       const guards = job.steps.find((step) => (step.name ?? "").startsWith("Guards"));
       expect(guards?.run).toContain("*PLACEHOLDER*) echo");
       expect(guards?.run).toContain("exit 1");
@@ -157,5 +169,81 @@ describe("acceptance specifics", () => {
     const upload = steps.find((step) => (step.name ?? "").startsWith("Upload the ENCRYPTED"));
     expect(String(upload?.with?.path)).toContain("cf1-evidence.enc.json");
     expect(steps[steps.length - 1].if).toBe("always()");
+  });
+});
+
+for (const spec of FILES) {
+  const text = readFileSync(join(REPO, ".github", "workflows", spec.file), "utf8");
+  const doc = yaml.load(text) as Wf;
+  const validate = doc.jobs["validate-pin"];
+  const job = doc.jobs[spec.job];
+  const code = text.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
+
+  describe(`${spec.file}: pin validation precedes any secret`, () => {
+    it("the secret job needs validate-pin (so the environment approval is requested only after validation passed), and validate-pin needs nothing", () => {
+      expect(job.needs).toBe("validate-pin");
+      expect(validate.needs).toBeUndefined();
+    });
+
+    it("validate-pin has no environment, no secret reference, and only the read-only GITHUB_TOKEN (github.token)", () => {
+      const body = JSON.stringify(validate);
+      expect(validate.environment).toBeUndefined();
+      expect(body).not.toContain("secrets.");
+      expect(body).not.toContain(SECRET);
+      expect(body).not.toContain("STRIPE");
+      expect(validate.permissions?.contents).toBe("read");
+      expect(Object.values(validate.permissions ?? {}).every((v) => v === "read")).toBe(true);
+    });
+
+    it("the validator comes from main at the dispatched commit (github.sha), is not fetched from the pin or a PR, and runs under env -i", () => {
+      const fetchStep = validate.steps.find((st) => (st.name ?? "").startsWith("Fetch main"));
+      expect(fetchStep?.env?.SHA).toBe("${{ github.sha }}");
+      expect(fetchStep?.run).toContain('git fetch -q --no-tags --depth=1 origin "$SHA"');
+      expect(JSON.stringify(fetchStep)).not.toContain("inputs.");
+      const run = validate.steps.find((st) => st.id === "validate");
+      expect(run?.run).toContain("/usr/bin/env -i");
+      expect(run?.run).toContain("scripts/qa/cf1-stripe-workflow/validatePin.mjs");
+      expect(run?.env).toEqual({ PIN: "${{ inputs.pin }}", GH_TOKEN: "${{ github.token }}" });
+      const order = validate.steps.map((st) => st.id ?? st.name ?? "");
+      expect(order.findIndex((n) => n.startsWith("Fetch main"))).toBeLessThan(order.indexOf("validate"));
+      expect(validate.outputs).toEqual({ sha: "${{ steps.validate.outputs.sha }}" });
+    });
+
+    it("the raw input is used only as an env value of the validator step and in run-name; never in run text, never in the secret job", () => {
+      const uses = [...code.matchAll(/inputs\.pin/g)].length;
+      expect(uses).toBe(2); // run-name + the validator step's PIN env
+      expect(doc["run-name"]).toContain("${{ inputs.pin }}");
+      for (const st of [...validate.steps, ...job.steps]) expect(st.run ?? "", st.name).not.toMatch(/\$\{\{/);
+      expect(JSON.stringify(job)).not.toContain("inputs.");
+      expect(code).not.toContain("github.event.inputs");
+    });
+
+    it("validate-pin has no continue-on-error, and only the validator step can write GITHUB_OUTPUT", () => {
+      expect(JSON.stringify(validate)).not.toContain("continue-on-error");
+      expect(JSON.stringify(validate)).not.toContain("GITHUB_ENV");
+      const writers = validate.steps.filter((st) => (st.run ?? "").includes("GITHUB_OUTPUT")).map((st) => st.id);
+      expect(writers).toEqual(["validate"]);
+      expect(JSON.stringify(job)).not.toContain("GITHUB_OUTPUT");
+    });
+
+    it("the secret job re-checks shape and release-branch ancestry and fetches the pin by SHA", () => {
+      expect(code).toContain('git -C "$SRC" fetch -q --no-tags --depth=1 origin "$CF1_PINNED_COMMIT"');
+      expect(code).toContain("checkout -q --detach FETCH_HEAD");
+      expect(code).toContain('[ "$(git -C "$SRC" rev-parse HEAD)" = "$CF1_PINNED_COMMIT" ]');
+    });
+  });
+}
+
+describe("trust root is owner-gated", () => {
+  const owners = readFileSync(join(REPO, ".github", "CODEOWNERS"), "utf8").split(/\r?\n/).filter((l) => !l.trim().startsWith("#"));
+  it("CODEOWNERS lists /.github/ and the validator directory for the same owner", () => {
+    expect(owners).toContain("/.github/ @genxttech");
+    expect(owners).toContain("/scripts/qa/cf1-stripe-workflow/ @genxttech");
+  });
+  it("the validator, its tests and these tripwires live under that directory", () => {
+    for (const f of ["validatePin.mjs", "__tests__/validatePin.test.ts", "__tests__/workflows.test.ts"]) expect(existsSync(join(REPO, "scripts", "qa", "cf1-stripe-workflow", f)), f).toBe(true);
+  });
+  it("the workflows run the validator from that directory", () => {
+    for (const spec of FILES) expect(readFileSync(join(REPO, ".github", "workflows", spec.file), "utf8")).toContain("scripts/qa/cf1-stripe-workflow/validatePin.mjs");
   });
 });
