@@ -147,7 +147,7 @@ function fail(
 
 export async function callOpenAiResponses(options: AiCallOptions): Promise<AiCallResult> {
   const startedAt = Date.now();
-  const inputChars = options.input.reduce((sum, item) => sum + item.content.length, 0);
+  const inputChars = options.input.reduce((sum, item) => sum + (typeof item.content === "string" ? item.content.length : Number.POSITIVE_INFINITY), 0);
 
   if (process.env.AI_FEATURES_ENABLED !== "true") return fail(options, "disabled", startedAt, inputChars);
   const apiKey = process.env.OPENAI_API_KEY;
@@ -162,7 +162,8 @@ export async function callOpenAiResponses(options: AiCallOptions): Promise<AiCal
     if (!budget.allowed) return fail(options, "budget_exceeded", startedAt, inputChars);
   }
 
-  const maxOutputTokens = Math.max(1, Math.min(Math.trunc(options.maxOutputTokens), HARD_MAX_OUTPUT_TOKENS));
+  const requestedOutput = Number.isFinite(options.maxOutputTokens) ? Math.trunc(options.maxOutputTokens) : HARD_MAX_OUTPUT_TOKENS;
+  const maxOutputTokens = Math.max(1, Math.min(requestedOutput, HARD_MAX_OUTPUT_TOKENS));
   const timeoutMs = Math.max(1000, Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS));
 
   let response: Response;

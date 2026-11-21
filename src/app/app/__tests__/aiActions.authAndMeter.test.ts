@@ -63,6 +63,12 @@ describe("event-description and report-insights actions: authentication, plan, a
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("a null or malformed metrics argument is refused before any provider call", async () => {
+    expect(await generateReportInsights(null as never)).toMatchObject({ ok: false });
+    expect(await generateReportInsights("x" as never)).toMatchObject({ ok: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("an oversize metrics payload is refused before the provider", async () => {
     const huge = { range: "30d", plan: "growth", blob: "x".repeat(20_000) } as never;
     expect(await generateReportInsights(huge)).toMatchObject({ ok: false });

@@ -11,36 +11,9 @@ export type FollowUpMessageState = {
   message?: string;
 };
 
-type OpenAiResponse = {
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{
-      text?: string;
-      type?: string;
-    }>;
-  }>;
-  error?: {
-    message?: string;
-  };
-};
-
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
-}
-
-function getOutputText(data: OpenAiResponse) {
-  if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim();
-  }
-
-  const text = data.output
-    ?.flatMap((item) => item.content ?? [])
-    .map((content) => content.text ?? "")
-    .join("\n")
-    .trim();
-
-  return text || null;
 }
 
 export async function generateFollowUpMessageAction(

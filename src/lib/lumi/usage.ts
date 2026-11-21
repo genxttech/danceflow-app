@@ -183,6 +183,7 @@ async function setState(access: LumiPortalAccess, id: string, state: "settled" |
     .update({ metadata: { task, state, ...extra } })
     .eq("id", id)
     .eq("studio_id", access.studio.id)
+    .eq("related_id", access.client.id)
     .eq("feature_key", LUMI_USAGE_FEATURE_KEY);
   if (error) console.error("LUMI usage state update failed", state, error.message);
   return !error;

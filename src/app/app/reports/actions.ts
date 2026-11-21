@@ -94,33 +94,6 @@ export type ReportInsightsMetrics = {
   };
 };
 
-type OpenAiResponse = {
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{
-      text?: string;
-      type?: string;
-    }>;
-  }>;
-  error?: {
-    message?: string;
-  };
-};
-
-function getOutputText(data: OpenAiResponse) {
-  if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim();
-  }
-
-  const text = data.output
-    ?.flatMap((item) => item.content ?? [])
-    .map((content) => content.text ?? "")
-    .join("\n")
-    .trim();
-
-  return text || null;
-}
-
 export async function generateReportInsights(metrics: ReportInsightsMetrics) {
   const canUseAi = await studioHasFeature("ai_assistant");
 
@@ -140,7 +113,7 @@ export async function generateReportInsights(metrics: ReportInsightsMetrics) {
     };
   }
 
-  if (JSON.stringify(metrics ?? {}).length > 12000) {
+  if (!metrics || typeof metrics !== "object" || JSON.stringify(metrics).length > 12000) {
     return { ok: false, error: "That report is too large for AI insights." };
   }
 
@@ -183,7 +156,7 @@ export async function generateReportInsights(metrics: ReportInsightsMetrics) {
   await recordUsageEvent({
     featureKey: "ai_action",
     source: "report_ai_insights",
-    metadata: { range: String(metrics.range ?? "").slice(0, 40) },
+    metadata: { range: String(metrics?.range ?? "").slice(0, 40) },
   });
 
   return {

@@ -160,4 +160,12 @@ describe("callOpenAiResponses (shared provider-call wrapper)", () => {
     await callOpenAiResponses(base);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("hardens against non-string content and NaN output caps", async () => {
+    const bad = { role: "user", content: 42 } as unknown as { role: "user"; content: string };
+    expect(await callOpenAiResponses({ ...base, input: [bad] })).toMatchObject({ ok: false, reason: "input_too_large" });
+    fetchMock.mockResolvedValueOnce(okResponse({ output_text: "ok" }));
+    await callOpenAiResponses({ ...base, maxOutputTokens: Number.NaN });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).max_output_tokens).toBe(HARD_MAX_OUTPUT_TOKENS);
+  });
 });

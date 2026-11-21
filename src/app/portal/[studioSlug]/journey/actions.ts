@@ -164,6 +164,8 @@ export async function generateLumiPlanAction(
     return { ok: false, error: lumiRefusalMessage(reservation.reason) };
   }
 
+  let settled = false;
+  try {
   const nowIso = new Date().toISOString();
   const [{ data: goals }, { data: appointments }, { data: syllabusAssignments }, { data: groupRecapRows }] =
     await Promise.all([
@@ -282,14 +284,17 @@ export async function generateLumiPlanAction(
     // The provider never produced billable output (disabled, too large, rejected): give the reserved capacity back.
     // A timeout may still have been billed by the provider, so it stays counted.
     if (result.reason === "timeout") {
+      settled = true;
       await settleLumiUsage(access, reservation.id, task, { outcome: "timeout" });
     } else {
+      settled = true;
       await releaseLumiUsage(access, reservation.id, task);
     }
     return { ok: false, error: result.message };
   }
 
   // The provider was reached and produced output: this request is billable whether or not the JSON parses.
+  settled = true;
   await settleLumiUsage(access, reservation.id, task, {
     outcome: "ok",
     inputTokens: result.usage.inputTokens,
@@ -319,4 +324,11 @@ export async function generateLumiPlanAction(
     instructorQuestions: list(parsed.instructorQuestions, 3),
     encouragement: String(parsed.encouragement ?? "").trim(),
   };
+  } catch (error) {
+    // Anything thrown between reservation and settlement (a context query, a crash in parsing) must not leave the
+    // reserved capacity stuck. A call that already reached the provider stays counted.
+    if (!settled) await releaseLumiUsage(access, reservation.id, task);
+    console.error("LUMI plan generation failed", error instanceof Error ? error.message : error);
+    return { ok: false, error: "LUMI could not prepare guidance right now." };
+  }
 }
