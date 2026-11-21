@@ -7,10 +7,15 @@ import { createClient } from "@/lib/supabase/server";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function extractStudentBearerToken(request: Request) {
+/** The token from the standard Authorization header only (the staff API accepts nothing else). */
+export function extractAuthorizationBearerToken(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const match = authorization.match(/^Bearer\s+(.+)$/i);
-  const bearerToken = match?.[1]?.trim() || "";
+  return match?.[1]?.trim() || "";
+}
+
+export function extractStudentBearerToken(request: Request) {
+  const bearerToken = extractAuthorizationBearerToken(request);
 
   if (bearerToken) {
     return bearerToken;
@@ -94,26 +99,31 @@ export async function createStudentApiUserScopedClient(request: Request) {
   const bearerToken = extractStudentBearerToken(request);
 
   if (bearerToken) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
-    if (!anonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY.");
-
-    return createSupabaseJsClient(url, anonKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-      global: {
-        headers: {
-          Authorization: `Bearer ${bearerToken}`,
-        },
-      },
-    });
+    return createBearerScopedClient(bearerToken);
   }
 
   return createClient();
+}
+
+/** A client that carries exactly this access token, so RLS and RPCs see auth.uid() as its user. Never cookie-backed, never service-role. */
+export function createBearerScopedClient(bearerToken: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL.");
+  if (!anonKey) throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+
+  return createSupabaseJsClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${bearerToken}`,
+      },
+    },
+  });
 }
 
 export async function requireStudentApiUser(request: Request) {

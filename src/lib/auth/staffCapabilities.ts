@@ -1,0 +1,71 @@
+import {
+  canAdjustBalances,
+  canAssignRoles,
+  canCancelGroupClass,
+  canCheckInEventAttendees,
+  canCreateAppointments,
+  canDeleteAppointments,
+  canEditAppointments,
+  canEditClients,
+  canManageAppointmentPayments,
+  canManageBilling,
+  canManageEventRegistrations,
+  canManageEvents,
+  canManageInstructors,
+  canManageOwnFloorRentalAppointment,
+  canManagePayouts,
+  canManageRooms,
+  canManageSettings,
+  canMarkAttendance,
+  canSellCommerce,
+  canSellMemberships,
+  canSellPackages,
+  canTakePayments,
+  canViewClients,
+  canViewCommunications,
+  canViewOrganizerFinancials,
+  canViewOrganizerWorkspace,
+  canViewPayments,
+  canViewReports,
+  canViewStudioSchedule,
+} from "@/lib/auth/permissions";
+
+/**
+ * What GET /api/staff/me reports for one workspace, so the Business app can shape its navigation. Every value comes straight from permissions.ts, so the app and the web
+ * guards cannot disagree about a role. These are role-level hints only: each route enforces its own authority, and a true value does not mean a route exists yet.
+ */
+export function staffCapabilitiesForRole(role: string | null | undefined) {
+  return {
+    viewStudioSchedule: canViewStudioSchedule(role),
+    createAppointments: canCreateAppointments(role),
+    editAppointments: canEditAppointments(role),
+    deleteAppointments: canDeleteAppointments(role),
+    markAttendance: canMarkAttendance(role),
+    cancelGroupClass: canCancelGroupClass(role),
+    manageOwnFloorRentalAppointment: canManageOwnFloorRentalAppointment(role),
+    manageAppointmentPayments: canManageAppointmentPayments(role),
+    viewClients: canViewClients(role),
+    editClients: canEditClients(role),
+    viewPayments: canViewPayments(role),
+    takePayments: canTakePayments(role),
+    adjustBalances: canAdjustBalances(role),
+    sellPackages: canSellPackages(role),
+    sellMemberships: canSellMemberships(role),
+    sellCommerce: canSellCommerce(role),
+    viewReports: canViewReports(role),
+    viewCommunications: canViewCommunications(role),
+    manageInstructors: canManageInstructors(role),
+    manageRooms: canManageRooms(role),
+    manageSettings: canManageSettings(role),
+    manageBilling: canManageBilling(role),
+    managePayouts: canManagePayouts(role),
+    assignRoles: canAssignRoles(role),
+    viewOrganizerWorkspace: canViewOrganizerWorkspace(role),
+    viewOrganizerFinancials: canViewOrganizerFinancials(role),
+    manageEvents: canManageEvents(role),
+    manageEventRegistrations: canManageEventRegistrations(role),
+    checkInEventAttendees: canCheckInEventAttendees(role),
+  };
+}
+
+export type StaffCapabilities = ReturnType<typeof staffCapabilitiesForRole>;
