@@ -67,6 +67,11 @@ vi.mock("next/headers", () => ({
   },
   headers: async () => new Headers(),
 }));
+const notices = vi.hoisted(() => ({ enrolled: vi.fn(async () => ({})), removed: vi.fn(async () => ({})) }));
+vi.mock("@/lib/notifications/groupClassNotices", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/notifications/groupClassNotices")>("@/lib/notifications/groupClassNotices");
+  return { ...actual, notifyGroupClassEnrolled: notices.enrolled, notifyGroupClassRemovedByAttendee: notices.removed };
+});
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw new Error(`Unexpected redirect to ${url}`);
@@ -234,6 +239,68 @@ describe.skipIf(!enabled)("staff API class roster against real RLS and the enrol
       expect((await add(USERS.owner, classId, { clientId: C6, billingType: "package_credit", clientPackageId: pkg })).status).toBe(201);
       expect(booked(classId)).toBe(1);
       expect(Number(psql(`select quantity_remaining from public.client_package_items where client_package_id = '${pkg}' and usage_type = 'group_class';`))).toBe(3);
+    });
+  });
+
+  describe("replays and notices", () => {
+    it("answers a replay at full capacity with the existing attendee, not class_full", async () => {
+      const classId = newClass({ capacity: 1 });
+      const first = await add(USERS.owner, classId, { clientId: C1, billingType: "free_comped" });
+      expect(first.status).toBe(201);
+      const replay = await add(USERS.owner, classId, { clientId: C1, billingType: "free_comped" });
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).attendee.alreadyEnrolled).toBe(true);
+      // a different dancer still sees the class as full; a replay with other funding returns the existing attendee unchanged
+      await expectCode(await add(USERS.owner, classId, { clientId: C2, billingType: "free_comped" }), 409, "class_full");
+      const other = await add(USERS.owner, classId, { clientId: C1, billingType: "pay_as_you_go" });
+      expect(other.status).toBe(200);
+      expect(Number(psql(`select count(*) from public.appointment_attendees where appointment_id = '${classId}' and client_id = '${C1}' and billing_type = 'free_comped';`))).toBe(1);
+    });
+
+    it("answers an instructor replay with the existing attendee even after the dancer gains a second package", async () => {
+      const classId = newClass();
+      const makePackage = () => {
+        const pkg = id();
+        psql(`insert into public.client_packages (id, studio_id, client_id, name_snapshot, active, expiration_date, sold_price) values ('${pkg}', '${STUDIO_A}', '${C4}', 'Class pack', true, '${day(60).slice(0, 10)}', 80);
+          insert into public.client_package_items (studio_id, client_package_id, usage_type, quantity_remaining, quantity_total, is_unlimited) values ('${STUDIO_A}', '${pkg}', 'group_class', 3, 4, false);`);
+      };
+      makePackage();
+      expect((await add(USERS.instructor, classId, { clientId: C4 })).status).toBe(201);
+      makePackage(); // now two eligible packages: a fresh instructor enroll would be ambiguous
+      const replay = await add(USERS.instructor, classId, { clientId: C4 });
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).attendee.alreadyEnrolled).toBe(true);
+      expect(booked(classId)).toBe(1);
+    });
+
+    it("sends the enroll notice only for a fresh insert, none for replays", async () => {
+      notices.enrolled.mockClear();
+      const classId = newClass();
+      const first = await add(USERS.owner, classId, { clientId: C1, billingType: "free_comped" });
+      const attendeeId = (await first.json()).attendee.id;
+      await add(USERS.owner, classId, { clientId: C1, billingType: "free_comped" });
+      await Promise.all([1, 2, 3].map(() => add(USERS.owner, classId, { clientId: C1, billingType: "free_comped" })));
+      expect(notices.enrolled).toHaveBeenCalledTimes(1);
+      expect(notices.enrolled).toHaveBeenCalledWith(expect.objectContaining({ clientId: C1, eventId: attendeeId, appointmentIds: [classId] }));
+    });
+
+    it("sends the removal notice only when a booked dancer was removed; racing removals all name the same attendee row", async () => {
+      const classId = newClass();
+      expect((await add(USERS.owner, classId, { clientId: C2, billingType: "free_comped" })).status).toBe(201);
+      const attendeeId = attendeeOf(classId, C2);
+      notices.removed.mockClear();
+      const responses = await Promise.all([1, 2, 3].map(() => drop(USERS.owner, classId, C2)));
+      expect(responses.every((response) => response.status === 200)).toBe(true);
+      // The notice is keyed on the attendee row (its dedupe key is kind:eventId:email), so concurrent removals can call it but deliver once.
+      const calls = notices.removed.mock.calls as unknown as { attendeeId: string }[][];
+      expect(calls.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(calls.map(([call]) => call.attendeeId))).toEqual(new Set([attendeeId]));
+      notices.removed.mockClear();
+      expect(((await (await drop(USERS.owner, classId, C2)).json()) as { alreadyApplied: boolean }).alreadyApplied).toBe(true);
+      expect(notices.removed).not.toHaveBeenCalled();
+      // a never-enrolled dancer: no notice
+      await drop(USERS.owner, classId, C3);
+      expect(notices.removed).not.toHaveBeenCalled();
     });
   });
 
