@@ -9,6 +9,7 @@ import {
   getLowPackageCreditClientIds,
   sendMarketingCampaignAction,
   sendMarketingCampaignTestEmailAction,
+  updateMarketingCampaignDraftAction,
 } from "../actions";
 import CampaignAIAssistant from "../CampaignAIAssistant";
 import CampaignAllowancePanel from "../CampaignAllowancePanel";
@@ -25,6 +26,7 @@ type Params = Promise<{
 }>;
 
 type SearchParams = Promise<{
+  campaign_saved?: string;
   test_sent?: string;
   campaign_sent?: string;
   recipients_generated?: string;
@@ -121,6 +123,22 @@ function campaignErrorMessage(code?: string) {
       return "Test email could not be sent. Check Resend settings and sender verification.";
     case "recipient_generate_failed":
       return "Recipients could not be generated. Check the campaign audience and try again.";
+    case "missing_name":
+      return "Give the campaign a name.";
+    case "missing_subject":
+      return "Campaign needs a subject.";
+    case "missing_body":
+      return "Campaign needs a message.";
+    case "invalid_cta_url":
+      return "The button link must be a valid http or https address.";
+    case "invalid_audience":
+    case "invalid_event":
+    case "missing_event":
+      return "The campaign audience is not valid. Nothing was changed.";
+    case "campaign_started":
+      return "Delivery has already started for this campaign, so its content can no longer be edited.";
+    case "save_failed":
+      return "The campaign could not be saved. Nothing was changed; try again.";
     case "campaign_locked":
       return "This campaign is currently locked because it has already sent or is sending.";
     case "no_pending_recipients":
@@ -885,6 +903,12 @@ export default async function MarketingCampaignDetailPage({
           </div>
         ) : null}
 
+        {resolvedSearchParams.campaign_saved ? (
+          <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+            Draft saved.
+          </div>
+        ) : null}
+
         {campaignError ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 shadow-sm">
             {campaignError}
@@ -1015,6 +1039,49 @@ export default async function MarketingCampaignDetailPage({
                     {campaign.cta_label}
                   </a>
                 </div>
+              ) : null}
+
+
+              {campaign.status === "draft" ? (
+                <details className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                  <summary className="cursor-pointer text-sm font-bold text-[var(--brand-text)]">
+                    Edit draft
+                  </summary>
+                  <form action={updateMarketingCampaignDraftAction} className="mt-4 grid gap-4">
+                    <input type="hidden" name="campaignId" value={campaign.id} />
+                    <input type="hidden" name="audienceType" value={campaign.audience_type} />
+                    <input type="hidden" name="audienceEventId" value={campaign.audience_event_id ?? ""} />
+                    <label className="grid gap-1 text-sm font-semibold text-[var(--brand-text)]">
+                      Campaign name
+                      <input name="name" required defaultValue={campaign.name} className="rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-normal" />
+                    </label>
+                    <label className="grid gap-1 text-sm font-semibold text-[var(--brand-text)]">
+                      Subject
+                      <input name="subject" required defaultValue={campaign.subject} className="rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-normal" />
+                    </label>
+                    <label className="grid gap-1 text-sm font-semibold text-[var(--brand-text)]">
+                      Preview text
+                      <input name="previewText" defaultValue={campaign.preview_text ?? ""} className="rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-normal" />
+                    </label>
+                    <label className="grid gap-1 text-sm font-semibold text-[var(--brand-text)]">
+                      Message
+                      <textarea name="bodyText" required rows={8} defaultValue={campaign.body_text ?? ""} className="rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-normal" />
+                    </label>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="grid gap-1 text-sm font-semibold text-[var(--brand-text)]">
+                        Button label
+                        <input name="ctaLabel" defaultValue={campaign.cta_label ?? ""} className="rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-normal" />
+                      </label>
+                      <label className="grid gap-1 text-sm font-semibold text-[var(--brand-text)]">
+                        Button link
+                        <input name="ctaUrl" defaultValue={campaign.cta_url ?? ""} className="rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-normal" />
+                      </label>
+                    </div>
+                    <button type="submit" className="inline-flex w-fit items-center justify-center rounded-2xl bg-[#4D1F47] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#3D1839]">
+                      Save draft
+                    </button>
+                  </form>
+                </details>
               ) : null}
 
               <div className="mt-5">
