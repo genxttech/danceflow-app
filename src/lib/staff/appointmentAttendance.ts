@@ -247,6 +247,11 @@ async function markNoShow(params: {
     note = await noShowNote(supabase, studioId, appointment);
     if (appliedKind) {
       if (missedAppointmentCharge !== appliedKind) return { ok: false, reason: "charge_changed" };
+      // The deduction marker is per (appointment, package): if the lesson was relinked to another package since, repeating the charge would take a SECOND credit
+      // from the new package for the same lesson.
+      if (appliedKind === "package" && !(await chargedPackageIds(supabase, appointmentId)).includes(String(appointment.client_package_id))) {
+        return { ok: false, reason: "package_changed" };
+      }
     } else if (chargeKind && note && !note.body.includes(NOT_APPLIED_TEXT)) {
       return { ok: false, reason: "charge_changed" };
     } else if (chargeKind && !notesVisible) {
@@ -264,6 +269,12 @@ async function markNoShow(params: {
     if (!written || written.length !== 1) return { ok: false, reason: written && written.length === 0 ? "not_found" : "write_failed" };
 
     await clearMembershipUsageForAppointment({ supabase, appointmentId });
+  }
+
+  // A "no charge" decision after a failed charge request: record it, so a later charge request is a conflict.
+  if (alreadyApplied && !chargeKind && note && note.body.includes(NOT_APPLIED_TEXT) && !(await appliedChargeKind(supabase, appointmentId))) {
+    await rewriteNotePolicy(supabase, note, "No lesson deduction");
+    return { ok: true, appointmentId, clientId: appointment.client_id, status: "no_show", alreadyApplied, usageSyncPending: false };
   }
 
   // Ensure the note exists before the charge is attempted.
@@ -342,20 +353,40 @@ type NoteRow = { id: string; body: string };
 
 async function noShowNote(supabase: SupabaseClient, studioId: string, appointment: AppointmentRow): Promise<NoteRow | null> {
   if (!appointment.client_id) return null;
+  const ref = `${NOTE_REF_PREFIX}${appointment.id}`;
+  // The OLDEST note that quotes the ref, validated in code: it must be the system's own shape (first line "Appointment marked no-show", last line exactly the ref), so an
+  // ordinary note that merely quotes the id, or a later copy, cannot decide.
   const { data, error } = await supabase
     .from("client_activity_notes")
     .select("id, body")
     .eq("studio_id", studioId)
     .eq("client_id", appointment.client_id)
-    .like("body", `%${NOTE_REF_PREFIX}${appointment.id}%`)
-    .order("created_at", { ascending: false })
-    .limit(1);
+    .like("body", `%${ref}%`)
+    .order("created_at", { ascending: true })
+    .limit(10);
   if (error) throw new Error(`Note lookup failed: ${error.message}`);
-  return ((data ?? [])[0] as NoteRow | undefined) ?? null;
+  const rows = (data ?? []) as NoteRow[];
+  return (
+    rows.find((row) => {
+      const lines = String(row.body).split("\n");
+      return lines[0].startsWith("Appointment marked no-show") && lines[lines.length - 1] === ref;
+    }) ?? null
+  );
 }
 
 const NOT_APPLIED_TEXT = "requested, not applied";
 const chargeName = (kind: "package" | "membership") => (kind === "package" ? "Package credit" : "Membership benefit");
+
+async function rewriteNotePolicy(supabase: SupabaseClient, note: NoteRow, policy: string) {
+  try {
+    await supabase
+      .from("client_activity_notes")
+      .update({ body: note.body.replace(/Charge policy: .*/, `Charge policy: ${policy}`) })
+      .eq("id", note.id);
+  } catch (error) {
+    console.error("The no-show note could not be updated.", error);
+  }
+}
 
 async function markNoteApplied(supabase: SupabaseClient, note: NoteRow | null, kind: "package" | "membership") {
   if (!note || !note.body.includes(NOT_APPLIED_TEXT)) return;

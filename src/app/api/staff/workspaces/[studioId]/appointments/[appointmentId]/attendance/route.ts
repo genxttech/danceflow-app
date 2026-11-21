@@ -59,7 +59,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ stud
         case "charge_changed":
           return staffConflict("outcome_conflict", "This no-show is already recorded with a different charge decision and can't be changed.", { status: "no_show" });
         case "package_changed":
-          return staffConflict("outcome_conflict", "This lesson was charged to a different package; change it on the web.", { status: "attended" });
+          return staffConflict("outcome_conflict", "This lesson was charged to a different package; change it on the web.", { status });
         case "payment_required":
           return staffWriteError("payment_required", "This lesson isn't paid or covered yet. Record payment on the web first.", 409);
         case "charge_failed":

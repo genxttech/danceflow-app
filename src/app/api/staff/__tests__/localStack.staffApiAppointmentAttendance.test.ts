@@ -497,6 +497,50 @@ describe.skipIf(!enabled)("staff API appointment attendance against real RLS and
       expect(remaining(other)).toBe(3);
     });
 
+    it("a no-show charged to package X, then relinked to package Y, refuses the replay and takes nothing from Y", async () => {
+      const client = newClient();
+      const x = newPackage(3, { client });
+      const y = newPackage(3, { client });
+      const appointment = lesson({ packageId: x, client });
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" })).status).toBe(200);
+      psql(`update public.appointments set client_package_id = '${y}' where id = '${appointment}';`);
+      const replay = await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" });
+      expect(replay.status).toBe(409);
+      expect(await replay.json()).toMatchObject({ code: "outcome_conflict", current: { status: "no_show" } });
+      expect(remaining(x)).toBe(2);
+      expect(remaining(y)).toBe(3);
+      expect(deductions(appointment)).toBe(1);
+    });
+
+    it("a forged or quoting note cannot flip the decision: only the oldest system-shaped note counts", async () => {
+      const client = newClient();
+      const pkg = newPackage(3, { client });
+      const appointment = lesson({ packageId: pkg, client });
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      // a newer note with the right ref line but another first line, and one that merely quotes the id mid-text, plus a newer full copy claiming 'requested, not applied'
+      psql(`insert into public.client_activity_notes (studio_id, client_id, note_type, body, occurred_at, created_at) values
+        ('${STUDIO_A}', '${client}', 'general', E'Customer asked about Appointment ref: ${appointment} yesterday', now(), now() + interval '1 second'),
+        ('${STUDIO_A}', '${client}', 'general', E'Something else\nCharge policy: Package credit requested, not applied\nAppointment ref: ${appointment}', now(), now() + interval '2 seconds'),
+        ('${STUDIO_A}', '${client}', 'general', E'Appointment marked no-show: Lesson\nCharge policy: Package credit requested, not applied\nAppointment ref: ${appointment}', now(), now() + interval '3 seconds');`);
+      await expectCode(await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" }), 409, "outcome_conflict");
+      expect(remaining(pkg)).toBe(3);
+      expect(deductions(appointment)).toBe(0);
+    });
+
+    it("a no-charge replay after a failed charge records the decision, so a later charge request is a conflict", async () => {
+      const client = newClient();
+      const appointment = lesson({ packageId: null, client });
+      await expectCode(await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" }), 409, "charge_failed");
+      expect((await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "none" })).status).toBe(200);
+      expect(noteBodies(client)).toContain("Charge policy: No lesson deduction");
+      expect(noteBodies(client)).not.toContain("not applied");
+      expect(noteCount(client)).toBe(1);
+      const pkg = newPackage(3, { client });
+      psql(`update public.appointments set client_package_id = '${pkg}' where id = '${appointment}';`);
+      await expectCode(await mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "package" }), 409, "outcome_conflict");
+      expect(remaining(pkg)).toBe(3);
+    });
+
     it("can mark a future-dated lesson, as the web can (the web has no date guard)", async () => {
       const appointment = lesson({ billing: "free_comped" });
       expect(psql(`select (starts_at > now())::text from public.appointments where id = '${appointment}';`)).toBe("true");
