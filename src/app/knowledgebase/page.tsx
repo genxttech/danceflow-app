@@ -3,7 +3,7 @@ import { LifeBuoy } from "lucide-react";
 import {
   getKnowledgebaseCategories,
   getPublicKnowledgebaseArticles,
-} from "@/content/knowledgebase/articles";
+} from "@/lib/knowledgebase/articles";
 import KnowledgebaseAIAssistant from "./KnowledgebaseAIAssistant";
 import KnowledgebaseSearch from "./KnowledgebaseSearch";
 import type { Metadata } from "next";

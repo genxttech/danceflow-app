@@ -1,9 +1,7 @@
 "use server";
 
-import {
-  getPublicKnowledgebaseArticles,
-  type KnowledgebaseArticle,
-} from "@/content/knowledgebase/articles";
+import { getPublicKnowledgebaseArticles } from "@/lib/knowledgebase/articles";
+import type { KnowledgebaseArticle } from "@/lib/knowledgebase/schema";
 
 export type KnowledgebaseAssistantState = {
   ok: boolean;
@@ -81,7 +79,7 @@ function scoreArticle(
   const title = normalize(article.title);
   const slug = normalize(article.slug);
   const category = normalize(article.category);
-  const description = normalize(article.description);
+  const description = normalize(article.summary);
   const content = normalize(article.content);
 
   let score = 0;
@@ -138,7 +136,7 @@ function buildArticleContext(articles: KnowledgebaseArticle[]) {
       return [
         `Title: ${article.title}`,
         `Category: ${article.category}`,
-        `Description: ${article.description}`,
+        `Description: ${article.summary}`,
         `URL: /knowledgebase/${article.slug}`,
         `Content: ${content}`,
       ].join("\n");
@@ -183,7 +181,7 @@ export async function askKnowledgebaseAssistantAction(
         : `I found ${relevantArticles.length} relevant DanceFlow guide${relevantArticles.length === 1 ? "" : "s"}. Open the closest match below.`,
       relatedArticles: relevantArticles.slice(0, 6).map((article) => ({
         title: article.title,
-        description: article.description,
+        description: article.summary,
         href: `/knowledgebase/${article.slug}`,
         category: article.category,
       })),
@@ -231,7 +229,7 @@ export async function askKnowledgebaseAssistantAction(
         : "I found relevant DanceFlow guides, but the help answer could not be generated right now. Open one of the matching articles below.",
       relatedArticles: relevantArticles.slice(0, 6).map((article) => ({
         title: article.title,
-        description: article.description,
+        description: article.summary,
         href: `/knowledgebase/${article.slug}`,
         category: article.category,
       })),
@@ -249,7 +247,7 @@ export async function askKnowledgebaseAssistantAction(
         : "I found relevant DanceFlow guides. Open one of the matching articles below."),
     relatedArticles: relevantArticles.slice(0, 6).map((article) => ({
       title: article.title,
-      description: article.description,
+      description: article.summary,
       href: `/knowledgebase/${article.slug}`,
       category: article.category,
     })),
