@@ -1,6 +1,6 @@
 # Marketing M-0 — Email Compliance and Suppression Integrity
 
-Status: M-0A–M-0C plus the final-audit remediation (A–D) were MERGED in PR #218 on 2026-10-14 (merge commit `13c4d547f`). Per a read-only PROD query on 2026-11-21, the stage-1 SQL is applied on PROD and `marketing_send_controls.frozen = true` since 2026-10-14, so campaign sending is frozen in production. The state of stage 2, the C1 repair, the PROD preflight and M-0D is not verified by this note and remains owner-gated.
+Status: implementation candidate (M-0A–M-0C) plus the final-audit remediation (A–D). The revised stage-1 SQL is applied to DEV (landing frozen); stage 2 and the application are not merged or released.
 Scope comes from the owner decisions D1–D4 and implementation safeguards 1–10 (M-0 authorization, 2026-10-13).
 M-0D (provider event ingestion) is planned below and is **not** part of this change.
 

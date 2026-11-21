@@ -39,9 +39,8 @@ Authenticated production smoke was intentionally omitted because prior productio
 Roadmap v2.22 (PR #217) is merged. It is documentation-only and the production deployment above is unchanged.
 
 **Priority 1, per the provisionally accepted [near-term priority order](DanceFlow_Master_Roadmap.md#near-term-priority-order-v222): Marketing M-0 compliance remediation (PR #218).**
-- **Status (corrected 2026-11-21):** PR #218 is **MERGED** (2026-10-14, merge commit `13c4d547f`). Per a read-only PROD query on 2026-11-21, the M-0 stage 1 SQL is **applied on PROD** (the `marketing_claim_campaign_recipient` family of functions and the five M-0 tables exist) and `marketing_send_controls.frozen = true` since 2026-10-14 ("M-0 stage 1 applied: frozen until the M-0 application is verified and an operator releases it"). **Campaign sending is therefore frozen in production.**
-- **Not verified here:** the state of stage 2 (recipient write lockdown), the C1 historical unsubscribe repair, the PROD preflight and the Resend webhook configuration (M-0D). Unfreezing and those steps are owner-gated; this document makes no claim about them.
-- **Next step:** owner-gated M-0 verification and release steps. Marketing M-1/M-2a slices (no migrations, no send-path changes) proceed as ordinary PRs meanwhile.
+- **Status:** OPEN — not merged, not released, live campaign behavior unchanged.
+- **Next step:** completion of its review and QA, then separate owner authorization for merge and for any SQL or promotion under its own release gates.
 
 **Parallel, documentation only:** roadmap v2.23, the Knowledgebase / Help Center track (PR #219). It awaits owner merge authorization. No KB implementation is authorized, and open questions D1–D7 remain undecided.
 
