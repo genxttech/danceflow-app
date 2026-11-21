@@ -266,3 +266,48 @@ describe("--writes mode", () => {
     expect(lib.writesEvidence({ date: "d", commit: "abc1234", web: "w", results: [], capabilityChecks: checks, runOk: true })).not.toContain("CAPABILITY clientNotes PASS");
   });
 });
+
+describe("--writes evidence versus the real flows and the release build gate", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require("node:fs") as typeof import("node:fs");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require("node:path") as typeof import("node:path");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const os = require("node:os") as typeof import("node:os");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+
+  it("every check name the evidence depends on is a real check() in device-smoke.js (a renamed flow cannot silently prove nothing)", () => {
+    const source = fs.readFileSync(path.join(__dirname, "../../scripts/device-smoke.js"), "utf8");
+    const names = lib.WRITE_WORDS.flatMap((w: string) => lib.WRITE_CAPABILITY_CHECKS[w] as string[]);
+    expect(names.length).toBeGreaterThanOrEqual(8);
+    for (const name of names) expect(source).toContain(`check(${JSON.stringify(name)}`);
+  });
+
+  const SHA = "0123456789abcdef0123456789abcdef01234567";
+  const allPass = (ok = true) => lib.WRITE_WORDS.flatMap((w: string) => lib.WRITE_CAPABILITY_CHECKS[w]).map((name: string) => ({ name, ok }));
+  const GATE = path.join(__dirname, "../../../../docs/mobile/tools/Test-StaffFeatures.ps1");
+  const hasPowerShell = process.platform === "win32" && spawnSync("powershell", ["-NoProfile", "-Command", "exit 0"]).status === 0;
+
+  function gate(evidence: string, features: string, commit: string) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wev-"));
+    const file = path.join(dir, "business-writes-isoqa-smoke.txt");
+    fs.writeFileSync(file, evidence);
+    const script = `. '${GATE}'; try { Assert-StaffFeatures -Features '${features}' -SummaryPath '${path.join(dir, "none.txt")}' -WriteEvidencePath '${file}' -Commit '${commit}'; 'ACCEPTED' } catch { 'REFUSED: ' + $_.Exception.Message }`;
+    const r = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8" });
+    return (r.stdout || "").trim();
+  }
+
+  (hasPowerShell ? it : it.skip)("the PowerShell build gate (Test-StaffFeatures.ps1) ACCEPTS the exact file the emitter writes, for the build commit and a short prefix, and refuses it for another commit or a failed run", () => {
+    const evidence = lib.writesEvidence({ date: new Date().toISOString(), commit: SHA, web: "fedcba9876543210fedcba9876543210fedcba98", results: allPass(), capabilityChecks: lib.WRITE_CAPABILITY_CHECKS, runOk: true });
+    const words = lib.WRITE_WORDS.join(",");
+    expect(gate(evidence, words, SHA)).toBe("ACCEPTED");
+    expect(gate(evidence, words, SHA.slice(0, 9))).toBe("ACCEPTED");
+    expect(gate(evidence, "clientNotes", SHA)).toBe("ACCEPTED");
+    expect(gate(evidence, words, "ffffffffffffffffffffffffffffffffffffffff")).toMatch(/^REFUSED: .*not the commit being built/);
+    const failed = lib.writesEvidence({ date: new Date().toISOString(), commit: SHA, web: "w", results: allPass(false), capabilityChecks: lib.WRITE_CAPABILITY_CHECKS, runOk: false });
+    expect(gate(failed, "clientNotes", SHA)).toMatch(/^REFUSED/);
+    const oneFailed = lib.writesEvidence({ date: new Date().toISOString(), commit: SHA, web: "w", results: allPass().map((r: { name: string; ok: boolean }) => (r.name === lib.WRITE_CAPABILITY_CHECKS.classRoster[0] ? { ...r, ok: false } : r)), capabilityChecks: lib.WRITE_CAPABILITY_CHECKS, runOk: false });
+    expect(gate(oneFailed, "clientNotes", SHA)).toBe("REFUSED: Refusing: the write evidence does not say RESULT: PASS.");
+  });
+});

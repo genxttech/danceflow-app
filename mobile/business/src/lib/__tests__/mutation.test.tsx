@@ -218,6 +218,47 @@ describe("server-named conflicts", () => {
   });
 });
 
+describe("forward compatibility and the final server follow-ups", () => {
+  it("a 409 with a code this build does not know is NOT retryable and rolls back (forward-compat clause)", async () => {
+    for (const body of [apiError(409, "not_markable"), new StaffApiError(409, "not_markable", "x", undefined, { serverCode: "some_future_code" })]) {
+      const { hook, optimistic } = setup(jest.fn(async () => Promise.reject(body)));
+      await act(async () => {
+        hook.result.current.submit("a");
+      });
+      expect(hook.result.current.state).toMatchObject({ status: "failed", kind: "not_markable", retryable: false, unconfirmed: false });
+      expect(optimistic.rollback).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("charge_failed: the no-show IS recorded, so nothing rolls back, and Try again repeats the same request and key and succeeds", async () => {
+    const failed = apiError(409, "conflict", { serverCode: "charge_failed" });
+    expect(classifyFailure(failed)).toMatchObject({ kind: "sync_pending", unconfirmed: true, retryable: true, serverCode: "charge_failed" });
+    const run = jest.fn<Promise<string>, [string, string]>().mockRejectedValueOnce(failed).mockResolvedValueOnce("charged");
+    const { hook, optimistic, onSuccess } = setup(run);
+    await act(async () => {
+      hook.result.current.submit("a");
+    });
+    expect(optimistic.rollback).not.toHaveBeenCalled();
+    await act(async () => {
+      hook.result.current.retry();
+    });
+    expect(run.mock.calls[1]).toEqual(run.mock.calls[0]);
+    expect(hook.result.current.state).toEqual({ status: "success", result: "charged" });
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("package_exhausted: repeating cannot succeed (not retryable) and the screen is not rolled back, because the status may already be recorded", async () => {
+    const err = apiError(409, "conflict", { serverCode: "package_exhausted" });
+    expect(classifyFailure(err)).toMatchObject({ kind: "conflict", retryable: false, keepOptimistic: true });
+    const { hook, optimistic } = setup(jest.fn(async () => Promise.reject(err)));
+    await act(async () => {
+      hook.result.current.submit("a");
+    });
+    expect(optimistic.rollback).not.toHaveBeenCalled();
+    expect(hook.result.current.state).toMatchObject({ status: "failed", retryable: false });
+  });
+});
+
 describe("timeout", () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());

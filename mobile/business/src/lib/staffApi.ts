@@ -204,6 +204,8 @@ const CONFLICT_CODES: readonly string[] = [
   "terminal_outcome",
   "usage_sync_pending",
   "charge_failed",
+  "package_exhausted",
+  "enrollment_failed",
   "invalid_funding",
   "attendance_recorded",
 ];

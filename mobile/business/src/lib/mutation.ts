@@ -36,6 +36,10 @@ export type MutationFailure = {
   retryAfterSeconds?: number;
   /** 409 with a slice code: the raw code and the server's current state, for reconciling. */
   conflict?: { serverCode: string | null; current: unknown };
+  /** The server's own code for a 409 that is retryable or pending rather than a conflict (usage_sync_pending, charge_failed), for wording. */
+  serverCode?: string;
+  /** The server may already have recorded the change (a last-credit race after the status write): do not roll the screen back, and do not offer a retry that cannot succeed. */
+  keepOptimistic?: boolean;
 };
 
 /** Whether a failure is a 409 the server answered with a specific code (for screens that word those themselves). */
@@ -69,7 +73,9 @@ export function classifyFailure(error: unknown): MutationFailure {
 
   const kind = staffErrorKind(error);
   // The server recorded the change but a follow-up step (a package or membership deduction) did not finish: the change stands, repeating the same request finishes it.
-  if (error.code === "conflict" && error.extra?.serverCode === "usage_sync_pending") return { kind: "sync_pending", error, unconfirmed: true, retryable: true };
+  if (error.code === "conflict" && error.extra?.serverCode === "usage_sync_pending") return { kind: "sync_pending", error, unconfirmed: true, retryable: true, serverCode: "usage_sync_pending" };
+  // A no-show whose requested charge did not apply: the no-show IS recorded, and repeating the same request retries the charge (the server writes one note and one deduction at most).
+  if (error.code === "conflict" && error.extra?.serverCode === "charge_failed") return { kind: "sync_pending", error, unconfirmed: true, retryable: true, serverCode: "charge_failed" };
   if (error.code === "network_error") return { kind: "offline", error, unconfirmed: true, retryable: true };
   if (error.code === "unexpected_response") return { kind: "unavailable", error, unconfirmed: true, retryable: true };
 
@@ -79,6 +85,7 @@ export function classifyFailure(error: unknown): MutationFailure {
     case "unavailable": // 503 service_unavailable: the server committed nothing
       return { kind, error, unconfirmed: false, retryable: true };
     case "conflict":
+      if (error.extra?.serverCode === "package_exhausted") return { kind, error, unconfirmed: false, retryable: false, keepOptimistic: true, conflict: { serverCode: "package_exhausted", current: error.extra?.current } };
       return { kind, error, unconfirmed: false, retryable: false, conflict: { serverCode: error.extra?.serverCode ?? null, current: error.extra?.current } };
     default:
       return { kind, error, unconfirmed: false, retryable: false };
@@ -144,7 +151,7 @@ export function useStaffMutation<I, R>(options: MutationOptions<I, R>) {
       if (id !== attemptId.current) return;
       inFlight.current = false;
       const failure = classifyFailure(error);
-      if (!failure.unconfirmed && action.current?.applied) {
+      if (!failure.unconfirmed && !failure.keepOptimistic && action.current?.applied) {
         opts.optimistic?.rollback(input);
         action.current.applied = false;
       }

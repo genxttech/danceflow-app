@@ -6,8 +6,9 @@ import type { MutationFailure, MutationFailureKind, MutationState } from "@/lib/
 import { colors, radius, space } from "@/theme";
 
 /** Words for each way a write can fail. Each says what happened to the change, and what the person can do. */
-export function mutationFailureCopy(failure: Pick<MutationFailure, "kind" | "unconfirmed" | "retryAfterSeconds"> & { conflict?: MutationFailure["conflict"] }): { title: string; body: string } {
-  const byCode = failure.kind === "conflict" ? CONFLICT_COPY[failure.conflict?.serverCode ?? ""] : undefined;
+export function mutationFailureCopy(failure: Pick<MutationFailure, "kind" | "unconfirmed" | "retryAfterSeconds"> & { conflict?: MutationFailure["conflict"]; serverCode?: string }): { title: string; body: string } {
+  const code = failure.kind === "conflict" ? failure.conflict?.serverCode : failure.kind === "sync_pending" ? failure.serverCode : undefined;
+  const byCode = code ? CONFLICT_COPY[code] : undefined;
   if (byCode) return byCode;
   const wait = failure.retryAfterSeconds ? ` Wait about ${failure.retryAfterSeconds} seconds.` : "";
   const table: Record<MutationFailureKind, { title: string; body: string }> = {
@@ -36,9 +37,12 @@ export function mutationFailureCopy(failure: Pick<MutationFailure, "kind" | "unc
 
 /** Words for 409 conflicts the server names, so a screen need not repeat them. Anything else uses the generic conflict copy. */
 const CONFLICT_COPY: Record<string, { title: string; body: string }> = {
-  outcome_conflict: { title: "Already recorded", body: "This lesson already has a final attendance (attended or no-show). It can't be changed in the app." },
+  outcome_conflict: { title: "Already recorded", body: "This lesson already has a final result, or a different charge was already recorded for it. It can't be changed in the app: check it on DanceFlow for the web." },
+  package_exhausted: { title: "No credit left on the package", body: "The package ran out of credit just as this was saved, so the credit was not used. Check this lesson in the web app." },
+  enrollment_failed: { title: "Couldn't add the dancer", body: "The class couldn't take this dancer. Nobody was added. Check the class and the dancer on DanceFlow for the web." },
+  usage_sync_pending: { title: "Saved, not finished", body: "The change was recorded, but the lesson credit has not been applied yet. Try again to finish it: nothing will be counted twice." },
   payment_required: { title: "Payment needed first", body: "This lesson can't be marked attended until it's paid or covered by a package or membership. Take care of that on DanceFlow for the web, then mark it." },
-  charge_failed: { title: "No-show saved, charge not applied", body: "The no-show was recorded, but the lesson credit could not be used. Fix it on DanceFlow for the web." },
+  charge_failed: { title: "No-show saved, charge not applied", body: "The no-show is recorded, but the lesson credit could not be used. Try again to retry the charge, or fix it on DanceFlow for the web. Nothing is charged twice." },
   idempotency_conflict: { title: "Not saved", body: "That id was already used for something different. Nothing was changed. Start again." },
   class_full: { title: "The class is full", body: "There are no seats left. Nobody was added." },
   class_cancelled: { title: "The class is cancelled", body: "This class was cancelled, so nobody can be added." },

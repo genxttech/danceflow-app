@@ -627,12 +627,7 @@ async function flows(apk) {
 const WRITE_POLICY = (extra = {}) => JSON.stringify({ enabled: lib.WRITE_WORDS, ...extra });
 
 /** The checks that must all pass for each write word to be called proven (names are the exact check() names below). */
-const CAP_CHECKS = {
-  clientCreate: ["writes: quick-add client creates and opens the client", "writes: the same phone again offers the existing client (duplicate_client)"],
-  clientNotes: ["writes: add a note, it is saved and appears in the notes list"],
-  appointmentAttendance: ["writes: private lesson marked attended (final, no undo)", "writes: private lesson marked no-show with no charge"],
-  classRoster: ["writes: add a dancer to the class roster", "writes: remove a dancer from the class roster"],
-};
+const CAP_CHECKS = lib.WRITE_CAPABILITY_CHECKS;
 const GATE_CHECKS = ["writes: policy off shows 'This change is turned off'", "writes: build below the minimum shows 'Update DanceFlow Business'", "writes: 2.0 font + dark, notes and check-in screens usable"];
 
 async function openStudioDay() {
@@ -649,6 +644,10 @@ async function writeFlows(owner) {
 
   // seed for the flows: free/comped lessons so "attended" needs no payment, a free-comped path for enrolment
   psql("update public.appointments set billing_type='free_comped' where appointment_type in ('private_lesson','intro_lesson')");
+  // two more open lessons (clones of the first one, 4 and 5 hours later, other clients) for the conflict and failed-charge scenarios
+  for (const [hours, client] of [[4, 'Colin'], [5, 'Ana']]) {
+    psql(`insert into public.appointments select (jsonb_populate_record(null::public.appointments, to_jsonb(a) || jsonb_build_object('id', gen_random_uuid(), 'client_id', (select id from public.clients where first_name='${client}' and studio_id=a.studio_id limit 1), 'starts_at', a.starts_at + interval '${hours} hours', 'ends_at', a.ends_at + interval '${hours} hours', 'status', 'scheduled'))).* from public.appointments a where a.appointment_type='private_lesson' and a.status='scheduled' order by a.starts_at limit 1`);
+  }
 
   await check("writes: quick-add client creates and opens the client", async () => {
     await tapLabel(/^Clients$/);
@@ -705,6 +704,31 @@ async function writeFlows(owner) {
     await expectLabel("No charge", { timeout: 30000 });
     await tapLabel("Yes, mark no-show");
     await expectLabel(/Marked no-show/, { timeout: 60000, scroll: true });
+  });
+
+  await check("writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", async () => {
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+    await tapLabel(/Colin Marsh/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    // someone else records it while this screen is open
+    psql("update public.appointments set status='attended' where appointment_type='private_lesson' and client_id=(select id from public.clients where first_name='Colin' and last_name='Marsh' limit 1)");
+    await tapLabel("No-show", { scroll: true });
+    await tapLabel("Yes, mark no-show", { timeout: 30000 });
+    await expectLabel("Already recorded", { timeout: 60000, scroll: true });
+    await expectLabel(/Status: Attended/, { timeout: 30000, scroll: true });
+  });
+
+  await check("writes: a no-show whose charge could not be applied says so and offers Try again", async () => {
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+    await tapLabel(/3:00 PM.*Ana Rivera/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await tapLabel("No-show", { scroll: true });
+    await tapLabel(/^Use a package credit/, { timeout: 30000 });
+    await tapLabel("Yes, mark no-show");
+    await expectLabel("No-show saved, charge not applied", { timeout: 60000, scroll: true });
+    await expectLabel("Try again", { scroll: true });
   });
 
   await check("writes: add a dancer to the class roster", async () => {
