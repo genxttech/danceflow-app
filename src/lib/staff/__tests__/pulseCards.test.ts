@@ -67,7 +67,7 @@ class Fake {
         if (op === "is") return rest[0] === "null" && value === null;
         if (op === "neq") return value !== rest.join(".");
         if (op === "not" && rest[0] === "ilike") {
-          const pattern = new RegExp("^" + rest.slice(1).join(".").split("*").map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+          const pattern = new RegExp("^" + rest.slice(1).join(".").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/_/g, ".").replace(/%/g, ".*") + "$", "i"); // ILIKE: _ is one character, % any run
           return value !== null && !pattern.test(String(value));
         }
         return false;
@@ -392,6 +392,14 @@ describe("review fixes", () => {
     expect(leads.truncated).toBe(false);
     expect(leads.recent.map((l) => l.id)).toEqual(["L1", "L2"]);
     expect(leads.newLast7Days).toBe(1);
+  });
+
+  it("a lead whose free-text source merely resembles an event is still a lead (the SQL pattern is not wider than the spellings)", async () => {
+    const tables = { ...data, clients: [...data.clients, person("EB1", { referral_source: "Eventbrite Registration", created_at: "2026-11-22T10:00:00Z" }), person("EB2", { referral_source: "Event workshop registration", created_at: "2026-11-22T09:00:00Z" })] };
+    const cards = await call("studio_owner", {}, tables).run();
+    const ids = (cards.leads as { recent: { id: string }[] }).recent.map((l) => l.id);
+    expect(ids).toContain("EB1");
+    expect(ids).toContain("EB2");
   });
 
   it("a failing package lookup leaves the cancelled count alone (lowPackages is null, the card is still ok)", async () => {

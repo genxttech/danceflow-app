@@ -16,7 +16,6 @@ import { canViewStudioWideSchedule } from "@/lib/staff/studioSchedule";
  */
 
 export const PULSE_LIST_LIMIT = 5;
-const REQUEST_SCAN_LIMIT = 200;
 const LEAD_SCAN_LIMIT = 200;
 const NEW_LEAD_WINDOW_DAYS = 7;
 const LOW_PACKAGE_THRESHOLD = 1;
@@ -247,7 +246,8 @@ async function loadRequests(ctx: Ctx, scope: "all" | "own"): Promise<RequestsCar
   }
   const own = scope === "own" ? ctx.instructorId : null;
   // Exact counts by head request, then the newest few and the single oldest of each queue: the totals and the list stay right however long a queue is.
-  // The self-service queue skips rows linked to a booking request, so one request is never counted in both.
+  // The self-service queue skips rows linked to a booking request, so one request is never counted in both. (Nothing writes that link today; when something does, a linked pair
+  // whose booking request is no longer pending, or belongs to another instructor, needs a second look here.)
   const booking = (cols: string, head = false) => {
     let q = head ? ctx.supabase.from("booking_requests").select(cols, { count: "exact", head: true }) : ctx.supabase.from("booking_requests").select(cols);
     q = q.eq("studio_id", ctx.studioId).in("status", BOOKING_REQUEST_OPEN);
@@ -295,8 +295,9 @@ async function loadLeads(ctx: Ctx): Promise<LeadsCard> {
     .select("id, first_name, last_name, created_at, referral_source, source_system, is_independent_instructor")
     .eq("studio_id", ctx.studioId)
     .eq("status", "lead")
+    // In ILIKE the underscore is a one-character wildcard, so this one pattern covers the space, dash and underscore spellings and nothing wider; any other odd spelling is still caught by isPulseLead.
     .or("source_system.is.null,source_system.neq.event_registration")
-    .or("referral_source.is.null,referral_source.not.ilike.event*registration")
+    .or("referral_source.is.null,referral_source.not.ilike.event_registration")
     .order("created_at", { ascending: false })
     .limit(LEAD_SCAN_LIMIT + 1);
   if (error) throw new Error(`Pulse leads lookup failed: ${error.message}`);
