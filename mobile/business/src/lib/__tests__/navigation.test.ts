@@ -122,6 +122,9 @@ describe("pickDefaultWorkspace", () => {
 });
 
 describe("initialTab with pulseHome", () => {
+  it("pulseHome alone does nothing: it needs the pulse flag too, so a report-viewing owner without the flag still lands on Today", () => {
+    expect(initialTab(owner, { pulseHome: true })).toBe("today");
+  });
   const owner = workspace({ role: "studio_owner", capabilities: OWNER });
   it("default is unchanged: Today", () => {
     expect(initialTab(owner)).toBe("today");

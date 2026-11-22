@@ -58,6 +58,23 @@ class Fake {
     this.filters.push((row) => (row[column] ?? null) !== value);
     return this;
   }
+  or(expression: string) {
+    // "col.is.null,col.neq.value" and "col.is.null,col.not.ilike.pattern*pattern": enough of PostgREST's grammar for the loader
+    const parts = expression.split(",").map((part) => part.split("."));
+    this.filters.push((row) =>
+      parts.some(([column, op, ...rest]) => {
+        const value = row[column] ?? null;
+        if (op === "is") return rest[0] === "null" && value === null;
+        if (op === "neq") return value !== rest.join(".");
+        if (op === "not" && rest[0] === "ilike") {
+          const pattern = new RegExp("^" + rest.slice(1).join(".").split("*").map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
+          return value !== null && !pattern.test(String(value));
+        }
+        return false;
+      }),
+    );
+    return this;
+  }
   gte(column: string, value: string) {
     this.filters.push((row) => String(row[column]) >= value);
     return this;
@@ -111,7 +128,7 @@ const today = { total: 6, upcoming: 2, cancelled: 1, truncated: false };
 const data = {
   booking_requests: [
     { id: "br1", studio_id: STUDIO, client_id: "c1", instructor_id: INSTRUCTOR, status: "pending", created_at: "2026-11-20T10:00:00Z", requested_starts_at: "2026-11-25T15:00:00Z" },
-    { id: "br2", studio_id: STUDIO, client_id: "c2", instructor_id: OTHER_INSTRUCTOR, status: "new", created_at: "2026-11-21T10:00:00Z", requested_starts_at: null },
+    { id: "br2", studio_id: STUDIO, client_id: "c2", instructor_id: OTHER_INSTRUCTOR, status: "pending", created_at: "2026-11-21T10:00:00Z", requested_starts_at: null },
     { id: "br3", studio_id: STUDIO, client_id: "c1", instructor_id: INSTRUCTOR, status: "approved", created_at: "2026-11-19T10:00:00Z", requested_starts_at: null },
     { id: "brB", studio_id: OTHER, client_id: "cB", instructor_id: null, status: "pending", created_at: "2026-11-18T10:00:00Z", requested_starts_at: null },
   ],
@@ -283,10 +300,16 @@ describe("loadPulseCards: refused roles and isolated failure", () => {
     expect(logged).not.toContain("row text that must never be logged");
     spy.mockRestore();
   });
-  it("marks truncation when the scan cap is exceeded", async () => {
-    const many = Array.from({ length: 201 }, (_, i) => ({ id: `m${i}`, studio_id: STUDIO, client_id: null, instructor_id: null, status: "pending", created_at: "2026-11-10T00:00:00Z", requested_starts_at: null }));
+  it("a queue longer than the old scan cap still gets the exact total and the NEWEST requests, not the oldest", async () => {
+    const many = Array.from({ length: 205 }, (_, i) => ({ id: "m" + i, studio_id: STUDIO, client_id: null, instructor_id: null, status: "pending", created_at: new Date(Date.UTC(2026, 10, 1) + i * 3600_000).toISOString(), requested_starts_at: null }));
     const cards = await call("studio_owner", {}, { ...data, booking_requests: many }).run();
-    expect(cards.requests).toMatchObject({ truncated: true, bookingRequests: 200 });
+    const requests = cards.requests as { bookingRequests: number; selfService: number; total: number; oldestCreatedAt: string; recent: { id: string }[] };
+    expect(requests.bookingRequests).toBe(205);
+    expect(requests.total).toBe(205 + requests.selfService);
+    expect(requests.oldestCreatedAt).toBe("2026-11-01T00:00:00.000Z");
+    expect(requests.recent[0].id).toBe("sr1"); // the newest of all (a self-service request from the base data)
+    expect(requests.recent.map((r) => r.id)).toContain("m204");
+    expect(requests.recent.map((r) => r.id)).not.toContain("m0");
   });
 });
 
@@ -355,5 +378,54 @@ describe("classification guard: a lead is not a lesson request, a booking, an ev
     expect(leadSourceLabel("Instagram")).toBe("Instagram");
     expect(leadSourceLabel("Friend or family")).toBe("Friend or family");
     expect(leadSourceLabel("  Event Registration ")).toBe("Other");
+  });
+});
+
+describe("review fixes", () => {
+  const person = (id: string, over: Row): Row => ({ id, studio_id: STUDIO, first_name: id, last_name: "Test", status: "lead", created_at: "2026-11-21T10:00:00Z", referral_source: null, source_system: null, is_independent_instructor: false, ...over });
+
+  it("a big event's registrants cannot fill the lead scan and push real leads out", async () => {
+    const registrants = Array.from({ length: 260 }, (_, i) => person("EV" + i, { referral_source: "Event Registration", source_system: "event_registration", created_at: "2026-11-22T10:00:00Z" }));
+    const tables = { ...data, clients: [...data.clients, ...registrants] };
+    const cards = await call("studio_owner", {}, tables).run();
+    const leads = cards.leads as { truncated: boolean; recent: { id: string }[]; newLast7Days: number };
+    expect(leads.truncated).toBe(false);
+    expect(leads.recent.map((l) => l.id)).toEqual(["L1", "L2"]);
+    expect(leads.newLast7Days).toBe(1);
+  });
+
+  it("a failing package lookup leaves the cancelled count alone (lowPackages is null, the card is still ok)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const cards = await call("studio_owner", { failTables: ["client_packages"] }).run();
+    expect(cards.exceptions).toMatchObject({ state: "ok", cancelledToday: 1, lowPackages: null });
+    expect(spy.mock.calls.flat().join(" ")).not.toContain("row text that must never be logged");
+    spy.mockRestore();
+  });
+
+  it("a public booking request has no client id: broad roles see the typed name, an instructor never does", async () => {
+    const tables = {
+      ...data,
+      booking_requests: [{ id: "brP", studio_id: STUDIO, client_id: null, instructor_id: INSTRUCTOR, status: "pending", created_at: "2026-11-22T11:00:00Z", requested_starts_at: null, customer_first_name: "Pat", customer_last_name: "Walker" }],
+      student_booking_action_requests: [],
+    };
+    const owner = await call("studio_owner", {}, tables).run();
+    expect((owner.requests as { recent: { clientName: string | null }[] }).recent[0].clientName).toBe("Pat Walker");
+    const instructor = await call("instructor", { instructorOf: INSTRUCTOR }, tables).run();
+    expect((instructor.requests as { recent: { clientName: string | null }[] }).recent[0].clientName).toBeNull();
+  });
+
+  it("a self-service request linked to a booking request is not counted twice", async () => {
+    const tables = {
+      ...data,
+      booking_requests: [{ id: "brL", studio_id: STUDIO, client_id: "c1", instructor_id: null, status: "pending", created_at: "2026-11-22T11:00:00Z", requested_starts_at: null }],
+      student_booking_action_requests: [{ id: "srL", studio_id: STUDIO, client_id: "c1", instructor_id: null, action_type: "book", status: "pending", booking_request_id: "brL", created_at: "2026-11-22T11:00:01Z", requested_starts_at: null }],
+    };
+    const cards = await call("studio_owner", {}, tables).run();
+    expect(cards.requests).toMatchObject({ total: 1, bookingRequests: 1, selfService: 0 });
+  });
+
+  it("an old 'new' or 'in_review' status is not an open request (the schema never allows them)", async () => {
+    const tables = { ...data, booking_requests: [{ id: "x", studio_id: STUDIO, client_id: null, instructor_id: null, status: "new", created_at: "2026-11-22T11:00:00Z", requested_starts_at: null }], student_booking_action_requests: [] };
+    expect((await call("studio_owner", {}, tables).run()).requests).toMatchObject({ total: 0 });
   });
 });

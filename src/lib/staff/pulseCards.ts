@@ -22,7 +22,7 @@ const NEW_LEAD_WINDOW_DAYS = 7;
 const LOW_PACKAGE_THRESHOLD = 1;
 const PACKAGE_SCAN_LIMIT = 150;
 
-const BOOKING_REQUEST_OPEN = ["pending", "new", "in_review"];
+const BOOKING_REQUEST_OPEN = ["pending"];
 const SELF_SERVICE_OPEN = ["pending"];
 const ARIA_OPEN = ["suggested", "drafted"];
 
@@ -114,7 +114,7 @@ const unavailable: Unavailable = { state: "unavailable" };
 
 // ---------------------------------------------------------------- pure projections (unit tested)
 
-type BookingRequestRow = { id: string; client_id: string | null; created_at: string; requested_starts_at: string | null };
+type BookingRequestRow = { id: string; client_id: string | null; created_at: string; requested_starts_at: string | null; customer_first_name?: string | null; customer_last_name?: string | null };
 type SelfServiceRow = { id: string; client_id: string | null; action_type: string | null; created_at: string; requested_starts_at: string | null };
 
 function toKind(value: string | null | undefined): PulseRequestItem["kind"] {
@@ -125,8 +125,8 @@ function toKind(value: string | null | undefined): PulseRequestItem["kind"] {
 /** Both queues merged oldest first for the "oldest waiting", newest first for the recent list. Names are filled in by the caller. */
 export function summarizeRequests(booking: BookingRequestRow[], selfService: SelfServiceRow[]) {
   const all = [
-    ...booking.map((row) => ({ id: row.id, source: "booking_request" as const, kind: "book" as const, createdAt: row.created_at, requestedStartsAt: row.requested_starts_at, clientId: row.client_id })),
-    ...selfService.map((row) => ({ id: row.id, source: "self_service" as const, kind: toKind(row.action_type), createdAt: row.created_at, requestedStartsAt: row.requested_starts_at, clientId: row.client_id })),
+    ...booking.map((row) => ({ id: row.id, source: "booking_request" as const, kind: "book" as const, createdAt: row.created_at, requestedStartsAt: row.requested_starts_at, clientId: row.client_id, typedName: [row.customer_first_name, row.customer_last_name].filter(Boolean).join(" ") || null })),
+    ...selfService.map((row) => ({ id: row.id, source: "self_service" as const, kind: toKind(row.action_type), createdAt: row.created_at, requestedStartsAt: row.requested_starts_at, clientId: row.client_id, typedName: null as string | null })),
   ];
   const byTime = [...all].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   return {
@@ -245,42 +245,46 @@ async function loadRequests(ctx: Ctx, scope: "all" | "own"): Promise<RequestsCar
   if (scope === "own" && !ctx.instructorId) {
     return { state: "ok", asOf, truncated: false, bookingRequests: 0, selfService: 0, total: 0, oldestCreatedAt: null, recent: [] };
   }
-  let booking = ctx.supabase
-    .from("booking_requests")
-    .select("id, client_id, created_at, requested_starts_at")
-    .eq("studio_id", ctx.studioId)
-    .in("status", BOOKING_REQUEST_OPEN);
-  let selfService = ctx.supabase
-    .from("student_booking_action_requests")
-    .select("id, client_id, action_type, created_at, requested_starts_at")
-    .eq("studio_id", ctx.studioId)
-    .in("status", SELF_SERVICE_OPEN);
-  if (scope === "own" && ctx.instructorId) {
-    booking = booking.eq("instructor_id", ctx.instructorId);
-    selfService = selfService.eq("instructor_id", ctx.instructorId);
-  }
-  const [b, s] = await Promise.all([
-    booking.order("created_at", { ascending: true }).limit(REQUEST_SCAN_LIMIT + 1),
-    selfService.order("created_at", { ascending: true }).limit(REQUEST_SCAN_LIMIT + 1),
+  const own = scope === "own" ? ctx.instructorId : null;
+  // Exact counts by head request, then the newest few and the single oldest of each queue: the totals and the list stay right however long a queue is.
+  // The self-service queue skips rows linked to a booking request, so one request is never counted in both.
+  const booking = (cols: string, head = false) => {
+    let q = head ? ctx.supabase.from("booking_requests").select(cols, { count: "exact", head: true }) : ctx.supabase.from("booking_requests").select(cols);
+    q = q.eq("studio_id", ctx.studioId).in("status", BOOKING_REQUEST_OPEN);
+    return own ? q.eq("instructor_id", own) : q;
+  };
+  const self = (cols: string, head = false) => {
+    let q = head ? ctx.supabase.from("student_booking_action_requests").select(cols, { count: "exact", head: true }) : ctx.supabase.from("student_booking_action_requests").select(cols);
+    q = q.eq("studio_id", ctx.studioId).in("status", SELF_SERVICE_OPEN).is("booking_request_id", null);
+    return own ? q.eq("instructor_id", own) : q;
+  };
+  const bCols = "id, client_id, created_at, requested_starts_at, customer_first_name, customer_last_name";
+  const sCols = "id, client_id, action_type, created_at, requested_starts_at";
+  const [bCount, sCount, bNew, sNew, bOld, sOld] = await Promise.all([
+    booking("id", true),
+    self("id", true),
+    booking(bCols).order("created_at", { ascending: false }).limit(PULSE_LIST_LIMIT),
+    self(sCols).order("created_at", { ascending: false }).limit(PULSE_LIST_LIMIT),
+    booking(bCols).order("created_at", { ascending: true }).limit(1),
+    self(sCols).order("created_at", { ascending: true }).limit(1),
   ]);
-  if (b.error) throw new Error(`Pulse requests lookup failed: ${b.error.message}`);
-  if (s.error) throw new Error(`Pulse self-service lookup failed: ${s.error.message}`);
-  const bRows = (b.data ?? []) as BookingRequestRow[];
-  const sRows = (s.data ?? []) as SelfServiceRow[];
-  const truncated = bRows.length > REQUEST_SCAN_LIMIT || sRows.length > REQUEST_SCAN_LIMIT;
-  const bookingRows = bRows.slice(0, REQUEST_SCAN_LIMIT);
-  const selfRows = sRows.slice(0, REQUEST_SCAN_LIMIT);
-  const summary = summarizeRequests(bookingRows, selfRows);
+  for (const [label, res] of [["booking count", bCount], ["self-service count", sCount], ["booking list", bNew], ["self-service list", sNew], ["booking oldest", bOld], ["self-service oldest", sOld]] as const) {
+    if (res.error) throw new Error(`Pulse requests lookup failed (${label}): ${res.error.message}`);
+  }
+  const dedupe = <T extends { id: string }>(rows: T[]) => [...new Map(rows.map((row) => [row.id, row])).values()];
+  const summary = summarizeRequests(dedupe([...((bNew.data ?? []) as unknown as BookingRequestRow[]), ...((bOld.data ?? []) as unknown as BookingRequestRow[])]), dedupe([...((sNew.data ?? []) as unknown as SelfServiceRow[]), ...((sOld.data ?? []) as unknown as SelfServiceRow[])]));
+  const bookingTotal = bCount.count ?? 0;
+  const selfTotal = sCount.count ?? 0;
   const names = scope === "all" ? await namesFor(ctx, summary.recent.map((item) => item.clientId)) : new Map<string, ClientName>();
   return {
     state: "ok",
     asOf,
-    truncated,
-    bookingRequests: bookingRows.length,
-    selfService: selfRows.length,
-    total: bookingRows.length + selfRows.length,
+    truncated: false,
+    bookingRequests: bookingTotal,
+    selfService: selfTotal,
+    total: bookingTotal + selfTotal,
     oldestCreatedAt: summary.oldestCreatedAt,
-    recent: summary.recent.map(({ clientId, ...item }) => ({ ...item, clientName: scope === "all" ? displayName(names, clientId) : null })),
+    recent: summary.recent.map(({ clientId, typedName, ...item }) => ({ ...item, clientName: scope === "all" ? (displayName(names, clientId) ?? typedName) : null })),
   };
 }
 
@@ -291,6 +295,8 @@ async function loadLeads(ctx: Ctx): Promise<LeadsCard> {
     .select("id, first_name, last_name, created_at, referral_source, source_system, is_independent_instructor")
     .eq("studio_id", ctx.studioId)
     .eq("status", "lead")
+    .or("source_system.is.null,source_system.neq.event_registration")
+    .or("referral_source.is.null,referral_source.not.ilike.event*registration")
     .order("created_at", { ascending: false })
     .limit(LEAD_SCAN_LIMIT + 1);
   if (error) throw new Error(`Pulse leads lookup failed: ${error.message}`);
@@ -299,6 +305,7 @@ async function loadLeads(ctx: Ctx): Promise<LeadsCard> {
   const ids = rows.map((row) => row.id);
   let activityClientIds = new Set<string>();
   let followUps: FollowUpRow[] = [];
+  let activityRows: { client_id: string }[] = [];
   if (ids.length > 0) {
     const [activities, due] = await Promise.all([
       ctx.supabase.from("lead_activities").select("client_id").eq("studio_id", ctx.studioId).in("client_id", ids).limit(1000),
@@ -313,11 +320,13 @@ async function loadLeads(ctx: Ctx): Promise<LeadsCard> {
     ]);
     if (activities.error) throw new Error(`Pulse lead activity lookup failed: ${activities.error.message}`);
     if (due.error) throw new Error(`Pulse lead follow-up lookup failed: ${due.error.message}`);
-    activityClientIds = new Set(((activities.data ?? []) as { client_id: string }[]).map((row) => row.client_id));
+    activityRows = ((activities.data ?? []) as { client_id: string }[]);
+    activityClientIds = new Set(activityRows.map((row) => row.client_id));
     followUps = (due.data ?? []) as FollowUpRow[];
   }
   const summary = summarizeLeads(rows, activityClientIds, followUps, ctx.now);
-  return { state: "ok", asOf: nowIso, truncated: all.length > LEAD_SCAN_LIMIT, ...summary };
+  // the activity lookup is bounded too: at its cap some leads could read as not contacted, so say the card is truncated
+  return { state: "ok", asOf: nowIso, truncated: all.length > LEAD_SCAN_LIMIT || activityRows.length >= 1000 || followUps.length >= 500, ...summary };
 }
 
 async function loadAria(ctx: Ctx): Promise<AriaCard> {
@@ -401,7 +410,14 @@ export async function loadPulseCards(params: {
     access.aria ? guarded("aria", () => loadAria(ctx)) : Promise.resolve(null),
     access.exceptions
       ? guarded("exceptions", async (): Promise<ExceptionsCard> => {
-          const low = access.exceptions === "all" ? await loadLowPackages(ctx) : null;
+          let low: { count: number; truncated: boolean } | null = null;
+          if (access.exceptions === "all") {
+            try {
+              low = await loadLowPackages(ctx);
+            } catch {
+              console.error(`[staff-api] pulse card "exceptions" package lookup failed`);
+            }
+          }
           return {
             state: "ok",
             asOf,

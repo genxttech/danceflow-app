@@ -48,7 +48,7 @@ export function tabsForWorkspace(workspace: StaffWorkspace | null | undefined, o
  */
 export function initialTab(workspace: StaffWorkspace | null | undefined, options: { pulseForAll?: boolean; pulseHome?: boolean } = {}): TabKey {
   const tabs = tabsForWorkspace(workspace, options);
-  if (options.pulseHome && tabs.includes("pulse") && isStudioWideRole(workspace?.role)) return "pulse";
+  if (options.pulseHome && options.pulseForAll && tabs.includes("pulse") && isStudioWideRole(workspace?.role)) return "pulse";
   return tabs.includes("today") ? "today" : tabs[0];
 }
 
