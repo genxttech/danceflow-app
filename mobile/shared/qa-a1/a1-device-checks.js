@@ -39,7 +39,7 @@ async function run(ctx) {
   const name = ctx.assistantName;
   const launcherRe = new RegExp(`^Open ${name} assistant$`);
   const tap = (n) => adb(["shell", "input", "tap", String(n.box.cx), String(n.box.cy)]);
-  const dpPx = (dp) => Math.ceil((dp * (ctx.density || 160)) / 160);
+  const dpPx = (dp) => Math.floor((dp * (ctx.density || 160)) / 160); // floor: a 44dp control renders as 115px at 420dpi (115.5 exact)
   const isCrash = (xml) => /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(xml);
   const dump = (tag) => {
     const xml = hierarchy();
@@ -137,7 +137,10 @@ async function run(ctx) {
   await sleep(700);
   const withKb = adb(["shell", "uiautomator", "dump", "--windows", "/sdcard/ui-win.xml"]).status === 0 ? adb(["exec-out", "cat", "/sdcard/ui-win.xml"]).stdout : "";
   let kbTop = null;
-  for (const n of nodes(withKb)) if (n.box && /inputmethod|latin|keyboard/i.test(`${n.package} ${n["resource-id"]}`)) kbTop = kbTop == null ? n.box.t : Math.min(kbTop, n.box.t);
+  const ime = /Window{[^}]*InputMethod[^}]*}[sS]{0,600}?mFrame=[(d+),(d+)][(d+),(d+)]/.exec(adb(["shell", "dumpsys", "window", "windows"]).stdout);
+  if (ime) kbTop = Number(ime[2]);
+  // fallback: the keyboard's own window: an input-method package node that is tall (the key rows), not the status-bar/IME-switcher slivers
+  if (kbTop == null) for (const n of nodes(withKb)) if (n.box && /inputmethod/i.test(n.package || "") && n.box.b - n.box.t > 300) kbTop = kbTop == null ? n.box.t : Math.min(kbTop, n.box.t);
   const afterTyping = hierarchy();
   ctx.writeFile(path.join(out, "b5-keyboard.xml"), afterTyping);
   shot(path.join(out, "b5-keyboard.png"));
@@ -167,10 +170,15 @@ async function run(ctx) {
   } else record("B Expand control present", false, "not found");
 
   // Android back closes
-  adb(["shell", "input", "keyevent", "4"]);
-  await sleep(900);
-  xml = hierarchy();
-  record("B Android back closes the sheet", !sheetOpen(xml) && !!find(xml, launcherRe), "");
+  // With the keyboard up, the first Back only hides the keyboard (standard Android); the sheet must close within one more Back.
+  let backs = 0;
+  do {
+    adb(["shell", "input", "keyevent", "4"]);
+    backs++;
+    await sleep(1000);
+    xml = hierarchy();
+  } while (sheetOpen(xml) && backs < 3);
+  record("B Android back closes the sheet (first Back may only hide the keyboard)", !sheetOpen(xml) && !!find(xml, launcherRe) && backs <= 2, `${backs} Back press(es)`);
 
   // continuity across navigation
   const other = ctx.screens.find((s) => s.launcher && s.id !== first.id);
@@ -211,6 +219,11 @@ async function run(ctx) {
     adb(["shell", "settings", "put", "system", "font_scale", mode.scale]);
     adb(["shell", "cmd", "uimode", "night", mode.night]);
     await sleep(3500);
+    // a live font change leaves the layout half-measured (clipped text in screenshots): cold-start the app so the screenshot shows the settled layout
+    adb(["shell", "am", "force-stop", pkg]);
+    await sleep(1500);
+    adb(["shell", "monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+    await sleep(14000);
     await first.open();
     await sleep(2500);
     const l = find(hierarchy(), launcherRe);
