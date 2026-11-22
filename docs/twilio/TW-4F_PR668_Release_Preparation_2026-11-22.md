@@ -1,6 +1,6 @@
 # TW-4F PR #668 release preparation (2026-11-22)
 
-Status: PREPARATION ONLY. #668 merge is on an owner sequencing hold (not a rejection) until Apps confirms the R+3b release branch is available. No production SQL, merge into the active release candidate, deployment, flag, provisioning, SMS activation or provider spend is authorized by this document.
+Status (updated 2026-11-22): SUPERSEDED BY EXECUTION. R+3b was promoted 10:40 EST (dpl_CTZfSRaJgDGYVv3Jy9nE9SErrfE4, 96d91ea6) and observed clean; #668 was owner-approved and squash-merged into `release/website-embeds` as e84ed0f3 (the release base is `release/website-embeds`, not the r3b source branch). Gate S is in `TW-4F_Gate_S_Package_2026-11-22.md`. Original text follows. Status: PREPARATION ONLY. #668 merge is on an owner sequencing hold (not a rejection) until Apps confirms the R+3b release branch is available. No production SQL, merge into the active release candidate, deployment, flag, provisioning, SMS activation or provider spend is authorized by this document.
 
 ## What #668 is
 
@@ -18,7 +18,7 @@ App changes: `sendSuppression.ts` (pending-opt-out gate on every outbound path),
 
 ## Compatibility
 
-- Release base: `release/r3b-reminder-delete-backport` (2d28d3405) has a tree identical to `release/website-embeds` tip 96d91ea6 (diff empty). R+3b changes only `src/app/app/schedule/actions.ts` and its test; #668 touches nothing in `src/app/app/schedule`. `git merge-tree` of #668 onto the R+3b branch: clean, no conflicts.
+- Release base (corrected: `release/website-embeds`, not the r3b branch): `release/r3b-reminder-delete-backport` (2d28d3405) has a tree identical to `release/website-embeds` tip 96d91ea6 (diff empty). R+3b changes only `src/app/app/schedule/actions.ts` and its test; #668 touches nothing in `src/app/app/schedule`. `git merge-tree` of #668 onto the R+3b branch: clean, no conflicts.
 - No `vercel.json` change, no new cron (parked-STOP drain rides the existing 15-minute notifications sender).
 - Only new runtime flag: `SMS_PENDING_OPT_OUT_REQUIRED` (read at runtime in `sendSuppression.ts`, takes effect on the next deployment). Other env reads in touched files are pre-existing.
 
