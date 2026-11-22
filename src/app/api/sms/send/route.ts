@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -43,6 +44,31 @@ function canSendClientSms(role: string | null | undefined) {
   );
 }
 
+/**
+ * getCurrentStudioContext() answers "not signed in", "no studio" and "no selected studio" with a Next redirect (it serves pages). In this JSON route a redirect thrown
+ * inside the try block used to land in the generic catch and come back as HTTP 500, so an anonymous caller saw a server error. Answer it as the refusal it is:
+ * 401 when the destination is the sign-in page, 403 otherwise. Nothing is sent, read or written on this path.
+ */
+async function resolveSendContext(): Promise<
+  { ok: true; context: Awaited<ReturnType<typeof getCurrentStudioContext>> } | { ok: false; response: Response }
+> {
+  try {
+    return { ok: true, context: await getCurrentStudioContext() };
+  } catch (error) {
+    if (!isRedirectError(error)) throw error;
+    // digest is "NEXT_REDIRECT;<replace|push>;<url>;<status>;"
+    const destination = String((error as { digest?: string }).digest ?? "").split(";")[2] ?? "";
+    const signedOut = destination === "/login" || destination.startsWith("/login?") || destination.startsWith("/login/");
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: signedOut ? "Sign in to send text messages." : "You do not have permission to send text messages." },
+        { status: signedOut ? 401 : 403 },
+      ),
+    };
+  }
+}
+
 export async function POST(request: Request) {
   const rateLimit = checkRateLimit(
     rateLimitKey("sms:send", getIpFromRequest(request)),
@@ -55,7 +81,9 @@ export async function POST(request: Request) {
 
   try {
     const supabase = await createClient();
-    const context = await getCurrentStudioContext();
+    const contextResult = await resolveSendContext();
+    if (!contextResult.ok) return contextResult.response;
+    const context = contextResult.context;
 
     const studioId = context.studioId;
     const studioRole = context.studioRole ?? "";
