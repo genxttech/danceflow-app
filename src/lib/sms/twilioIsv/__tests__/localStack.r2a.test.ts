@@ -654,6 +654,23 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
   const R2A = "20261207090000_twilio_r2a_messaging_service_campaign";
   const rollbackDir = join(process.cwd(), "src/lib/supabase/migrations/rollback");
   const rbSql = (file: string) => readFileSync(join(rollbackDir, file), "utf8").replace(/^begin;/m, "").replace(/^commit;/m, "");
+  // Layers owned by other workstreams (event-registration claim function, dancer views, marketplace entitlements) that landed above R2a without a TW-4F guard form this
+  // classifier recognises. Each is applied exactly when the object its own rollback restores or removes is in its post-migration state; classified explicitly, never skipped.
+  const OTHER_LAYER_PROBES: Record<string, string> = {
+    "20270222094000": "to_regprocedure('public.claim_my_event_registrations()') is not null and has_function_privilege('authenticated', to_regprocedure('public.claim_my_event_registrations()'), 'execute')",
+    "20270222093000": "to_regclass('public.my_event_registrations') is not null and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_registrations' and policyname = 'event_registrations_self_select')",
+    "20270222092000": "to_regclass('public.my_event_registrations') is not null",
+    "20270222091000": "to_regclass('public.event_registrations_unclaimed_email_idx') is not null",
+    "20270222090500": "to_regprocedure('public.claim_my_event_registrations()') is not null",
+    "20270222090000": "to_regprocedure('public.claim_my_event_registrations()') is not null",
+    "20270212090000": "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'studio_sms_price_change_requests' and column_name = 'price_micros')",
+    "20270203100000": "to_regclass('public.usage_addon_entitlements') is not null and not has_table_privilege('anon', 'public.usage_addon_entitlements', 'select')",
+    "20261231150000": "coalesce((select position('ki1_ceiling_protected' in p.prosrc) > 0 from pg_proc p where p.oid = to_regprocedure('public._tw4act_items(uuid)')), false)",
+    "20270217090000": "coalesce((select position('v_starters' in p.prosrc) > 0 from pg_proc p where p.oid = to_regprocedure('public._tw4us_segments(text)')), false)",
+    "20270220090000": "exists (select 1 from pg_attribute a where a.attrelid = 'public.commerce_entitlements'::regclass and a.attname = 'client_id' and not a.attisdropped and not a.attnotnull)",
+    "20270220100000": "to_regprocedure('public.commerce_finalize_student_digital_order(uuid,text,numeric,text)') is not null",
+    "20270219100000": "to_regprocedure('public.capture_event_registration_lead(uuid)') is not null",
+  };
   function appliedLaterLayers(): { file: string; probe: string; applied: boolean }[] {
     return readdirSync(rollbackDir)
       .filter((f) => /^\d{14}_.*_rollback\.sql$/.test(f) && f.slice(0, 14) > R2A.slice(0, 14))
@@ -673,7 +690,8 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         // idempotent "alter table ... drop column if exists" (it drops only a standalone ordering column, so nothing can be lost that a guard would protect and a second run is a no-op).
         // It is applied exactly when the column exists; it is classified by that, never skipped.
         const dropcol = text.match(/alter table public.([a-z0-9_]+) drop column if exists ([a-z0-9_]+)/i);
-        const probe = guard ? `to_regclass('public.${guard[1]}') is not null`
+        const probe = OTHER_LAYER_PROBES[file.slice(0, 14)] ? OTHER_LAYER_PROBES[file.slice(0, 14)]
+          : guard ? `to_regclass('public.${guard[1]}') is not null`
           : fn ? `to_regprocedure('public.${fn[1]}(${fn[2]})') is not null`
           : pre ? `to_regprocedure('public.${pre[1]}') is not null`
           : dropcol ? `exists (select 1 from pg_attribute a where a.attrelid = 'public.${dropcol[1]}'::regclass and a.attname = '${dropcol[2]}' and not a.attisdropped)`
@@ -726,6 +744,9 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
         delete from public.studio_sms_provider_resources where legal_entity_id = any(v_ents);
         delete from public.studio_sms_onboarding_audit where action like 'rfl\\_%' and studio_id = any(array[${sqlList(FIXTURE_STUDIOS)}]::uuid[]);
       end $clear$;`;
+  // The price monitor (20270210110000) keeps append-only evidence and its rollback refuses while any exists; the fixtures publish prices, which emit security events. Cleared only here, inside
+  // the rolled-back transaction with triggers off; the refusal itself is still exercised by the layered-evidence test below.
+  const clearPriceMonitorRows = () => psql("select to_regclass('public.studio_sms_price_monitor_evidence') is not null") !== "t" ? "" : "alter table public.studio_sms_price_security_events disable trigger user; alter table public.studio_sms_price_monitor_evidence disable trigger user; delete from public.studio_sms_price_security_events; delete from public.studio_sms_price_monitor_evidence;";
   const clearFixtureEvidence = () => `set local session_replication_role = replica;
       ${deleteFixtureRequestsSql(U.padmin)}
       ${psql("select to_regclass('public.studio_sms_prov_listings') is not null") === "t"
@@ -736,6 +757,7 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
       delete from public.studio_sms_onboarding_audit where action like 'prov\\_%' and studio_id in (${sqlList(FIXTURE_STUDIOS)});
       ${clearFixtureLifecycle()}
       ${clearSpendEvidence()}
+      ${clearPriceMonitorRows()}
       set local session_replication_role = origin;`;
   const r2aIntact = () => psql(`select to_regclass('public.studio_sms_prov_operations') is not null and to_regprocedure('public.tw4_prov_settle_admin(uuid,uuid,text,text,text)') is not null`);
 
