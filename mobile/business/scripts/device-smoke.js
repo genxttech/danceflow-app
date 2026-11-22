@@ -402,7 +402,7 @@ async function startWeb() {
   const env = webEnv(opts.writes ? WRITE_POLICY() : null);
   log("next build (production; several minutes)");
   // A web server left behind by an earlier (killed) run keeps the port, the new `next start` dies with EADDRINUSE, and the old server (pointing at a stack that is gone) answers 401 to the readiness probe: the app then signs in and every staff call returns 503.
-  const stale = await fetch(`http://localhost:${opts.webPort}/api/staff/me`).then(() => true, () => false);
+  const stale = await fetch(`http://localhost:${opts.webPort}/api/staff/me`, { signal: AbortSignal.timeout(5000) }).then(() => true, (error) => error?.name === "TimeoutError");
   if (stale) throw new Error(`port ${opts.webPort} is already served by another process (a stale next start from an earlier run?): stop it before running`);
   const build = run("npx", ["next", "build"], { cwd: REPO, env });
   if (build.status !== 0) throw new Error(`next build failed (exit ${build.status}): ${(build.stderr || build.stdout).slice(-400)}`);
@@ -557,8 +557,8 @@ async function flows(apk) {
   setFont("1.0");
   setNight(false);
   if (opts.a11y) {
-    fs.writeFileSync(path.join(OUT, "density.txt"), (/(d+)s*$/.exec(sh("wm density")) ?? [, "420"])[1]);
-    fs.writeFileSync(path.join(OUT, "height.txt"), (/x(d+)/.exec(sh("wm size")) ?? [, "0"])[1]);
+    fs.writeFileSync(path.join(OUT, "density.txt"), (/(\d+)\s*$/.exec(sh("wm density")) ?? [, "420"])[1]);
+    fs.writeFileSync(path.join(OUT, "height.txt"), (/x(\d+)/.exec(sh("wm size")) ?? [, "0"])[1]);
   }
   launch();
   if (opts.a11y) {
@@ -730,7 +730,7 @@ async function a1Flows(owner) {
     pkg: APP,
     assistantName: "ARIA",
     flagsOn: !!opts.aria,
-    density: Number((/(d+)s*$/.exec(sh("wm density")) ?? [, "420"])[1]),
+    density: Number((/(\d+)\s*$/.exec(sh("wm density")) ?? [, "420"])[1]),
     writeFile: (p, t) => fs.writeFileSync(p, t),
     screens: [
       { id: "today", open: tab(/^Today$/), launcher: true },

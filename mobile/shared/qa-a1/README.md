@@ -7,7 +7,7 @@
 Without the flag word: Part A (flags OFF): no assistant node on any walked screen, cold start x5 (`am start -W`), logcat counts.
 With it: Part B (flags ON, stub responder only): launcher visibility and 44dp target, sheet open/expand/close/back/scrim, keyboard, conversation continuity across navigation and user switch, font 2.0 / dark (the app is cold-relaunched after each font or dark change, because a live change leaves the layout half-measured and screenshots show clipped text), tree order and labels.
 
-Anything not asserted is recorded as BLOCKED, never PASS. Clipping is not detectable from the accessibility tree: review the font-2.0 screenshots by eye.
+Anything not asserted is recorded as FAIL with a detail that starts with "BLOCKED:" (TalkBack, a missing second user), never PASS; the result files have no separate BLOCKED status, so a Part B run exits non-zero until those are really walked. Clipping is not detectable from the accessibility tree: review the font-2.0 screenshots by eye.
 
 ## TalkBack plan (not automated yet)
 TalkBack is installed on the df-api35 image but the traversal is not scripted yet. To run it:

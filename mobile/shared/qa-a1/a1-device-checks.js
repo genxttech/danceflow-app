@@ -44,13 +44,20 @@ function imeTopFromDumpsys(text) {
   for (const m of src.matchAll(/InsetsSource [^\n]*type=ime frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\][^\n]*visible=true/g)) {
     if (Number(m[4]) - Number(m[2]) > 200) top = top == null ? Number(m[2]) : Math.min(top, Number(m[2]));
   }
-  if (top != null) return top;
+  // An insets source for the keyboard is listed even while it is hidden (visible=false): then the keyboard is hidden, and the IME window's stale touchable region must not be read.
+  if (top != null || /InsetsSource [^\n]*type=ime /.test(src)) return top;
   for (const block of src.split(/\n\s*Window #/)) {
     if (!/InputMethod/.test(block.split("\n")[0])) continue;
     const r = /touchable region=SkRegion\(\((\d+),(\d+),(\d+),(\d+)\)\)/.exec(block);
     if (r && Number(r[4]) - Number(r[2]) > 200) top = top == null ? Number(r[2]) : Math.min(top, Number(r[2]));
   }
   return top;
+}
+
+/** The sheet's two "Minimize assistant" nodes share a label and both have empty text: the scrim is the big one (covers the screen above the sheet), Close is the small button. */
+function minimizeNodes(xml) {
+  const list = nodes(xml).filter((n) => n.box && label(n) === "Minimize assistant").sort((a, b) => (b.box.r - b.box.l) * (b.box.b - b.box.t) - (a.box.r - a.box.l) * (a.box.b - a.box.t));
+  return list.length >= 2 ? { scrim: list[0], close: list[list.length - 1] } : { scrim: null, close: list[0] ?? null };
 }
 
 async function run(ctx) {
@@ -144,7 +151,9 @@ async function run(ctx) {
   record("B sheet opens from the launcher", !!xml);
   if (!xml) return;
   dump("b2-sheet-open");
-  record("B sheet shows title, scrim, Expand, Close, composer, Send (disabled while empty)", !!find(xml, new RegExp(`^${name}$`)) && !!find(xml, /^Expand to full screen$/) && !!find(xml, /^Message /) && !!find(xml, /^Send message$/), "");
+  const mins = minimizeNodes(xml);
+  const sendOpen = find(xml, /^Send message$/);
+  record("B sheet shows title, scrim, Expand, Close, composer, Send (disabled while empty)", !!find(xml, new RegExp(`^${name}$`)) && !!find(xml, /^Expand to full screen$/) && !!find(xml, /^Message /) && !!sendOpen && !!mins.scrim && !!mins.close && sendOpen.enabled === "false", `scrim=${mins.scrim?.bounds ?? "missing"} close=${mins.close?.bounds ?? "missing"} send.enabled=${sendOpen?.enabled}`);
   const launcherWhileOpen = find(xml, launcherRe);
   record("B launcher hidden while the sheet is open", !launcherWhileOpen);
 
@@ -164,7 +173,8 @@ async function run(ctx) {
   shot(path.join(out, "b5-keyboard.png"));
   const composer = find(afterTyping, /^Message /);
   const send = find(afterTyping, /^Send message$/);
-  record("B keyboard: composer and Send stay above the keyboard", !!composer && !!send && (kbTop == null ? true : composer.box.b <= kbTop && send.box.b <= kbTop) && !find(afterTyping, launcherRe), `keyboardTop=${kbTop ?? "not in tree (only on-screen position checked)"} composer.bottom=${composer?.box.b} send.bottom=${send?.box.b}`);
+  // No keyboard found is a FAIL, never a pass on "the controls exist": without a keyboard edge there is nothing to compare against.
+  record("B keyboard: composer and Send stay above the keyboard", !!composer && !!send && kbTop != null && composer.box.b <= kbTop && send.box.b <= kbTop && !find(afterTyping, launcherRe), `keyboardTop=${kbTop ?? "NOT DETECTED (dumpsys window had no visible ime insets source)"} composer.bottom=${composer?.box.b} send.bottom=${send?.box.b}`);
   if (send) tap(send);
   await sleep(300);
   const pending = hierarchy();
@@ -182,7 +192,7 @@ async function run(ctx) {
     tap(exp);
     await sleep(900);
     const full = dump("b2-sheet-full");
-    record("B Expand shows full screen (no scrim) and Shrink", !find(full, /^Minimize assistant$/) || !!find(full, /^Show as sheet$/), "");
+    record("B Expand shows full screen (no scrim) and Shrink", !!find(full, /^Show as sheet$/) && !minimizeNodes(full).scrim, `show-as-sheet=${!!find(full, /^Show as sheet$/)} scrim-present=${!!minimizeNodes(full).scrim}`);
     const shrink = find(full, /^Show as sheet$/);
     if (shrink) { tap(shrink); await sleep(800); }
   } else record("B Expand control present", false, "not found");
@@ -224,13 +234,13 @@ async function run(ctx) {
   await sleep(2000);
   xml = await openSheet();
   if (xml) {
-    const scrim = find(xml, /^Minimize assistant$/);
-    if (scrim && scrim.text !== "Close") {
+    const scrim = minimizeNodes(xml).scrim;
+    if (scrim) {
       tap(scrim);
       await sleep(900);
       record("B scrim tap closes the sheet", !sheetOpen(hierarchy()), "");
     } else record("B scrim tap closes the sheet", false, "scrim node not found");
-  }
+  } else record("B scrim tap closes the sheet", false, "the sheet did not open");
 
   // B6 font 2.0 / dark: controls and composer still reachable, targets >= 44dp
   for (const mode of [{ scale: "2.0", night: "no", tag: "font2-light" }, { scale: "1.0", night: "yes", tag: "font1-dark" }, { scale: "2.0", night: "yes", tag: "font2-dark" }]) {
@@ -249,10 +259,13 @@ async function run(ctx) {
     const tag = `b6-${mode.tag}`;
     xml = xml ? dump(tag) : hierarchy();
     if (!xml || !sheetOpen(xml)) { record(`B ${mode.tag}: sheet opens`, false, l ? "launcher present but sheet did not open" : "launcher missing"); continue; }
-    const controls = ["Expand to full screen", "Minimize assistant", `Message ${name}`, "Send message"].map((lab) => findAll(xml, new RegExp(`^${lab}$`)).sort((a, b) => (b.box.b - b.box.t) - (a.box.b - a.box.t))[0]);
-    const small = controls.filter((n) => n && n.box && n.box.b - n.box.t < dpPx(MIN_TOUCH_DP) && !/^Message /.test(label(n)));
-    const missing = controls.filter((n) => !n).length;
-    record(`B ${mode.tag}: header, composer and Send reachable, targets >= 44dp`, missing === 0 && small.length === 0, `missing=${missing} small=${small.map((n) => `${label(n)}:${n.box.b - n.box.t}px`).join(",")}`);
+    // Close is the small "Minimize assistant" node (the scrim shares the label and is the big one); the composer is only checked for presence (a multi-line field may be taller, never smaller).
+    const m6 = minimizeNodes(xml);
+    const targets = [["Expand", find(xml, /^Expand to full screen$/)], ["Close", m6.close], ["Send", find(xml, /^Send message$/)]];
+    const composer6 = find(xml, new RegExp(`^Message ${name}$`));
+    const small = targets.filter(([, n]) => n && n.box.b - n.box.t < dpPx(MIN_TOUCH_DP));
+    const missing = targets.filter(([, n]) => !n).map(([lab]) => lab).concat(composer6 ? [] : ["composer"]);
+    record(`B ${mode.tag}: header, composer and Send reachable, targets >= 44dp`, missing.length === 0 && small.length === 0, `missing=${missing.join(",") || "none"} small=${small.map(([lab, n]) => `${lab}:${n.box.b - n.box.t}px`).join(",") || "none"} (checked: Expand, Close, Send heights; composer presence)`);
     await closeSheet();
   }
   adb(["shell", "settings", "put", "system", "font_scale", "1.0"]);
@@ -267,9 +280,11 @@ async function run(ctx) {
     const labels = nodes(xml).map(label).filter(Boolean);
     const iTitle = labels.indexOf(name), iExpand = labels.findIndex((x) => /^Expand to full screen$/.test(x)), iComposer = labels.findIndex((x) => /^Message /.test(x)), iSend = labels.findIndex((x) => /^Send message$/.test(x));
     record("B accessibility-tree order: title, header actions, thread, composer, Send", iTitle >= 0 && iTitle < iExpand && iExpand < iComposer && iComposer < iSend, `order indexes title=${iTitle} expand=${iExpand} composer=${iComposer} send=${iSend}`);
-    const focusable = findAll(xml, /./).filter((n) => /true/.test(n.clickable) && !label(n));
-    record("B every clickable control in the sheet has a label", focusable.filter((n) => n.box.b - n.box.t > 0).length === 0, focusable.map((n) => n.bounds).slice(0, 5).join(" "));
+    const focusable = nodes(xml).filter((n) => n.box && /true/.test(n.clickable) && !label(n) && n.box.b - n.box.t > 0);
+    record("B every clickable control in the sheet has a label", focusable.length === 0, focusable.map((n) => n.bounds).slice(0, 5).join(" "));
     await closeSheet();
+  } else {
+    record("B accessibility-tree order and labels", false, "the sheet did not open for the order/label check");
   }
   record("B TalkBack spoken-focus walk", false, "BLOCKED: TalkBack screen-reader traversal not run on the emulator in this slot; static tree order, labels and target sizes asserted above");
 
@@ -287,4 +302,4 @@ async function run(ctx) {
   } else record("B user switch drops the thread", false, "BLOCKED: no second user in this harness");
 }
 
-module.exports = { run, nodes, find, findAll, imeTopFromDumpsys };
+module.exports = { run, nodes, find, findAll, imeTopFromDumpsys, minimizeNodes };
