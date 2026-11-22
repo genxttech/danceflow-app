@@ -12,6 +12,7 @@ import { isStaffFeatureEnabled } from "@/lib/features";
 import { shouldKeepStale } from "@/lib/stale";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import { StaleBanner } from "@/components/StaleBanner";
+import { PulseCardsView } from "@/components/pulse/PulseCards";
 import type { StaffPulse } from "@/lib/staffApi";
 import { colors, radius, space, tabularNums } from "@/theme";
 
@@ -67,6 +68,7 @@ export function PulseScreen() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [refreshing, setRefreshing] = useState(false);
   const requestId = useRef(0);
+  const cardsEnabled = isStaffFeatureEnabled("pulseCards");
 
   const load = useCallback(
     async (mode: "initial" | "refresh") => {
@@ -75,7 +77,8 @@ export function PulseScreen() {
       if (mode === "initial") setState({ status: "loading" });
       else setRefreshing(true);
       try {
-        const pulse = await api.pulse(studioId);
+        // v1 call (exactly one argument) unless the cards flag is on: with it off nothing about the request changes.
+        const pulse = cardsEnabled ? await api.pulse(studioId, { cards: true }) : await api.pulse(studioId);
         if (id === requestId.current) setState({ status: "ready", pulse, loadedAt: Date.now() });
       } catch (error) {
         if (id === requestId.current) {
@@ -89,7 +92,7 @@ export function PulseScreen() {
         if (id === requestId.current) setRefreshing(false);
       }
     },
-    [api, studioId],
+    [api, studioId, cardsEnabled],
   );
 
   useEffect(() => {
@@ -97,6 +100,8 @@ export function PulseScreen() {
   }, [load]);
 
   const pulse = state.status === "ready" ? state.pulse : null;
+  const cards = cardsEnabled ? (pulse?.cards ?? null) : null;
+  const healthShown = cards?.health?.state === "ok"; // the health card replaces the v1 Today counts, so the same numbers are not drawn twice
   const notLinked = pulse !== null && pulse.scope === "own" && pulse.instructorId === null;
 
   return (
@@ -139,25 +144,29 @@ export function PulseScreen() {
 
       {pulse && !notLinked ? (
         <>
-          <View style={styles.card} testID="pulse-today">
-            <AppText variant="label" tone="muted" accessibilityRole="header">
-              Today
-            </AppText>
-            {pulse.today.total === 0 && pulse.today.cancelled === 0 ? (
-              <AppText testID="pulse-today-empty">Nothing on the schedule today.</AppText>
-            ) : (
-              <View style={styles.stats}>
-                <Stat label={pulse.today.total === 1 ? "appointment" : "appointments"} value={pulse.today.total} testID="pulse-total" />
-                <Stat label="still to come" value={pulse.today.upcoming} testID="pulse-upcoming" />
-                {pulse.today.cancelled > 0 ? <Stat label="cancelled" value={pulse.today.cancelled} testID="pulse-cancelled" /> : null}
-              </View>
-            )}
-            {pulse.today.truncated ? (
-              <AppText variant="caption" tone="muted" testID="pulse-truncated">
-                Counts cover the first 500 appointments of the day.
+          {!healthShown ? (
+            <View style={styles.card} testID="pulse-today">
+              <AppText variant="label" tone="muted" accessibilityRole="header">
+                Today
               </AppText>
-            ) : null}
-          </View>
+              {pulse.today.total === 0 && pulse.today.cancelled === 0 ? (
+                <AppText testID="pulse-today-empty">Nothing on the schedule today.</AppText>
+              ) : (
+                <View style={styles.stats}>
+                  <Stat label={pulse.today.total === 1 ? "appointment" : "appointments"} value={pulse.today.total} testID="pulse-total" />
+                  <Stat label="still to come" value={pulse.today.upcoming} testID="pulse-upcoming" />
+                  {pulse.today.cancelled > 0 ? <Stat label="cancelled" value={pulse.today.cancelled} testID="pulse-cancelled" /> : null}
+                </View>
+              )}
+              {pulse.today.truncated ? (
+                <AppText variant="caption" tone="muted" testID="pulse-truncated">
+                  Counts cover the first 500 appointments of the day.
+                </AppText>
+              ) : null}
+            </View>
+          ) : null}
+
+          {cards ? <PulseCardsView cards={cards} now={new Date(pulse.asOf || Date.now())} onOpenLead={(clientId) => studioId && router.push({ pathname: "/clients/[id]", params: { id: clientId, studioId } })} /> : null}
 
           <View style={styles.card}>
             <AppText variant="label" tone="muted" accessibilityRole="header">

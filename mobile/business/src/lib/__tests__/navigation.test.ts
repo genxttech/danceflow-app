@@ -120,3 +120,29 @@ describe("pickDefaultWorkspace", () => {
     expect(pickDefaultWorkspace([])).toBeNull();
   });
 });
+
+describe("initialTab with pulseHome", () => {
+  const owner = workspace({ role: "studio_owner", capabilities: OWNER });
+  it("default is unchanged: Today", () => {
+    expect(initialTab(owner)).toBe("today");
+    expect(initialTab(owner, { pulseForAll: true })).toBe("today");
+    expect(initialTab(owner, { pulseHome: false })).toBe("today");
+  });
+  it("owner, admin and front desk land on Pulse with the flag", () => {
+    expect(initialTab(owner, { pulseForAll: true, pulseHome: true })).toBe("pulse");
+    expect(initialTab(workspace({ role: "studio_admin", capabilities: OWNER }), { pulseForAll: true, pulseHome: true })).toBe("pulse");
+    expect(initialTab(workspace({ role: "front_desk", capabilities: FRONT_DESK }), { pulseForAll: true, pulseHome: true })).toBe("pulse");
+  });
+  it("an instructor keeps Today even with the flag", () => {
+    expect(initialTab(workspace({}), { pulseForAll: true, pulseHome: true })).toBe("today");
+  });
+  it("organizer and not-served roles are unchanged", () => {
+    const org = workspace({ role: "organizer_owner", capabilities: ORGANIZER });
+    expect(initialTab(org, { pulseHome: true })).toBe(initialTab(org));
+    expect(initialTab(workspace({ role: "independent_instructor" }), { pulseHome: true })).toBe("more");
+    expect(initialTab(null, { pulseHome: true })).toBe("more");
+  });
+  it("a paused workspace stays on More", () => {
+    expect(initialTab({ ...owner, accessAllowed: false }, { pulseForAll: true, pulseHome: true })).toBe("more");
+  });
+});

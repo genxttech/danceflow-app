@@ -177,6 +177,30 @@ The Business home summary: counts for today and the next appointment. Requires `
 - `newClientsLast7Days` counts clients created in the last 7 days. It is `null` for an instructor, who has no studio-wide client view.
 - No names, prices, payment state, contact details or referral source appear anywhere in this response.
 
+### Command-center cards: `GET .../pulse?include=cards` (additive, read only)
+
+Without the query the response is exactly the v1 body above (pinned builds are unaffected). With `?include=cards` the same body gains a `cards` object. Any other value of `include` is ignored.
+
+```json
+"cards": {
+  "requests":   { "state": "ok", "asOf": "...", "truncated": false, "bookingRequests": 2, "selfService": 1, "total": 3, "oldestCreatedAt": "...",
+                  "recent": [{ "id": "uuid", "source": "booking_request|self_service", "kind": "book|reschedule|cancel|null", "createdAt": "...", "requestedStartsAt": "...|null", "clientName": "Maya Chen|null" }] },
+  "leads":      { "state": "ok", "asOf": "...", "truncated": false, "newLast7Days": 2, "uncontacted": 1, "followUpsOverdue": 1,
+                  "recent": [{ "id": "uuid", "name": "Lena Lead", "createdAt": "...", "sourceLabel": "Intro booking", "uncontacted": true, "followUpDueAt": "...|null" }] },
+  "aria":       { "state": "ok", "asOf": "...", "truncated": false, "open": 2,
+                  "recent": [{ "id": "uuid", "title": "...", "priority": "high|null", "createdAt": "...", "ruleKey": "...|null", "status": "suggested|drafted" }] },
+  "exceptions": { "state": "ok", "asOf": "...", "truncated": false, "cancelledToday": 1, "lowPackages": 3 },
+  "health":     { "state": "ok", "asOf": "...", "truncated": false, "scope": "studio|own", "sessionsToday": 6, "sessionsDone": 4, "sessionsAhead": 2 }
+}
+```
+
+- **Per-card states.** A card is `null` when the viewer's role may not see it (draw nothing); `{ "state": "unavailable" }` when that card's own query failed (the other cards still answer; the failure is logged by card name only); otherwise `state: "ok"`. A failure of the v1 day summary is still the flat `503`.
+- **Role matrix.** Owner and admin: all five cards. Front desk: all but `aria`. Instructor: `requests` limited to requests assigned to their own instructor id, `exceptions` (cancellations of their own day; `lowPackages` is `null`) and `health` with `scope: "own"`; `leads` and `aria` are `null`. An instructor without a linked instructor record gets empty request counts, never the studio's. Independent instructors and organizer roles are still refused with `403 role_not_permitted` before any card read.
+- **Names.** `clientName` is filled only for owner, admin and front desk, through the studio-scoped client lookup; it is `null` for an instructor. Lead `name` is the lead's own name (broad roles only; the card is `null` for instructors). No emails, phone numbers, prices or payment state.
+- **Definitions.** `requests` counts open `booking_requests` (`pending`, `new`, `in_review`) and open `student_booking_action_requests` (`pending`), each queue capped at 200 (`truncated`). `leads` are `clients.status = 'lead'` excluding event-registration origins and independent instructors (interim rule, owner decision O3 in the audit; one predicate in `src/lib/staff/pulseCards.ts`); `uncontacted` = no `lead_activities` row; `followUpsOverdue` = open follow-ups due now or earlier. `aria.open` counts `automation_actions` in `suggested` or `drafted`. `lowPackages` = active packages whose finite items are all at or under 1 remaining (the schema has no expiry date, so there is no "expiring"). `health` comes from the same day summary as `today`, so the numbers cannot disagree.
+- **No actions.** These cards never approve, decline, execute, send, start intake or write anything. Approve/decline (P2) and ARIA actions (P4) are separate, gated work.
+- Lists hold at most 5 items; counts are authoritative, lists are samples.
+
 ## `GET /api/staff/workspaces/{studioId}/appointments/{appointmentId}`
 
 Requires `capabilities.viewStudioSchedule`. Instructors can read their own appointments. Owners, admins and front desk can read any appointment in the studio. `accessScope` reports which rule applied (`own-instructor` or `broad`).
