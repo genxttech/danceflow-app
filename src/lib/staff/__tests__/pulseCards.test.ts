@@ -289,3 +289,71 @@ describe("loadPulseCards: refused roles and isolated failure", () => {
     expect(cards.requests).toMatchObject({ truncated: true, bookingRequests: 200 });
   });
 });
+
+describe("classification guard: a lead is not a lesson request, a booking, an event registrant or an intake", () => {
+  const person = (id: string, over: Row): Row => ({ id, studio_id: STUDIO, first_name: id, last_name: "Test", status: "lead", created_at: "2026-11-21T10:00:00Z", referral_source: null, source_system: null, is_independent_instructor: false, ...over });
+
+  it.each([
+    ["the event checkout's own spelling", { referral_source: "Event Registration", source_system: "event_registration" }],
+    ["the key spelling", { referral_source: "event_registration" }],
+    ["a dashed spelling", { referral_source: "event-registration" }],
+    ["only the source system says event", { referral_source: null, source_system: "event_registration" }],
+    ["an independent instructor", { is_independent_instructor: true }],
+  ])("%s is never a lead", (_name, over) => {
+    expect(isPulseLead({ referral_source: null, source_system: null, is_independent_instructor: false, ...(over as object) })).toBe(false);
+  });
+
+  it("an event ticket purchaser (status lead, the event checkout's spelling) is in no lead count and no lead row", async () => {
+    const tables = { ...data, clients: [...data.clients, person("EV1", { referral_source: "Event Registration", source_system: "event_registration", created_at: "2026-11-22T10:00:00Z" })] };
+    const cards = await call("studio_owner", {}, tables).run();
+    const leads = cards.leads as { newLast7Days: number; uncontacted: number; recent: { id: string }[] };
+    expect(leads.recent.map((l) => l.id)).not.toContain("EV1");
+    expect(leads.newLast7Days).toBe(1); // unchanged from the base data: only L1
+    expect(leads.uncontacted).toBe(0);
+  });
+
+  it("a client who is not a lead (a booked, active student) is not a lead, and a lead's pending request is counted once as a request and once as a lead, never merged", async () => {
+    const tables = {
+      ...data,
+      clients: [...data.clients, person("N1", { status: "active" }), person("N2", { status: "lead", first_name: "Nia" })],
+      booking_requests: [...data.booking_requests, { id: "brN", studio_id: STUDIO, client_id: "N2", instructor_id: null, status: "pending", created_at: "2026-11-22T08:00:00Z", requested_starts_at: null }],
+    };
+    const cards = await call("studio_owner", {}, tables).run();
+    const leads = cards.leads as { recent: { id: string }[]; uncontacted: number };
+    const requests = cards.requests as { total: number; recent: { id: string }[] };
+    expect(leads.recent.map((l) => l.id)).not.toContain("N1");
+    expect(leads.recent.map((l) => l.id)).toContain("N2");
+    expect(requests.total).toBe(4); // 3 from the base data + brN
+    expect(requests.recent.map((r) => r.id)).toContain("brN");
+  });
+
+  it("a confirmed booking or an approved request is never an open request", async () => {
+    const cards = await call("studio_owner").run();
+    const ids = (cards.requests as { recent: { id: string }[] }).recent.map((r) => r.id);
+    expect(ids).not.toContain("br3"); // approved
+    expect(ids).not.toContain("sr2"); // executed
+  });
+
+  it("every ok card has a stable id and type and an empty action list (read only; ARIA attaches actions in a later phase)", async () => {
+    const cards = await call("studio_owner").run();
+    expect(cards.requests).toMatchObject({ cardId: "lesson_requests", cardType: "lesson_requests", actions: [] });
+    expect(cards.leads).toMatchObject({ cardId: "new_leads", cardType: "new_leads", actions: [] });
+    expect(cards.aria).toMatchObject({ cardId: "aria_suggestions", cardType: "aria_suggestions", actions: [] });
+    expect(cards.exceptions).toMatchObject({ cardId: "operational_exceptions", cardType: "operational_exceptions", actions: [] });
+    expect(cards.health).toMatchObject({ cardId: "studio_health", cardType: "studio_health", actions: [] });
+  });
+
+  it("ARIA suggestions are listed only as open suggestions: nothing approved, queued or completed, and no write is ever issued", async () => {
+    const { run, w } = call("studio_owner");
+    const cards = await run();
+    expect((cards.aria as { recent: { status: string }[] }).recent.every((r) => r.status === "suggested" || r.status === "drafted")).toBe(true);
+    expect(w.log.every((entry) => !("write" in entry))).toBe(true);
+  });
+
+  it("source labels are one origin whatever the spelling", () => {
+    expect(leadSourceLabel("Website")).toBe("Website");
+    expect(leadSourceLabel("Instagram")).toBe("Instagram");
+    expect(leadSourceLabel("Friend or family")).toBe("Friend or family");
+    expect(leadSourceLabel("  Event Registration ")).toBe("Other");
+  });
+});

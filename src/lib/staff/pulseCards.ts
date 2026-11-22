@@ -47,6 +47,12 @@ export function pulseCardAccess(role: string | null | undefined): PulseCardAcces
   return { requests: null, leads: false, aria: false, exceptions: null, health: null };
 }
 
+/**
+ * What every ok card carries so a later phase can attach recommended actions without reshaping the payload: a stable id and type per card, and an action
+ * descriptor list that is always empty in this version (cards are read only; approvals stay in the web app behind their own gates and audit trail).
+ */
+export type CardDescriptor = { cardId: PulseCardId; cardType: PulseCardId; actions: never[] };
+export type PulseCardId = "lesson_requests" | "new_leads" | "aria_suggestions" | "operational_exceptions" | "studio_health";
 export type CardEnvelope = { asOf: string; truncated: boolean };
 export type Unavailable = { state: "unavailable" };
 
@@ -129,7 +135,7 @@ export function summarizeRequests(booking: BookingRequestRow[], selfService: Sel
   };
 }
 
-type LeadRow = { id: string; first_name: string | null; last_name: string | null; created_at: string; referral_source: string | null; is_independent_instructor: boolean | null };
+type LeadRow = { id: string; first_name: string | null; last_name: string | null; created_at: string; referral_source: string | null; source_system?: string | null; is_independent_instructor: boolean | null };
 type FollowUpRow = { client_id: string; follow_up_due_at: string | null; completed_at: string | null };
 
 const LEAD_SOURCE_LABELS: Record<string, string> = {
@@ -139,19 +145,31 @@ const LEAD_SOURCE_LABELS: Record<string, string> = {
   website: "Website",
   referral: "Referral",
   walk_in: "Walk-in",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  google: "Google",
+  friend: "Friend",
+  friend_or_family: "Friend or family",
 };
 
+/** "Event Registration", "event-registration" and "event_registration" are one origin: the event checkout writes the display form, older rows the key form. */
+const sourceKey = (value: string | null | undefined) => (value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+
 export function leadSourceLabel(source: string | null | undefined) {
-  if (!source) return "Studio";
-  return LEAD_SOURCE_LABELS[source] ?? "Other";
+  const key = sourceKey(source);
+  if (!key) return "Studio";
+  return LEAD_SOURCE_LABELS[key] ?? "Other";
 }
 
 /**
  * Lead eligibility (audit decision O3, interim): `status = 'lead'` excluding event-registration origins and independent instructors. When the lead-integrity rule
  * (PR 576) lands, this single predicate is where it plugs in, so the app and the web agree.
  */
-export function isPulseLead(row: Pick<LeadRow, "referral_source" | "is_independent_instructor">) {
-  return row.referral_source !== "event_registration" && row.is_independent_instructor !== true;
+export function isPulseLead(row: Pick<LeadRow, "referral_source" | "is_independent_instructor"> & { source_system?: string | null }) {
+  // An event ticket purchaser or registrant is a customer of the event, not a studio lead: the event checkout creates them with status 'lead',
+  // referral_source "Event Registration" and source_system 'event_registration', so every one of those spellings is excluded.
+  const eventOrigin = sourceKey(row.referral_source) === "event_registration" || sourceKey(row.source_system) === "event_registration";
+  return !eventOrigin && row.is_independent_instructor !== true;
 }
 
 export function summarizeLeads(rows: LeadRow[], activityClientIds: Set<string>, followUps: FollowUpRow[], now: Date) {
@@ -270,7 +288,7 @@ async function loadLeads(ctx: Ctx): Promise<LeadsCard> {
   const nowIso = ctx.now.toISOString();
   const { data, error } = await ctx.supabase
     .from("clients")
-    .select("id, first_name, last_name, created_at, referral_source, is_independent_instructor")
+    .select("id, first_name, last_name, created_at, referral_source, source_system, is_independent_instructor")
     .eq("studio_id", ctx.studioId)
     .eq("status", "lead")
     .order("created_at", { ascending: false })
@@ -399,5 +417,14 @@ export async function loadPulseCards(params: {
     ? { state: "ok", asOf, truncated: today.truncated, scope: access.health, ...summarizeHealth(today) }
     : null;
 
-  return { requests, leads, aria, exceptions, health };
+  const describe = <T extends { state: "ok" }>(card: T | Unavailable | null, id: PulseCardId): (T & CardDescriptor) | Unavailable | null =>
+    card && card.state === "ok" ? { ...card, cardId: id, cardType: id, actions: [] } : (card as Unavailable | null);
+
+  return {
+    requests: describe(requests, "lesson_requests"),
+    leads: describe(leads, "new_leads"),
+    aria: describe(aria, "aria_suggestions"),
+    exceptions: describe(exceptions, "operational_exceptions"),
+    health: describe(health, "studio_health"),
+  } as PulseCards;
 }

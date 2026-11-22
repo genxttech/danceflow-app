@@ -176,4 +176,21 @@ describe("Pulse command center (pulseCards on)", () => {
     expect(screen.getByLabelText("new leads in 7 days: 2")).toBeTruthy();
     expect(screen.getByLabelText("new in the last 7 days: 3")).toBeTruthy(); // the honest all-clients line is kept, with its own label
   });
+
+  it("cards come in the order of what needs a person first, with studio health last", async () => {
+    renderPulse(pulse(OK));
+    await screen.findByTestId("pulse-health");
+    const order = screen
+      .getAllByTestId(/^pulse-(needs-you|requests|leads|aria|exceptions|health)$/)
+      .map((node) => String(node.props.testID).replace("pulse-", ""));
+    expect(order).toEqual(["needs-you", "requests", "leads", "aria", "exceptions", "health"]);
+  });
+
+  it("a lead with an overdue follow-up says so in its own row and label", async () => {
+    const lead = { id: "lead-2", name: "Marcus Webb", createdAt: "2026-11-19T10:00:00.000Z", sourceLabel: "Instagram", uncontacted: false, followUpDueAt: "2026-11-20T10:00:00.000Z" };
+    renderPulse(pulse({ ...OK, leads: { ...OK.leads, recent: [lead] } }));
+    const row = await screen.findByTestId("pulse-lead-lead-2");
+    expect(row.props.accessibilityLabel).toBe("Marcus Webb, Instagram, follow-up overdue");
+    expect(screen.getByText(/Instagram.*follow-up overdue/)).toBeTruthy();
+  });
 });

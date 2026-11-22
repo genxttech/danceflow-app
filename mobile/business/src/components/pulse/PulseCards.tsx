@@ -5,7 +5,7 @@ import { needsYouItems, waitingLabel, type CardUnavailable, type PulseCards } fr
 import { colors, radius, space, tabularNums } from "@/theme";
 
 /*
-  The Pulse command-center cards (read only). Hidden cards (null) draw nothing; an unavailable card says so in words and leaves the rest alone. Every number is shown once, with its
+  The Pulse command-center cards (read only), in the order of what needs a person first: needs-you summary, lesson requests, new leads, ARIA suggestions, exceptions, then studio health (a number to glance at, not a task). Hidden cards (null) draw nothing; an unavailable card says so in words and leaves the rest alone. Every number is shown once, with its
   label, as one accessible element. Nothing here starts an action: the only taps open a lead's client record.
 */
 
@@ -45,6 +45,7 @@ function Stat({ label, value, testID }: { label: string; value: number; testID: 
   );
 }
 
+const isOverdue = (iso: string | null, now: Date) => iso !== null && new Date(iso).getTime() <= now.getTime();
 const isUnavailable = (card: unknown): card is CardUnavailable => (card as CardUnavailable | null)?.state === "unavailable";
 
 export function PulseCardsView({ cards, now, onOpenLead }: Props) {
@@ -54,23 +55,6 @@ export function PulseCardsView({ cards, now, onOpenLead }: Props) {
 
   return (
     <>
-      {health && !isUnavailable(health) ? (
-        <Card title={health.scope === "studio" ? "Studio health" : "Your sessions"} testID="pulse-health">
-          <View style={styles.stats}>
-            <Stat label={health.sessionsToday === 1 ? "session today" : "sessions today"} value={health.sessionsToday} testID="pulse-health-today" />
-            <Stat label="done" value={health.sessionsDone} testID="pulse-health-done" />
-            <Stat label="still ahead" value={health.sessionsAhead} testID="pulse-health-ahead" />
-          </View>
-          {health.truncated ? (
-            <AppText variant="caption" tone="muted">
-              Counts cover the first 500 appointments of the day.
-            </AppText>
-          ) : null}
-        </Card>
-      ) : isUnavailable(health) ? (
-        <Unavailable title="Studio health" testID="pulse-health-unavailable" />
-      ) : null}
-
       {anyNeedsCard ? (
         <Card title="Needs you" testID="pulse-needs-you">
           {needs.length === 0 ? (
@@ -129,7 +113,7 @@ export function PulseCardsView({ cards, now, onOpenLead }: Props) {
             <Pressable
               key={lead.id}
               accessibilityRole="button"
-              accessibilityLabel={`${lead.name}, ${lead.sourceLabel}${lead.uncontacted ? ", not contacted" : ""}`}
+              accessibilityLabel={`${lead.name}, ${lead.sourceLabel}${lead.uncontacted ? ", not contacted" : ""}${isOverdue(lead.followUpDueAt, now) ? ", follow-up overdue" : ""}`}
               accessibilityHint="Opens the client"
               onPress={() => onOpenLead?.(lead.id)}
               style={({ pressed }) => [styles.leadRow, pressed && styles.pressed]}
@@ -139,6 +123,7 @@ export function PulseCardsView({ cards, now, onOpenLead }: Props) {
               <AppText tone="muted">
                 {lead.sourceLabel}
                 {lead.uncontacted ? " · not contacted" : ""}
+                {isOverdue(lead.followUpDueAt, now) ? " · follow-up overdue" : ""}
               </AppText>
             </Pressable>
           ))}
@@ -183,6 +168,23 @@ export function PulseCardsView({ cards, now, onOpenLead }: Props) {
       ) : isUnavailable(exceptions) ? (
         <Unavailable title="Worth a look" testID="pulse-exceptions-unavailable" />
       ) : null}
+
+      {health && !isUnavailable(health) ? (
+        <Card title={health.scope === "studio" ? "Studio health" : "Your sessions"} testID="pulse-health">
+          <View style={styles.stats}>
+            <Stat label={health.sessionsToday === 1 ? "session today" : "sessions today"} value={health.sessionsToday} testID="pulse-health-today" />
+            <Stat label="done" value={health.sessionsDone} testID="pulse-health-done" />
+            <Stat label="still ahead" value={health.sessionsAhead} testID="pulse-health-ahead" />
+          </View>
+          {health.truncated ? (
+            <AppText variant="caption" tone="muted">
+              Counts cover the first 500 appointments of the day.
+            </AppText>
+          ) : null}
+        </Card>
+      ) : isUnavailable(health) ? (
+        <Unavailable title="Studio health" testID="pulse-health-unavailable" />
+      ) : null}
     </>
   );
 }
@@ -203,8 +205,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.raised,
   },
-  stats: { flexDirection: "row", flexWrap: "wrap", gap: space.xl },
-  stat: { gap: 2, minWidth: 96 },
+  stats: { flexDirection: "row", flexWrap: "wrap", gap: space.lg, columnGap: space.xl },
+  stat: { gap: 2 },
   needsRow: { flexDirection: "row", alignItems: "center", gap: space.md, minHeight: 44 },
   needsLabel: { flex: 1 },
   leadRow: {
