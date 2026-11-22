@@ -22,8 +22,14 @@ export type StaffFeature =
   | "clientNotes"
   | "clientCreate"
   | "classRoster"
-  | "ariaAssistant";
+  | "ariaAssistant"
+  | "pulseCards"
+  | "pulseHome";
 
+/**
+ * "pulseCards" (the Pulse command-center cards: requests, leads, ARIA, exceptions, health; read only, GET /pulse?include=cards) and "pulseHome" (Pulse as the landing tab for owner, admin and
+ * front desk) are OFF by default and never release words until walked on a device (Test-StaffFeatures refuses unknown words). pulseHome only has an effect together with pulse.
+ */
 /**
  * "ariaAssistant" (the in-app ARIA assistant, A1 groundwork: local stub only, no network) is OFF by default and never a release word (Test-StaffFeatures refuses unknown words).
  */
@@ -47,7 +53,9 @@ const isFeature = (value: string): value is StaffFeature =>
   value === "clientNotes" ||
   value === "clientCreate" ||
   value === "classRoster" ||
-  value === "ariaAssistant";
+  value === "ariaAssistant" ||
+  value === "pulseCards" ||
+  value === "pulseHome";
 
 export function parseStaffFeatures(raw: string | undefined): Set<StaffFeature> {
   const enabled = new Set<StaffFeature>(ENABLED_BY_DEFAULT);

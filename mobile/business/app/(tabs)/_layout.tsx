@@ -69,7 +69,7 @@ export default function TabsLayout() {
     );
   }
 
-  const navigationOptions = { pulseForAll: isStaffFeatureEnabled("pulse") };
+  const navigationOptions = { pulseForAll: isStaffFeatureEnabled("pulse"), pulseHome: isStaffFeatureEnabled("pulseHome") };
   const visible = new Set(tabsForWorkspace(workspace, navigationOptions));
 
   return (

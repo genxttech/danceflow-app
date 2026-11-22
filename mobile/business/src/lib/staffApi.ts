@@ -1,3 +1,5 @@
+import { toPulseCards, type PulseCards } from "@/lib/pulseCards";
+
 /*
   Client for the /api/staff/* contract (docs/mobile/Staff_API_Contract.md).
 
@@ -86,6 +88,8 @@ export type StaffPulse = {
   next: { id: string; appointmentType: string; title: string | null; status: string; startsAt: string; endsAt: string } | null;
   /** null for an instructor, who has no studio-wide client view. */
   newClientsLast7Days: number | null;
+  /** Only when asked for (GET /pulse?include=cards) and the server serves them; absent otherwise. */
+  cards?: PulseCards | null;
 };
 
 export type AppointmentDetail = TodayAppointment & {
@@ -388,7 +392,7 @@ export type StaffApi = {
   /** Slice 3: GET /workspaces/{id}/schedule?date=. The whole studio's day for owner, admin and front desk; instructors get 403 role_not_permitted. */
   studioSchedule: (studioId: string, date?: string) => Promise<StaffStudioDay>;
   /** Slice 3: GET /workspaces/{id}/pulse. Counts and the next appointment; studio scope for owner, admin and front desk, own scope for an instructor. */
-  pulse: (studioId: string) => Promise<StaffPulse>;
+  pulse: (studioId: string, options?: { cards?: boolean }) => Promise<StaffPulse>;
   /** Slice 2: GET /workspaces/{id}/clients?q=&cursor=&limit= (limit 1–50). Front desk and admins: active clients. Instructors: the clients they teach. */
   searchClients: (studioId: string, params: { q?: string; cursor?: string | null; limit?: number }) => Promise<ClientPage>;
   /** Slice 2: GET /workspaces/{id}/clients/{clientId}. An instructor gets 404 for a client they don't teach. */
@@ -491,6 +495,7 @@ export function toStaffPulse(raw: unknown): StaffPulse {
           }
         : null,
     newClientsLast7Days: r.scope === "studio" && typeof r.newClientsLast7Days === "number" ? count(r.newClientsLast7Days) : null,
+    ...("cards" in r ? { cards: toPulseCards(r.cards) } : {}),
   };
 }
 
@@ -639,7 +644,7 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     today: (studioId, date) => call<StaffToday>(`${ws(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`),
     studioSchedule: async (studioId, date) =>
       toStaffStudioDay(await call<unknown>(`${ws(studioId)}/schedule${date ? `?date=${encodeURIComponent(date)}` : ""}`)),
-    pulse: async (studioId) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse`)),
+    pulse: async (studioId, options) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse${options?.cards ? "?include=cards" : ""}`)),
     appointment: (studioId, appointmentId) =>
       call<AppointmentDetail>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}`),
     searchClients: async (studioId, { q, cursor, limit }) => {
