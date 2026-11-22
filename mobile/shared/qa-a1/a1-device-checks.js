@@ -34,6 +34,22 @@ const label = (n) => n["content-desc"] || n.text || "";
 const find = (xml, re) => nodes(xml).find((n) => n.box && re.test(label(n)));
 const findAll = (xml, re) => nodes(xml).filter((n) => n.box && re.test(label(n)));
 
+// Top edge (y) of the on-screen keyboard from `dumpsys window windows`. Each window block starts with "Window #n Window{... InputMethod}:";
+// the frame is "mFrame=[l,t][r,b]" (older images) or "frame=[l,t][r,b]" (API 35). A block that is the IME window and is not a sliver
+// (taller than 200px) counts; the highest top wins. Returns null when no such window is found.
+function imeTopFromDumpsys(text) {
+  let top = null;
+  for (const block of String(text || "").split(/\n\s*Window #/)) {
+    if (!/InputMethod/.test(block.split("\n")[0])) continue;
+    const m = /(?:mFrame|\bframe)=\[(\d+),(\d+)\]\[(\d+),(\d+)\]/.exec(block);
+    if (!m) continue;
+    const t = Number(m[2]);
+    const b = Number(m[4]);
+    if (b - t > 200) top = top == null ? t : Math.min(top, t);
+  }
+  return top;
+}
+
 async function run(ctx) {
   const { adb, hierarchy, shot, record, sleep, out, pkg } = ctx;
   const name = ctx.assistantName;
@@ -137,8 +153,7 @@ async function run(ctx) {
   await sleep(700);
   const withKb = adb(["shell", "uiautomator", "dump", "--windows", "/sdcard/ui-win.xml"]).status === 0 ? adb(["exec-out", "cat", "/sdcard/ui-win.xml"]).stdout : "";
   let kbTop = null;
-  const ime = /Window{[^}]*InputMethod[^}]*}[sS]{0,600}?mFrame=[(d+),(d+)][(d+),(d+)]/.exec(adb(["shell", "dumpsys", "window", "windows"]).stdout);
-  if (ime) kbTop = Number(ime[2]);
+  kbTop = imeTopFromDumpsys(adb(["shell", "dumpsys", "window", "windows"]).stdout);
   // fallback: the keyboard's own window: an input-method package node that is tall (the key rows), not the status-bar/IME-switcher slivers
   if (kbTop == null) for (const n of nodes(withKb)) if (n.box && /inputmethod/i.test(n.package || "") && n.box.b - n.box.t > 300) kbTop = kbTop == null ? n.box.t : Math.min(kbTop, n.box.t);
   const afterTyping = hierarchy();
@@ -269,4 +284,4 @@ async function run(ctx) {
   } else record("B user switch drops the thread", false, "BLOCKED: no second user in this harness");
 }
 
-module.exports = { run, nodes, find, findAll };
+module.exports = { run, nodes, find, findAll, imeTopFromDumpsys };
