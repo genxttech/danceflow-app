@@ -34,18 +34,21 @@ const label = (n) => n["content-desc"] || n.text || "";
 const find = (xml, re) => nodes(xml).find((n) => n.box && re.test(label(n)));
 const findAll = (xml, re) => nodes(xml).filter((n) => n.box && re.test(label(n)));
 
-// Top edge (y) of the on-screen keyboard from `dumpsys window windows`. Each window block starts with "Window #n Window{... InputMethod}:";
-// the frame is "mFrame=[l,t][r,b]" (older images) or "frame=[l,t][r,b]" (API 35). A block that is the IME window and is not a sliver
-// (taller than 200px) counts; the highest top wins. Returns null when no such window is found.
+// Top edge (y) of the on-screen keyboard from `dumpsys window` (the full dump, not `windows`). Real API 35 output, captured on df-api35 (fixtures/):
+//   InsetsSource id=3 type=ime frame=[0,1580][1080,2400] visibleFrame=[0,1580][1080,2400] visible=true ...   (visible=false, frame=[0,0][0,0] while hidden)
+//   Window #6 Window{... InputMethod}: ... touchable region=SkRegion((0,1580,1080,2337))                    (fallback when no insets source is listed)
+// Returns null when no visible keyboard is found, so the caller says so instead of guessing.
 function imeTopFromDumpsys(text) {
+  const src = String(text || "");
   let top = null;
-  for (const block of String(text || "").split(/\n\s*Window #/)) {
+  for (const m of src.matchAll(/InsetsSource [^\n]*type=ime frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\][^\n]*visible=true/g)) {
+    if (Number(m[4]) - Number(m[2]) > 200) top = top == null ? Number(m[2]) : Math.min(top, Number(m[2]));
+  }
+  if (top != null) return top;
+  for (const block of src.split(/\n\s*Window #/)) {
     if (!/InputMethod/.test(block.split("\n")[0])) continue;
-    const m = /(?:mFrame|\bframe)=\[(\d+),(\d+)\]\[(\d+),(\d+)\]/.exec(block);
-    if (!m) continue;
-    const t = Number(m[2]);
-    const b = Number(m[4]);
-    if (b - t > 200) top = top == null ? t : Math.min(top, t);
+    const r = /touchable region=SkRegion\(\((\d+),(\d+),(\d+),(\d+)\)\)/.exec(block);
+    if (r && Number(r[4]) - Number(r[2]) > 200) top = top == null ? Number(r[2]) : Math.min(top, Number(r[2]));
   }
   return top;
 }
@@ -153,7 +156,7 @@ async function run(ctx) {
   await sleep(700);
   const withKb = adb(["shell", "uiautomator", "dump", "--windows", "/sdcard/ui-win.xml"]).status === 0 ? adb(["exec-out", "cat", "/sdcard/ui-win.xml"]).stdout : "";
   let kbTop = null;
-  kbTop = imeTopFromDumpsys(adb(["shell", "dumpsys", "window", "windows"]).stdout);
+  kbTop = imeTopFromDumpsys(adb(["shell", "dumpsys", "window"]).stdout);
   // fallback: the keyboard's own window: an input-method package node that is tall (the key rows), not the status-bar/IME-switcher slivers
   if (kbTop == null) for (const n of nodes(withKb)) if (n.box && /inputmethod/i.test(n.package || "") && n.box.b - n.box.t > 300) kbTop = kbTop == null ? n.box.t : Math.min(kbTop, n.box.t);
   const afterTyping = hierarchy();

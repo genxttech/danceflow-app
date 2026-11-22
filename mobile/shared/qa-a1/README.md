@@ -16,3 +16,7 @@ TalkBack is installed on the df-api35 image but the traversal is not scripted ye
 3. Open the sheet: focus must move into the sheet (accessibilityViewIsModal) and the background must not be reachable; order title, Helping with, Expand, Clear, Close, thread, composer, Send; Retry and link chips announced as buttons/links.
 4. Close: focus returns to the launcher or the screen, not lost.
 5. Evidence: caption log + screenshots; anything not walked is BLOCKED.
+
+## Keyboard-top measurement
+
+`imeTopFromDumpsys` reads the keyboard's top edge from the full `adb shell dumpsys window` (the `InsetsSource ... type=ime frame=[l,t][r,b] ... visible=true` line, with the IME window's `touchable region` as a fallback). The fixtures in `fixtures/` are real API 35 lines captured on `df-api35`; `node mobile/shared/qa-a1/check-ime-parser.js` checks the parser against them without a device. A hidden keyboard returns null and the check then only asserts on-screen position (it says so in its detail).
