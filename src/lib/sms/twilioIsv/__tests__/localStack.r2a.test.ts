@@ -657,19 +657,18 @@ describe.skipIf(!enabled)("TW-4F R2a: Messaging Service and campaign provisionin
   // Layers owned by other workstreams (event-registration claim function, dancer views, marketplace entitlements) that landed above R2a without a TW-4F guard form this
   // classifier recognises. Each is applied exactly when the object its own rollback restores or removes is in its post-migration state; classified explicitly, never skipped.
   const OTHER_LAYER_PROBES: Record<string, string> = {
-    "20270222094000": "to_regprocedure('public.claim_my_event_registrations()') is not null and has_function_privilege('authenticated', to_regprocedure('public.claim_my_event_registrations()'), 'execute')",
-    "20270222093000": "to_regclass('public.my_event_registrations') is not null and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_registrations' and policyname = 'event_registrations_self_select')",
+    "20270222094000": "to_regprocedure('public.claim_my_event_registrations()') is not null and has_function_privilege('authenticated', to_regprocedure('public.claim_my_event_registrations()'), 'execute') and (to_regclass('public.my_event_registrations') is not null and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_registrations' and policyname = 'event_registrations_self_select'))",
+    "20270222093000": "(to_regclass('public.my_event_registrations') is not null and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_registrations' and policyname = 'event_registrations_self_select'))",
     "20270222092000": "to_regclass('public.my_event_registrations') is not null",
     "20270222091000": "to_regclass('public.event_registrations_unclaimed_email_idx') is not null",
-    "20270222090500": "to_regprocedure('public.claim_my_event_registrations()') is not null",
-    "20270222090000": "to_regprocedure('public.claim_my_event_registrations()') is not null",
+    "20270222090500": "to_regprocedure('public.claim_my_event_registrations()') is not null and (not has_function_privilege('authenticated', to_regprocedure('public.claim_my_event_registrations()'), 'execute') or (to_regclass('public.my_event_registrations') is not null and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_registrations' and policyname = 'event_registrations_self_select')))",
+    "20270222090000": "coalesce((select position('public_event_page' in p.prosrc) > 0 from pg_proc p where p.oid = to_regprocedure('public.claim_my_event_registrations()')), false)",
     "20270212090000": "exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'studio_sms_price_change_requests' and column_name = 'price_micros')",
-    "20270203100000": "to_regclass('public.usage_addon_entitlements') is not null and not has_table_privilege('anon', 'public.usage_addon_entitlements', 'select')",
+    "20270203100000": "has_table_privilege('anon', to_regclass('public.usage_addon_entitlements'), 'select') is false and to_regclass('public.usage_addon_entitlements') is not null",
     "20261231150000": "coalesce((select position('ki1_ceiling_protected' in p.prosrc) > 0 from pg_proc p where p.oid = to_regprocedure('public._tw4act_items(uuid)')), false)",
     "20270217090000": "coalesce((select position('v_starters' in p.prosrc) > 0 from pg_proc p where p.oid = to_regprocedure('public._tw4us_segments(text)')), false)",
     "20270220090000": "exists (select 1 from pg_attribute a where a.attrelid = 'public.commerce_entitlements'::regclass and a.attname = 'client_id' and not a.attisdropped and not a.attnotnull)",
-    "20270220100000": "to_regprocedure('public.commerce_finalize_student_digital_order(uuid,text,numeric,text)') is not null",
-    "20270219100000": "to_regprocedure('public.capture_event_registration_lead(uuid)') is not null",
+    "20270220100000": "coalesce((select position('marketplace_purchase' in p.prosrc) > 0 from pg_proc p where p.oid = to_regprocedure('public.commerce_finalize_student_digital_order(uuid,text,numeric,text)')), false)",
   };
   function appliedLaterLayers(): { file: string; probe: string; applied: boolean }[] {
     return readdirSync(rollbackDir)
