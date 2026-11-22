@@ -116,19 +116,19 @@ export async function registerCouple(page: Page, slug: string, contact: { name: 
  * runs bot detection and is never automated): a tok_visa PaymentMethod confirmed through the payment page with the test
  * key. Stripe then emits the authentic signed webhooks to the local listener.
  */
-export async function payCheckoutSession(stripe: Stripe, account: string, sessionId: string) {
+export async function payCheckoutSession(stripe: Stripe, account: string, sessionId: string, options: { token?: string } = {}) {
   const onAccount = { stripeAccount: account };
   const paymentPage = (await stripe.rawRequest("GET", `/v1/payment_pages/${sessionId}`, {}, onAccount)) as unknown as { total_summary?: { due?: number }; livemode?: boolean };
   expect(paymentPage.livemode).toBe(false);
   const session = await stripe.checkout.sessions.retrieve(sessionId, {}, onAccount);
   const paymentMethod = await stripe.paymentMethods.create({
-    type: "card", card: { token: "tok_visa" }, billing_details: { name: "E2E Buyer", email: session.customer_email ?? session.customer_details?.email ?? undefined },
+    type: "card", card: { token: options.token ?? "tok_visa" }, billing_details: { name: "E2E Buyer", email: session.customer_email ?? session.customer_details?.email ?? undefined },
   }, onAccount);
   try {
     await stripe.rawRequest("POST", `/v1/payment_pages/${sessionId}/confirm`, { payment_method: paymentMethod.id, expected_amount: paymentPage.total_summary?.due }, onAccount);
   } catch (error) {
-    const raw = (error as { raw?: { code?: string; message?: string } }).raw;
-    throw new Error(`Stripe test confirm failed: ${raw?.code ?? ""} ${raw?.message ?? String(error)}`);
+    const raw = (error as { raw?: { code?: string; message?: string; request_id?: string } }).raw;
+    throw new Error(`Stripe test confirm failed: ${raw?.code ?? ""} ${raw?.message ?? String(error)} (request ${raw?.request_id ?? "unknown"})`);
   }
   return stripe.checkout.sessions.retrieve(sessionId, {}, onAccount);
 }
