@@ -306,6 +306,7 @@ async function signIn(email) {
     while (Date.now() < end) {
       const nodes = dump();
       if (lib.hasLabel(nodes, /^Today$/)) return;
+      if (lib.hasLabel(nodes, "Temporarily unavailable")) throw new Error("signed in, but the first screen shows 'Temporarily unavailable' (a staff API call failed; see web-server.log and diag.json)");
       if (lib.hasLabel(nodes, "did not match")) {
         log(`sign-in refused on attempt ${attempt}; retyping`);
         break;
@@ -400,9 +401,13 @@ async function restartWeb(policy) {
 async function startWeb() {
   const env = webEnv(opts.writes ? WRITE_POLICY() : null);
   log("next build (production; several minutes)");
+  // A web server left behind by an earlier (killed) run keeps the port, the new `next start` dies with EADDRINUSE, and the old server (pointing at a stack that is gone) answers 401 to the readiness probe: the app then signs in and every staff call returns 503.
+  const stale = await fetch(`http://localhost:${opts.webPort}/api/staff/me`).then(() => true, () => false);
+  if (stale) throw new Error(`port ${opts.webPort} is already served by another process (a stale next start from an earlier run?): stop it before running`);
   const build = run("npx", ["next", "build"], { cwd: REPO, env });
   if (build.status !== 0) throw new Error(`next build failed (exit ${build.status}): ${(build.stderr || build.stdout).slice(-400)}`);
-  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env, stdio: "ignore", shell: WIN });
+  const webLog = fs.openSync(path.join(OUT, "web-server.log"), "a");
+  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env, stdio: ["ignore", webLog, webLog], shell: WIN });
   for (let i = 0; i < 60; i++) {
     try {
       const r = await fetch(`http://localhost:${opts.webPort}/api/staff/me`);
@@ -662,7 +667,49 @@ async function a1Flows(owner) {
   const { run: runA1 } = require("../../shared/qa-a1/a1-device-checks.js");
   setFont("1.0");
   setNight(false);
+  // The AVD keeps the app's data between runs (`adb install -r`), so a session from an earlier run's stack can come back signed in against THIS stack. Record what the app
+  // shows first (screens, host-side probes of the stack and the web app, the app's JS log), then clear the app data so every run starts signed out.
+  const diag = { probes: {}, steps: [] };
+  for (const [name, url] of [["web /api/staff/me", `http://localhost:${opts.webPort}/api/staff/me`], ["stack auth health", `${state.stack.TW4A_LOCAL_URL}/auth/v1/health`]]) {
+    try {
+      diag.probes[name] = (await fetch(url)).status;
+    } catch (error) {
+      diag.probes[name] = `unreachable: ${error.message}`;
+    }
+  }
+  try {
+    const tok = await (await fetch(`${state.stack.TW4A_LOCAL_URL}/auth/v1/token?grant_type=password`, { method: "POST", headers: { "content-type": "application/json", apikey: state.stack.ISO_QA_ANON_KEY }, body: JSON.stringify({ email: owner, password: PASSWORD }) })).json();
+    const bearer = { authorization: `Bearer ${tok.access_token}` };
+    const me = await fetch(`http://localhost:${opts.webPort}/api/staff/me`, { headers: bearer });
+    const meText = await me.text();
+    diag.probes["signed-in /api/staff/me"] = `${me.status} ${meText.slice(0, 300)}`;
+    const ws = /"(?:workspaceId|workspace_id|id)":"([0-9a-f-]{36})"/.exec(meText)?.[1];
+    if (ws) {
+      const today = await fetch(`http://localhost:${opts.webPort}/api/staff/workspaces/${ws}/today`, { headers: bearer });
+      diag.probes["signed-in today"] = `${today.status} ${(await today.text()).slice(0, 300)}`;
+    }
+  } catch (error) {
+    diag.probes["signed-in probe"] = `failed: ${error.message}`;
+  }
   launch();
+  await sleep(12000);
+  shot("diag-0-launch-persisted-data");
+  diag.steps.push({ step: "after launch with the data of earlier runs", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  const tryAgain = lib.findTappable(dump(), /^Try again$/);
+  if (tryAgain) {
+    tapNode(tryAgain);
+    await sleep(8000);
+    shot("diag-1-after-try-again");
+    diag.steps.push({ step: "after tapping Try again", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  }
+  fs.writeFileSync(path.join(OUT, "diag-logcat-js.txt"), adb("logcat", "-d", "-t", "3000", "-s", "ReactNativeJS:*").stdout);
+  adb("shell", "pm", "clear", APP);
+  launch();
+  await sleep(8000);
+  shot("diag-2-after-pm-clear");
+  diag.steps.push({ step: "after pm clear + cold launch", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  fs.writeFileSync(path.join(OUT, "diag.json"), JSON.stringify(diag, null, 2));
+  log(`diag: ${JSON.stringify(diag)}`);
   await signIn(owner);
   const tab = (label) => async () => {
     await home();
