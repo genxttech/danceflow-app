@@ -75,7 +75,9 @@ function shuffle<T>(items: T[], random: () => number) {
 export async function listRepairCandidates(admin: Db, params: { batchSize: number; minAgeMinutes: number; now: number; random: () => number }) {
   const olderThan = new Date(params.now - params.minAgeMinutes * 60_000).toISOString();
   const newerThan = new Date(params.now - MAX_AGE_DAYS * 86_400_000).toISOString();
-  const { data, error } = await admin
+  // Two-ended pool (oldest AND newest): orders that stay pending without ever being payable (open/expired, expiry webhook also missed)
+  // pile up at the old end and must not hide a newer paid order, nor the reverse. Each end is bounded; the union is sampled randomly.
+  const query = (ascending: boolean) => admin
     .from("event_orders")
     .select("id, stripe_checkout_session_id, metadata")
     .eq("status", "pending")
@@ -84,10 +86,13 @@ export async function listRepairCandidates(admin: Db, params: { batchSize: numbe
     .not("stripe_checkout_session_id", "is", null)
     .lt("updated_at", olderThan)
     .gt("updated_at", newerThan)
-    .order("updated_at", { ascending: true })
-    .limit(params.batchSize * 4);
-  if (error) throw new Error("settlement repair candidate query failed");
-  return shuffle((data ?? []) as RepairCandidate[], params.random).slice(0, params.batchSize);
+    .order("updated_at", { ascending })
+    .limit(params.batchSize * 2);
+  const [oldest, newest] = await Promise.all([query(true), query(false)]);
+  if (oldest.error || newest.error) throw new Error("settlement repair candidate query failed");
+  const byId = new Map<string, RepairCandidate>();
+  for (const candidate of [...((oldest.data ?? []) as RepairCandidate[]), ...((newest.data ?? []) as RepairCandidate[])]) byId.set(candidate.id, candidate);
+  return shuffle([...byId.values()], params.random).slice(0, params.batchSize);
 }
 
 /** Repair one order. Fails closed: any read error, mismatch or unpaid state returns without finalizing and without releasing anything. */
@@ -138,7 +143,7 @@ export async function runCompetitionSettlementRepair(admin: Db, stripe: Settleme
     summary.processed += 1;
     summary.outcomes[outcome] = (summary.outcomes[outcome] ?? 0) + 1;
     if (outcome === "finalized" && options.onFinalized) {
-      try { await options.onFinalized({ orderId: order.id, paymentIntentId, accountId }); } catch { console.error("comp_settlement_repair_followup_failed", maskId(order.id)); }
+      try { await options.onFinalized({ orderId: order.id, paymentIntentId, accountId }); } catch (error) { console.error("comp_settlement_repair_followup_failed", maskId(order.id), error instanceof Error ? error.name : "unknown"); }
     }
     if (outcome !== "not_paid" && outcome !== "already_finalized" && outcome !== "finalized") {
       console.warn("comp_settlement_repair_outcome", { order: maskId(order.id), outcome });

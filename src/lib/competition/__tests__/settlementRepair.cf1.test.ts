@@ -57,12 +57,22 @@ describe("candidate query", () => {
       ["lt", "updated_at", "2027-01-10T11:45:00.000Z"],
       ["gt", "updated_at", "2026-12-27T12:00:00.000Z"],
       ["order", "updated_at", { ascending: true }],
+      ["order", "updated_at", { ascending: false }],
     ]));
-    expect(a.limit()).toBe(20);
+    expect(a.limit()).toBe(10);
   });
 
   it("a query error fails closed", async () => {
     await expect(listRepairCandidates(adminWith([], { listError: true }).client, { batchSize: 5, minAgeMinutes: 15, now: 0, random: () => 0 })).rejects.toThrow();
+  });
+});
+
+describe("starvation", () => {
+  it("queries both the oldest and the newest end so a newer paid order is not hidden behind old unpayable ones", async () => {
+    const a = adminWith([row()]);
+    await listRepairCandidates(a.client, { batchSize: 5, minAgeMinutes: 15, now: 0, random: () => 0 });
+    const orders = a.filters.filter((f) => f[0] === "order").map((f) => (f[2] as { ascending: boolean }).ascending);
+    expect(orders.sort()).toEqual([false, true]);
   });
 });
 
@@ -146,7 +156,7 @@ describe("a run", () => {
     const a = adminWith(rows);
     const small = await runCompetitionSettlementRepair(a.client, stripe, { batchSize: 3 });
     expect(small.processed).toBe(3);
-    expect(a.limit()).toBe(12);
+    expect(a.limit()).toBe(6);
     const big = await runCompetitionSettlementRepair(a.client, stripe, { batchSize: 10_000 });
     expect(big.processed).toBe(MAX_BATCH_SIZE);
   });

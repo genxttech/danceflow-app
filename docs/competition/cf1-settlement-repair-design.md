@@ -14,8 +14,8 @@ sees the session. `finalize_competition_registration` re-validates session, acco
 
 ## Candidate query (`listRepairCandidates`)
 `event_orders` where status = pending, payment_status = pending, source = competition_registration, `stripe_checkout_session_id` not null,
-`updated_at` between now-14d and now-15min (minimum 5). Oldest 4x batch, then a random sample of `batch` (default 20, hard cap 50) so a few permanently
-unresolvable orders cannot starve the others (there is no per-order backoff without SQL).
+`updated_at` between now-14d and now-15min (minimum 5). The oldest 2x batch AND newest 2x batch (so neither end hides the other), merged and randomly sampled to `batch` (default 20, hard cap 50) so a few permanently
+unresolvable orders cannot starve the others (there is no per-order backoff without SQL; residual: more than 2x batch unpayable orders at both ends).
 
 ## Reading Stripe and finalizing (`repairCompetitionOrder`)
 1. Binding must be well-formed (uuid, `acct_...`, `cs_...`); otherwise `binding_invalid`, no Stripe call.
@@ -31,6 +31,8 @@ unresolvable orders cannot starve the others (there is no per-order backoff with
 - Never releases, expires or cancels (a paid session on an already released order is outside this repair; it needs the webhook or staff).
 - Idempotent against the webhook racing the repair (database finalize is the single serialization point).
 - Fail-closed on any read or disagreement; one order failing does not stop the batch; logs carry masked ids and outcome codes only.
+
+Follow-ups (fee sync, confirmation) are best-effort and not retried: once finalized an order is no longer a candidate.
 
 ## Not covered / residual
 Orders already released (expired/cancelled) while Stripe shows paid; per-order backoff; scheduling (release owner adds the cron deliberately).
