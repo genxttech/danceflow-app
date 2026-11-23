@@ -75,3 +75,7 @@ Same isolated-worktree runner (pinned `NSI_REF`), scenarios `full-nsi-end` (M1-M
 
 ## Result of the fourth run: FINAL M13 bytes (M1-M13, branch commit 04dfb2496, 2026-11-23)
 Same isolated-worktree runner. Evidence: `rehearsal/full_chain/summary_m13_final_bytes.txt`. A (NSI last) and B (NSI inside the history) both reach `97e13781e9f0498d8e452c64d6d43e18|768`; pg_dump differs by **0 lines**; suites on A: M13 5, M12 26, M11 18, M10 17, M7 36, M9 17, I1 foundation 109, I2-local 92; rollbacks M13 to M12 to M11 to M10 to M9 exact; `failures=0`. Caveats unchanged (baseline image is not PROD: `appointments` fingerprint `ff651a6c…` vs `e0c4db1b…`).
+
+## M14 final bytes (pinned 16317c9ba; migration sha256 ae6bbf0b…ef2d2, rollback 03e40c9c…006b)
+
+Same isolated-worktree runner, scenarios `full-nsi-end` / `full-nsi-mid`. A (NSI last) and B (NSI inside the history) both reach `be5a715adedad4197649593d23c6ce09|770`; pg_dump differs by **0 lines**; suites on A: M14 8, M13 5, M12 26, M11 18, M10 17, M7 36, M9 17, I1 109, I2 92 all PASS; rollbacks M14 -> M13 -> M12 -> M11 -> M10 -> M9 each restore the prior fingerprint exactly. Evidence: `rehearsal/full_chain/summary_m14_final_bytes.txt`, `rehearsal/m14_baseline/lifecycle_run2.log` (lifecycle failures=0). Not applied to DEV; awaiting delta review GO.
