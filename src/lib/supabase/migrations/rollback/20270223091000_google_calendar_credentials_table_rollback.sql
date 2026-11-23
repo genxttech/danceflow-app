@@ -1,4 +1,4 @@
--- Rollback of 20270223090000. Legacy columns are never cleared by the expand phase; if the new app wrote tokens only to the
+-- Rollback of 20270223091000. Legacy columns are never cleared by the expand phase; if the new app wrote tokens only to the
 -- credentials table after the migration, copy them back first so a reconnect is not forced.
 begin;
 update public.studio_google_calendar_connections c
