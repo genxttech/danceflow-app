@@ -141,6 +141,7 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 declare
   z record;
+  rr public.studio_sms_provider_resources;
   v_entity uuid;
   v_month text;
   v_kind text;
@@ -217,16 +218,16 @@ begin
   end loop;
 
   -- 4. the 7-day grace ends within the warning window for an uncovered current or previous period
-  for z in select r.* from public.studio_sms_provider_resources r where r.provider_state = 'active' and r.fee_kind is not null order by r.id loop
-    foreach k in array array[public._tw4ml_key_add(public._tw4ml_month_key(z.legal_entity_id, now()), -1), public._tw4ml_month_key(z.legal_entity_id, now())] loop
-      continue when k < public._tw4ml_month_key(z.legal_entity_id, z.registered_at);
-      v_due := public._tw4rfl_due_from(z, k);
+  for rr in select r.* from public.studio_sms_provider_resources r where r.provider_state = 'active' and r.fee_kind is not null order by r.id loop
+    foreach k in array array[public._tw4ml_key_add(public._tw4ml_month_key(rr.legal_entity_id, now()), -1), public._tw4ml_month_key(rr.legal_entity_id, now())] loop
+      continue when k < public._tw4ml_month_key(rr.legal_entity_id, rr.registered_at);
+      v_due := public._tw4rfl_due_from(rr, k);
       continue when v_due < now() or v_due > now() + public._tw4fx_grace_warning();
-      v_cov := public._tw4rfl_cover(z, k);
+      v_cov := public._tw4rfl_cover(rr, k);
       continue when v_cov like 'covered:%';
-      if public._tw4rfl_alert(z.legal_entity_id, z.studio_id, z.id, 'funding_exposure_grace_ending', 'fx-grace:' || z.id || ':' || k, 'admin', 'warning',
+      if public._tw4rfl_alert(rr.legal_entity_id, rr.studio_id, rr.id, 'funding_exposure_grace_ending', 'fx-grace:' || rr.id || ':' || k, 'admin', 'warning',
            'A recurring provider fee for ' || k || ' is still uncovered (' || replace(substr(v_cov, 11), '_', ' ') || '). Its grace ends '
-           || to_char(v_due at time zone public._tw4ml_tz_for(z.legal_entity_id, k), 'YYYY-MM-DD HH24:MI') || ' business time; then the period is recorded as exposure and texting can be suspended, while the provider keeps billing.') then v_gr := v_gr + 1; end if;
+           || to_char(v_due at time zone public._tw4ml_tz_for(rr.legal_entity_id, k), 'YYYY-MM-DD HH24:MI') || ' business time; then the period is recorded as exposure and texting can be suspended, while the provider keeps billing.') then v_gr := v_gr + 1; end if;
     end loop;
   end loop;
 

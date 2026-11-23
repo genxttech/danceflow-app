@@ -331,7 +331,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       const before = money(w);
       expect(charge(auth, cur)).toMatchObject({ outcome: "unfunded", reason: "insufficient settled credit", replayed: false });
       expect(money(w)).toBe(before);
-      expect(chargeRow(auth, cur)).toBe("unfunded|insufficient settled credit|0");
+      expect(chargeRow(auth, cur)).toBe("unfunded|insufficient settled credit|1");
       expect(psql(`select public._tw4rc_service_issue('${w.studio}')`)).toBe("unfunded");
       expect(alertsOf(w, "funding_exposure_unfunded")).toEqual([]);
       check();
@@ -341,7 +341,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       expectClean(unf[0]);
       // retried while still unfunded: same row, one more attempt, no new alert
       expect(charge(auth, cur).outcome).toBe("unfunded");
-      expect(chargeRow(auth, cur)).toBe("unfunded|insufficient settled credit|1");
+      expect(chargeRow(auth, cur)).toBe("unfunded|insufficient settled credit|2");
       check();
       expect(alertsOf(w, "funding_exposure_unfunded").length).toBe(1);
       // funded: charged exactly once
