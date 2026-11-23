@@ -72,7 +72,7 @@ export async function getValidGoogleCalendarAccessToken(connectionId: string) {
 async function googleFetch<T>(accessToken: string, url: string, init?: RequestInit) {
   const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...(init?.headers ?? {}) } });
   const text = await response.text();
-  let payload: any = null;
+  let payload: { error?: { message?: string }; error_description?: string } | null = null;
   try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
   if (!response.ok) throw new GoogleCalendarRequestError(payload?.error?.message ?? payload?.error_description ?? "Google Calendar request failed.", response.status);
   return payload as T;
