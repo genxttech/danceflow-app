@@ -40,6 +40,8 @@ suite $C test_T_nsi_i2_m10_ensure_request_local.sql "M10 suite on M12"
 suite $C test_T_nsi_i2_m7_grants_local.sql "M7 suite on M12"
 suite $C test_T_nsi_i2_m9_archiving_local.sql "M9 suite on M12"
 legacy $C "M12"
+r=$(docker exec -i $C psql -U postgres -q < "$D/test_T_nsi_i3_1_devsafe.sql" 2>&1 | grep -E "SUITE" | head -1 | cut -c1-1500)
+say "   level-10 DEV-safe suite (no fixtures, safe for shared DEV): ${r:-<no result>}"; echo "$r" | grep -q "PASS" || bad "level-10 DEV-safe suite: $r"
 
 say "== mutation probes (each mutated M12 must make the suite FAIL; the good file is re-applied afterwards)"
 mutate() { # label sed-expression expected-substring
@@ -68,6 +70,9 @@ say "== replays on an M12 database"
 apply $C 12 && say "   replay M12 ok"; [ "$(fp $C)" = "$F12" ] && say "   fingerprint unchanged by the M12 replay" || bad "M12 replay changed the catalog"
 e=$(applyfile $C "$M/${FILES[10]}.sql"); echo "$e" | grep -q "catalog self-check failed" && say "   replay M11 fails closed" || bad "replay M11 did not fail closed: $e"
 [ "$(fp $C)" = "$F12" ] || bad "failed replay of M11 changed the catalog"
+say "== concurrency harness C1-C4 on the M12 container (commits fixtures; runs last)"
+r=$(bash "$D/concurrency/nsi_i3_1_concurrency_local.sh" $C 8 2>&1 | tail -8); echo "$r" | sed 's/^/   /'
+echo "$r" | grep -q "SUMMARY concurrency M12: failures=0 deadlocks=0" || bad "concurrency harness"
 docker rm -f $C >/dev/null 2>&1
 say "SUMMARY m12 lifecycle: failures=$fail"
 [ "$fail" = "0" ]
