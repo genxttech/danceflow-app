@@ -17,7 +17,7 @@
   "enforcement_point": "Planned (design). Not built.",
   "tests": [],
   "verification_status": "inconsistent",
-  "interpretation_notes": "Exceptions not modelled in slice 1 (fail closed, no override). \"Event director/owner\" has no DanceFlow role today (OD-06 undecided). Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "interpretation_notes": "Exceptions not modelled in slice 1 (fail closed, no override). \"Event director/owner\" has no DanceFlow role; OD-06 (decided 2026-11-23) supplies explicit event-level designations. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
   "applicable_event_versions": [
     "Version 2026.1C (page footers; the file name says 2026.1B)"
   ],

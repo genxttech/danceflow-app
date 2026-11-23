@@ -28,13 +28,13 @@ Short phrases only; section numbers are the citation. Page numbers are the print
 | WSDC 3.4.3 (p.19) | same | Chief judge and scoring/tabulation functions must be provided by separate individuals. | mandatory (OD-06) |
 | WSDC 3.4.4 (p.19) | same | A chief judge must review all finalists before finals are posted or started. This is a review duty, **not** a scoring or tabulation function. | mandatory (OD-06 interaction) |
 | WSDC 3.4.5, 3.4.5.a (p.19) | same | Judges and scorekeepers may not take other roles (MC, DJ, contest team, photographer) during that contest. Exception: when a champion's or invitational division is self-judged, a contestant may hold more than one role in addition to being on the panel. | mandatory with exception |
-| WSDC Definitions: Event Director(s) and/or Owner(s) (p.1) | same | An Event Director is anyone involved in deciding the hiring of judges and/or scoring staff, or identified as the Event Director. An Owner is anyone with a vested financial/ownership interest (e.g., shareholder). Non-profit shareholders or board members are not Owners but may fall under Event Director restrictions depending on their role. | definitions |
+| WSDC Definitions: Event Director(s) and/or Owner(s) (p.2) | same | An Event Director is anyone involved in deciding the hiring of judges and/or scoring staff, or identified as the Event Director. An Owner is anyone with a vested financial/ownership interest (e.g., shareholder). Non-profit shareholders or board members are not Owners but may fall under Event Director restrictions depending on their role. | definitions |
 | WSDC Definitions: Chief Judge, Secondary Chief Judge, Raw Score Judge (p.3) | same | The Chief Judge oversees the event's contests, has extensive experience and cannot compete. The Secondary Chief Judge has the same restrictions. A Raw Score Judge is separate from the panel, may compete in other contests, and has no access to scores and no contest-structure duties. | definitions |
 | WSDC 2.3 (p.9) | same | The Event Director and/or the Chief Judge shall verify contest results and the number of contestants. Verification is expressly given to these roles, so it is **not** itself a prohibited scoring function. | mandatory (OD-06 interaction) |
 | WSDC 3.4.9.b.i (p.20) | same | Transfer of paper score sheets into the computerized system must be audited by the Chief Judge or a scoring team the Chief Judge approves, verified by someone other than the score person inputting the data. | mandatory (adjacent; section 6A.8) |
 | WSDC 3.4.6, 3.4.6.a (p.19) | same | All conflicts must be identified and avoided (responsibility of directors, chief judge, judges). A conflict is only: a judge/chief judge judging an immediate family member, current spouse/significant other, established dance partner, or current business partner. | mandatory |
 | WSDC 3.4.6.a.i (p.19) | same | General bias is a recommendation only; WSDC enforces only the 3.4.6.a definition. Staff are responsible for providing conflicts to the chief judge and/or directors. | recommended; **supports declarations** |
-| WSDC 3.4.6.b (p.19) | same | Assignments must prevent conflicts; judges/chief judges recuse from the panel. **Four** listed exceptions (the audit says three): (i) Pro-Am Jack and Jill / Strictly Swing, judging the Amateurs only where the conflict is with the Pro; (ii) opposite role to the competitor in Jack and Jill *preliminary* rounds; (iii) self-judging, only in Champions and invitational contests; (iv) chief judge replaced by the secondary chief judge when necessary (a substitution, not a conflict exception). | permitted exceptions |
+| WSDC 3.4.6.b (p.19-20) | same | Assignments must prevent conflicts; judges/chief judges recuse from the panel. **Four** listed exceptions (the audit says three): (i) Pro-Am Jack and Jill / Strictly Swing, judging the Amateurs only where the conflict is with the Pro; (ii) opposite role to the competitor in Jack and Jill *preliminary* rounds; (iii) self-judging, only in Champions and invitational contests; (iv) chief judge replaced by the secondary chief judge when necessary (a substitution, not a conflict exception). | permitted exceptions |
 | UCWDC-C II.F.6.e (p.5) | UCWDC Couples 2026 (v1-26-2026) | Crown competitors entering Classic Open I or Showcase Open may not judge that Dance Type while dancing it. UCWDC-L II.F.5.d is the Line Dance equivalent (not re-read in this pass; carried from the audit). | mandatory (narrow) |
 | UCWDC-C II.N.3 (p.13) | same | Panel-composition complaints are post-event to the Judge Review Board; the Judge Certification Code of Conduct (website) governs. **Not provided.** | open source gap |
 
@@ -46,7 +46,7 @@ of which only i-iii relate to conflicts. Exception modelling (slice 3) uses i-ii
 NDCA IV.A.1 (p.25) and IV.D.1.a(2) (p.28) define "immediate family" differently (an enumerated list versus "first cousin or above").
 They cannot both be applied as written, and "or above" is undefined. Per registry rule 3 this is a source conflict:
 **any NDCA family/household rule that depends on the definition fails closed**, and **no NDCA family-definition compliance is claimed**
-until the owner resolves it. This PR records the conflict in the registry and rule register (entries `OD05-NDCA-0001`, `OD05-NDCA-0002`).
+until the owner resolves it. This PR records the conflict in the registry and rule register (entries `OD05-NDCA-0001`, `OD05-NDCA-0002`, `OD05-NDCA-0003`).
 
 ### Silent-source and gap list
 
@@ -64,14 +64,14 @@ unverified declaration. (OD-01, PR #832, separately blocks results approval/publ
 
 | Check | NDCA declared | WSDC declared | UCWDC declared | none / other (Studio, Custom) |
 |---|---|---|---|---|
-| Tier 1, direct identity: the official is a participant of an entry in the contest being judged | block (self-judging is not allowed by any NDCA text read; family/household is IV.A.1) | block; self-judging is allowed only in Champions/invitational (3.4.6.b.iii), which slice 1 does **not** model, so block with no override | block as **DanceFlow policy** (UCWDC silent) | block as **DanceFlow policy** (slice 5) |
-| Tier 2, the official competes anywhere in the event | block for judge, chair, scorer (III.D.21) | block for the **designated** persons only (event owners, event directors, their spouses and children, chief judge, secondary chief judge, score person; section 6A); exceptions via documented resolution only; with no designation the operation fails closed | block only for Crown/SuperStars same Dance Type (II.F.6.e) once Dance Type is modelled; otherwise info | **not blocked**, recorded as an info finding (baseline is direct conflicts only) |
+| Tier 1, direct identity: the official is a participant of an entry in the contest being judged | block (an adjudicator may not compete at the event (III.D.21), which covers judging one's own entry; family/household is IV.A.1) | block; self-judging is allowed only in Champions/invitational (3.4.6.b.iii), which slice 1 does **not** model, so block with no override | block as **DanceFlow policy** (UCWDC silent) | block as **DanceFlow policy** (slice 5) |
+| Tier 2, the official competes anywhere in the event | block for judge, chair, scorer (III.D.21) | block for the **designated** persons only (event owners, event directors, their spouses and children, chief judge, secondary chief judge, score person; section 6A); exceptions via documented resolution only; with no designation the operation fails closed | block only for Crown competitors, same Dance Type, Classic Open I / Showcase Open (II.F.6.e) once Dance Type is modelled; otherwise info | **not blocked**, recorded as an info finding (baseline is direct conflicts only) |
 | Declared family / household / partner / business conflicts (slice 2) | categories per IV.A.1 (definition unresolved) | exactly the four categories of 3.4.6.a | organizer policy categories only | DanceFlow baseline categories (4.3) |
 | Panel relatedness (slice 4) | IV.A.2 for the classes it names; unevaluable until Q4 | not a WSDC rule | none | none |
 | Pro/Am professional who is the judge, in their own student's heat | IV.A.8 is advisory: DanceFlow blocks as policy and labels it so | covered by tier 1; exception i concerns *other* judges and is modelled later | policy | policy |
 
 Principle: DanceFlow policy may be **stricter** than a body's rule (never claimed as the body's requirement) but never looser for
-a declared body. Exceptions (WSDC 3.4.6.b.i-iii, WSDC 3.4.2 carve-outs; none stated for NDCA III.D.21) are body-specific, need a
+a declared body. Exceptions (WSDC 3.4.6.b.i-iii, WSDC 3.4.2 carve-outs; none stated for NDCA III.D.21 beyond non-competing honor dances and similar; III.D.21 also applies on every day an official is not contracted to work) are body-specific, need a
 documented resolution row (slice 3), and are unavailable in slice 1.
 
 ## 3. What automatic detection can and cannot do (copy rule)
@@ -102,7 +102,7 @@ A guardian or billing link may mean family or a shared studio account; the syste
 
 ### 3.3 Where it runs (server-side, three points, all database level)
 
-1. **Assignment**: `BEFORE INSERT` trigger on `event_competition_panel_assignments`, firing after E1's `guard_competition_panel_assignment`
+1. **Assignment**: `BEFORE INSERT` trigger on `event_competition_panel_assignments`, named `zz_compoc_guard_assignment_conflict` so that it fires after E1's `guard_competition_panel_assignment_row` (triggers fire in name order and a `compoc_` prefix would sort BEFORE `guard_`, ahead of the round FOR SHARE lock; a test asserts the fire order from `pg_trigger`)
    (name order; that guard is not redefined). Evaluates tier 1 against the round's division/heat entries and tier 2 per section 2. A trigger,
    not a redefinition of `assign_competition_panel_member`, so no md5-pin collision with other sessions.
 2. **Ballot acceptance**: `BEFORE INSERT` triggers on `event_competition_ballots` (heat ballots: all non-scratched heat entries) and
@@ -184,8 +184,8 @@ the scoring engines and OD-16 panel-size rules must be shown to accept that befo
 | RPC | Slice | Caller | Notes |
 |---|---|---|---|
 | `competition_check_official_conflicts(p_round_id, p_official_id)` | 1 | manager / chair | read-only preview for the assignment UI; class, codes, scope; no personal data |
-| `record_competition_conflict_refusal(...)` | 1 | server actions only | separate-transaction evidence of a blocked attempt |
-| `declare_competition_conflict(...)`, `withdraw_competition_conflict(...)` | 2 | judge (own), manager/chair (on behalf) | scope CHECKs; no relationship free text in list views |
+| `record_competition_conflict_refusal(...)` | 1 | `service_role` only, never `authenticated`; recomputes the conflict itself and ignores any caller-supplied class (section 11, F10) | separate-transaction evidence of a blocked attempt |
+| `declare_competition_conflict(...)`, `withdraw_competition_conflict(...)` | 2 | judge (declare own only), manager/chair (declare on behalf); withdraw and resolve only by a non-subject, never after the judge has ballots (F16) | scope CHECKs; no relationship free text in list views |
 | `list_competition_conflicts(p_event_id)` | 2 | manager / chair | category + scope + status; detail RPC separate |
 | `resolve_competition_conflict(...)` | 3 | chair or manager, not the subject | documented resolution; exception codes validated by sanctioning |
 | `competition_round_conflict_blockers(p_round_id)` | 4 | manager / chair | jsonb blocker list for the readiness panel |
@@ -244,7 +244,7 @@ roster) is never restricted by this section; only the judging, scoring and tabul
 | E1 official role `chair` | **No, not by itself.** Becomes the WSDC Chief Judge only when designated as such for the event. |
 | E1 official role `scorer` | **No, not by itself.** Becomes the score person / scoring-tabulation operator only when designated. |
 | E1 official role `judge` | Judge. |
-| Anyone who decides who is hired as judges or scoring staff (for example the manager who adds officials) | **May be an Event Director by the WSDC definition** (p.1) whether or not anyone wrote that down. The system cannot know, which is why designation is an explicit, attested step and the unattested state fails closed. |
+| Anyone who decides who is hired as judges or scoring staff (for example the manager who adds officials) | **May be an Event Director by the WSDC definition** (p.2) whether or not anyone wrote that down. The system cannot know, which is why designation is an explicit, attested step and the unattested state fails closed. |
 
 ### 6A.2 Table `event_competition_role_designations` (new; event-level; nothing applied)
 
@@ -339,9 +339,9 @@ LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight f
 | `20270220090000` | `competition_oc_s0_role_designations` | OD-06 data | no (designations + attestations tables, RPCs, RLS, audit; no enforcement) |
 | `20270220091000` | `competition_oc_s1_identity_guard` | OD-05 s1 | no (new triggers, functions, findings and events tables) |
 | `20270220092000` | `competition_oc_s2_declarations` | OD-05 s2 | no |
-| `20270220093000` | `competition_oc_s3_enforcement_resolutions` | OD-05 s3 | no (owns `_compoc_conflict_state`) |
-| `20270220094000` | `competition_oc_s4_panel_lock` | OD-05 s4 | no (trigger on rounds, aggregator, validators 2-4 return `[]`) |
-| `20270220095000` | `competition_oc_s5_wsdc_separation_guards` | OD-06 enforcement | no (G1-G7 triggers on officials, designations, result versions; fills `_compoc_blockers_roles`) |
+| `20270220093000` | `competition_oc_s3_enforcement_resolutions` | OD-05 s3 | REDEFINES the s1 stub of `_compoc_conflict_state` inside this block (md5-pinned) |
+| `20270220094000` | `competition_oc_s4_panel_lock` | OD-05 s4 | no (trigger on rounds, aggregator, stub validators 2-4 return `[]`; s5 and the reserved OD-16 slot later redefine stubs, md5-pinned) |
+| `20270220095000` | `competition_oc_s5_wsdc_separation_guards` | OD-06 enforcement | no (G1-G7 triggers on officials, designations, result versions; REDEFINES the s4 stub `_compoc_blockers_roles`, md5-pinned) |
 | `20270220096000` | reserved OD-15 | placeholder | adds columns to `event_competition_officials` |
 | `20270220097000` | reserved OD-16 | placeholder | fills `_compoc_blockers_panel_size` |
 
@@ -363,7 +363,7 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
 - Slice 1: each DEFINITE basis (`user_anchor`, `instructor_account`, `client_self_link`) blocks assignment and ballot; REVIEW bases never
   block as proof and always write a finding; names/emails alone never produce DEFINITE; scratched/withdrawn entries ignored; same user
   in another event does not match; cross-tenant attempts refused; sanctioning matrix rows (`none/other` tier 2 info only; `ndca` tier 2
-  blocks; `wsdc` tier 2 blocks only designated owner/director/family/chief judge/scoring operator; no designation or attestation fails closed); anchor completed after assignment is caught at ballot time; `scorer_paper` entering
+  blocks; `wsdc` tier 2 blocks only the designated owner/director/family/chief judge/scoring operator already present at s1; attestation fail-closed is s5, see OD-06 tests); anchor completed after assignment is caught at ballot time; `scorer_paper` entering
   scorer checked; a refused attempt leaves zero assignment/ballot/mark rows; refusal evidence written by the separate transaction;
   unrelated judge and unrelated round unaffected.
 - Slice 2: scope CHECKs; judge declares own only; read isolation per matrix; withdrawal audited; no relationship text in list RPC.
@@ -389,6 +389,36 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
 - **Q7 (OD-06):** who may attest the designation set (6A.3)? Recommended: a manager other than the last designator; for a one-manager event an explicit, recorded single-person acknowledgement.
 - **Q8 (OD-06):** is the chief judge's finalist-review record (3.4.4) a hard start blocker for WSDC-declared final rounds (recommended: yes, it is mandatory text) or advisory?
 - **Q9 (OD-06):** G4 lets an attested-undesignated manager calculate results. Confirm that reading (6A.5) of 3.4.1/3.4.3, versus requiring a designated scoring operator for every calculation.
+
+## 11. Independent review (subagent that had not seen the conclusions): findings and resolutions
+
+The reviewer re-read every cited rule in the pinned PDFs and the existing E1/E2/F2/10C SQL. All cited passages, classes and pages were confirmed
+except the points fixed inline above (SuperStars wording, definition page p.2, 3.4.6.b spans p.19-20, entry list, III.D.21 basis). The remaining
+findings are resolved below; **where this section conflicts with earlier text, this section governs.**
+
+**Rulebook**
+- F4: WSDC 3.4 opens with "unless otherwise approved by the Board". A general Board-approval route for oversight requirements exists; it is **not modelled**, and no exception exists in DanceFlow without a documented resolution carrying the Board approval reference.
+- F7: 3.4.2 covers owners/directors "or their spouses and children". Kind `owner_director_family` is split by a flag `is_spouse_or_child`: the **competing ban (G6)** applies only to spouses/children; the **duty ban (chief judge, scoring; 3.4.1.a)** applies to all immediate family. Other immediate family may compete as far as 3.4.2 goes.
+- F8: G4 (the chief judge may not calculate) is **DanceFlow policy stricter than WSDC**: 3.4.9.b lets "Score person and/or Chief Judge" hand-calculate in emergencies, and 3.4.7.c (p.20) lets the chief judge join the panel on an unforeseen shortage. The 6A.6 cell for the chief judge as judge reads "only through the documented 3.4.7.c shortage path, as a resolution with reason", and calculation by the chief judge is allowed only as a documented emergency resolution (3.4.9.b), never silently.
+- F19: NDCA and the other bodies rely on account matching with no attestation. Residual risk stated: a person with two accounts is not detected; each non-WSDC event shows the "accounts only" copy of section 3, and an optional attestation step for NDCA-declared events is a future question (Q10).
+
+**Security and data**
+- F10 (blocker): `record_competition_conflict_refusal` is granted to `service_role` only and recomputes the conflict from live data; no caller supplies a class, so no authenticated user can forge a finding.
+- F11 (blocker): the assignment trigger gets an explicit later name (section 3.3). Ballot, marks and round triggers keep `compoc_` names (they sort after `compe2_`). Fire order is a required test.
+- F12 (blocker): E2 round readiness (`_compe2_round_blockers`) lists a missing ballot for every non-absent assigned judge and heat, and absence is round-level. Therefore **block at assignment only** (round-level) until E2 and OD-16 accept a heat-level recusal. Ballot-time detection is a **backstop**: it raises, the judge is shown the generic refusal, and the organizer is told in the panel-lock blocker list that the judge must be unassigned or the entry resolved; it does not create a heat-level recusal. The Q3 claim that a recusal "simply leaves one fewer ballot" is withdrawn.
+- F13: judges call `submit_competition_ballot` through PostgREST, so a trigger's text reaches them. Both identity outcomes raise **one generic message** ("this ballot cannot be accepted; contact the chair") with a single code; the class, basis and rule code exist only in server-side evidence.
+- F14: blockers are **computed live**; findings are evidence of what was seen when, never inputs to a blocker. A stale finding therefore cannot hold a round.
+- F15: DEFINITE tier-1 findings can be resolved only as `recused` or a body-defined `exception_applied`; `not_a_conflict` and `review_cleared` apply to REVIEW findings and declarations only. No manager can clear self-judging on an NDCA or WSDC event.
+- F16: only a non-subject withdraws or resolves a declaration; nothing is withdrawn or resolved after the judge has ballots in scope (supersede with a new declaration instead).
+- F17: designation rules: retroactive designation of an existing judge/chair/scorer is **recorded and becomes a panel-lock blocker, not rejected** (truthful recording must not be blocked); ending a designation requires a reason and writes an events row; any change invalidates the attestation; on event day an invalidated attestation halts **new** assignments and calculation but ballots already in progress are not discarded, and a break-glass is a recorded re-attestation by a manager other than the designator (Q7 covers the one-manager case).
+- F18: the matrix in 4.9 gains rows: designations, attestations and role events are readable by managers and the chair only; `evidence_ref` is a reference code, validated (letters, digits, hyphen, 40 chars), never free text; designee names are shown only to managers. **Open (Q11):** every manager can already read all ballots and marks through `can_manage_event_competition`; whether a designated owner/director reading marks conflicts with 3.4.1's "scoring functions" is an interpretation for the owner, not decided here.
+- F20: G3's "same account holds chair and scorer" is already impossible (`unique(event_id, user_id)`); only the designation-level check is kept. Every writer of `event_competition_result_versions` (F2 calculate, PV-1 recompute, CF1 advancement) must be listed and covered by G4; the implementation PR lists each writer and tests it.
+
+**Consistency**
+- F21: stubs and redefinitions are explicit in section 7 and md5-pinned. `COMP_WSDC_DESIGNATIONS_REQUIRED` ships in **s5**, so s1 tests cover no WSDC attestation behavior; before s5 a WSDC-declared event gets the s1 tier checks only, and the design states this interim gap (nothing is active; Competition OS is dark, and OD-01 already blocks WSDC results publication).
+- F22: "no designation fails closed" is an s5 behavior; remove it from the s1 test list in section 8.
+
+New open questions: **Q10** attestation for NDCA-declared events (accounts-only residual risk); **Q11** designated owner/director reading ballots and marks via the manager policy.
 
 ## 10. Decision on PR-B
 
