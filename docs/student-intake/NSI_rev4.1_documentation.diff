@@ -1,0 +1,373 @@
+--- a/NSI_I1_Schema_Plan.md (rev 4.0)
++++ b/NSI_I1_Schema_Plan.md (rev 4.1)
+@@ -1,9 +1,10 @@
+-# NSI V1 — I1 Foundation Schema Plan (revision 4)
++# NSI V1 — I1 Foundation Schema Plan (revision 4.1)
+ 
+ | | |
+ |---|---|
+ | Status | **Planning only.** No SQL written or applied; no code changed. Untracked, uncommitted. Roadmap v2.23, Phase 17-I. |
+ | Baseline | `origin/main` = `13c4d547f5494a8bf75fc472b5d4b48a1f1440f9` |
++| Revision 4.1 | Bounded corrections from the final Opus review of Rev 4 (no P0/P1): N1, N3, N6, P3-a, P3-c applied; N2, N4, N5, P3-b documented for later slices. Changes are inline and summarized in §16. Design only; not verified. |
+ | Revision | Rev 4 supersedes Rev 3 in full. It applies A1–A18 from the targeted Opus review of Rev 3 (one P1, seven P2, ten P3). F1–F15 corrections carry forward, amended where A-findings changed them. **Every correction is a design correction, not verified implementation.** Verification requires SQL, the §10 tests on DEV under real roles, closure of the §12 gates, and a final targeted Opus review. |
+ | Companions | `NSI_V1_Engineering_Spec.md` (§14–§18), `NSI_I0_Verification_Report.md` (§5, §7–§9) |
+ | Labels | [V] verified read-only in repo or DEV; [E] engineering design; [D] owner/legal decision; [G] technical gate |
+@@ -48,7 +49,10 @@
+ | **R18** | **Destructive changes run as a dedicated restricted role**, not under a session flag | **A5** |
+ | **R19** | **Every personal-data insert, in every slice, passes the collection gate; deletion-rights operations never do** | **A6** |
+ | **R20** | **Tenant and ownership references are immutable after insert,** except the documented exceptions in §4.0 | **A7** |
+-| **R21** | **FC-1B1 / FC-1 preserved:** instructor access is assignment-scoped for the `instructor` role only | **A8** |
++| **R21** | **FC-1B1 / FC-1 preserved:** instructor access comes only from an actual host-studio teaching relationship (`instructors` row: same studio, active, `can_instruct = true`) assigned to the appointment — never from a role name, floor rental or independent status (amended by N4, §16.6) | **A8, N4** |
++| **R22** | **Erasure barrier:** once an erasure is recorded for a client, no new intake record for that client can be inserted until an audited platform-admin barrier release | **N3** |
++| **R23** | **Environment-scoped first-use marker:** one permanent marker per database, independent of any studio, never purged | **N6** |
++| **R24** | **Private implementation schema:** role-owned destructive implementations live in non-exposed schema `intake_private`; only `postgres`-owned public wrappers are callable | **P3-a** |
+ 
+ ## 2. Table inventory and migration boundaries
+ 
+@@ -75,17 +79,17 @@
+ | 17 | `intake_consent_evidence` | retained, non-identifying, append-only | RESTRICT | M4 |
+ | 18 | `intake_consent_evidence_identity` | retained, identifying | RESTRICT | M4 |
+ 
+-Plus one database role, `intake_destructive` (NOLOGIN), created in M1 subject to gates G7–G9 (§12).
++Plus one database role, `intake_destructive` (NOLOGIN), and one non-exposed schema, `intake_private` (holds only role-owned function implementations; no tables), both created in M1 subject to gates G7–G10 (§12, §16.8). Still 18 tables.
+ 
+ **Deferred tables** (each obeys R1–R21 and the collection gate when built): generic feature grants (I2); `intake_invitations`, `intake_sessions`, `intake_email_challenges`, `intake_rate_limits` (I3); `intake_deliveries`, `intake_reconcile_failures` (I4); `intake_network_evidence`, `intake_export_requests`, `intake_export_artifacts` (I6).
+ 
+ | Migration | Contents | Depends on |
+ |---|---|---|
+-| M1 config, platform policy, helpers, role | tables 1–5; `intake_platform_policy()`; `intake_is_platform_admin()`; `intake_assert_staff()`; tenant helpers (clients, links, Documents); `intake_collection_allowed()`; role `intake_destructive` and its RLS policy pattern; version/floor/pin/immutability triggers; config RLS; revokes/grants | existing `studios`, `clients`, `client_account_links`, `document_templates`, `document_template_versions`, `document_sign_envelopes`, `profiles`, `user_studio_roles`, `instructors` |
++| M1 config, platform policy, helpers, role, private schema | schema `intake_private` (no `USAGE` for `anon`, `authenticated`, `service_role`; not in the PostgREST exposed schemas); tables 1–5; `intake_platform_policy()`; `intake_is_platform_admin()`; `intake_assert_staff()`; tenant helpers (clients, links, Documents); `intake_collection_allowed()`; role `intake_destructive` and its RLS policy pattern; version/floor/pin/immutability triggers; config RLS; revokes/grants | existing `studios`, `clients`, `client_account_links`, `document_templates`, `document_template_versions`, `document_sign_envelopes`, `profiles`, `user_studio_roles`, `instructors` |
+ | M2 governance | tables 6–7; `intake_is_held()`; `intake_audit_write()`; append-only/TRUNCATE guards; revokes/grants | M1 |
+ | M3 live personal | tables 8–16; R5/R20 triggers; collection-gate insert triggers; allowlist/immutability/delete guards (call `intake_is_held`); TRUNCATE guards; `intake_fulfillment_state()`; revokes/grants | M1, M2 |
+ | M4 retained evidence | tables 17–18; insert validation; collection-gate insert triggers; append-only/TRUNCATE guards; revokes | M1–M3 |
+-| M5 functions | staff RPCs, service RPCs, `intake_erase_client`, hold create/release, `intake_extend_draft_retention`, drift report, catalog self-check; ownership transfer of destructive functions to `intake_destructive`; revokes/grants | M1–M4 |
++| M5 functions | staff RPCs, service RPCs, public wrappers `intake_erase_client` and `intake_release_erasure_barrier` (owner `postgres`) over implementations in `intake_private` (owner `intake_destructive`), hold create/release, `intake_extend_draft_retention`, drift report, catalog self-check; revokes/grants | M1–M4 |
+ 
+ Revokes and grants are always in the same migration as the `CREATE`. Each file header lists its dependencies.
+ 
+@@ -109,7 +113,7 @@
+ 
+ ### 4.0 Immutable references (A7) and exceptions
+ After insert, these never change (row trigger; tested): `studio_id` (all tables); `client_id` (tables 8, 10, 11, 14, 15, 16); `request_id` (9–14); `template_id` (4, 8, 14); `template_version_id` (11, 14); `respondent_id`, `audience` (11); `response_id` (12); `pinned_version_id` once set (8); evidence soft refs (17); `evidence_id` (18); hold `scope_type`, `scope_ref`, `client_ref` (6).
+-**Documented exceptions:** `intake_settings.default_template_id`, `intake_service_assignments.template_id` (config, same studio enforced by composite FK); `intake_requests.guardian_recipient_link_id` (routing change, audited, L1→L3 locked); FK-driven `SET NULL` on `intake_respondents.auth_user_id`, `.source_link_id`, `intake_guardian_designations.link_id`, `intake_requests.supersedes_request_id`; retained-reference minimization by `intake_destructive` (I6, A16).
++**Documented exceptions:** `intake_settings.default_template_id`, `intake_service_assignments.template_id` (config, same studio enforced by composite FK); `intake_requests.guardian_recipient_link_id` (routing change, audited, L1→L3 locked); FK-driven `SET NULL` on `intake_respondents.auth_user_id`, `.source_link_id`, `intake_guardian_designations.link_id`, `intake_requests.supersedes_request_id`; retained-reference minimization by `intake_destructive` (I6, A16); **`intake_audit_events.studio_id` is NULL for the single `environment_marker` row and only for it (N6, §4.8).**
+ 
+ ### 4.1 `intake_settings` — PK `studio_id`
+ `enabled boolean not null default false`; `enabled_at N`; `minor_age_threshold smallint not null default 18 check (between 13 and 21)` (pending legal review); `default_template_id uuid N` (composite FK → templates `ON DELETE SET NULL (default_template_id)`); `active_retention_choice_id uuid N` (composite FK → table 2, `RESTRICT`); `front_desk_guardian_selection boolean not null default false` (A-baseline: off unless enabled by owner/admin); `draft_extension_admins_enabled boolean not null default false` (owners may always extend; admins only when true — definition of "authorized admin", pending §13); `min_guardian_assurance text not null default 'email_code_verified'`; `surge_threshold_per_run int not null default 25`; `surge_threshold_24h int N`; `invite_max_lifetime_days int N`; `updated_by uuid N`; `updated_at`.
+@@ -135,6 +139,7 @@
+ 
+ ### 4.8 `intake_audit_events` (M2) — append-only
+ `event_type text not null` (allowlist); `actor_type check in ('student','guardian','staff','system','platform_admin')`; `actor_user_id uuid N`; `actor_role text N`; `request_ref`, `client_ref`, `object_type`, `object_ref`, `hold_ref` (soft, N); `metadata jsonb not null default '{}'` (`octet_length <= 4096`); `retention_class check in ('operational','security','erasure_record','legal_hold','environment_marker')`; `retain_until N`; `retention_state check in ('pending_policy','scheduled','held','permanent_marker') default 'pending_policy'`; `refs_minimized_at N`. Check `retention_state <> 'scheduled' or retain_until is not null`; `retention_class = 'environment_marker'` ⇔ `retention_state = 'permanent_marker'` and all `*_ref` null (no personal data). Audit writes are never gated and never fail closed.
++**(4.1, N6)** `studio_id` is nullable on this table **only** for the marker: check `(retention_class = 'environment_marker') = (studio_id is null)`; partial unique index `on ((true)) where retention_class = 'environment_marker'` (at most one marker per database). The studio FK (`RESTRICT`) therefore never applies to the marker, so offboarding and studio deletion are unaffected. The marker is written once, by `intake_audit_write`, with `ON CONFLICT DO NOTHING`; delete, update and TRUNCATE of the marker are refused for every role including `intake_destructive`, and every purge, offboarding and minimization function excludes it. Erasure barrier records use `retention_class = 'erasure_record'` and carry `client_ref` (N3, §5.3).
+ 
+ ### 4.9 `intake_requests`
+ `client_id` (FK `clients RESTRICT`; R5; immutable); `template_id` (composite `RESTRICT`); `status check in ('pending','invited','in_progress','suspended','submitted','expired','waived','cancelled_by_staff')`; `resume_status N`; `source check in ('auto','manual')`; `supersedes_request_id N` (composite FK `ON DELETE SET NULL (supersedes_request_id)`); `pinned_version_id N` (composite `RESTRICT`; set once; published; same template); `anchor_appointment_id uuid N` (soft); `issued_at`, `submitted_at`, `suspended_at`, `expires_at` (N); `platform_policy_version int N` (snapshot when retention fields are stamped).
+@@ -164,7 +169,7 @@
+ `request_id` (composite `RESTRICT`, `unique (request_id)`); `client_id` (FK `RESTRICT`); `template_id`, `template_version_id` (composite `RESTRICT`); `version_number int not null`; `student_response_id N`, `guardian_response_id N` (composite `RESTRICT`; guardian set only if guardian consent was part of the original completion); `completed_at not null`. **No column is ever updated.**
+ **Derived fulfillment** — `intake_fulfillment_state(p_request_id)` (definer, internal):
+ - `incomplete` — no completion.
+-- `guardian_consent_outstanding` — completion exists, the **latest** minor determination for the request is `is_minor = true`, and no `submitted`, non-superseded guardian response exists whose respondent assurance meets `min_guardian_assurance` and has a matching consent-evidence row.
++- `guardian_consent_outstanding` — completion exists, the **latest** minor determination for the request is `is_minor = true`, and no `submitted`, non-superseded guardian response exists that has a matching consent-evidence row whose respondent assurance meets that row's pinned `required_assurance` (N5: a later change to the studio setting never re-opens an accepted consent).
+ - `complete` — otherwise, with a completion.
+ **Reuse validity** = version requirement met **and** state = `complete`. `guardian_consent_outstanding` is treated by the reconciler as an existing obligation (no new request); staff see the outstanding consent; lessons are never blocked.
+ 
+@@ -175,7 +180,7 @@
+ `client_id` (FK `RESTRICT`); `link_id N` (FK `client_account_links ON DELETE SET NULL`; R5; L3 at designation and at use); `designated_by not null`; `designated_at not null`; `reason N`; `superseded_at N`. Partial unique `(studio_id, client_id) where superseded_at is null`.
+ 
+ ### 4.18 `intake_consent_evidence` — retained, non-identifying, append-only
+-`request_ref`, `client_ref` (not null), `respondent_ref` (N) — soft, validated at insert; `respondent_role`; `declared_relationship N`; `assurance not null`; `event_type check in ('acknowledged','declined','attested','withdrawn')`; `acknowledged_at not null`; `consent_text not null` (≤ 20 000 chars); `consent_text_sha256 not null`; `template_version_ref not null`; `template_schema_sha256 not null`; `sign_envelope_ref N` (soft; §5.2); `signed_sha256 N`; `outcome not null`; `actor_type not null`; `actor_user_id N`; `actor_role N`; `retention_basis check in ('legal','contractual','evidentiary')`; `retain_until not null` (= `acknowledged_at + evidence_core_days`; insert fails closed if NULL); `platform_policy_version int not null`; `refs_minimized_at N` (A16).
++`request_ref`, `client_ref` (not null), `respondent_ref` (N) — soft, validated at insert; `respondent_role`; `declared_relationship N`; `assurance not null`; `event_type check in ('acknowledged','declined','attested','withdrawn')`; `acknowledged_at not null`; `consent_text not null` (≤ 20 000 chars); `consent_text_sha256 not null`; `template_version_ref not null`; `template_schema_sha256 not null`; `sign_envelope_ref N` (soft; §5.2); `signed_sha256 N`; `outcome not null`; `actor_type not null`; `actor_user_id N`; `actor_role N`; `retention_basis check in ('legal','contractual','evidentiary')`; `retain_until not null` (= `acknowledged_at + evidence_core_days`; insert fails closed if NULL); `platform_policy_version int not null`; `refs_minimized_at N` (A16); **(4.1, N5)** `required_assurance text not null` — the studio's `min_guardian_assurance` copied at acceptance time; immutable.
+ 
+ ### 4.19 `intake_consent_evidence_identity` — retained, identifying
+ `evidence_id` (composite FK `ON DELETE CASCADE`, unique; never relied on — expiry deletes identity explicitly); `subject_display_name N`; `respondent_display_name N`; `respondent_email_hmac N`; `respondent_email_hmac_kid N`; `retain_until not null` (`evidence_identity_days`; fail closed; `<= evidence.retain_until`); `minimized_at N`; `minimized_reason N`.
+@@ -197,14 +202,19 @@
+ `intake_assert_document_version(p_studio_id, p_version_ref)` requires: `document_template_versions.published_at is not null` and `archived_at is null` [V columns, migration `20260705`]; parent `document_templates.scope = 'studio'`, `studio_id = p_studio_id`, `organizer_id is null`, `is_active = true`. Any other scope (including a future `platform`) is refused. Run at publish and at every use (I5). Envelope refs check `document_sign_envelopes.studio_id` and `client_id` at insert. Live scope constraint re-check is gate G5.
+ 
+ ### 5.3 Erasure (F1, A3, A5, A11, A17)
+-`intake_erase_client(p_studio_id uuid, p_client_id uuid, p_reason text)` — owned by `intake_destructive`, `SECURITY DEFINER`, granted to `authenticated` only.
++Public wrapper `public.intake_erase_client(p_studio_id uuid, p_client_id uuid, p_reason text)` — owner `postgres`, `SECURITY DEFINER`, granted to `authenticated` only; it performs step 1 and then calls `intake_private.erase_client_impl(...)` (owner `intake_destructive`, `SECURITY DEFINER`, EXECUTE granted only to `postgres`), which performs steps 2–6 (P3-a).
+ 1. `intake_is_platform_admin()` must be true; actor = `auth.uid()`; `p_reason` non-empty (≤ 1000). Otherwise refuse and audit.
+ 2. Locks: L1 → L2 → L3 (all the client's requests, by id) → L4 (responses) → L5.
+ 3. Refuse if any active hold has `client_ref = p_client_id` or a `scope_ref` among the client's requests, responses or evidence.
+ 4. Scope: rows where `studio_id = p_studio_id and client_id = p_client_id`, **regardless of `clients.studio_id`** (A17: drift never blocks erasure; detected drift is recorded in the audit event).
+ 5. Delete explicitly, children first: completions → response revisions → responses → respondents → minor determinations → request appointments → requests → guardian designations → relationship state. (Explicit deletion of 9 is required because FK cascades run as the table owner, which the protected-change trigger rejects; A5.)
+-6. Write an `erasure_record` audit event (counts, drift flag; no personal data).
+-7. **Client-level hold race (A11):** `intake_create_hold` takes L1 for its `client_ref` and refuses `scope_type = 'client'` when an `erasure_record` exists for that client. The operator path calls `intake_erase_client` and deletes the `clients` row **in the same transaction**.
++6. Write an `erasure_record` audit event (counts, drift flag; no personal data). **This record is the erasure barrier (R22).**
++7. **Erasure barrier (A11, N3; replaces the Rev 4 same-transaction requirement).** Separate Supabase RPC calls are separate transactions, and supabase-js offers no multi-statement transaction, so erasure and the later `clients` delete are **not** assumed to share a transaction. Instead, while an unreleased `erasure_record` exists for `(studio_id, client_id)`:
++   - every intake insert for that client is refused — the collection-gate insert trigger (§9) and every writer function check `intake_erasure_barrier_active(studio_id, client_id)`;
++   - the reconciler's enumeration excludes the client, and `intake_ensure_request` refuses it (no reconciler-created request can appear);
++   - `intake_create_hold` refuses `scope_type = 'client'` (it takes L1 first, so it serializes with erasure).
++   The operator path then deletes the `clients` row in a separate call; no intake row can block it.
++   **Release:** `public.intake_release_erasure_barrier(p_studio_id, p_client_id, p_reason)` — wrapper owned by `postgres`, granted to `authenticated`, requires `intake_is_platform_admin()`, actor `auth.uid()`, reason required; it appends an `erasure_barrier_released` audit event (append-only; the original `erasure_record` is never modified). The barrier is active when the latest of those two event types for the client is `erasure_record`. Used only if the client is intentionally not deleted.
+ 8. Retained evidence and audit survive through soft references; their reference minimization is A16 (§6.3).
+ 
+ ### 5.4 Erasure before personal writes (F2)
+@@ -214,11 +224,12 @@
+ 
+ ### 6.1 Restricted role (A5)
+ - `CREATE ROLE intake_destructive NOLOGIN NOINHERIT NOBYPASSRLS` (M1).
+-- Destructive definer functions (`intake_erase_client`; later redaction, draft purge, evidence/identity expiry, retained-reference minimization) are **owned by `intake_destructive`**. While they run, `current_user = 'intake_destructive'`; when they return, it reverts — nothing persists into later statements, so no session flag or nonce is needed.
++- Destructive definer implementations (`intake_private.erase_client_impl`; later redaction, draft purge, evidence/identity expiry, retained-reference minimization) are **owned by `intake_destructive` and live in `intake_private`** (P3-a). The role needs `USAGE, CREATE` on `intake_private` only — never `CREATE` on `public`. Public entry points are thin `postgres`-owned wrappers that authenticate and authorize (`intake_is_platform_admin()`, `auth.uid()`, reason) before calling the implementation; the implementations are executable only by `postgres`. The actor is passed from the wrapper (already resolved from `auth.uid()` by `postgres`), so the role needs no access to the `auth` schema (G10 risk reduced). While they run, `current_user = 'intake_destructive'`; when they return, it reverts — nothing persists into later statements, so no session flag or nonce is needed.
+ - The role receives only: `SELECT` and `DELETE` on tables 8–16; column-limited `UPDATE` for redaction/minimization (I6); `EXECUTE` on `intake_is_held`, `intake_audit_write`, `intake_is_platform_admin`, `intake_fulfillment_state`. RLS policies `TO intake_destructive USING (true)` on exactly those tables (no `BYPASSRLS`).
+ - Protected-change triggers (delete on 8–16; redaction columns; evidence identity delete; retained-ref minimization) accept a change only when `current_user = 'intake_destructive'`. All other changes to protected data are refused for every role, including the table owner.
+ - Owner break-glass: `postgres` disabling a named trigger in a reviewed, logged session; documented procedure only.
+-- **Not verified:** role creation by the migration user, function ownership transfer, and preservation of the role and ownership through Supabase backup/restore on DEV and PROD (gates G7–G9). If any fails, Appendix A applies.
++- **Not verified:** role creation by the migration user, function ownership transfer, and preservation of the role and ownership through Supabase backup/restore on DEV and PROD (gates G7–G10, plan in §16.8). If any fails, Appendix A becomes a candidate, subject to a separate decision (not automatic).
++- **Recovery (P3-b, documented; runbook before PROD apply):** if the role or its ownership is missing after a restore or incident, erasure fails closed. Runbook: (1) recreate `intake_destructive` with the M1 definition; (2) re-grant its schema and table privileges and RLS policies from the migrations; (3) `ALTER FUNCTION … OWNER TO intake_destructive` for every `intake_private` implementation; (4) run the catalog self-check (owners, ACLs, policies); (5) run the post-restore erasure smoke test on a synthetic client in a non-production branch and, in PROD, the read-only ownership/ACL check. Until (4) passes, legal-deletion requests are queued manually and the incident is recorded.
+ 
+ ### 6.2 Other immutability
+ Row triggers per §4; `BEFORE TRUNCATE` statement guards on tables 4 (published rows protected by row trigger; TRUNCATE refused outright), 6–18. All trigger functions pin `search_path` (A13).
+@@ -233,8 +244,8 @@
+ 
+ | Tables | anon | authenticated | service_role | intake_destructive | RLS |
+ |---|---|---|---|---|---|
+-| 1–5 config | — | `SELECT` via policy: active `user_studio_roles` row in that studio **or** `intake_is_platform_admin()` | `SELECT` | — | enabled |
+-| 8, 9, 15, 16 | — | — | `SELECT` | `SELECT, DELETE` | enabled; policy only for `intake_destructive` |
++| 1–5 config | — | `SELECT` via policy: active `user_studio_roles` row in that studio **or** `intake_is_platform_admin()` | **— (4.1, P3-c)** | — | enabled |
++| 8, 9, 15, 16 | — | — | **— (4.1, P3-c)** | `SELECT, DELETE` | enabled; policy only for `intake_destructive` |
+ | 10–14 | — | — | — | `SELECT, DELETE` (+ column `UPDATE` in I6) | enabled; policy only for `intake_destructive` |
+ | 6–7, 17–18 | — | — | — | I6 only (minimization/expiry) | enabled, no policies in I1 |
+ 
+@@ -250,7 +261,9 @@
+ | `intake_extend_draft_retention` | postgres | `authenticated` | owner, or admin when enabled |
+ | Instructor summary (I5) | postgres | `authenticated` | §7.3 row "instructor summary" |
+ | Service RPCs (ensure request, attach appointment, draft save, submit) | postgres | `service_role` | arguments validated against rows; collection gate |
+-| `intake_erase_client` | **intake_destructive** | `authenticated` | platform admin via `intake_is_platform_admin()`; actor `auth.uid()` (A3) |
++| `public.intake_erase_client`, `public.intake_release_erasure_barrier` (wrappers) | postgres | `authenticated` | platform admin via `intake_is_platform_admin()`; actor `auth.uid()` (A3); reason required |
++| `intake_private.erase_client_impl` (and later destructive impls) | **intake_destructive** | `postgres` only | called by wrappers only (P3-a) |
++| `intake_erasure_barrier_active` | postgres | nobody (internal; EXECUTE for `intake_destructive`) | — |
+ | `intake_create_hold`, `intake_release_hold` | postgres | `authenticated` | platform admin (interim); actor `auth.uid()` |
+ | Catalog self-check | postgres | nobody (run by tests/owner) | — |
+ 
+@@ -267,7 +280,7 @@
+ | Manual request, send, resend | ✓ | ✓ | ✓ | — | — | — | — | — |
+ | View all answer sections | ✓ | ✓ | — | — | — | — | — | **— (no default)** |
+ | View operational sections | ✓ | ✓ | ✓ | — | — | — | — | — |
+-| Instructor summary | — | — | — | ✓ assigned only* | **—** | — | — | — |
++| Instructor summary (relationship-based, N4) | — | — | — | if relationship* | if relationship* (Hybrid) | — | — | — |
+ | Designate/select guardian recipient | ✓ | ✓ | only if `front_desk_guardian_selection`, before guardian submission | — | — | — | — | — |
+ | In-person guardian attestation | ✓ | ✓ | ✓ | — | — | — | — | — |
+ | Extend draft retention | ✓ | if `draft_extension_admins_enabled` | — | — | — | — | — | — |
+@@ -275,7 +288,7 @@
+ | Client erasure | — | — | — | — | — | — | — | ✓ |
+ | Drift report | ✓ | ✓ | — | — | — | — | — | ✓ |
+ 
+-\* Instructor summary requires all of: active `user_studio_roles` role `instructor` in that studio; `appointments.instructor_id = instructors.id` with `instructors.user_id = auth.uid()`, `active`, same studio; qualifying appointment type; appointment current or attended within 14 days [V existing window]; `instructor_visible` fields only. `independent_instructor` is excluded in V1, preserving FC-1B1 / FC-1 [V `lib/auth/permissions.ts:154–182`].
++\* **(4.1, N4 — supersedes the Rev 4 role-name rule; built in I5.)** Instructor summary requires all of: an `instructors` row in the same studio with `user_id = auth.uid()`, `active = true` and `can_instruct = true` (the Slice 9 guarded capability [V `20260918090000_landmark1a_slice9_capability_authority.sql`]); that row is the appointment's current `instructor_id`; a qualifying appointment type (never `floor_space_rental`); appointment current or attended within 14 days; `instructor_visible` fields only. **The literal `user_studio_roles` role is not consulted**, matching the repo's relationship model ("Hybrid is a combination of relationships, not a role" [V `lib/auth/appointmentAccess.ts:14–30`]). Consequences: a studio instructor and a Hybrid Instructor (single studio role `independent_instructor` plus an authorized host-studio teaching row) both qualify for their assigned host-studio appointments; `independent_instructor` status or a floor-rental relationship **alone** grants nothing, because it carries no `can_instruct` teaching row assigned to a qualifying appointment. FC-1B1 and FC-1 are preserved; no Hybrid role is introduced. Note: the existing `get_teaching_clients_for_instructor` checks `active` but not `can_instruct` [V `20260905160000`]; intake is stricter.
+ 
+ ## 8. Concurrency
+ | Level | Lock | Taken by |
+@@ -292,27 +305,36 @@
+ 
+ ## 9. Collection gate (A1, A6)
+ 
+-`intake_collection_allowed(p_studio_id)` is true only if **all**: `intake_platform_policy()` returns non-NULL `post_relationship_max_days`, `evidence_core_days`, `evidence_identity_days`, `audit_operational_days`, `audit_security_days`, `hold_record_days_after_release` (draft values are present by approval); `intake_settings.enabled`; and (app-side) the entitlement. **Studio input cannot satisfy it** — studios supply only an optional post-relationship choice.
++**(4.1, N1) The gate is split into two checks.**
+ 
+-Enforced twice: inside every writer function, and by a `BEFORE INSERT` trigger on every personal-data table (defense in depth).
++| Check | Function | True only if | Applies to |
++|---|---|---|---|
++| **Gate A — retention** | `intake_retention_gate_open()` | `intake_platform_policy()` returns non-NULL `post_relationship_max_days`, `evidence_core_days`, `evidence_identity_days`, `audit_operational_days`, `audit_security_days`, `hold_record_days_after_release` (draft values present by approval) | **every** personal-data insert, new or continuing |
++| **Gate B — new obligation** | `intake_new_obligation_allowed(p_studio_id)` | `intake_settings.enabled` **and** the studio is entitled (app-side today; database-side required before collection, N2 §16.5) | **only** actions that create a new intake obligation or outreach: ensure/manual request, attach appointment, re-intake request, and (later) new invitations and deliveries |
++| **Barrier** | `intake_erasure_barrier_active(p_studio_id, p_client_id)` | an unreleased `erasure_record` exists | refuses **every** insert for that client (N3) |
+ 
+-| Writer | Table(s) | Gated |
+-|---|---|---|
+-| ensure request / manual request / attach appointment | 8, 9 | ✓ |
+-| draft save, submit (respondents, responses, revisions, completions) | 10–12, 14 | ✓ |
+-| minor determination | 13 | ✓ |
+-| relationship-state creation | 15 | ✓ (insert); end/reactivate updates exempt |
+-| guardian designation / recipient selection | 16, 8 | ✓ |
+-| attestation, consent evidence and identity | 10, 17, 18 | ✓ |
+-| draft-retention extension (reason text) | 8 | ✓ |
+-| I3 invitations, sessions, email challenges | deferred | ✓ (rule binds I3) |
+-| I4 deliveries | deferred | ✓ |
+-| I6 export requests and artifacts | deferred | ✓ |
+-| I6 network evidence | deferred | ✓ |
++Continuing an existing, validly issued request — draft save, submit, guardian response, attestation, consent evidence, minor determination, guardian routing within the request — requires **Gate A and no barrier only**. Therefore, after entitlement lapse or studio disable, students and guardians can still complete already-issued intake (spec §6 lapse rule), while no new obligations or outreach are created. **Studio input cannot open Gate A** — studios supply only an optional post-relationship choice.
++
++Enforced twice: inside every writer function, and by a `BEFORE INSERT` trigger on every personal-data table. The trigger always checks Gate A and the barrier; it checks Gate B on `intake_requests` and `intake_request_appointments` (and on I3/I4 invitation and delivery tables), which are the tables that represent new obligations or outreach.
++
++| Writer | Table(s) | Gate A | Gate B | Barrier |
++|---|---|---|---|---|
++| ensure request / manual or re-intake request / attach appointment | 8, 9 | ✓ | ✓ | ✓ |
++| draft save, submit (respondents, responses, revisions, completions) | 10–12, 14 | ✓ | — | ✓ |
++| minor determination | 13 | ✓ | — | ✓ |
++| relationship-state creation | 15 | ✓ (insert) | — | ✓; end/reactivate updates exempt |
++| guardian designation / recipient selection | 16 (insert); 8 (update) | ✓ | — | ✓ |
++| attestation, consent evidence and identity | 10, 17, 18 | ✓ | — | ✓ |
++| draft-retention extension (reason text) | 8 (update) | ✓ | — | ✓ |
++| I3 invitations (new or resend) | deferred | ✓ | ✓ | ✓ |
++| I3 sessions, email challenges for an issued invitation | deferred | ✓ | — | ✓ |
++| I4 deliveries | deferred | ✓ | ✓ | ✓ |
++| I6 export requests and artifacts | deferred | ✓ | — | — (exports of existing data for a verified request; not new collection) |
++| I6 network evidence | deferred | ✓ | — | ✓ |
+ 
+ **Exempt (never gated; must work while any policy is pending):** erasure; redaction; draft purge; evidence/identity expiry and minimization; retained-reference minimization; DanceFlow account deletion (`deleteDanceFlowAccount` and its FK `SET NULL`); legal-hold create/review/release; security/operational audit writes; relationship end. **A retention-policy gap can never prevent deletion.**
+ 
+-Environment marker (A10): the first gated personal-data insert in a studio also writes one `environment_marker` audit event (`permanent_marker`, no refs), which rollback eligibility reads.
++Environment marker (A10, **N6**): the first gated personal-data insert **in the database** (any studio) writes the single environment-scoped `environment_marker` row (`studio_id` NULL, `permanent_marker`, no refs, `ON CONFLICT DO NOTHING`), which rollback eligibility reads. Barrier release and erasure are exempt from all gates.
+ 
+ ## 10. Negative-test inventory (real roles, DEV)
+ 
+@@ -346,14 +368,14 @@
+ | 99 | A13 | Trigger fired from a session with a hostile `search_path` and temp objects | Uses qualified objects only |
+ | 100 | A17 | Drifted client (`clients.studio_id` changed in test) erased by platform admin | Succeeds; drift recorded |
+ 
+-**Total inventory: 100 test IDs; 6 retired (71–74, 76–77); 94 active.**
++**Total inventory after Rev 4: 100 test IDs; 6 retired (71–74, 76–77); 94 active.** Rev 4.1 modifies 80, 86, 96 and adds 101–114 (§16.7): **114 test IDs; 6 retired; 108 active.**
+ 
+ ## 11. Migration gates and rollback (A10)
+ 
+ **Pre-apply gates per environment:** G1–G10 (§12) as applicable; boundary tests green on DEV; not during a Marketing M-0 stage change.
+ 
+ **Rollback eligibility (one transaction):** `SET LOCAL lock_timeout = '5s'`; lock every existing intake table `ACCESS EXCLUSIVE` in table-number order; then:
+-- **Refuse permanently** if any row exists in tables 6–18 **other than** audit events with `retention_class` in (`operational`) and all `*_ref` null (config-only activity), **or** if any `environment_marker` exists. Because the marker is written at the first personal-data insert and is never purged, personal-data use permanently blocks destructive rollback even after erasure empties the personal tables.
++- **Refuse permanently** if any row exists in tables 6–18 **other than** audit events with `retention_class` in (`operational`) and all `*_ref` null (config-only activity), **or** if the environment marker exists. Because the marker is environment-scoped (no studio FK), written at the first personal-data insert in the database, excluded from every purge and offboarding step, and protected against delete/update/TRUNCATE for every role, personal-data use permanently blocks destructive rollback even after erasure or studio offboarding empties the personal tables. Restoring a backup taken before first use is the only way to an environment without the marker, and such a restore also contains no personal data.
+ - **Allow** when only config tables (1–5) and config-only audit rows exist, **and** the operator has exported the config and supplies the export SHA-256 via `SET LOCAL nsi.rollback_config_export = '<sha256>'` (checked non-empty and recorded in the release record).
+ - Drop in reverse dependency order, including role `intake_destructive` last (after reassigning or dropping its functions).
+ After personal-data use: forward-fix only; application rollback (feature off) precedes any SQL change.
+@@ -362,7 +384,7 @@
+ 
+ | Gate | Check (read-only unless noted) |
+ |---|---|
+-| G1 | PROD Postgres ≥ 15 (DEV 17.6 [V]) |
++| G1 | Postgres ≥ 15. **Previously observed:** DEV `epdrtzcydvnoidwrepqz` = PostgreSQL 17.6 (this review's I0, `select version()` via `supabase db query --linked`, 2026-10-13); PROD `hvsujyfbftfffxpfmlpb` = PostgreSQL 17.6 (recorded in the Phase 10C.5 PROD rollback-only rehearsal and parity check, 2026-10-12, project release notes — not re-observed in this review). Status: **satisfied by prior observation; a fresh read-only re-check is required immediately before the PROD migration** |
+ | G2 | PROD parity: default ACLs, `appointments` fingerprints |
+ | G3 | `supabase_realtime` publication excludes `intake_*` |
+ | G4 | Postgres parameter logging (RPC arguments carry answers) |
+@@ -370,7 +392,7 @@
+ | G6 | Live counts: `profiles.platform_role` vs `platform_admins` (informational for the separate platform reconciliation; Intake uses `platform_role`) |
+ | G7 | Migration user can `CREATE ROLE` on DEV and PROD (Supabase managed) |
+ | G8 | Function ownership transfer to `intake_destructive`, and RLS policies `TO intake_destructive`, behave as designed (DEV rehearsal in a disposable branch) |
+-| G9 | Supabase backup/restore (and branching) preserves the role, its grants and function ownership |
++| G9 | Supabase backup/restore (and branching) preserves the role, its grants, the `intake_private` schema and function ownership — verification plan in §16.9 |
+ | G10 | `auth.uid()` resolves inside a definer function owned by `intake_destructive` when called through PostgREST with a user JWT |
+ 
+ ## 13. Outstanding owner/legal decisions
+@@ -411,8 +433,95 @@
+ F1–F15 remain addressed in design as recorded in Rev 3, with these amendments: F5 gate (A1, A6), F11 platform source (A2), F12 mechanism (A5), F13 rollback (A10), F14 completion handling (A4), F15 limits (A9).
+ 
+ ## 15. Recommendation
+-**GO for one targeted final Opus review of Rev 4**, limited to: A1/A6 gate authority and coverage; A2/A3 authorization; A4 derived fulfillment; A5 role mechanism and its fallback; A7 immutability exceptions; A8 instructor scoping; A10 rollback tiers; and consistency of the document as a whole.
++*(Rev 4 text kept for history; superseded by §16.10.)* **GO for one targeted final Opus review of Rev 4**, limited to: A1/A6 gate authority and coverage; A2/A3 authorization; A4 derived fulfillment; A5 role mechanism and its fallback; A7 immutability exceptions; A8 instructor scoping; A10 rollback tiers; and consistency of the document as a whole.
+ **Not GO for implementation:** also requires that review, gates G1–G10, owner confirmation of the §13 security baseline items needed for I1 (6), and I1 slice authorization. Launch additionally requires the §13.1 periods.
+ 
+ ## Appendix A — Fallback if gates G7–G9 fail
+ Use the Rev 3 F12 nonce-bound context (one unlogged, owner-only helper table `intake_ctx_nonces`; context scoped to operation, studio and client; cleared on return; triggers additionally require `current_user` = table owner). Table count becomes 19. Tests 71–74 are reinstated. All other Rev 4 corrections are unchanged.
++
++## 16. Revision 4.1 — final corrections (design only; not verified)
++
++### 16.1 Closure matrix
++
++| ID | Sev. | Disposition in 4.1 | Where | Status |
++|---|---|---|---|---|
++| N1 | P2 | Gate split: Gate A (platform retention) on every personal-data insert; Gate B (studio enabled + entitlement) only on new obligations/outreach; issued intake remains completable after lapse | §9 | **Applied in design** |
++| N2 | P2 | Database-side entitlement for Gate B documented as required before any personal-data collection | §16.5 | **Documented; deferred to I2 (before collection)** |
++| N3 | P2 | Erasure barrier replaces the same-transaction assumption; blocks every insert and reconciler request for the client; audited platform-admin release | §5.3, §9, R22 | **Applied in design** |
++| N4 | P2 | Instructor summary based on the actual teaching relationship (`can_instruct`, assignment), not a role name; Hybrid Instructors covered; independent/floor-rental status alone grants nothing | §7.3, R21 | **Documented for I5** |
++| N5 | P3 | `required_assurance` pinned on the consent-evidence row; fulfillment evaluates against it | §4.18, §4.15 | **Applied in design (column in I1); required before collection** |
++| N6 | P2 | Single environment-scoped marker (`studio_id` NULL, one per database), excluded from purge/offboarding, immutable | §4.0, §4.8, §9, §11, R23 | **Applied in design** |
++| P3-a | P3 | Role-owned implementations in non-exposed `intake_private`; `postgres`-owned public wrappers authenticate and authorize | §2, §5.3, §6.1, §7.2, R24 | **Applied in design** |
++| P3-b | P3 | Role recovery runbook and post-restore erasure verification | §6.1, §16.9 | **Documented; required before PROD apply** |
++| P3-c | P3 | All direct `service_role` table grants removed; no documented consumer (service paths use `postgres`-owned definer RPCs) | §7.1 | **Applied in design** |
++
++A1–A18 dispositions from Rev 4 stand as accepted by the final review, with A8 superseded by N4, A10 amended by N6, A11 resolved by N3. None of these is verified until implemented and tested.
++
++### 16.2 Gate B and Gate A interaction (N1)
++- Existing, validly issued request + entitlement lapsed or studio disabled → draft save, submit, guardian response, attestation, evidence: **allowed** (Gate A open, no barrier).
++- Same situation → new request, re-intake, appointment attach, new invitation or delivery: **refused** (Gate B).
++- Gate A closed (any platform period unapproved) → **every** personal-data insert refused, new or continuing; erasure, redaction, account deletion, holds, audit, barrier release remain allowed.
++
++### 16.3 Erasure barrier (N3)
++Defined in §5.3 step 7. Representation: append-only audit events `erasure_record` and `erasure_barrier_released` (class `erasure_record`, `client_ref` set); no new table. `intake_erasure_barrier_active` is indexed on `(studio_id, client_ref, created_at)` (existing audit index). Lock order: barrier checks run after L1, so a concurrent writer for the same client either commits before the erasure (and is then deleted by it) or sees the barrier.
++
++### 16.4 Environment marker (N6)
++Defined in §4.8 and §11. Not removable by any role short of disabling the protection trigger as table owner (documented break-glass, which itself is a reviewed operational change). Studio offboarding and every purge function exclude it by class and by `studio_id IS NULL`.
++
++### 16.5 N2 — database-side entitlement (documented, deferred)
++Before any personal data is collected, Gate B must check entitlement in the database: either the I2 generic studio feature-grant table (platform-admin grants, with expiry) or the canonical billing plan state, read by a `postgres`-owned definer helper. Until then Gate B's entitlement half is app-side only, which is acceptable **only** while Gate A is closed (no platform periods approved), because no personal data can be written in that state. Required test before collection: a service-role caller that skips the app check is refused by the database for an unentitled studio.
++
++### 16.6 N4 — Hybrid Instructor authorization (documented for I5)
++Rule in §7.3 footnote. Tests 96 (modified) and 109–111 belong to I5 and are listed now so the matrix is complete.
++
++### 16.7 Test inventory changes
++
++| # | Status | Test | Expected |
++|---|---|---|---|
++| 80 | M | Draft save, submit, ensure request, attestation, evidence insert with any platform period missing | Gate A refuses all; nothing written |
++| 86 | M | Non-admin calls `public.intake_erase_client` / `intake_release_erasure_barrier`; admin calls | Refused / succeed with `auth.uid()` actor; implementation in `intake_private` not callable by `authenticated` or `service_role` |
++| 96 | M (I5) | Relationship-based instructor summary (see 109–111) | As specified |
++| 101 | N | Entitlement lapsed / studio disabled; existing invited request: draft save, submit, guardian response | Allowed |
++| 102 | N | Same state: ensure request, re-intake, attach appointment | Refused (Gate B) |
++| 103 | N | After `erasure_record`: reconciler enumeration, `intake_ensure_request`, direct owner insert into each personal table for that client | Excluded / refused / refused by trigger |
++| 104 | N | After `erasure_record`, delete the `clients` row in a separate call | Succeeds; no intake FK blocks it |
++| 105 | N | Barrier release by non-admin; by admin without reason; by admin with reason | Refused / refused / allowed, `erasure_barrier_released` appended, original record unchanged |
++| 106 | N | Concurrent draft save and erasure on the same client (barrier) | Either draft committed then erased, or draft refused; never a surviving row |
++| 107 | N | Second environment marker insert; delete/update/TRUNCATE of the marker by owner, `service_role`, `intake_destructive`; offboarding/purge run | Ignored (single row) / refused / marker remains |
++| 108 | N | Studio deletion after offboarding while the marker exists | Marker does not block (no studio FK); rollback still refused |
++| 109 | N (I5) | Hybrid person: studio role `independent_instructor`, `can_instruct` teaching row, assigned private lesson | Instructor summary allowed (instructor-visible fields only) |
++| 110 | N (I5) | Same person on their own `floor_space_rental`; same person not assigned; `can_instruct = false`; role `instructor` with no teaching row | All denied |
++| 111 | N (I5) | Independent instructor with only a floor-rental relationship | Denied |
++| 112 | N | Guardian consent accepted at `email_code_verified`; studio later raises `min_guardian_assurance` to `link_verified` | Fulfillment remains `complete` |
++| 113 | N | Catalog: `intake_private` has no `USAGE` for `anon`/`authenticated`/`service_role`; is not in PostgREST exposed schemas; `intake_destructive` has no `CREATE` on `public` | Pass |
++| 114 | N | Catalog: `service_role` holds no direct privilege on any intake table | Pass |
++
++### 16.8 Remaining DEV rehearsal gates (disposable DEV branch only; separate authorization required)
++
++| Gate | Rehearsal steps | Pass criteria |
++|---|---|---|
++| **G7** role creation | In a disposable branch, apply M1 as the migration user; `CREATE ROLE intake_destructive NOLOGIN NOINHERIT NOBYPASSRLS`; on PG ≥ 16 grant the migration user `SET` on the role if required for ownership transfer | Role exists with the stated attributes; no superuser needed; migration is idempotent on re-run |
++| **G8** ownership and RLS | Create `intake_private`; grant the role `USAGE, CREATE` there only; create an implementation and `ALTER FUNCTION … OWNER TO intake_destructive`; add `TO intake_destructive` RLS policies on tables 8–16; run tests 90–92, 103–107, 113–114 | Ownership transfer succeeds; role can delete only the intended rows through the implementation; nothing else can; catalog self-check passes |
++| **G10** `auth.uid()` path | Call `public.intake_erase_client` through PostgREST with (a) a platform-admin JWT, (b) a non-admin JWT, (c) the service key | (a) succeeds and the audit actor equals the admin's user id; (b) and (c) refused; the role never needs `auth` schema access (actor passed from the wrapper) |
++
++G1 is satisfied by prior observation (17.6 on DEV and PROD; §12) with a mandatory fresh check before PROD migration. G2 (PROD parity) is required before PROD apply.
++
++### 16.9 G9 backup/restore verification plan (before PROD apply; separate authorization)
++1. In a disposable DEV branch with M1–M5 applied and synthetic data, record a catalog fingerprint: role attributes, `intake_private` ACL, function owners and ACLs, RLS policies, table ACLs, marker row.
++2. Exercise each restore path Supabase offers for the project's plan (daily backup restore into a new project or branch; PITR if enabled). Restoring into the live DEV or PROD project is not part of this plan.
++3. In the restored copy: compare the fingerprint; run the erasure smoke test on a synthetic client (wrapper → implementation → barrier → client delete); confirm the marker survived.
++4. If the role or ownership is missing: apply the P3-b runbook (§6.1), re-fingerprint, and record whether the restore path needs a post-restore step. If no restore path preserves them and the runbook cannot restore them reliably, escalate the Appendix A fallback to a separate decision.
++5. Record the result as a release artifact before the first PROD apply.
++
++### 16.10 Implementation versus launch blockers
++
++| Category | Items |
++|---|---|
++| **1. Before I1 SQL (technical)** | Disposable DEV rehearsal of G7, G8, G10 (separate authorization); fresh G1 check is only required before PROD |
++| **2. Before I1 SQL (owner policy)** | Confirm the V1 security baseline (§0, §7.3: no default answer access for platform admins; front-desk guardian selection flag off by default; owners extend drafts, admins only when enabled); accept platform admin as interim legal-hold authority; confirm erasure deletes live answers immediately; confirm barrier release authority = platform admin, audited |
++| **3. Before PROD apply** | G1 fresh check, G2 parity, G9 backup/restore verification, P3-b runbook |
++| **4. Dark deployment allowed; before any personal-data collection** | All platform retention periods (Gate A stays closed until set); N2 database-side entitlement; N5 in use (column exists in I1); G3 realtime, G4 parameter logging, G5 Documents constraint; I3 operator erasure path; retained-reference minimization trigger [D] |
++| **5. Before I5** | N4 relationship-based instructor summary and tests 96, 109–111 |
++| **6. Legal/privacy/operational before launch** | Minors' jurisdictional requirements and threshold; network/device evidence; export approvers and verification; relationship-closure definition; offboarding disposition; final legal-hold roles and cadence; evidence names vs initials; audit retention operations; email/UI testing (not I1 schema dependencies); separate platform-wide `platform_admins` reconciliation |
++
++**Recommendation:** the five required corrections are applied in design and the four documented items are recorded with their deadlines. Proceed to request **(a)** a disposable DEV rehearsal for G7, G8 and G10 and **(b)** owner confirmation of category 2. If both pass, I1 SQL authorization can be requested. Nothing here is verified implementation.
+--- a/NSI_V1_Engineering_Spec.md (rev 4.0)
++++ b/NSI_V1_Engineering_Spec.md (rev 4.1)
+@@ -412,3 +412,14 @@
+ - **Collection gate** covers every personal-data insert in every slice (including invitations, challenges, deliveries, exports) and is enforced by table triggers; erasure, redaction, account deletion, holds and audit are exempt so deletion rights are never blocked.
+ - Tenant and ownership references are immutable after insert; `independent_instructor` has no intake access in V1; assigned `instructor` role only, assignment-scoped.
+ - 18 tables; 100 test IDs (94 active); technical gates G1–G10.
++
++## 19. I1 revision 4.1 (amendment, planning only)
++
++`NSI_I1_Schema_Plan.md` revision 4.1 applies the final review's bounded corrections (design only; not verified):
++- **Collection gate split (N1):** platform retention approval (Gate A) is required for every personal-data write; studio enablement and entitlement (Gate B) only block new obligations and outreach. Already-issued intake stays completable after entitlement lapse, as §6 requires.
++- **Erasure barrier (N3):** after an erasure is recorded, no new intake record (including reconciler-created requests) can be written for that client until an audited platform-admin release. Erasure and client deletion are not assumed to share a transaction.
++- **Environment marker (N6):** one database-wide first-use marker with no studio dependency; it survives offboarding and purges and keeps destructive rollback refused permanently.
++- **Private schema (P3-a):** destructive implementations owned by the restricted role live in a non-exposed schema behind authenticated, authorized public wrappers.
++- **Least privilege (P3-c):** no direct `service_role` access to any intake table.
++- Documented for later: database-side entitlement before collection (N2); relationship-based instructor access covering Hybrid Instructors, not a role name (N4, I5); guardian assurance pinned to each consent (N5); role recovery and post-restore erasure checks (P3-b, before PROD).
++- Postgres 17.6 previously observed on DEV (2026-10-13) and PROD (2026-10-12); fresh check before the PROD migration.
+--- a/NSI_I0_Verification_Report.md (rev 4.0)
++++ b/NSI_I0_Verification_Report.md (rev 4.1)
+@@ -162,7 +162,7 @@
+ ## 8. Addendum: gates added by the I1 schema review (not yet checked)
+ 
+ These are read-only checks for DEV and PROD, to be run only under a new authorization:
+-1. **Postgres version on PROD ≥ 15** (DEV is 17.6). Required for `ON DELETE SET NULL (column)` on composite keys.
++1. **Postgres version on PROD ≥ 15** (DEV is 17.6). Required for `ON DELETE SET NULL (column)` on composite keys. *(Rev 4.1 update: PROD `hvsujyfbftfffxpfmlpb` was recorded as PostgreSQL 17.6 during the Phase 10C.5 PROD rollback-only rehearsal and parity check on 2026-10-12 (project release notes); DEV 17.6 was observed in §1 of this report on 2026-10-13. G1 is satisfied by those prior observations; a fresh read-only check is still required immediately before the PROD migration.)*
+ 2. **Realtime publication**: whether `supabase_realtime` is `FOR ALL TABLES` or would include `intake_*` tables (`pg_publication`, `pg_publication_tables`).
+ 3. **Postgres parameter logging**: `log_min_duration_statement`, `log_statement`, `log_parameter_max_length`, `log_parameter_max_length_on_error`, so RPC arguments carrying draft answers are not written to logs.
+ 4. Platform-admin helper: `public.is_platform_admin()` exists in the repo migrations (`20260525_platform_admins_invites_rls_fix.sql`) [V]; confirm its live definition and grants on each environment.

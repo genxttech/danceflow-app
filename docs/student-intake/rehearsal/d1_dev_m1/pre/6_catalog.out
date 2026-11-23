@@ -1,0 +1,10 @@
+k,v
+public_relations,344 dc52fb425c7b5bb0cc7b9bc10adcf92b
+public_columns,5126 dd979d48fb4f2caeaef0dbf97b7b3521
+public_constraints,2349 be1f3b1b1f6cf8ca2a9294db3d288d5b
+public_indexes,1370 574aa53344fd53952da40e1939b87e07
+public_triggers,262 ec6547a8ee619127f0af336351d9803a
+public_functions,487 635369ee66a8252f7276298bb6469930
+public_policies,721 0b1d0077a9e4a21c4f7d64110a75f638
+roles,31 55c32cc650d4785bc6a768b8dde0666b
+schemas,auth extensions graphql graphql_public migration_support pgbouncer public realtime storage supabase_migrations vault

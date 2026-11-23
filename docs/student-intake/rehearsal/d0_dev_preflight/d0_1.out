@@ -1,0 +1,19 @@
+Using workdir C:/Users/mcurt/AppData/Local/Temp/claude/C--Dev-studioapp/909fbce0-6240-4c27-9f3d-a0dac5eec5aa/scratchpad/d0wd
+Initialising login role...
+k,v
+ctx,db=postgres user=postgres ro=on
+server_version,17.6
+version,"PostgreSQL 17.6 on aarch64-unknown-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit"
+postgres_role,super=f createrole=t createdb=t bypassrls=t inherit=t login=t replication=t
+createrole_self_grant,<empty>
+session_replication_role,origin
+supautils.privileged_role,supabase_privileged_role
+supautils.reserved_roles,"supabase_admin, supabase_auth_admin, supabase_storage_admin, supabase_read_only_user, supabase_realtime_admin, supabase_replication_admin, supabase_etl_admin, dashboard_user, pgbouncer, service_role*, authenticator*, authenticated*, anon*, supabase_privileged_role"
+supautils.reserved_memberships,"pg_read_server_files, pg_write_server_files, pg_execute_server_program, supabase_admin, supabase_auth_admin, supabase_storage_admin, supabase_read_only_user, supabase_realtime_admin, supabase_replication_admin, supabase_etl_admin, dashboard_user, pgbouncer, authenticator"
+supautils.superuser,supabase_admin
+postgres_member_of,"anon(a=true,i=true,s=true) authenticated(a=true,i=true,s=true) authenticator(a=true,i=true,s=true) pg_create_subscription(a=true,i=true,s=true) pg_monitor(a=true,i=true,s=true) pg_read_all_data(a=true,i=true,s=true) pg_signal_backend(a=true,i=true,s=true) service_role(a=true,i=true,s=true) supabase_privileged_role(a=false,i=true,s=true)"
+api_roles,"anon(login=false,bypassrls=false,inherit=true) authenticated(login=false,bypassrls=false,inherit=true) authenticator(login=true,bypassrls=false,inherit=false) service_role(login=false,bypassrls=true,inherit=true)"
+db_create_for_postgres,true
+row_counts,28 appts / 20 clients / 84 studios
+A new version of Supabase CLI is available: v2.120.0 (currently installed v2.90.0)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

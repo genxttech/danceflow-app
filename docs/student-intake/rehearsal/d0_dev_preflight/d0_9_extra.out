@@ -1,0 +1,5 @@
+k,v
+public_table_without_rls,"_paywh1a_saved_constraints acl={postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres}"
+migration_support_schema,owner=postgres acl={postgres=UC/postgres}
+migration_support_objects,instructor_backfill_snapshot_20260918010000:r instructor_backfill_snapshot_20260918010000_pkey:i subscription_plans_price_backup_20260916:r subscription_plans_price_backup_20260916_pkey:i functions=0
+api_usage_on_migration_support,<none>

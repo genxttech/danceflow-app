@@ -1,0 +1,3 @@
+id,pass,expected,actual
+G8-07e2 audit UPDATE with 4 rows present,true,42501,42501 nsi_rh: audit is append-only
+"G8-14 trapped wrapper error, then owner delete in same txn",true,42501,42501 nsi_rh: protected change refused for postgres

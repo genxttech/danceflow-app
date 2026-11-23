@@ -1,0 +1,45 @@
+SET
+ro,on
+assert_catalog,ok
+intake_tables,5 intake_service_assignments,intake_settings,intake_studio_retention_choices,intake_template_versions,intake_templates
+intake_other_relations,0
+m2_m5_tables_absent,true
+intake_functions,19 intake_private.assert_catalog,intake_private.assert_client_in_studio,intake_private.assert_document_version,intake_private.assert_envelope,intake_private.assert_link_for_client,intake_private.assert_staff,intake_private.config_append_only,intake_private.link_is_verified_guardian,intake_private.link_is_verified_self,intake_private.new_obligation_allowed,intake_private.refuse_truncate,intake_private.retention_gate_open,intake_private.studio_role,intake_private.template_floor_guard,intake_private.template_version_guard,intake_private.touch_updated_at,public.intake_has_staff_role,public.intake_is_platform_admin,public.intake_platform_policy
+fp_functions,eb2467c21e78cfee238cfa79fe24167f
+function_execute_grants,public.intake_has_staff_role=authenticated public.intake_is_platform_admin=authenticated public.intake_platform_policy=authenticated,service_role
+intake_triggers,8
+fp_triggers,452010ab93029777fa59541034620086
+intake_policies,5
+fp_policies,d0db03477d263ad3982434afd16a5c1d
+fp_tables,bcf5f674f059c10ae9c2d3182857ce84
+table_grants,intake_service_assignments=authenticated:SELECT intake_settings=authenticated:SELECT intake_studio_retention_choices=authenticated:SELECT intake_template_versions=authenticated:SELECT intake_templates=authenticated:SELECT
+rls_all_on,true
+column_grants,0
+fp_table_columns,ea5d09d958764ca0782a2b3411b0e221
+fp_table_constraints,924b88bf29601af70c654f4cb1c1cd82
+role,login=f inherit=f bypassrls=f super=f createrole=f createdb=f replication=f connlimit=-1
+role_memberships,postgres(admin=false,inherit=false,set=true) postgres(admin=true,inherit=false,set=false)
+role_member_of,0
+role_table_privileges,0
+role_function_execute_intake,0
+role_schema,intake_private usage=t create=f; public create=f
+role_owns_objects,0 relations / 0 functions
+private_schema_acl,postgres {postgres=UC/postgres,intake_destructive=U/postgres}
+api_roles_private_schema,anon:usage=false,create=false authenticated:usage=false,create=false service_role:usage=false,create=false authenticator:usage=false,create=false
+private_default_acl,0
+api_role_table_privs,anon:0 authenticated:5 service_role:0
+authenticated_select_only,true
+gate_open,false
+platform_policy,(1,90,180,90,,,,,,,)
+config_rows,0
+appointments_fp,76103dd728657c76a6391f1307e18d73
+non_intake_relations,329 a9389ec4bb5f6e450afad36ce9177a9a
+non_intake_columns,4843 3e7cd72765dc8c343c0cbac6f2c5ff3d
+non_intake_constraints,2224 6557ce0bf1522f61e8528490e6e90890
+non_intake_indexes,1307 a1f58ae63eec62c9a413c35379258aab
+non_intake_triggers,216 ce016e0d60e3a05b8ae6a6cfcd77fb0a
+non_intake_functions,358 dc0b10c9671746a609ed30014dd67d09
+non_intake_policies,707 0aa90e8a4c3585b6c8672efebe31105c
+non_intake_roles,30 6d4619e63e2667b6013937ec8c5e1363
+schemas,_realtime auth extensions graphql graphql_public intake_private net pgbouncer public realtime storage supabase_functions vault
+marker_or_personal_tables,0

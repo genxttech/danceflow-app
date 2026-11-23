@@ -1,0 +1,27 @@
+fn | intake_private.erase_client_impl owner=intake_destructive secdef=true cfg={"search_path=pg_catalog, pg_temp"} acl={intake_destructive=X/intake_destructive,postgres=X/intake_destructive}
+fn | public.intake_erase_client owner=postgres secdef=true cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres,authenticated=X/postgres}
+fn | public.intake_release_erasure_barrier owner=postgres secdef=true cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres,authenticated=X/postgres}
+fn | public.nsi_rh_audit_append_only owner=postgres secdef=false cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres}
+fn | public.nsi_rh_audit_write owner=postgres secdef=true cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres,intake_destructive=X/postgres}
+fn | public.nsi_rh_barrier_active owner=postgres secdef=true cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres,intake_destructive=X/postgres}
+fn | public.nsi_rh_is_platform_admin owner=postgres secdef=true cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres}
+fn | public.nsi_rh_refuse_truncate owner=postgres secdef=false cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres}
+fn | public.nsi_rh_requests_guard owner=postgres secdef=false cfg={"search_path=pg_catalog, pg_temp"} acl={postgres=X/postgres}
+membership | postgres in intake_destructive admin=false inherit=false set=true
+membership | postgres in intake_destructive admin=true inherit=false set=false
+policy | nsi_rh_requests.nsi_rh_requests_destructive_delete cmd=DELETE roles={intake_destructive} qual=true
+policy | nsi_rh_requests.nsi_rh_requests_destructive_select cmd=SELECT roles={intake_destructive} qual=true
+role | intake_destructive super=false login=false inherit=false bypassrls=false createrole=false createdb=false
+role_auth_schema_usage | false
+role_owned_objects | 1
+role_public_create | false
+schema_acl | intake_private owner=postgres acl={postgres=UC/postgres,intake_destructive=UC/postgres}
+table | nsi_rh_audit owner=postgres rls=true acl={postgres=arwdDxtm/postgres}
+table | nsi_rh_profiles owner=postgres rls=true acl={postgres=arwdDxtm/postgres}
+table | nsi_rh_requests owner=postgres rls=true acl={postgres=arwdDxtm/postgres,intake_destructive=rd/postgres}
+trigger | nsi_rh_audit.nsi_rh_audit_append_only fn=nsi_rh_audit_append_only
+trigger | nsi_rh_audit.nsi_rh_audit_no_truncate fn=nsi_rh_refuse_truncate
+trigger | nsi_rh_requests.nsi_rh_requests_guard fn=nsi_rh_requests_guard
+trigger | nsi_rh_requests.nsi_rh_requests_no_truncate fn=nsi_rh_refuse_truncate
+default_acl_for_role|0
+pg_version|PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit
