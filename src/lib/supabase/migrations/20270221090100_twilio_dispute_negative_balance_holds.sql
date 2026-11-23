@@ -58,6 +58,16 @@ begin
   if to_regclass('public.studio_sms_credit_dispute_holds') is not null then
     raise exception 'dispute hold precondition failed: already applied';
   end if;
+  -- This file replaces two function bodies wholesale. It applies only over the exact versions it was written against (20261125090000 / 20261122090000; the 20270221090100
+  -- bodies are accepted for a re-run), so a later change to either is never silently overwritten. md5 of prosrc with CR removed.
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_apply_dispute(text,text,integer,text,text)'::regprocedure)
+       not in ('e3541ee9ce86e59e3db30503c72da4da', 'df3dcf4a24e3d1b2e50b124c6fcf6c40') then
+    raise exception 'dispute hold precondition failed: tw4_credit_apply_dispute is not the 20261125090000 version this file replaces' using errcode = '55000';
+  end if;
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_set_hold(uuid,boolean,text,uuid)'::regprocedure)
+       not in ('07787632259d7dbd237abea79c43c636', '909beeb0074685391d2e2af65749372e') then
+    raise exception 'dispute hold precondition failed: tw4_credit_set_hold is not the 20261122090000 version this file replaces' using errcode = '55000';
+  end if;
   -- the reason 'dispute' becomes reserved for the automatic hold: a manual hold that already carries it would be mistaken for one (and cleared by a dispute release)
   if exists (select 1 from public.studio_sms_credit_accounts a where a.hold and lower(btrim(coalesce(a.hold_reason, ''))) = 'dispute') then
     raise exception 'dispute hold precondition failed: an account is on a manual hold whose reason is "dispute"; give it another reason with tw4_credit_set_hold first';
@@ -89,7 +99,7 @@ create table public.studio_sms_dispute_hold_switch_log (
   changed_at timestamptz not null default clock_timestamp(),
   seq bigserial not null
 );
-create index studio_sms_dispute_hold_switch_log_latest on public.studio_sms_dispute_hold_switch_log (scope, changed_at desc, seq desc);
+create index studio_sms_dispute_hold_switch_log_latest on public.studio_sms_dispute_hold_switch_log (scope, seq desc);
 
 -- one row per recorded dispute withdrawal: the hold decision, the DanceFlow-borne dispute fee and the release
 create table public.studio_sms_credit_dispute_holds (
@@ -160,7 +170,7 @@ as $$ select 1500 $$;
 create function public._tw4dh_switch_on(p_scope text)
 returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $$ select coalesce((select l.enabled from public.studio_sms_dispute_hold_switch_log l where l.scope = p_scope order by l.changed_at desc, l.seq desc limit 1), false) $$;
+as $$ select coalesce((select l.enabled from public.studio_sms_dispute_hold_switch_log l where l.scope = p_scope order by l.seq desc limit 1), false) $$;
 
 create function public._tw4dh_auto_hold_on()
 returns boolean language sql stable security definer
@@ -261,6 +271,9 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 declare h public.studio_sms_credit_dispute_holds;
 begin
+  if not public._tw4dh_record_on() then
+    return;   -- dark: the record switch gates every hook this file adds
+  end if;
   select * into h from public.studio_sms_credit_dispute_holds x where x.dispute_row_id = p_dispute_row;
   if h.id is not null and h.hold_state = 'held' then
     perform public._tw4rfl_alert(h.legal_entity_id, null, null, 'credit_dispute', 'dispute:' || p_dispute_row || ':won', 'admin', 'info',

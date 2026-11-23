@@ -419,6 +419,23 @@ commit;`);
       expect(acct(w)).toMatchObject({ hold: true, reason: "manual hold during the dispute" });
     });
 
+    it("the won-dispute hook honours the record switch like the other hooks: record OFF = no won alert", () => {
+      const w = world();
+      const { pi } = pay(w, 5000);
+      const id = `dp_${hex(6)}`;
+      dispute(pi, id, 5000, "withdrawn");                       // held (hold switch on)
+      expect(holds(w)[0].hold_state).toBe("held");
+      try {
+        call("tw4_dispute_hold_switch_set", false, ADMIN, "fixture: hold off for the dark won test");
+        recordSet(false);
+        dispute(pi, id, 5000, "reinstated");
+        expect(alertsOf(w, "credit_dispute").filter((a) => a.dedupe_key.endsWith(":won"))).toHaveLength(0);
+        expect(acct(w).balance).toBe(5000);                      // the credit itself is reinstated as before
+      } finally {
+        switchSet(true);
+      }
+    });
+
     it("a dispute of business A never touches business B", () => {
       const a = world();
       const b = world();
@@ -556,6 +573,19 @@ commit;`);
       expect(psqlError(readFileSync(join(MIG, MIGRATION), "utf8"))).toMatch(/manual hold whose reason is "dispute"/);
       expect(psql("select to_regclass('public.studio_sms_credit_dispute_holds') is null")).toBe("t");
       replica(`update public.studio_sms_credit_accounts set hold = false, hold_reason = null where legal_entity_id = '${WORLDS[0].entity}';`);
+      // forward guard: the migration applies only over the 20261125 / 20261122 bodies it replaces (a changed body is refused, nothing applied)
+      for (const [fn, from, to, name] of [[APPLY, "invalid dispute event", "invalid dispute event!", "tw4_credit_apply_dispute"], [SETHOLD, "a hold needs a reason", "a hold needs a reason!", "tw4_credit_set_hold"]]) {
+        const patch = (a: string, b: string) => psql(`select replace(pg_get_functiondef('${fn}'::regprocedure), '${a}', '${b}') \gexec`);
+        patch(from, to);
+        try {
+          const refused = psqlError(readFileSync(join(MIG, MIGRATION), "utf8"));
+          expect(refused).toMatch(/55000/);
+          expect(refused).toMatch(new RegExp(`${name} is not the 2026`));
+          expect(psql("select to_regclass('public.studio_sms_credit_dispute_holds') is null")).toBe("t");
+        } finally {
+          patch(to, from);
+        }
+      }
       psql(readFileSync(join(MIG, MIGRATION), "utf8"));                                // and the migration re-applies cleanly
       expect(psql("select public._tw4dh_dispute_fee_cents() || ':' || public._tw4dh_auto_hold_on()")).toBe("1500:false");
       expect(psql("select public._tw4dh_record_on()")).toBe("f");

@@ -35,7 +35,7 @@ Two database switches, both OFF until an administrator turns them on (no row = O
 
 | Switch | Function | Gates |
 | --- | --- | --- |
-| record | `tw4_dispute_record_switch_set(on, admin, reason)` | the dispute-hold row, its audit row and admin alert, the won-dispute alert, and the negative-available-credit trigger. OFF = the migration changes nothing at runtime. |
+| record | `tw4_dispute_record_switch_set(on, admin, reason)` | the dispute-hold row, its audit row and admin alert, the won-dispute alert (checked at the hook itself), and the negative-available-credit trigger. OFF = the migration changes nothing at runtime. |
 | hold | `tw4_dispute_hold_switch_set(on, admin, reason)` | the automatic account hold. Needs record ON (refused 55000 otherwise); record cannot be turned off while hold is ON. |
 
 With record ON and hold OFF a dispute is recorded as `not_held`, the alert says no hold was placed, and money paths behave as before. Alerts are delivered only when the existing alert-delivery switch is on. A dispute that happens while record is OFF leaves no row and is never backfilled; if one occurs, handle it from Stripe's dashboard.
@@ -52,6 +52,8 @@ Turning hold off stops NEW holds only; holds already placed stay until released.
 **The negative-credit alert can never block a debit.** It is an AFTER UPDATE trigger whose work (switch read, ledger lookup, alert insert) runs in a sub-transaction that turns any error into a warning. A failure writes no alert; it cannot fail the statement that moved the balance, including an inbound STOP, START or HELP debit.
 
 **Forward-only after the first event.** Once record has been ON and has written a dispute-hold row, a `credit_dispute` alert or a `credit_negative` alert, this migration cannot be rolled back (section 5): that evidence is never deleted. Rolling back is possible only while record has stayed OFF (and no switch row exists). Turning the switches off stops new behaviour without losing evidence.
+
+**Apply guard.** The migration replaces `tw4_credit_apply_dispute` and `tw4_credit_set_hold` wholesale, so it first checks that each live body is exactly the version it was written against (20261125090000 / 20261122090000; md5 of `prosrc` with CR removed) and refuses (55000) otherwise. A later change to either function must be merged into this file before it can apply. The latest switch row of a scope is the one with the highest `seq`.
 
 **Reserved reason.** The migration refuses to apply while any account is on a manual hold whose reason is literally `dispute` (any case): give it another reason with `tw4_credit_set_hold` first. After the migration, `tw4_credit_set_hold` refuses that reason.
 
