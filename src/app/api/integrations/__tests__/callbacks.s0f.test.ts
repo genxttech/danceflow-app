@@ -28,7 +28,7 @@ function table(name: string) {
     neq: (c: string, v: any) => { filters.push((r) => r[c] !== v); return b; },
     update: (p: Row) => { mode = "update"; patch = p; return b; },
     delete: () => { mode = "delete"; return b; },
-    insert: (p: any) => { mode = "insert"; const arr = Array.isArray(p) ? p : [p]; arr.forEach((x) => { last = { id: `id${nextId++}`, ...x }; rows().push(last); }); return b; },
+    insert: (p: any) => { mode = "insert"; const arr = Array.isArray(p) ? p : [p]; arr.forEach((x) => { const row: Row = { id: `id${nextId++}`, ...x }; last = row; rows().push(row); }); return b; },
     upsert: (p: Row, o?: { onConflict: string }) => {
       mode = "upsert";
       const e = o ? rows().find((r) => r[o.onConflict] === p[o.onConflict]) : undefined;
