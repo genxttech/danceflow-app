@@ -501,8 +501,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
         replica(`insert into public.studio_sms_provider_resources (id, legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, e164, fee_kind, source, registered_by, registered_at)
             values ('${res}', '${w.entity}', '${w.studio}', '${w.account}', 'number', '${sid("PN")}', '${e164()}', 'number', 'admin', '${P}', now() - interval '400 days');
           ${rows.map(([period, cents]) => `insert into public.studio_sms_provider_exposure (resource_id, legal_entity_id, studio_id, period_key, reason, expected_provider_cents)
-            values ('${res}', '${w.entity}', '${w.studio}', '${period}', 'no_authorization', ${cents});`).join("
-")}`);
+            values ('${res}', '${w.entity}', '${w.studio}', '${period}', 'no_authorization', ${cents});`).join(" ")}`);
       };
       const entityThreshold = Number(psql("select public._tw4fx_entity_threshold_cents()"));
       const platformThreshold = Number(psql("select public._tw4fx_platform_threshold_cents()"));
