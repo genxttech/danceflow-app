@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- loose PostgREST client shape */
+import { createHash } from "node:crypto";
 import { generateFeedSecret } from "./token";
 import type { SupabaseLike } from "./events";
 
@@ -36,7 +37,8 @@ export function feedBaseUrl(): string | null {
   const raw = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "";
   try {
     const url = new URL(raw);
-    return url.protocol === "https:" || url.hostname === "localhost" ? url.origin : null;
+    const localDev = url.hostname === "localhost" && process.env.NODE_ENV !== "production";
+    return url.protocol === "https:" || localDev ? url.origin : null;
   } catch {
     return null;
   }
@@ -59,6 +61,7 @@ export async function getFeedStatus(admin: SupabaseLike, studioId: string, kind:
     .is("superseded_at", null)
     .maybeSingle();
   if (error || !data) return null;
+  if (Date.parse(data.expires_at) <= Date.now()) return null; // an expired link no longer resolves, so it is not shown as on
   return {
     id: data.id,
     tokenPrefix: data.token_prefix,
@@ -135,19 +138,20 @@ export type StaffFeedRow = { id: string; subjectUserId: string; name: string; to
 export async function listStaffFeeds(admin: SupabaseLike, studioId: string): Promise<StaffFeedRow[]> {
   const { data, error } = await admin
     .from("calendar_feed_tokens")
-    .select("id, subject_user_id, token_prefix, detail_level, created_at, last_accessed_at")
+    .select("id, subject_user_id, token_prefix, detail_level, created_at, last_accessed_at, expires_at")
     .eq("studio_id", studioId)
     .eq("subject_kind", "staff")
     .eq("status", "active")
     .is("superseded_at", null);
   if (error || !data) return [];
-  const userIds = data.map((r: any) => r.subject_user_id);
+  const live = (data as any[]).filter((r) => !r.expires_at || Date.parse(r.expires_at) > Date.now());
+  const userIds = live.map((r: any) => r.subject_user_id);
   const names = new Map<string, string>();
   if (userIds.length) {
     const { data: instructors } = await admin.from("instructors").select("user_id, first_name, last_name").eq("studio_id", studioId).in("user_id", userIds);
     for (const i of instructors ?? []) names.set(i.user_id, [i.first_name, i.last_name].filter(Boolean).join(" ").trim());
   }
-  return data.map((r: any) => ({
+  return live.map((r: any) => ({
     id: r.id,
     subjectUserId: r.subject_user_id,
     name: names.get(r.subject_user_id) || "Staff member",
@@ -162,4 +166,38 @@ export async function listStaffFeeds(admin: SupabaseLike, studioId: string): Pro
 export async function isActiveInstructor(admin: SupabaseLike, studioId: string, userId: string): Promise<boolean> {
   const { data, error } = await admin.from("instructors").select("id").eq("studio_id", studioId).eq("user_id", userId).eq("active", true).limit(1);
   return !error && Array.isArray(data) && data.length > 0;
+}
+
+/** Turn a subject's link fully off: the current token AND any previous token still inside its overlap window. Returns how many were revoked. */
+export async function revokeSubjectFeeds(
+  admin: SupabaseLike,
+  args: { studioId: string; kind: FeedKind; subjectUserId: string; reason: "user" | "admin"; actorId: string; actorKind: "user" | "admin" },
+): Promise<number> {
+  const { data, error } = await (admin as any).rpc("calendar_feed_revoke_subject", {
+    p_studio: args.studioId,
+    p_kind: args.kind,
+    p_user: args.subjectUserId,
+    p_reason: args.reason,
+    p_actor: args.actorId,
+    p_actor_kind: args.actorKind,
+  });
+  if (error) throw new Error("Could not turn off the calendar link.");
+  return Number(data) || 0;
+}
+
+/** Throttle on creating/replacing links (10 per hour per person); fails closed when the limiter is unavailable. */
+export async function allowMint(admin: SupabaseLike, userId: string): Promise<boolean> {
+  try {
+    const key = "mint:" + createHash("sha256").update(userId, "utf8").digest("hex").slice(0, 24);
+    const { data, error } = await (admin as any).rpc("calendar_feed_rate_check", { p_key: key, p_limit: 10, p_window_seconds: 3600 });
+    if (error) return false;
+    const row = Array.isArray(data) ? data[0] : data;
+    return row?.allowed === true;
+  } catch {
+    return false;
+  }
+}
+
+export function isUuid(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }

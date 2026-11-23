@@ -4,6 +4,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { feedsEnabledForStudio, getFeedStatus, isActiveInstructor, listStaffFeeds } from "@/lib/calendar-feeds/service";
 import FeedPanel from "@/components/calendar-feeds/FeedPanel";
+import ConfirmButton from "@/components/calendar-feeds/ConfirmButton";
 import { adminRevokeAllFeedsAction, adminRevokeStaffFeedAction, createOrRotateStaffFeedAction, revokeStaffFeedAction, updateStaffFeedAction } from "./actions";
 
 export default async function StaffCalendarFeedPage() {
@@ -57,20 +58,19 @@ export default async function StaffCalendarFeedPage() {
                     </span>
                   </span>
                   <form action={adminRevokeStaffFeedAction}>
-                    <input type="hidden" name="tokenId" value={feed.id} />
                     <input type="hidden" name="subjectUserId" value={feed.subjectUserId} />
-                    <button type="submit" className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700">
+                    <ConfirmButton confirmLabel="Yes, turn off" className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-700">
                       Turn off
-                    </button>
+                    </ConfirmButton>
                   </form>
                 </li>
               ))}
             </ul>
           )}
           <form action={adminRevokeAllFeedsAction} className="mt-4 border-t border-slate-100 pt-4">
-            <button type="submit" className="rounded-xl border border-red-400 px-4 py-2 text-sm font-semibold text-red-800">
-              Turn off all calendar links in this studio
-            </button>
+            <ConfirmButton confirmLabel="Yes, turn off every link" className="rounded-xl border border-red-400 px-4 py-2 text-sm font-semibold text-red-800">
+              Turn off all calendar links in this studio (staff and dancers)
+            </ConfirmButton>
             <p className="mt-2 text-xs text-slate-500">Use this if a link may have been shared by mistake. Staff and dancers can create a new link afterwards.</p>
           </form>
         </section>

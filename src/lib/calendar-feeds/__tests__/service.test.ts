@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- test env tweak */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { feedBaseUrl, feedUrls, feedsEnabledForStudio, getFeedStatus, issueFeed, listStaffFeeds, revokeAllStudioFeeds, revokeFeed, setFeedDetail } from "../service";
-import { parseDetail, pickIncludedProfiles, resolveDancerProfiles } from "../authz";
+import { allowMint, feedBaseUrl, feedUrls, feedsEnabledForStudio, getFeedStatus, isUuid, issueFeed, listStaffFeeds, revokeAllStudioFeeds, revokeFeed, revokeSubjectFeeds, setFeedDetail } from "../service";
+import { parseDetail, pickIncludedProfiles, resolveDancerProfiles, resolveSelection } from "../authz";
 import { hashFeedSecret, parseFeedSecret } from "../token";
 import { FakeAdmin } from "./fakeAdmin";
 
@@ -118,5 +119,52 @@ describe("authz helpers", () => {
     expect(parseDetail("standard")).toBe("standard");
     expect(parseDetail("everything")).toBe("minimal");
     expect(parseDetail(null)).toBe("minimal");
+  });
+});
+
+describe("service: review hardening", () => {
+  it("an expired token is not reported as on", async () => {
+    const row = (expires: string) => ({ id: "a", studio_id: S1, subject_kind: "staff", subject_user_id: U, status: "active", superseded_at: null, token_prefix: "abcdef", detail_level: "minimal", include_client_ids: null, created_at: "2026-11-01T00:00:00Z", last_accessed_at: null, expires_at: expires });
+    expect(await getFeedStatus(new FakeAdmin({ calendar_feed_tokens: [row("2099-01-01T00:00:00Z")] }), S1, "staff", U)).not.toBeNull();
+    expect(await getFeedStatus(new FakeAdmin({ calendar_feed_tokens: [row("2020-01-01T00:00:00Z")] }), S1, "staff", U)).toBeNull();
+    const list = await listStaffFeeds(new FakeAdmin({ calendar_feed_tokens: [row("2020-01-01T00:00:00Z")] }), S1);
+    expect(list).toHaveLength(0);
+  });
+
+  it("revokeSubjectFeeds passes studio, kind and subject and reports the count", async () => {
+    const admin = new FakeAdmin();
+    admin.rpcHandlers.calendar_feed_revoke_subject = () => ({ data: 2, error: null });
+    expect(await revokeSubjectFeeds(admin, { studioId: S1, kind: "dancer_account", subjectUserId: U, reason: "user", actorId: U, actorKind: "user" })).toBe(2);
+    expect(admin.rpcCalls[0].args).toMatchObject({ p_studio: S1, p_kind: "dancer_account", p_user: U });
+    admin.rpcHandlers.calendar_feed_revoke_subject = () => ({ data: null, error: { message: "x" } });
+    await expect(revokeSubjectFeeds(admin, { studioId: S1, kind: "staff", subjectUserId: U, reason: "admin", actorId: U, actorKind: "admin" })).rejects.toThrow(/Could not/);
+  });
+
+  it("allowMint is per person, hashed, and fails closed", async () => {
+    const admin = new FakeAdmin();
+    admin.rpcHandlers.calendar_feed_rate_check = () => ({ data: [{ allowed: true, hits: 1, retry_after_seconds: 1 }], error: null });
+    expect(await allowMint(admin, U)).toBe(true);
+    expect(String(admin.rpcCalls[0].args.p_key)).not.toContain(U);
+    admin.rpcHandlers.calendar_feed_rate_check = () => ({ data: [{ allowed: false }], error: null });
+    expect(await allowMint(admin, U)).toBe(false);
+    admin.rpcHandlers.calendar_feed_rate_check = () => ({ data: null, error: { message: "x" } });
+    expect(await allowMint(admin, U)).toBe(false);
+  });
+
+  it("isUuid and the production-only localhost rule", () => {
+    expect(isUuid(U)).toBe(true);
+    expect(isUuid("nope")).toBe(false);
+    process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+    expect(feedBaseUrl()).toBe("http://localhost:3000");
+    (process.env as any).NODE_ENV = "production";
+    expect(feedBaseUrl()).toBeNull();
+  });
+
+  it("resolveSelection refuses an empty choice with several profiles and maps all-chosen to null", () => {
+    expect(resolveSelection([], ["a", "b"]).ok).toBe(false);
+    expect(resolveSelection(["zzz"], ["a", "b"]).ok).toBe(false);
+    expect(resolveSelection(["a"], ["a", "b"])).toEqual({ ok: true, includeClientIds: ["a"] });
+    expect(resolveSelection(["a", "b"], ["a", "b"])).toEqual({ ok: true, includeClientIds: null });
+    expect(resolveSelection([], ["a"])).toEqual({ ok: true, includeClientIds: null });
   });
 });

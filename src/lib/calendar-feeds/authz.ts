@@ -29,3 +29,15 @@ export function pickIncludedProfiles(requested: string[], allowed: string[]): st
 export function parseDetail(value: unknown): "minimal" | "standard" {
   return value === "standard" ? "standard" : "minimal";
 }
+
+/**
+ * Resolve the profile selection from a form. With more than one profile the person must choose at least one (an empty choice is an
+ * error, never "everybody"). Choosing every profile stores null = "all profiles", including any linked later.
+ */
+export function resolveSelection(requested: string[], allowed: string[]): { ok: true; includeClientIds: string[] | null } | { ok: false } {
+  if (allowed.length <= 1) return { ok: true, includeClientIds: null };
+  const allowedSet = new Set(allowed);
+  const chosen = [...new Set(requested)].filter((id) => allowedSet.has(id));
+  if (!chosen.length) return { ok: false };
+  return { ok: true, includeClientIds: chosen.length === allowed.length ? null : chosen };
+}
