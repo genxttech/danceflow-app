@@ -1,0 +1,31 @@
+{
+  "id": "OD01-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "Non-WSDC contests at a WSDC Registry Event (opt-out disclosure)",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "Registry Event Rules 3.4.9.f (p.21)",
+    "quote_free_summary": "For non-WSDC contests, a Registry Event must publish if and for which contests it opts not to use the Callback and/or Relative Placement scoring systems."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "The opt-out requires contest-level identification of a non-WSDC contest plus a published disclosure naming the contest, and never applies to a WSDC Jack and Jill contest. Not implemented: DanceFlow has no contest-level identification or disclosure record and this slice adds no SQL, so WSDC-declared events stay blocked (WSDC_NON_WSDC_CONTEST_OPT_OUT.implemented = false).",
+  "implementation": [
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "evaluateSanctionScoringGuard" },
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "guardRoundResultsForSanction" },
+    { "path": "src/app/app/events/[id]/competition/results/actions.ts", "symbol_or_migration": "approveRoundResultAction, publishRoundResultAction" }
+  ],
+  "enforcement_point": "Server actions approveRoundResultAction and publishRoundResultAction call guardRoundResultsForSanction before the database transition and refuse when blocked; the round results page and publicationControls mirror the refusal. App layer only: the database RPCs do not check the declaration (follow-up, needs SQL).",
+  "tests": [
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 guard: every body x method x declaration combination" },
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 server actions" }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Follow-up needs SQL and an owner-gated apply: contest-level non-WSDC identification, a published opt-out disclosure record per contest, and a hard refusal for any Jack and Jill contest type. effective_from is the file-name revision date (Jan 17 2026), not a stated effective date. Until then the exception is documented, not usable. Terminology: Registry Event (not 'sanctioned event').",
+  "applicable_event_versions": ["Version 2026.1C (page footers; the file name says 2026.1B)"],
+  "decision_refs": ["OD-01 (owner decision 2026-11-23, BLOCK, Option C; retrospective audit PR #795)"],
+  "last_reviewed": "2026-11-23"
+}
