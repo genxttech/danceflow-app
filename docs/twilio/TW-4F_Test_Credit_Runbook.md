@@ -118,7 +118,7 @@ select public.tw4_credit_test_reverse('<entity>', <unused_cents>, 'reverse-<gran
 * The Twilio Console usage for the test window. The owner compares it with the consumed test credit during the regular invoice reconciliation.
 * `tw4_credit_test_status` reports two figures for texting paid with test credit:
   * `test_paid_texting_cents`: the customer-price value of texts paid with test credit, net of usage refunds.
-  * `test_paid_texting_provider_cost_estimate_cents`: DanceFlow's estimated provider cost for those texts, from the active per-text price.
+  * `test_paid_texting_provider_cost_estimate_cents`: DanceFlow's estimated provider cost for those texts, from the per-text price that is active **when you read it**. It is not the price at the time each text was sent: if the price changed during the test, use the per-text evidence or the Twilio Console figures instead.
 
   Both are DanceFlow's own cost of the pilot test, **not revenue**. Record both with the read-back.
 

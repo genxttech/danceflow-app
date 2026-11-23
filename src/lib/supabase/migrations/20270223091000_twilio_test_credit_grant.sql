@@ -38,7 +38,8 @@
 --   Refusal codes: 22023 invalid input; 42501 not a platform admin / direct write; TW007 hold, negative balance, fee would use test credit, or money held; TW019 reference
 --   reused; TW052 evidence; TW070 switch off; TW071 over the test budget or over the unused test credit; TW072 not the pilot business.
 --
--- Requires 20261122 (credits), 20261128 (months), 20261202 (approval registry), 20261209 (_tw4rfl_lock, audit vocabulary pattern), 20261229/20261230 (U-4 evidence).
+-- Requires 20261122 (credits), 20261128 (months), 20261202 (approval registry), 20261209 (_tw4rfl_lock, audit vocabulary pattern), 20261229/20261230 (U-4 evidence),
+-- 20261231130000 (price micros), 20261123 / 20261125 (the two redefined bodies, md5-pinned).
 -- Rollback: rollback/20270223091000_twilio_test_credit_grant_rollback.sql (refuses while any row of this migration exists; never destroys evidence).
 -- Also redefines sms_credit_overview (adds test_credit_cents / fee_available_cents) and tw4_credit_topup_pending (the $500 ceiling ignores test credit); both md5-pinned.
 -- Release gates: docs/twilio/TW-4F_Financial_Safety_Gates_2026-11-23.md (on main), row "Controlled test credit funded". OPERATOR PROCEDURE: docs/twilio/TW-4F_Test_Credit_Runbook.md. Nothing in this file grants credit, sets a budget or turns the switch on.
@@ -56,6 +57,11 @@ begin
      or to_regprocedure('public.tw4_credit_verify(uuid)') is null or to_regclass('public.studio_sms_pilot_exceptions') is null
      or to_regclass('public.studio_sms_pilot_spend_evidence') is null then
     raise exception 'test-credit precondition failed: 20261122, 20261128, 20261202, 20261209 and 20261230 are not all applied';
+  end if;
+  -- the provider-cost estimate of test-paid texting reads the per-text price in micros (20261231130000)
+  if not exists (select 1 from pg_attribute x where x.attrelid = 'public.studio_sms_price_list'::regclass and x.attname = 'unit_cost_micros' and not x.attisdropped)
+     or not exists (select 1 from pg_attribute x where x.attrelid = 'public.studio_sms_price_list'::regclass and x.attname = 'unit_price_micros' and not x.attisdropped) then
+    raise exception 'test-credit precondition failed: 20261231130000 (per-text price micros) is not applied';
   end if;
   if to_regclass('public.studio_sms_test_credit_budgets') is not null or to_regprocedure('public.tw4_credit_test_grant(uuid,integer,text,uuid,date,text,text,integer,text,text,text)') is not null then
     raise exception 'test-credit precondition failed: already applied';
