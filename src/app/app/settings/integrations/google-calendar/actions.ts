@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import {
   getGoogleCalendarAccess,
   googleCalendarReturnPath,
@@ -85,8 +86,16 @@ export async function disconnectGoogleCalendarAction(formData: FormData) {
   const { access, connection } = await loadConnection(scope);
   if (!connection) redirect(withParam(returnTo, "disconnected", "1"));
 
-  const cleanup = await cleanupGoogleCalendarConnectionEvents(connection);
-  if (cleanup.failed > 0) redirect(withParam(returnTo, "error", "disconnect_cleanup_failed"));
+  // A connection whose authorization is gone (needs_reauth, revoked grant) cannot reach Google to remove events: that must not trap it.
+  // Cleanup that throws means the credentials are unusable, so disconnect proceeds without it; partial deletes that report failures still block.
+  let cleanupSkipped = false;
+  try {
+    const cleanup = await cleanupGoogleCalendarConnectionEvents(connection);
+    if (cleanup.failed > 0) redirect(withParam(returnTo, "error", "disconnect_cleanup_failed"));
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    cleanupSkipped = true;
+  }
 
   // Tokens go first: a failure here leaves the connection visibly connected so the user can retry, never "disconnected" with live tokens.
   // Revoke at Google first (best effort, never blocks the local disconnect); the app should also disappear from the user's Google account permissions.
@@ -102,7 +111,7 @@ export async function disconnectGoogleCalendarAction(formData: FormData) {
   if (error) throw new Error(`Failed to disconnect Google Calendar: ${error.message}`);
   revalidatePath("/app/settings/integrations");
   revalidatePath(returnTo);
-  redirect(withParam(returnTo, "disconnected", "1"));
+  redirect(withParam(withParam(returnTo, "disconnected", "1"), "cleanup_skipped", cleanupSkipped ? "1" : "0"));
 }
 
 export async function refreshGoogleCalendarsAction(formData: FormData) {

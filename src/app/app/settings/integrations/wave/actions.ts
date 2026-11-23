@@ -404,7 +404,12 @@ export async function postNextWaveLineAction(formData: FormData) {
 }
 
 export async function disconnectWaveAction() {
-  const { supabase, studioId, connection } = await waveContext();
+  // Not waveContext(): that requires status "connected", which would trap a needs_reauth connection with no way out.
+  const { supabase, studioId } = await requireSettingsManageAccess();
+  await requireStudioFeature("wave_accounting");
+  const { data: connection, error: loadError } = await supabase.from("studio_wave_connections").select("id, status").eq("studio_id", studioId).maybeSingle<{ id: string; status: string }>();
+  if (loadError) throw new Error(loadError.message);
+  if (!connection || connection.status === "disconnected") redirect("/app/settings/integrations/wave?status=disconnected");
   const admin = createAdminClient();
   // Revoke at Wave first (best effort, never blocks the local disconnect).
   const { data: stored } = await admin.from("studio_wave_credentials").select("encrypted_access_token, encrypted_refresh_token").eq("connection_id", connection.id).maybeSingle<{ encrypted_access_token: string; encrypted_refresh_token: string | null }>();
