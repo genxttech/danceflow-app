@@ -151,6 +151,8 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 - **Blast radius.** The database path exists in PROD today (PROD has the 10A tables); there are no competition ballots in PROD, so no data is at risk now. Fix is SQL (a trigger/guard), therefore an owner-gated PROD SQL apply.
 - **Decision.** Approve a delete guard (SQL slice), or correct the contract?
 
+**OD-04 DECIDED 2026-11-23 (owner): Option A, BLOCK.** Draft PR preparation authorized for database-level protection against hard deletion of Competition OS events once ballots or results exist. Requirements: applies to all Competition OS events including Studio/Custom; existing authorization-controlled deletion preserved for competition events without ballots or results; blocked at the database boundary including cascade paths; ballots, scoring results, adjudication records and audit evidence preserved; a safe archive/hide workflow without destroying evidence, identifying any missing archive capability rather than assuming one; governing-body retention and publication requirements preserved and no automatic deletion after 30 days; ordinary studio event deletion unchanged; migration, rollback, automated tests and results-contract corrections included; independent review and rollback-safety verification before any protected approval request. Not authorized: merge, DEV/PROD SQL apply, deployment, public activation.
+
 ### OD-05 No conflict-of-interest or recusal mechanism
 
 - **Issue.** Nothing relates an official to competitors: a judge can judge a relative, a student, a partner, a team they coach, or be a competitor in the same event.
