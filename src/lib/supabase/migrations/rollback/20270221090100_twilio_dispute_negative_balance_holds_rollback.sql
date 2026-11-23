@@ -2,7 +2,7 @@
 -- Restores tw4_credit_apply_dispute (the 20261125090000 body) and tw4_credit_set_hold (the 20261122090000 body), drops the negative-credit trigger, the dispute-hold
 -- functions and tables, and removes the two alert kinds this migration added.
 -- REFUSES (55000) while ANY evidence exists that would be lost: a dispute-hold row (it carries the DanceFlow-borne fee record and the release notes), a switch change,
--- or an alert of kind credit_dispute / credit_negative (history is never deleted or rewritten). An account still on hold with the reason 'dispute' is refused too:
+-- or an alert of kind credit_dispute / credit_negative (also refused: either function changed since this migration) (history is never deleted or rewritten). An account still on hold with the reason 'dispute' is refused too:
 -- after the rollback nothing would know it is a dispute hold. No application rollback is needed first: the application calls no function this file adds.
 begin;
 set local lock_timeout = '5s';
@@ -14,6 +14,16 @@ declare
   v_vals text[];
   v_rows boolean := false;
 begin
+  -- This file restores two function bodies blind, so it refuses unless each is EXACTLY what 20270221090100 installed (or what this file already restored: it is re-runnable).
+  -- Anything else means a later migration changed it; restoring the old body would silently undo that change. CR is ignored (md5 of prosrc with chr(13) removed).
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_apply_dispute(text,text,integer,text,text)'::regprocedure)
+       not in ('df3dcf4a24e3d1b2e50b124c6fcf6c40', 'e3541ee9ce86e59e3db30503c72da4da') then
+    raise exception 'dispute hold rollback refused: tw4_credit_apply_dispute is no longer the version 20270221090100 installed; review the later change first' using errcode = '55000';
+  end if;
+  if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_set_hold(uuid,boolean,text,uuid)'::regprocedure)
+       not in ('909beeb0074685391d2e2af65749372e', '07787632259d7dbd237abea79c43c636') then
+    raise exception 'dispute hold rollback refused: tw4_credit_set_hold is no longer the version 20270221090100 installed; review the later change first' using errcode = '55000';
+  end if;
   if to_regclass('public.studio_sms_credit_dispute_holds') is not null then
     execute 'select exists (select 1 from public.studio_sms_credit_dispute_holds)' into v_rows;
     if v_rows then

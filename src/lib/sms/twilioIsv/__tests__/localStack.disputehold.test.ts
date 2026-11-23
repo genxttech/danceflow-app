@@ -509,8 +509,29 @@ commit;`);
 
     it("the rollback REFUSES while evidence exists; a clean rollback restores the previous bodies, and the migration re-applies", () => {
       const rollback = readFileSync(join(MIG, "rollback", MIGRATION.replace(".sql", "_rollback.sql")), "utf8");
+      const bodyMd5 = (fn: string) => psql(`select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = '${fn}'::regprocedure`);
+      const APPLY = "public.tw4_credit_apply_dispute(text,text,integer,text,text)";
+      const SETHOLD = "public.tw4_credit_set_hold(uuid,boolean,text,uuid)";
+      // the rollback's version guard names exactly the bodies this migration installed (a body edit here without updating the guard fails this test)
+      expect(rollback).toContain(bodyMd5(APPLY));
+      expect(rollback).toContain(bodyMd5(SETHOLD));
+      // a function changed since the migration: the rollback refuses before touching anything
+      for (const [fn, from, to] of [[APPLY, "invalid dispute event", "invalid dispute event!"], [SETHOLD, "a hold needs a reason", "a hold needs a reason!"]]) {
+        const patch = (a: string, b: string) => psql(`select replace(pg_get_functiondef('${fn}'::regprocedure), '${a}', '${b}') \\gexec`);
+        patch(from, to);
+        try {
+          const refused = psqlError(rollback);
+          expect(refused).toMatch(/55000/);
+          expect(refused).toMatch(/is no longer the version 20270221090100 installed/);
+          expect(psql("select to_regclass('public.studio_sms_credit_dispute_holds') is not null")).toBe("t");   // nothing was dropped
+        } finally {
+          patch(to, from);
+        }
+        expect(rollback).toContain(bodyMd5(fn));
+      }
       const err = psqlError(rollback);
       expect(err).toMatch(/dispute hold rollback refused/);
+      expect(err).not.toMatch(/is no longer the version/);
       expect(err).toMatch(/55000/);
       expect(psql("select to_regclass('public.studio_sms_credit_dispute_holds') is not null")).toBe("t");
       // the test removes ONLY its own fixture evidence (the rollback itself never deletes history) to prove the clean path
@@ -521,6 +542,9 @@ commit;`);
         update public.studio_sms_credit_accounts set hold = false, hold_reason = null where legal_entity_id in (${mine}) and hold_reason = 'dispute';`);
       expect(count("select 1 from public.studio_sms_credit_dispute_holds")).toBe(0);
       psql(rollback);
+      // the restored bodies are the ones the guard accepts on a re-run
+      expect(rollback).toContain(bodyMd5(APPLY));
+      expect(rollback).toContain(bodyMd5(SETHOLD));
       expect(psql("select to_regclass('public.studio_sms_credit_dispute_holds') is null and to_regprocedure('public.tw4_credit_dispute_hold_release(uuid,uuid,uuid,text)') is null")).toBe("t");
       expect(psql("select pg_get_functiondef('public.tw4_credit_apply_dispute(text,text,integer,text,text)'::regprocedure) like '%_tw4dh_%'")).toBe("f");
       expect(psql("select pg_get_functiondef('public.tw4_credit_set_hold(uuid,boolean,text,uuid)'::regprocedure) like '%dispute%'")).toBe("f");
