@@ -63,6 +63,9 @@ function minimizeNodes(xml) {
 async function run(ctx) {
   const { adb, hierarchy, shot, record, sleep, out, pkg } = ctx;
   const name = ctx.assistantName;
+  // Text typed into the composer: it must match one of the stub rules of that assistant (default suits LUMI), otherwise the reply is the fallback and has no link chip.
+  const prompt = ctx.promptText || "show me events";
+  const promptRe = new RegExp(prompt);
   const launcherRe = new RegExp(`^Open ${name} assistant$`);
   const tap = (n) => adb(["shell", "input", "tap", String(n.box.cx), String(n.box.cy)]);
   const dpPx = (dp) => Math.floor((dp * (ctx.density || 160)) / 160); // floor: a 44dp control renders as 115px at 420dpi (115.5 exact)
@@ -184,8 +187,8 @@ async function run(ctx) {
   tap(input);
   await sleep(800);
   // `adb input text` drops characters under emulator load (one run delivered only "sho"): type in small chunks and read the composer back before anything depends on it.
-  const typed = await typeVerified(input, "show me events");
-  record("B composer holds the typed text before Send", typed.ok, typed.ok ? `"${typed.got}" after ${typed.attempts} attempt(s)` : `INPUT-FLAKE: wanted "show me events", composer shows "${typed.got}" after ${typed.attempts} attempts (harness input problem, not the app)`);
+  const typed = await typeVerified(input, prompt);
+  record("B composer holds the typed text before Send", typed.ok, typed.ok ? `"${typed.got}" after ${typed.attempts} attempt(s)` : `INPUT-FLAKE: wanted "${prompt}", composer shows "${typed.got}" after ${typed.attempts} attempts (harness input problem, not the app)`);
   await sleep(300);
   const withKb = adb(["shell", "uiautomator", "dump", "--windows", "/sdcard/ui-win.xml"]).status === 0 ? adb(["exec-out", "cat", "/sdcard/ui-win.xml"]).stdout : "";
   let kbTop = null;
@@ -208,7 +211,7 @@ async function run(ctx) {
   const reply = nodes(xml).some((n) => /Preview answer/.test(label(n)));
   record("B stub reply arrives (labelled preview/placeholder)", reply, "");
   const linkChip = find(xml, /^(Browse events|Open Wallet|Open Schedule|Open Today|Open Pulse|Open Clients|Open client|Open appointment)/i) || nodes(xml).find((n) => n.box && /link/i.test(n.class || "") && false);
-  record("B conversation shows the user message", nodes(xml).some((n) => /show me events/.test(label(n))), "");
+  record("B conversation shows the user message", nodes(xml).some((n) => promptRe.test(label(n))), "");
 
   // expand/shrink
   const exp = find(xml, /^Expand to full screen$/);
@@ -238,7 +241,7 @@ async function run(ctx) {
     await other.open();
     await sleep(2500);
     xml = await openSheet();
-    const kept = !!xml && nodes(xml).some((n) => /show me events/.test(label(n)));
+    const kept = !!xml && nodes(xml).some((n) => promptRe.test(label(n)));
     const helping = xml ? nodes(xml).find((n) => /^Helping with:/.test(label(n))) : null;
     dump("b4-continuity");
     record("B conversation continues after navigating to another screen", kept, "");
@@ -319,7 +322,7 @@ async function run(ctx) {
       await first.open();
       await sleep(2500);
       xml = await openSheet();
-      const gone = !!xml && !nodes(xml).some((n) => /show me events/.test(label(n)));
+      const gone = !!xml && !nodes(xml).some((n) => promptRe.test(label(n)));
       dump("b8-second-user");
       record("B a different signed-in user starts with an empty thread", gone, "");
     } else record("B a different signed-in user starts with an empty thread", false, "second user sign-in did not complete");
