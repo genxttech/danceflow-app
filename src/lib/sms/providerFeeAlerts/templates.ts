@@ -11,6 +11,8 @@ export const RFL_ALERT_KINDS = [
   "authorization_expiring", "owner_notice_second", "next_period_uncovered", "pilot_approval_needed", "funding_low", "negative_balance", "account_on_hold", "exposure_open",
   "provider_variance", "inventory_gap", "cancel_unknown", "cancelled_authorization_active", "charged_after_cancellation", "released_resource_active", "owner_unresponsive",
   "alert_delivery_exhausted", "inbound_absorbed_allowance", "inbound_volume_high",
+  // 20270223090000 (administrator audience only)
+  "funding_exposure_unfunded", "funding_exposure_unauthorized", "funding_exposure_grace_ending", "funding_exposure_threshold",
 ] as const;
 export type RflAlertKind = (typeof RFL_ALERT_KINDS)[number];
 
@@ -49,6 +51,10 @@ const COPY: Record<RflAlertKind, Copy> = {
   owner_unresponsive: { subject: "A studio owner has not renewed", heading: "Owner has not responded", generic: "A studio owner has not renewed an expiring recurring authorization after repeated notices." },
   inbound_absorbed_allowance: { subject: "Pilot inbound text cost is near its allowance", heading: "Absorbed inbound cost near allowance", generic: "Absorbed inbound text cost for the pilot business is at or near its allowance. Nothing has been blocked; review inbound traffic." },
   inbound_volume_high: { subject: "Inbound text volume is unusually high", heading: "Inbound volume exception", generic: "Inbound text volume for a business passed the daily threshold. Nothing has been blocked; review inbound traffic." },
+  funding_exposure_unfunded: { subject: "A texting location is not funded", heading: "Funding exposure: unfunded", generic: "A texting location or recurring provider fee is not funded. DanceFlow keeps paying the provider until it is funded or cancelled." },
+  funding_exposure_unauthorized: { subject: "A provider fee has no covering authorization", heading: "Funding exposure: not authorized", generic: "A live provider resource has no covering authorization, so DanceFlow pays the provider and nothing is collected. Review it now." },
+  funding_exposure_grace_ending: { subject: "A provider fee grace period is ending", heading: "Funding exposure: grace ending", generic: "A recurring provider fee is still uncovered and its grace period ends soon. Contact the studio owner now." },
+  funding_exposure_threshold: { subject: "Recorded fee exposure reached its threshold", heading: "Funding exposure: threshold reached", generic: "Recorded open fee exposure reached the platform threshold. Review the exposure overview and decide on authorization or cancellation." },
   alert_delivery_exhausted: { subject: "An alert could not be delivered", heading: "Alert delivery exhausted", generic: "An alert could not be delivered after repeated attempts and needs manual follow-up." },
 };
 const FALLBACK: Copy = { subject: "Texting provider fee notice", heading: "Texting provider fee notice", generic: "A texting provider fee notice needs your attention." };
