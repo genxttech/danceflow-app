@@ -87,7 +87,12 @@ function pay(w: World, cents: 2500 | 5000 | 10000) {
   psql(`select public.tw4_credit_settle_topup('${w.entity}', '${w.studios[0]}', '${cs}', ${cents}, 'evt_${hex(6)}', '${pi}', true)::text;`);
   return { cs, pi };
 }
-const spend = (w: World, cents: number) => call("tw4_credit_debit_usage", w.entity, w.studios[1], cents, `dh-${hex(6)}`, "fixture usage");
+/** settled usage (fixture: the ledger primitive the usage settlement posts through; the monthly spending limit is not what this suite tests) */
+const spend = (w: World, cents: number) =>
+  psql(`select public._tw4c_post('${w.entity}', '${w.studios[1]}', 'usage_charge', ${-cents}, 0, 'usage:dh-${hex(6)}', null, 'fixture usage', null, null)::text;`);
+/** the spend guard every fee-bearing reservation and chargeable outbound text goes through passes (no hold, funds available) */
+const canSpend = (w: World, cents: number) =>
+  psql(`select public._tw4c_require_funds(a, ${cents}) from public.studio_sms_credit_accounts a where a.legal_entity_id = '${w.entity}';`);
 const dispute = (pi: string, disputeId: string, cents: number, action: "withdrawn" | "reinstated", eventId = `evt_${hex(6)}`) =>
   call<{ replayed?: boolean; capped_to_zero?: boolean; entry_id?: string }>("tw4_credit_apply_dispute", pi, disputeId, cents, action, eventId);
 const acct = (w: World) =>
@@ -273,7 +278,7 @@ commit;`);
       expect(holds(w)[0].release_note).toBe("Reviewed with the owner; dispute closed, account cleared.");
       expect(audits(w, `dispute_hold_released;hold=${h.id};account_hold_cleared=true;%`)).toBe(1);
       expect(acct(other).hold).toBe(false);
-      spend(w, 100);                                                                   // spending works again
+      canSpend(w, 100);                                                                // spending works again
       // a released hold is final
       expect(psqlError(`update public.studio_sms_credit_dispute_holds set hold_state = 'held' where id = '${h.id}';`)).toMatch(/held to released, once/);
       expect(psqlError(`delete from public.studio_sms_credit_dispute_holds where id = '${h.id}';`)).toMatch(/never deleted/);
@@ -361,7 +366,7 @@ commit;`);
       expect(acct(b)).toMatchObject({ balance: 5000, hold: false });
       expect(holds(b)).toHaveLength(0);
       expect(alertsOf(b)).toHaveLength(0);
-      spend(b, 100);
+      canSpend(b, 100);
     });
   });
 
