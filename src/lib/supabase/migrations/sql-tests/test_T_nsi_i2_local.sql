@@ -374,7 +374,7 @@ begin
   insert into public.intake_requests (id, studio_id, client_id, template_id, status, source) values (r, pg_temp.kv('sa')::uuid, c, pg_temp.kv('t_def')::uuid, 'pending', 'auto');
   insert into public.intake_request_appointments (studio_id, request_id, appointment_id, attached_by, detached_at) values (pg_temp.kv('sa')::uuid, r, a, 'reconciler', now());
   set local session_replication_role = origin;
-  perform pg_temp.chk('E23 detached attachment -> would_attach (not already_attached)', pg_temp.ev('sa', c, a) = 'would_attach');
+  perform pg_temp.chk('E23 detached attachment -> would_attach through M10 (never already_attached); from M11 detached_from_request (no re-attach churn)', pg_temp.ev('sa', c, a) = case when exists (select 1 from pg_proc where proname = 'evaluate_appointment_eligibility' and pronargs = 5 and position('nsi-body:m11' in prosrc) > 0) then 'detached_from_request' else 'would_attach' end);
   -- open request but appointment predates the floor: no attach (matches intake_ensure_request)
   c := pg_temp.kv('c_floor_old')::uuid;
   set local session_replication_role = replica;
@@ -518,13 +518,13 @@ begin
   e := pg_temp.ev('sa', c, a);
   r := pg_temp.val_as('service_role', format('select public.intake_ensure_request(%L, %L, %L)', pg_temp.kv('sa'), c, a));
   perform pg_temp.chk('G05 DISC-1 (M1-M9: documented divergence, ensure_request would still create a request; from M10 CLOSED: existing_student creates nothing)',
-    e = 'existing_student' and (case when exists (select 1 from pg_proc where proname = 'intake_ensure_request' and position('nsi-body:m10' in prosrc) > 0) then r is null else r ~ '^[0-9a-f-]{36}$' end), r);
+    e = 'existing_student' and (case when exists (select 1 from pg_proc where proname = 'intake_ensure_request' and prosrc ~ 'nsi-body:m1[01]') then r is null else r ~ '^[0-9a-f-]{36}$' end), r);
   -- DISC-2: watermark and settle delay
   c := pg_temp.mk_client('sa'); a := pg_temp.mk_appt('sa', c, 'private_lesson', 'scheduled', interval '10 days', interval '-3 days');
   e := pg_temp.ev('sa', c, a);
   r := pg_temp.val_as('service_role', format('select public.intake_ensure_request(%L, %L, %L)', pg_temp.kv('sa'), c, a));
   perform pg_temp.chk('G06 DISC-2 (M1-M9: documented divergence, ensure_request would backfill; from M10 CLOSED: before_enablement creates nothing)',
-    e = 'before_enablement' and (case when exists (select 1 from pg_proc where proname = 'intake_ensure_request' and position('nsi-body:m10' in prosrc) > 0) then r is null else r ~ '^[0-9a-f-]{36}$' end), r);
+    e = 'before_enablement' and (case when exists (select 1 from pg_proc where proname = 'intake_ensure_request' and prosrc ~ 'nsi-body:m1[01]') then r is null else r ~ '^[0-9a-f-]{36}$' end), r);
   -- DISC-3: group class stays refused by both
   c := pg_temp.mk_client('sa'); a := pg_temp.mk_appt('sa', c, 'practice_party', 'scheduled', interval '10 days', interval '-1 hour');
   r := pg_temp.val_as('service_role', format('select public.intake_ensure_request(%L, %L, %L)', pg_temp.kv('sa'), c, a));

@@ -75,3 +75,21 @@ DEV drift check, read-only via `sb.sh dev-read`, 2026-11-23 11:37Z:
 - `src/lib/intake` and the settings UI have not been typechecked or unit-tested against current main (no `node_modules` in this worktree; CI on PR 808 will report).
 - Full-chain disposable replay of main's migration folder including NSI not run.
 - Slice 6 (M10): see `NSI_I2_M10_Notes.md` once written; **not applied to DEV**; independent review required first.
+
+## 7. Update 2026-11-23 (later): M10 on DEV, M11 in progress, owner decision for Gate A
+
+- **M10 applied to shared DEV** (file sha256 `9fdd4a63b629…`, fingerprint `c6b3d46b…|670`, DEV-safe suite 97/97, Gate A closed, 0 rows): `rehearsal/d6_dev_m10/D6_report_2026-11-23.md`. The P1 blocker "ensure_request does not call the evaluator" is **closed on DEV**; it remains a PROD item only because PROD has no NSI objects yet.
+- **M11 (local only, not applied):** P2-2 detached link reported as `detached_from_request` (no reconciler churn), P2-3 anchor recomputed to the earliest live attached appointment, P2-5 corrected READ COMMITTED comment, explicit M10/M9 precondition. Validation evidence is added under `rehearsal/` once the lifecycle run is recorded; it needs a review pass before any DEV apply.
+- **No separate pricing** (owner correction): nothing in this document treats pricing or a billing entitlement as a blocker.
+
+### Owner decision needed before Gate A (P2-1): who counts as an "existing student"?
+
+Today the evaluator treats a client as an existing student, and so never asks for intake automatically, when they have **any earlier appointment** in the studio (as client or as partner) of type private, intro or coaching with status scheduled, rescheduled, confirmed, attended or no_show, **regardless** of: (a) whether that appointment was imported from another system, (b) whether its lesson type is ticked for intake, (c) whether the earlier appointments used a different intake form (template). The effect: a person who is genuinely new to this studio's intake can be silently skipped, for example someone whose only earlier lesson was an imported record, a lesson type the studio does not use for intake, or a lesson where they were only the partner. Staff can still request intake manually, but nobody is told the student was skipped.
+
+| Option | Behaviour | Cost |
+|---|---|---|
+| A (recommended for V1) | Keep the conservative rule (any prior qualifying lesson means existing student). Add a staff-visible "existing student, not asked" list with a one-click manual request, so nobody is silently stranded. | Small: a read RPC and UI. No rule change, no migration to the evaluator. |
+| B | Count only history that would itself have asked for intake (selected types and the same form); treat imported history as not counting. | Larger: evaluator change, simulation and preview change, more edge cases (a lesson type deselected later changes who counts). Risk of asking real existing students for forms. |
+| C | Count only appointments created on or after the studio's `enabled_at`. | Simple, but then every studio's whole existing roster is treated as new the first time they book after enablement. Unacceptable. |
+
+Recommendation: A for V1, revisit B after the pilot data (the simulation RPC already shows who would be skipped). This does not block Gate A work, but the decision (and the staff list if A) must exist before collection opens.

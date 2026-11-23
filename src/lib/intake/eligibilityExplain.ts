@@ -33,6 +33,12 @@ const EXPLANATIONS: Record<ReconcileOutcome, OutcomeExplanation> = {
     reason: "The student already has an unfinished intake for this template, so no second form is created.",
     tone: "neutral",
   },
+  detached_from_request: {
+    label: "Removed from the request",
+    summary: "Not added again.",
+    reason: "This lesson was taken off the student’s intake request, so it is not added back automatically.",
+    tone: "neutral",
+  },
   already_attached: {
     label: "Already covered",
     summary: "Already linked to an open intake request.",

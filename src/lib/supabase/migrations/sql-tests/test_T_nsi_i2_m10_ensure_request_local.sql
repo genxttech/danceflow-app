@@ -164,7 +164,7 @@ select pg_temp.chk('E12 for every scenario above the evaluator outcome predicts 
 
 -- ===== E13 catalog, privileges, no delivery side effect ===============================================================
 select pg_temp.chk('E13a the body carries the m10 marker and no longer the m8 marker; assert_catalog passes',
-  (select position('nsi-body:m10' in prosrc) > 0 and position('nsi-body:m8' in prosrc) = 0 from pg_proc where proname = 'intake_ensure_request' and pronamespace = 'public'::regnamespace)
+  (select prosrc ~ 'nsi-body:m1[01]' and position('nsi-body:m8' in prosrc) = 0 from pg_proc where proname = 'intake_ensure_request' and pronamespace = 'public'::regnamespace)
   and pg_temp.try('select intake_private.assert_catalog()') = 'ok');
 select pg_temp.chk('E13b execute is still service_role only (not anon, authenticated or PUBLIC), security definer, fixed search_path',
   has_function_privilege('service_role', 'public.intake_ensure_request(uuid,uuid,uuid,text)', 'execute')
