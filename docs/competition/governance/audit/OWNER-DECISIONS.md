@@ -259,6 +259,8 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 - **Blast radius.** Dark. (b) is a new engine and a new SQL recompute path: owner-gated PROD SQL apply.
 - **Decision.** Keep the Studio tie chain as labelled DanceFlow policy?
 
+**OD-13 DECIDED 2026-11-23 (owner): Option A, preserve DanceFlow Studio scoring.** The existing Studio ordinal-majority tie chain is retained as DanceFlow policy, not UCWDC, NDCA or WSDC compliance. `ordinal_rank@1` and historical scoring behavior are preserved. Differences from UCWDC Scoring Format v16.9b (Rules #6-#8, shared placements) are documented. Studio scoring is to be clearly labelled in the wizard, results displays, previews and exports without implying body certification or compliance. OD-01 approval/publication restrictions for body-declared events using unverified Studio scoring are preserved. UCWDC's additional tiebreaking requirements are recorded NOT IMPLEMENTED and a blocker for future UCWDC profile activation. Any future UCWDC engine must be independently verified, separately versioned and evaluated under OD-24; the Studio engine is not modified to achieve it. Authorized now: only the docs-only rule-register and scoring-disclosure changes. Not authorized: scoring-engine implementation, SQL apply, merge, deployment, activation.
+
 ### OD-14 Over-capacity callback ties
 
 - **Issue.** A tie at the cut that would exceed the Final's capacity blocks approval; the bodies either advance every tied couple or conflict.
