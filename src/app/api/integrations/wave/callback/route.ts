@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
-import { exchangeWaveAuthorizationCode, getWaveUserAndBusinesses } from "@/lib/integrations/wave/client";
+import { missingScopes } from "@/lib/integrations/scopes";
+import { exchangeWaveAuthorizationCode, getWaveUserAndBusinesses, revokeWaveToken, WAVE_READ_SCOPES } from "@/lib/integrations/wave/client";
 import { isValidOAuthState, parseOAuthStateCookie, safeOAuthErrorCode } from "@/lib/security/oauth";
 
 function settingsRedirect(request: NextRequest, code: string) {
@@ -38,6 +39,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const tokens = await exchangeWaveAuthorizationCode(code);
+    // transaction:write is optional (posting stays off without it); the read scopes are required for any use.
+    if (missingScopes(tokens.scope, WAVE_READ_SCOPES).length > 0) {
+      await revokeWaveToken(tokens.refresh_token ?? tokens.access_token);
+      return settingsRedirect(request, "insufficient_scope");
+    }
     const wave = await getWaveUserAndBusinesses(tokens.access_token);
     const businesses = wave.businesses.edges.map(({ node }) => node);
     const selected = businesses.length === 1 ? businesses[0] : null;

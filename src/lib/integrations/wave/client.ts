@@ -5,6 +5,12 @@ const WAVE_TOKEN_URL = "https://api.waveapps.com/oauth2/token/";
 const WAVE_GRAPHQL_URL = "https://gql.waveapps.com/graphql/public";
 
 export const WAVE_READ_SCOPES = ["user:read", "business:read", "account:read"] as const;
+export class WaveTokenError extends Error {
+  constructor(message: string, public status: number | null) { super(message); this.name = "WaveTokenError"; }
+  /** 400/401 from the token endpoint means the grant is gone (revoked or replaced); network errors and 5xx are transient. */
+  get permanent() { return this.status === 400 || this.status === 401; }
+}
+
 export const WAVE_REQUESTED_SCOPES = [...WAVE_READ_SCOPES, "transaction:write"] as const;
 
 export type WaveTokenSet = {
@@ -57,14 +63,33 @@ export function buildWaveAuthorizationUrl(state: string) {
 
 async function tokenRequest(values: Record<string, string>) {
   const { clientId, clientSecret, redirectUri } = oauthConfig();
-  const response = await fetch(WAVE_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, ...values }),
-    cache: "no-store",
-  });
-  if (!response.ok) throw new Error(`Wave token request failed (${response.status}).`);
+  let response: Response;
+  try {
+    response = await fetch(WAVE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, ...values }),
+      cache: "no-store",
+    });
+  } catch { throw new WaveTokenError("Wave token endpoint is unreachable.", null); }
+  if (!response.ok) throw new WaveTokenError(`Wave token request failed (${response.status}).`, response.status);
   return (await response.json()) as WaveTokenSet;
+}
+
+const WAVE_REVOKE_URL = "https://api.waveapps.com/oauth2/token-revoke/";
+export type WaveRevokeOutcome = "revoked" | "failed";
+/** Best effort: Wave OAuth guide documents POST /oauth2/token-revoke/ with client_id, client_secret and token (access or refresh). Never throws, never logs a token. */
+export async function revokeWaveToken(token: string): Promise<WaveRevokeOutcome> {
+  try {
+    const { clientId, clientSecret } = oauthConfig();
+    const response = await fetch(WAVE_REVOKE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, token }),
+      cache: "no-store",
+    });
+    return response.ok ? "revoked" : "failed";
+  } catch { return "failed"; }
 }
 
 export function exchangeWaveAuthorizationCode(code: string) {

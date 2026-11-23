@@ -16,6 +16,7 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
 import {
+  revokeGoogleCalendarGrant,
   getValidGoogleCalendarAccessToken,
   listGoogleCalendars,
 } from "@/lib/integrations/google-calendar/client";
@@ -88,6 +89,8 @@ export async function disconnectGoogleCalendarAction(formData: FormData) {
   if (cleanup.failed > 0) redirect(withParam(returnTo, "error", "disconnect_cleanup_failed"));
 
   // Tokens go first: a failure here leaves the connection visibly connected so the user can retry, never "disconnected" with live tokens.
+  // Revoke at Google first (best effort, never blocks the local disconnect); the app should also disappear from the user's Google account permissions.
+  await revokeGoogleCalendarGrant(connection.id);
   await deleteGoogleCredentials(createAdminClient(), connection.id);
   const { error } = await access.supabase
     .from("studio_google_calendar_connections")

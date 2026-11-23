@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptIntegrationSecret, encryptIntegrationSecret } from "./secrets";
-import { refreshWaveAccessToken } from "./client";
+import { refreshWaveAccessToken, WaveTokenError } from "./client";
 
 async function markWaveConnectionNeedsReauth(connectionId: string, message: string) {
   const admin = createAdminClient();
@@ -31,7 +31,11 @@ export async function getValidWaveAccessToken(connectionId: string) {
   let tokens: Awaited<ReturnType<typeof refreshWaveAccessToken>>;
   try {
     tokens = await refreshWaveAccessToken(decryptIntegrationSecret(data.encrypted_refresh_token));
-  } catch {
+  } catch (error) {
+    if (error instanceof WaveTokenError && !error.permanent) {
+      // transient: keep the connection and posting state; the next run retries
+      throw new Error("Wave is temporarily unavailable. Try again shortly.");
+    }
     await markWaveConnectionNeedsReauth(connectionId, "Wave authorization expired. Reconnect Wave.");
     throw new Error("Wave authorization expired. Reconnect Wave.");
   }
