@@ -512,8 +512,13 @@ commit;`);
       proves("TW070", mutate("tw4_credit_test_grant", "if not public._tw4tc_switch_on() then", "if false then"),
         `${callSql("tw4_credit_test_set_switch", false, P, "mutation check: switch off")} ${budgetSql(granted() + 50)} ${grantSql(50)}`);
     });
-    it("test budget (TW071)", () => {
-      proves("TW071", mutate("tw4_credit_test_grant", "if b.granted_cents + p_cents > b.budget_cents then", "if false then"), `${budgetSql(granted())} ${grantSql(1)}`);
+    it("test budget (TW071), enforced twice: the function check AND the table check (granted <= budget)", () => {
+      const fn = mutate("tw4_credit_test_grant", "if b.granted_cents + p_cents > b.budget_cents then", "if false then");
+      const scenario = `${budgetSql(granted())} ${grantSql(1)}`;
+      // without the function check the table constraint still refuses (second layer)
+      expect(hasCode(psqlError(`begin; ${fn} ${scenario} rollback;`), "23514")).toBe(true);
+      // only with BOTH layers removed does an over-budget grant go through
+      proves("TW071", `${fn} alter table public.studio_sms_test_credit_budgets drop constraint studio_sms_test_credit_budgets_within;`, scenario);
     });
     it("pilot business only (TW072)", () => {
       proves("TW072", mutate("tw4_credit_test_budget_set", "perform public._tw4tc_require_pilot(p_entity_id);", ""),
