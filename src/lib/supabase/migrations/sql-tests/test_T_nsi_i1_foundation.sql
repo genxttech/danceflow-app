@@ -143,9 +143,11 @@ insert into public.intake_settings (studio_id, enabled, default_template_id)
 values ('a5200000-0000-0000-0000-00000000000a', true, 'a5200000-0000-0000-0000-000000000701');
 insert into public.intake_service_assignments (studio_id, appointment_type, template_id)
 values ('a5200000-0000-0000-0000-00000000000a', 'private_lesson', 'a5200000-0000-0000-0000-000000000701');
-select pg_temp.chk('F18 service ensure_request refused while dark (retention_policy_incomplete)',
-  pg_temp.try_as_service($q$select public.intake_ensure_request('a5200000-0000-0000-0000-00000000000a', 'a5200000-0000-0000-0000-0000000000a1',
-    'a5200000-0000-0000-0000-000000000501')$q$) like '%retention_policy_incomplete%');
+select pg_temp.chk('F18 service ensure_request creates nothing while dark (M1-M9: refused with retention_policy_incomplete; from M10 the evaluator answers no-obligation first and returns NULL)',
+  (pg_temp.try_as_service($q$select public.intake_ensure_request('a5200000-0000-0000-0000-00000000000a', 'a5200000-0000-0000-0000-0000000000a1',
+    'a5200000-0000-0000-0000-000000000501')$q$) like '%retention_policy_incomplete%'
+   or (exists (select 1 from pg_proc where proname = 'intake_ensure_request' and position('nsi-body:m10' in prosrc) > 0)
+       and not exists (select 1 from public.intake_requests where client_id = 'a5200000-0000-0000-0000-0000000000a1'))));
 select pg_temp.chk('F19 direct owner insert into intake_requests refused by the gate trigger',
   pg_temp.try($q$insert into public.intake_requests (studio_id, client_id, template_id, source)
     values ('a5200000-0000-0000-0000-00000000000a', 'a5200000-0000-0000-0000-0000000000a1', 'a5200000-0000-0000-0000-000000000701', 'manual')$q$)

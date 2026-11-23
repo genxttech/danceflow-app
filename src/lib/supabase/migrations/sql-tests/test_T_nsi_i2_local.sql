@@ -517,14 +517,14 @@ begin
   a := pg_temp.mk_appt('sa', c, 'private_lesson', 'scheduled', interval '10 days', interval '-1 hour');
   e := pg_temp.ev('sa', c, a);
   r := pg_temp.val_as('service_role', format('select public.intake_ensure_request(%L, %L, %L)', pg_temp.kv('sa'), c, a));
-  perform pg_temp.chk('G05 DISC-1 (documented divergence): preview says existing_student, deployed intake_ensure_request would still create a request',
-    e = 'existing_student' and r ~ '^[0-9a-f-]{36}$', r);
+  perform pg_temp.chk('G05 DISC-1 (M1-M9: documented divergence, ensure_request would still create a request; from M10 CLOSED: existing_student creates nothing)',
+    e = 'existing_student' and (case when exists (select 1 from pg_proc where proname = 'intake_ensure_request' and position('nsi-body:m10' in prosrc) > 0) then r is null else r ~ '^[0-9a-f-]{36}$' end), r);
   -- DISC-2: watermark and settle delay
   c := pg_temp.mk_client('sa'); a := pg_temp.mk_appt('sa', c, 'private_lesson', 'scheduled', interval '10 days', interval '-3 days');
   e := pg_temp.ev('sa', c, a);
   r := pg_temp.val_as('service_role', format('select public.intake_ensure_request(%L, %L, %L)', pg_temp.kv('sa'), c, a));
-  perform pg_temp.chk('G06 DISC-2 (documented divergence): preview says before_enablement, deployed intake_ensure_request would backfill it',
-    e = 'before_enablement' and r ~ '^[0-9a-f-]{36}$', r);
+  perform pg_temp.chk('G06 DISC-2 (M1-M9: documented divergence, ensure_request would backfill; from M10 CLOSED: before_enablement creates nothing)',
+    e = 'before_enablement' and (case when exists (select 1 from pg_proc where proname = 'intake_ensure_request' and position('nsi-body:m10' in prosrc) > 0) then r is null else r ~ '^[0-9a-f-]{36}$' end), r);
   -- DISC-3: group class stays refused by both
   c := pg_temp.mk_client('sa'); a := pg_temp.mk_appt('sa', c, 'practice_party', 'scheduled', interval '10 days', interval '-1 hour');
   r := pg_temp.val_as('service_role', format('select public.intake_ensure_request(%L, %L, %L)', pg_temp.kv('sa'), c, a));

@@ -177,7 +177,7 @@ update public.intake_feature_grants set granted_at = now() - interval '40 days',
 set local session_replication_role = origin;
 select pg_temp.setkv('g15b', pg_temp.val_as('service_role', null, format('select public.intake_ensure_request(%L, %L, %L)', pg_temp.kv('sa'), pg_temp.kv('g_client2'), pg_temp.kv('g_appt2'))));
 select pg_temp.chk('G15b a service-role caller that skips every application check is refused by the DATABASE once the live grant lapsed (new_obligation_not_allowed)',
-  pg_temp.kv('g15b') like 'ERR 42501%new_obligation_not_allowed%'
+  (pg_temp.kv('g15b') like 'ERR 42501%new_obligation_not_allowed%' or pg_temp.kv('g15b') is null)  -- from M10 the evaluator answers studio_not_entitled first (NULL); the table gate still refuses direct writers
   and not exists (select 1 from public.intake_requests where client_id = pg_temp.u('g_client2') and template_id = pg_temp.u('ta') and status = 'pending'));
 -- previously issued request: invited + pinned, no grants of any kind -> draft save still works
 select pg_temp.setkv('g_req', gen_random_uuid()::text);
