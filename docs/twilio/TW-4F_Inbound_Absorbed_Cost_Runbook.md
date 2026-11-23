@@ -77,7 +77,7 @@ The database function answers true for these kinds before it reads anything, and
   - Such a reply flood is bounded only by the existing per-sender limit: one error reply per sender per account per UTC day (`tw4_inbound_reply_allowed`, which fails closed). Many distinct senders can still each get one reply.
   - Follow-up (not built): count unresolved texts per receiving subaccount and the estimated outbound cost of error replies in `_tw4ib_window`, so the cap and the alerts also see this traffic.
 - **The anomaly baseline uses today's timezone for past days.** The trailing days are measured as local days in the timezone that governs the current day. If the business's timezone changed during the trailing window, the earlier days are cut at the new zone's midnights. Their totals can then shift by a few hours of traffic. Accepted as is.
-- Absorbed cost uses the recorded estimates (`_tw4ia_absorbed_cents`). Texts recorded while no inbound price was published carry no estimate and count as $0. Only the segment cap protects those days. Estimates round up per text, so the cost figure is slightly pessimistic.
+- Absorbed cost uses the recorded estimates (`_tw4ia_absorbed_cents`). Texts recorded while no inbound price was published carry no estimate and count as $0. Only the segment cap protects those days. Estimates round up per text, so the cost figure can be up to about 2x the real cost for 1-segment texts: 2 cents estimated against about 1.02 cents real at a blended 10,205-micro cost (proposal note, section 1). Cent thresholds therefore trip early.
 - Numbers come from recorded texts, one per provider message SID, so replays never count twice. A text the webhook failed to record counts only once the reconciler records it.
 - The scan runs only when the provider-fee lifecycle scan runs (its own switch and schedule). The reply path checks the cap live, so suppression does not wait for the scan once the switch is on.
 - Days and months use the business's governing timezone (`_tw4ml_tz_for`). On the day a recorded timezone change takes effect at a month boundary, that local day follows the new month's zone.
@@ -87,9 +87,17 @@ The database function answers true for these kinds before it reads anything, and
 
 ## 8. Release order and rollback
 
+**Release note: the alerts are not dark.** `alerts_enabled` defaults to true. Once the SQL is applied, platform administrators get these emails whenever the existing provider-fee lifecycle scan and its delivery switches run. Only the reply suppression is dark (its switch defaults OFF). With `alerts_enabled` false for a business and the switch on, that business can be suppressed with no critical email. Only the `suppressed` row in `studio_sms_inbound_cost_control_events` records it.
+
 Apply the SQL before, or together with, the app. The app tolerates the function's absence: the scan counts 0 and replies go out as before. Turn the switch on only after the alerts have been observed on real traffic. To roll back, roll the app back first (optional), then run the rollback. It refuses while any configuration, switch, suppression, event or new-kind alert row exists, because that history is never deleted.
 
-## 9. Untouched paths (verified on the PR head)
+## 9. Follow-ups (recorded, not built)
+
+- The scan's `errors` count carries no business id. A business that fails persistently marks every lifecycle run as failed, and the run shows stale after 26 hours, without saying which business. Add the entity id to a per-business error record.
+- The anomaly check rounds the trailing average to 2 decimals before applying the multiple. The effect is negligible.
+- Count unresolved texts and the error-reply outbound cost in the cap and the alerts (section 7).
+
+## 10. Untouched paths (verified on the PR head)
 
 Inbound recording and STOP / START / HELP handling are unchanged. The evidence:
 

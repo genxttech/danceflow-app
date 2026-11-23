@@ -6,7 +6,7 @@ Status: proposal for owner decision, docs only. It covers the defaults in migrat
 
 | Input | Value | Source |
 | --- | --- | --- |
-| Inbound SMS base, long code | $0.0083 / segment | `docs/twilio/TW-4F_Pricing_Recommendation.md` section 2 (Twilio US pricing page, read 2026-10-24, re-read section 11: unchanged) |
+| Inbound SMS base, long code | $0.0083 / segment | `docs/twilio/TW-4F_Pricing_Recommendation.md` section 2 (Twilio US pricing page, read 2026-10-24, re-read in section 14: unchanged) |
 | Inbound carrier fee | AT&T $0.0035; T-Mobile and US Cellular $0.0025; Verizon and other: none listed | same, carrier table (blank cells = none listed, not proven $0) |
 | Inbound all-in | $0.0083 to $0.0118 / segment; blended **$0.010205** | same, "All-in list cost" and "Blended expected cost" (the carrier mix 28/37/35 is itself marked assumed there) |
 | Outbound all-in (what an automatic reply costs) | $0.0118 to $0.0133 / segment; blended **$0.012695**, worst $0.0133 | same |
@@ -19,7 +19,7 @@ Status: proposal for owner decision, docs only. It covers the defaults in migrat
 
 Two facts shape every threshold:
 
-- **No inbound price is published today.** The pricing recommendation, section 10, gives only a provisional candidate ($0.02 inbound, not published). Until a price row with a cost exists, `est_provider_cost_cents` is null, every absorbed-cost figure reads $0, and only the segment thresholds can fire. DanceFlow still pays Twilio for every segment in the meantime.
+- **No inbound price is published today.** The pricing recommendation, section 14, gives only a provisional candidate ($0.02 inbound, not published). Until a price row with a cost exists, `est_provider_cost_cents` is null, every absorbed-cost figure reads $0, and only the segment thresholds can fire. DanceFlow still pays Twilio for every segment in the meantime.
 - **The code's cost estimate rounds up per text.** At a blended 10,205 micros, a 1-segment text is estimated at 2 cents against a real cost of about 1.02 cents. At 8,300 micros (base only) it is 1 cent. The cent thresholds below therefore trip earlier than real spend, by up to about 2x for 1-segment texts. Which cost the published price row will carry is an **ASSUMPTION** until it is published.
 
 ## 2. Proposed defaults (the values in `_tw4ib_defaults`)
@@ -38,7 +38,7 @@ Two facts shape every threshold:
 - **Alerts only inform.** Every alert in this slice (`sms_in_volume_high`, `sms_in_absorbed_high`, `sms_in_anomaly`, `sms_in_daily_cap`) is an administrator email. None of them changes anything.
 - **The only enforcement** is this: while the switch is on and a business's recorded routed traffic today is at or over the daily cap, DanceFlow does not send the four error replies to texts received by that business's subaccount. The four are unavailable, could not process, unrecognized number and not routed.
 - **Never blocked or changed by anything here:** inbound receive cost (Twilio bills every received text, and nothing here can stop that), inbound recording, the studio's charge for ordinary texts, STOP / START / HELP handling and their confirmations, consent changes, outbound texting, numbers and senders.
-- **The cap is not a financial ceiling.** It does not limit what DanceFlow pays Twilio. It limits only one small class of outbound replies. Ordinary texts get no automatic reply at all (owner decision D3, `src/app/api/sms/twilio/inbound/route.ts:336-337`), so in a routed flood the cap has no reply to suppress and saves nothing. Spend is bounded only by the controls listed in `TW-4F_Financial_Safety_Gates_2026-11-23.md` section 1, by the owner's Twilio Console balance and alerts, and by provider-side throughput.
+- **The cap is not a financial ceiling.** It does not limit what DanceFlow pays Twilio. It limits only one small class of outbound replies. Ordinary texts get no automatic reply at all (owner decision D3, `src/app/api/sms/twilio/inbound/route.ts:336-337`), so in a routed flood the cap has no reply to suppress and saves nothing. Spend is bounded only by the controls listed in `TW-4F_Financial_Safety_Gates_2026-11-23.md` section 1 and by provider-side throughput. The owner's Twilio Console balance would bound it only if the account has no auto-recharge, which nothing in the repo establishes; Console usage alerts inform but do not stop spend.
 
 ## 4. Scenarios for one studio (ConfiDance-sized)
 
