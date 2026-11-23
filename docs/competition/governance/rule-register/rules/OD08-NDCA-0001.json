@@ -1,0 +1,28 @@
+{
+  "id": "OD08-NDCA-0001",
+  "governing_body": "NDCA",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.30 (printed p.23, PDF p.30)",
+    "quote_free_summary": "A couple that must withdraw because of injury or illness after a final round has commenced is awarded last place for each dance in which it did not dance."
+  },
+  "format": "NDCA Sanctioned events, final round withdrawal",
+  "rule_class": "mandatory",
+  "requirement": "For a future verified NDCA profile only: record a documented injury/illness withdrawal after the Final starts and award last place for each dance not performed, never across all dances or the overall competition. Studio/Custom behavior (X-5) is unchanged.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/withdrawals/OD-08-ndca-final-withdrawal-design.md). Not built.",
+  "tests": [],
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-08 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Design only: nothing implemented, no test, no compliance claimed. The rule does not define commences, several withdrawals, mid-dance exits or how last place enters Skating totals; the Skating System algorithm is NOT SPECIFIED IN PROVIDED SOURCE (OD-24 blocker). The July 2026 edition (candidate, unreviewed) has identical wording."
+}
