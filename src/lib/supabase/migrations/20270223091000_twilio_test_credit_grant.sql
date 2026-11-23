@@ -668,6 +668,13 @@ begin
     -- what fees may still use: the account's available credit minus the unused test credit that is NOT already held for a text in flight
     'non_test_available_cents', coalesce(a.balance_cents - a.reserved_cents, 0) - greatest(v_unused - public._tw4tc_open_sms(p_entity_id), 0),
     'open_texting_holds_cents', public._tw4tc_open_sms(p_entity_id),
+    -- texting paid with DanceFlow test credit is NOT revenue: its customer-price value, and DanceFlow's estimated provider cost for it (from the active per-text
+    -- price: unit_cost/unit_price micros when published in micros, else provider_cost/customer_price cents; rounded up; null without a price)
+    'test_paid_texting_cents', coalesce(b.consumed_cents - b.restored_cents, 0),
+    'test_paid_texting_provider_cost_estimate_cents', (
+      select ceil(coalesce(b.consumed_cents - b.restored_cents, 0)::numeric
+                  * coalesce(p.unit_cost_micros::numeric / nullif(p.unit_price_micros, 0), p.provider_cost_cents::numeric / nullif(p.customer_price_cents, 0)))::bigint
+        from public.studio_sms_price_list p where p.kind = 'sms_usage' and p.active),
     'grants', (select count(*) from public.studio_sms_test_credit_grants g where g.legal_entity_id = p_entity_id),
     'ok', (v_m ->> 'grant')::bigint = coalesce(b.granted_cents, 0) and (v_m ->> 'consume')::bigint = coalesce(b.consumed_cents, 0)
           and (v_m ->> 'restore')::bigint = coalesce(b.restored_cents, 0) and (v_m ->> 'reverse')::bigint = coalesce(b.reversed_cents, 0)

@@ -112,6 +112,17 @@ select public.tw4_credit_test_reverse('<entity>', <unused_cents>, 'reverse-<gran
 * The §4 read-back output before the grant, after the grant and after the reversal, with UTC timestamps and who ran it.
 * The switch log rows: when the switch was on, and who turned it on and off.
 * The Twilio Console usage for the test window. The owner compares it with the consumed test credit during the regular invoice reconciliation.
+* `tw4_credit_test_status` reports two figures for texting paid with test credit:
+  * `test_paid_texting_cents`: the customer-price value of texts paid with test credit, net of usage refunds.
+  * `test_paid_texting_provider_cost_estimate_cents`: DanceFlow's estimated provider cost for those texts, from the active per-text price.
+
+  Both are DanceFlow's own cost of the pilot test, **not revenue**. Record both with the read-back.
+
+**Known limitation (follow-up).** The usage reconciler and the monthly spending limit treat test-paid texts like any other texts. The usage charges are ordinary `usage_charge` entries, and the test-credit trigger only books which part was paid with test credit. So:
+* The monthly limit also counts test texts. This is acceptable as a spend control.
+* Any usage revenue figure built from `usage_charge` entries includes test-paid texts.
+
+Separating them in those reports needs a reviewed change to the reconciler and the reports. It is not done here, because it is not cheap or safe to do inside this slice. Until then, subtract `test_paid_texting_cents` by hand. Tracked as a follow-up (TW-4F test credit F-1).
 
 The database keeps hashes and references, never the authorization text. Every table here is append-only, the budget counters only grow, and the rollback refuses while any row exists.
 

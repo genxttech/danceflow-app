@@ -20,6 +20,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { seedPriceIfMissing } from "./priceFixture";
 import { pilotExceptionArgs } from "./rflEvidenceHelper";
 
 vi.setConfig({ testTimeout: 180_000, hookTimeout: 300_000 });
@@ -155,6 +156,8 @@ insert into public.profiles (id, platform_role) values ('${N}', null) on conflic
 commit;`);
     ({ entity: EP, studio: SP } = makeBusiness("pilot", true));
     ({ entity: EN, studio: SN } = makeBusiness("ordinary", false));
+    // a per-text price (cents, no micros) for the provider-cost estimate of test-paid texting; published through the dual-control fixture
+    seedPriceIfMissing(psql, { kind: "sms_usage", customer: 4, provider: 3, description: "fixture per-text price", approver: P });
   });
 
   describe("1. privileges and shape", () => {
@@ -330,6 +333,12 @@ commit;`);
       call("tw4_credit_refund_usage", EP, 300, `${key}-r2`, `${key}-b`);
       s = status(EP);
       expect([s.unused_cents, s.non_test_available_cents, s.ok]).toEqual([300, 400, true]);
+      // test-paid texting is reported as such (not revenue), with DanceFlow's estimated provider cost at the active per-text price
+      const t = call<Status & { test_paid_texting_cents: number; test_paid_texting_provider_cost_estimate_cents: number | null }>("tw4_credit_test_status", EP);
+      const p = psql("select customer_price_cents || ':' || provider_cost_cents from public.studio_sms_price_list where kind = 'sms_usage' and active").split(":").map(Number);
+      expect(t.test_paid_texting_cents).toBe(t.consumed_cents - t.restored_cents);
+      expect(t.test_paid_texting_cents).toBeGreaterThan(0);
+      expect(t.test_paid_texting_provider_cost_estimate_cents).toBe(Math.ceil((t.test_paid_texting_cents * p[1]) / p[0]));
       expect(call<{ ok: boolean }>("tw4_credit_verify", EP).ok).toBe(true);
     });
 
