@@ -211,6 +211,8 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 - **Blast radius.** Dark. (a) is SQL (guard) plus engine support: owner-gated PROD SQL apply.
 - **Decision.** Must the chair/chief judge own the callback count for body-declared events, and is an eight-couple Final cap required?
 
+**OD-09 DECIDED 2026-11-23 (owner): Option C now, Option A required for a future NDCA scoring profile.** Current Studio/Custom advancement behavior is preserved for initial activation. Mandatory prerequisites before enabling an NDCA scoring profile: (1) the NDCA Chairman of Adjudicators controls or explicitly authorizes callback counts through a verified event-level role; (2) enforce the applicable 50% minimum recall rule including verified exceptions; (3) support quarterfinal and semifinal structures; (4) enforce the eight-couple Final restriction only after reconciling NDCA IV.C.1.f versus IV.C.2 including tie and event-format exceptions; (5) keep WSDC Chief Judge and UCWDC Contest Coordinator authority mappings separate and do not impose NDCA advancement rules on those bodies; (6) record decision-maker, callback target, rule version, exceptions and audit history; (7) coordinate role enforcement with OD-05/06 and scoring calculations with OD-24; (8) preserve the OD-01 restriction on publishing unverified body-compliant results. NDCA advancement support is NOT IMPLEMENTED and a blocker to NDCA profile activation. No advancement-engine implementation authorized; no SQL apply, merge, deployment, activation.
+
 ### OD-10 Ballot visibility before publication
 
 - **Issue.** Managers and scorers can read every judge's ballot before results are published.
