@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Google Calendar OAuth token storage (S0-a). Tokens live in studio_google_calendar_credentials (RLS on, no policy, service role only).
- * Requires migration 20270223090000 applied first (SQL before app). Expand phase: reads fall back to the legacy columns on the connections row so a deploy before/without the backfill keeps working;
+ * Requires migration 20270223091000 applied first (SQL before app). Expand phase: reads fall back to the legacy columns on the connections row so a deploy before/without the backfill keeps working;
  * writes go to the credentials table only. After promote, reconcile rows written by the old app in the overlap window (a legacy token that differs from
  * the credentials token is the newer one; a disconnected connection with a null legacy token must not keep a credentials row). The contract migration (clearing legacy columns) is a later, separate step.
  */

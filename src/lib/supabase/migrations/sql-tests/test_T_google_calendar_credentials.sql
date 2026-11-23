@@ -1,4 +1,4 @@
--- Google Calendar credentials isolation suite (LOCAL / DISPOSABLE ENVIRONMENTS ONLY). Covers 20270223090000.
+-- Google Calendar credentials isolation suite (LOCAL / DISPOSABLE ENVIRONMENTS ONLY). Covers 20270223091000.
 -- Prints "GCAL CREDENTIALS SUITE PASS (<n> checks)" or "... FAIL: ..." from an always-raising final block. Refuses unless gcaltest.local = 'on'.
 begin;
 do $$ begin
