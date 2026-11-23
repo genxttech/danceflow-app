@@ -18,7 +18,7 @@ IMAGE=${CF_QA_IMAGE:-postgres:17}
 
 for f in "$MIG" "$RB" "$TESTS"; do
   [ -f "$f" ] || { echo "missing $f" >&2; exit 2; }
-  if grep -q $'\r' "$f"; then echo "CR line endings in $f" >&2; exit 2; fi
+  if [ "$(tr -cd '\r' < "$f" | wc -c)" -ne 0 ]; then echo "CR line endings in $f" >&2; exit 2; fi
 done
 
 cleanup() { docker rm -fv "$NAME" >/dev/null 2>&1 || true; }

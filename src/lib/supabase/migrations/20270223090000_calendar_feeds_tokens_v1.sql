@@ -12,6 +12,9 @@
 
 begin;
 
+-- Fail fast instead of queueing behind long-running queries on hot tables (instructors, user_studio_roles, studios, auth.users).
+set local lock_timeout = '5s';
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- Per-studio enablement (allowlist). Absent row = disabled.
 -- ---------------------------------------------------------------------------------------------------------------
@@ -92,7 +95,7 @@ create table if not exists public.calendar_feed_audit_events (
   metadata      jsonb not null default '{}'::jsonb,
   created_at    timestamptz not null default now(),
   constraint calendar_feed_audit_actor_kind_check
-    check (actor_kind in ('user', 'admin', 'system')),
+    check (actor_kind in ('user', 'admin', 'system', 'aria')),
   constraint calendar_feed_audit_action_check
     check (action in ('created', 'rotated', 'revoked', 'detail_changed', 'enabled', 'disabled', 'migrated'))
 );
@@ -121,6 +124,7 @@ create table if not exists public.calendar_feed_rate_buckets (
   primary key (bucket_key, window_start),
   constraint calendar_feed_rate_key_len check (char_length(bucket_key) between 1 and 128)
 );
+create index if not exists calendar_feed_rate_window_idx on public.calendar_feed_rate_buckets (window_start);
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Lockdown: RLS on, no policies, no browser privileges.
@@ -169,13 +173,22 @@ declare
   v_had boolean;
   v_overlap integer := greatest(0, least(coalesce(p_overlap_seconds, 0), 86400));
 begin
-  select enabled into v_enabled from public.calendar_feed_settings where studio_id = p_studio;
+  if p_include_client_ids is not null and coalesce(array_length(p_include_client_ids, 1), 0) > 50 then
+    raise exception 'too many included profiles' using errcode = '22023';
+  end if;
+  select enabled into v_enabled from public.calendar_feed_settings where studio_id = p_studio for share;
   if coalesce(v_enabled, false) is not true then
     raise exception 'calendar feeds are not enabled for this studio' using errcode = 'P0001';
   end if;
 
   -- Serialise issue/rotate per subject.
   perform pg_advisory_xact_lock(hashtextextended(p_studio::text || ':' || p_kind || ':' || p_user::text, 0));
+
+  -- Any previously superseded token still inside its overlap window dies now: at most ONE previous token is ever valid.
+  update public.calendar_feed_tokens
+     set status = 'revoked', revoked_at = now(), revoked_reason = 'rotated'
+   where studio_id = p_studio and subject_kind = p_kind and subject_user_id = p_user
+     and status = 'active' and superseded_at is not null;
 
   select * into v_old from public.calendar_feed_tokens
    where studio_id = p_studio and subject_kind = p_kind and subject_user_id = p_user
@@ -192,6 +205,7 @@ begin
       update public.calendar_feed_tokens
          set status = 'revoked', revoked_at = now(), revoked_reason = 'rotated', superseded_at = now()
        where id = v_old.id;
+      perform public.calendar_feed_audit(p_studio, v_old.id, p_actor, 'user', 'revoked', 'rotated', '{}'::jsonb);
     end if;
   end if;
 
@@ -205,22 +219,27 @@ begin
 
   perform public.calendar_feed_audit(p_studio, v_new, p_actor, 'user',
     case when v_had then 'rotated' else 'created' end, null,
-    jsonb_build_object('subject_kind', p_kind, 'overlap_seconds', v_overlap));
+    jsonb_build_object('subject_kind', p_kind, 'overlap_seconds', v_overlap, 'rotated_from', case when v_had then v_old.id else null end));
   return v_new;
 end;
 $fn$;
 
 -- Revoke one token. Returns true if a live token was revoked.
 create or replace function public.calendar_feed_revoke(
-  p_token_id uuid, p_reason text, p_actor uuid, p_actor_kind text default 'user'
+  p_token_id uuid, p_studio uuid, p_subject_user uuid, p_reason text, p_actor uuid, p_actor_kind text default 'user'
 ) returns boolean
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
   v_studio uuid;
 begin
+  if p_reason is null or p_studio is null then
+    raise exception 'reason and studio are required' using errcode = '22023';
+  end if;
   update public.calendar_feed_tokens
      set status = 'revoked', revoked_at = now(), revoked_reason = p_reason
-   where id = p_token_id and status = 'active'
+   where id = p_token_id and studio_id = p_studio
+     and (p_subject_user is null or subject_user_id = p_subject_user)
+     and status = 'active' and (valid_until is null or valid_until > now())
   returning studio_id into v_studio;
   if v_studio is null then
     return false;
@@ -243,6 +262,7 @@ begin
     update public.calendar_feed_tokens
        set status = 'revoked', revoked_at = now(), revoked_reason = p_reason
      where studio_id = p_studio and subject_kind = p_kind and subject_user_id = p_user and status = 'active'
+       and (valid_until is null or valid_until > now())
     returning id
   loop
     perform public.calendar_feed_audit(p_studio, v_row.id, p_actor, p_actor_kind, 'revoked', p_reason, '{}'::jsonb);
@@ -264,7 +284,7 @@ begin
   for v_row in
     update public.calendar_feed_tokens
        set status = 'revoked', revoked_at = now(), revoked_reason = p_reason
-     where studio_id = p_studio and status = 'active'
+     where studio_id = p_studio and status = 'active' and (valid_until is null or valid_until > now())
     returning id
   loop
     perform public.calendar_feed_audit(p_studio, v_row.id, p_actor, 'admin', 'revoked', p_reason, '{}'::jsonb);
@@ -276,18 +296,23 @@ $fn$;
 
 -- Change detail level / included profiles of a live token.
 create or replace function public.calendar_feed_set_detail(
-  p_token_id uuid, p_detail text, p_include_client_ids uuid[], p_actor uuid
+  p_token_id uuid, p_studio uuid, p_subject_user uuid, p_detail text, p_include_client_ids uuid[], p_actor uuid
 ) returns boolean
 language plpgsql security definer set search_path = public, pg_temp as $fn$
 declare
   v_studio uuid;
 begin
-  if p_detail not in ('minimal', 'standard') then
+  if p_detail is null or p_detail not in ('minimal', 'standard') or p_studio is null then
     raise exception 'invalid detail level' using errcode = '22023';
+  end if;
+  if p_include_client_ids is not null and coalesce(array_length(p_include_client_ids, 1), 0) > 50 then
+    raise exception 'too many included profiles' using errcode = '22023';
   end if;
   update public.calendar_feed_tokens
      set detail_level = p_detail, include_client_ids = p_include_client_ids
-   where id = p_token_id and status = 'active'
+   where id = p_token_id and studio_id = p_studio
+     and (p_subject_user is null or subject_user_id = p_subject_user)
+     and status = 'active' and (valid_until is null or valid_until > now())
   returning studio_id into v_studio;
   if v_studio is null then
     return false;
@@ -303,14 +328,20 @@ create or replace function public.calendar_feed_set_studio_enabled(
   p_studio uuid, p_enabled boolean, p_actor uuid
 ) returns void
 language plpgsql security definer set search_path = public, pg_temp as $fn$
+declare
+  v_prev boolean;
 begin
+  if p_enabled is null then
+    raise exception 'enabled is required' using errcode = '22023';
+  end if;
+  select enabled into v_prev from public.calendar_feed_settings where studio_id = p_studio for update;
   insert into public.calendar_feed_settings (studio_id, enabled, updated_at, updated_by)
   values (p_studio, p_enabled, now(), p_actor)
   on conflict (studio_id) do update set enabled = excluded.enabled, updated_at = now(), updated_by = excluded.updated_by;
-  perform public.calendar_feed_audit(p_studio, null, p_actor, 'admin',
-    case when p_enabled then 'enabled' else 'disabled' end, null, '{}'::jsonb);
-  if not p_enabled then
-    perform public.calendar_feed_revoke_studio(p_studio, 'incident', p_actor);
+  -- Disabling is a SOFT switch (feeds answer 404, tokens kept). Incidents and offboarding call calendar_feed_revoke_studio separately.
+  if v_prev is distinct from p_enabled then
+    perform public.calendar_feed_audit(p_studio, null, p_actor, 'admin',
+      case when p_enabled then 'enabled' else 'disabled' end, null, '{}'::jsonb);
   end if;
 end;
 $fn$;
@@ -356,7 +387,8 @@ declare
   v_window timestamptz;
   v_hits integer;
 begin
-  if p_key is null or char_length(p_key) not between 1 and 128
+  if p_key is null or p_limit is null or p_window_seconds is null
+     or char_length(p_key) not between 1 and 128
      or p_limit not between 1 and 100000 or p_window_seconds not between 1 and 86400 then
     raise exception 'invalid rate limit arguments' using errcode = '22023';
   end if;
@@ -366,7 +398,8 @@ begin
   on conflict (bucket_key, window_start) do update set hits = b.hits + 1
   returning b.hits into v_hits;
   if random() < 0.01 then
-    delete from public.calendar_feed_rate_buckets where window_start < now() - interval '2 days';
+    delete from public.calendar_feed_rate_buckets
+     where ctid in (select ctid from public.calendar_feed_rate_buckets where window_start < now() - interval '1 day' limit 1000);
   end if;
   return query select v_hits <= p_limit, v_hits,
     greatest(1, ceil(extract(epoch from (v_window + make_interval(secs => p_window_seconds) - now())))::integer);
@@ -379,7 +412,16 @@ $fn$;
 create or replace function public.calendar_feed_on_instructor_deactivated()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $fn$
 begin
-  if old.active is true and new.active is not true and old.user_id is not null then
+  if tg_op = 'DELETE' then
+    if old.user_id is not null then
+      perform public.calendar_feed_revoke_subject(old.studio_id, 'staff', old.user_id, 'staff_deactivated', null, 'system');
+    end if;
+    return old;
+  end if;
+  if old.user_id is not null and (
+       (old.active is true and new.active is not true)
+       or new.user_id is distinct from old.user_id
+       or new.studio_id is distinct from old.studio_id) then
     perform public.calendar_feed_revoke_subject(old.studio_id, 'staff', old.user_id, 'staff_deactivated', null, 'system');
   end if;
   return new;
@@ -389,7 +431,14 @@ $fn$;
 create or replace function public.calendar_feed_on_role_deactivated()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $fn$
 begin
-  if old.active is true and new.active is not true then
+  if tg_op = 'DELETE' then
+    perform public.calendar_feed_revoke_subject(old.studio_id, 'staff', old.user_id, 'role_lost', null, 'system');
+    return old;
+  end if;
+  if (old.active is true and new.active is not true)
+     or new.role is distinct from old.role
+     or new.user_id is distinct from old.user_id
+     or new.studio_id is distinct from old.studio_id then
     perform public.calendar_feed_revoke_subject(old.studio_id, 'staff', old.user_id, 'role_lost', null, 'system');
   end if;
   return new;
@@ -398,34 +447,38 @@ $fn$;
 
 drop trigger if exists calendar_feed_instructor_deactivated_trg on public.instructors;
 create trigger calendar_feed_instructor_deactivated_trg
-  after update of active on public.instructors
+  after update of active, user_id, studio_id or delete on public.instructors
   for each row execute function public.calendar_feed_on_instructor_deactivated();
 
 drop trigger if exists calendar_feed_role_deactivated_trg on public.user_studio_roles;
 create trigger calendar_feed_role_deactivated_trg
-  after update of active on public.user_studio_roles
+  after update of active, role, user_id, studio_id or delete on public.user_studio_roles
   for each row execute function public.calendar_feed_on_role_deactivated();
 
 -- Function privileges: service_role only.
 revoke all on function public.calendar_feed_audit(uuid, uuid, uuid, text, text, text, jsonb) from public, anon, authenticated;
 revoke all on function public.calendar_feed_issue_token(uuid, text, uuid, text, text, text, uuid[], uuid, integer) from public, anon, authenticated;
-revoke all on function public.calendar_feed_revoke(uuid, text, uuid, text) from public, anon, authenticated;
+revoke all on function public.calendar_feed_revoke(uuid, uuid, uuid, text, uuid, text) from public, anon, authenticated;
 revoke all on function public.calendar_feed_revoke_subject(uuid, text, uuid, text, uuid, text) from public, anon, authenticated;
 revoke all on function public.calendar_feed_revoke_studio(uuid, text, uuid) from public, anon, authenticated;
-revoke all on function public.calendar_feed_set_detail(uuid, text, uuid[], uuid) from public, anon, authenticated;
+revoke all on function public.calendar_feed_set_detail(uuid, uuid, uuid, text, uuid[], uuid) from public, anon, authenticated;
 revoke all on function public.calendar_feed_set_studio_enabled(uuid, boolean, uuid) from public, anon, authenticated;
 revoke all on function public.calendar_feed_resolve(text) from public, anon, authenticated;
 revoke all on function public.calendar_feed_rate_check(text, integer, integer) from public, anon, authenticated;
 revoke all on function public.calendar_feed_on_instructor_deactivated() from public, anon, authenticated;
 revoke all on function public.calendar_feed_on_role_deactivated() from public, anon, authenticated;
 revoke all on function public.calendar_feed_audit_no_update() from public, anon, authenticated;
+-- Internal helpers and trigger functions are not part of the API surface, not even for service_role.
+revoke all on function public.calendar_feed_audit(uuid, uuid, uuid, text, text, text, jsonb) from service_role;
+revoke all on function public.calendar_feed_on_instructor_deactivated() from service_role;
+revoke all on function public.calendar_feed_on_role_deactivated() from service_role;
+revoke all on function public.calendar_feed_audit_no_update() from service_role;
 
-grant execute on function public.calendar_feed_audit(uuid, uuid, uuid, text, text, text, jsonb) to service_role;
 grant execute on function public.calendar_feed_issue_token(uuid, text, uuid, text, text, text, uuid[], uuid, integer) to service_role;
-grant execute on function public.calendar_feed_revoke(uuid, text, uuid, text) to service_role;
+grant execute on function public.calendar_feed_revoke(uuid, uuid, uuid, text, uuid, text) to service_role;
 grant execute on function public.calendar_feed_revoke_subject(uuid, text, uuid, text, uuid, text) to service_role;
 grant execute on function public.calendar_feed_revoke_studio(uuid, text, uuid) to service_role;
-grant execute on function public.calendar_feed_set_detail(uuid, text, uuid[], uuid) to service_role;
+grant execute on function public.calendar_feed_set_detail(uuid, uuid, uuid, text, uuid[], uuid) to service_role;
 grant execute on function public.calendar_feed_set_studio_enabled(uuid, boolean, uuid) to service_role;
 grant execute on function public.calendar_feed_resolve(text) to service_role;
 grant execute on function public.calendar_feed_rate_check(text, integer, integer) to service_role;
