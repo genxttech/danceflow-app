@@ -24,7 +24,8 @@ export type GoogleCalendarEventResponse = { id: string; htmlLink?: string };
 /** Token endpoint failure: `invalid_grant` (revoked/expired grant) is permanent; anything else (network, 5xx) is transient. */
 export class GoogleTokenError extends Error {
   constructor(message: string, public code: string | null, public status: number | null) { super(message); this.name = "GoogleTokenError"; }
-  get permanent() { return this.code === "invalid_grant"; }
+  /** Transient only for network failures, 5xx and 429; every other rejection (invalid_grant, invalid_client, ...) needs a human. */
+  get permanent() { return this.code === "invalid_grant" || (this.status !== null && this.status < 500 && this.status !== 429 && this.status !== 408); }
 }
 class GoogleCalendarRequestError extends Error {
   constructor(message: string, public status: number) { super(message); this.name = "GoogleCalendarRequestError"; }
@@ -121,11 +122,17 @@ export async function deleteGoogleCalendarEvent(args: { accessToken: string; cal
   return { deleted: true, missing: false };
 }
 
-export type GoogleRevokeOutcome = "revoked" | "already_invalid" | "failed" | "no_credentials";
+export type GoogleRevokeOutcome = "revoked" | "already_invalid" | "failed" | "no_credentials" | "skipped_shared_account";
+/** Google revokes the whole grant of a user for this OAuth client, so it would also kill other DanceFlow connections made with the same Google account. */
+export async function googleAccountHasOtherConnection(email: string | null | undefined, excludeConnectionId?: string) {
+  if (!email) return false;
+  const { data } = await createAdminClient().from("studio_google_calendar_connections").select("id").eq("google_account_email", email).eq("status", "connected");
+  return ((data ?? []) as Array<{ id: string }>).some((row) => row.id !== excludeConnectionId);
+}
 /** Best effort: revokes the grant at Google (https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke). Never throws and never logs a token. */
 export async function revokeGoogleToken(token: string): Promise<Exclude<GoogleRevokeOutcome, "no_credentials">> {
   try {
-    const response = await fetch(GOOGLE_REVOKE_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token }) });
+    const response = await fetch(GOOGLE_REVOKE_URL, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token }), signal: AbortSignal.timeout(5_000) });
     if (response.ok) return "revoked";
     if (response.status === 400) return "already_invalid";
     return "failed";
@@ -134,8 +141,11 @@ export async function revokeGoogleToken(token: string): Promise<Exclude<GoogleRe
 /** Revokes the stored grant for a connection (refresh token preferred: revoking it also invalidates its access tokens). */
 export async function revokeGoogleCalendarGrant(connectionId: string): Promise<GoogleRevokeOutcome> {
   try {
-    const credentials = await loadGoogleCredentials(createAdminClient(), connectionId);
+    const admin = createAdminClient();
+    const credentials = await loadGoogleCredentials(admin, connectionId);
     if (!credentials) return "no_credentials";
+    const { data: own } = await admin.from("studio_google_calendar_connections").select("google_account_email").eq("id", connectionId).maybeSingle<{ google_account_email: string | null }>();
+    if (await googleAccountHasOtherConnection(own?.google_account_email, connectionId)) return "skipped_shared_account";
     return await revokeGoogleToken(decryptIntegrationSecret(credentials.encrypted_refresh_token ?? credentials.encrypted_access_token));
   } catch { return "failed"; }
 }

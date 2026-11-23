@@ -33,7 +33,8 @@ export async function getValidWaveAccessToken(connectionId: string) {
     tokens = await refreshWaveAccessToken(decryptIntegrationSecret(data.encrypted_refresh_token));
   } catch (error) {
     if (error instanceof WaveTokenError && !error.permanent) {
-      // transient: keep the connection and posting state; the next run retries
+      // transient: keep the connection and posting state, leave a visible note; the next run retries
+      await admin.from("studio_wave_connections").update({ last_error: "Wave is temporarily unavailable. Sync will retry.", updated_at: new Date().toISOString() }).eq("id", connectionId).neq("status", "disconnected");
       throw new Error("Wave is temporarily unavailable. Try again shortly.");
     }
     await markWaveConnectionNeedsReauth(connectionId, "Wave authorization expired. Reconnect Wave.");
@@ -53,7 +54,7 @@ export async function getValidWaveAccessToken(connectionId: string) {
     last_error: null,
     last_refreshed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }).eq("id", connectionId);
+  }).eq("id", connectionId).neq("status", "disconnected");
 
   return tokens.access_token;
 }

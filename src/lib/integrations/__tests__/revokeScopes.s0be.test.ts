@@ -84,7 +84,15 @@ describe("S0-e Google refresh error classes", () => {
     await expect(getValidGoogleCalendarAccessToken("c1")).rejects.toThrow(/temporarily/);
     expect(db.studio_google_calendar_connections[0].status).toBe("connected");
   });
-  it("GoogleTokenError.permanent is only true for invalid_grant", () => {
+  it("a non-grant 4xx (for example invalid_client) needs a human; 429 and 5xx stay transient", () => {
+    expect(new GoogleTokenError("x", "invalid_client", 401).permanent).toBe(true);
+    expect(new GoogleTokenError("x", "rate", 429).permanent).toBe(false);
+    expect(new WaveTokenError("x", 403).permanent).toBe(true);
+    expect(new WaveTokenError("x", 429).permanent).toBe(false);
+    expect(new WaveTokenError("x", 500).permanent).toBe(false);
+    expect(new WaveTokenError("x", null).permanent).toBe(false);
+  });
+  it("GoogleTokenError.permanent is only true for invalid_grant or a non-transient 4xx", () => {
     expect(new GoogleTokenError("x", "invalid_grant", 400).permanent).toBe(true);
     expect(new GoogleTokenError("x", "temporarily_unavailable", 503).permanent).toBe(false);
     expect(new GoogleTokenError("x", null, null).permanent).toBe(false);
@@ -142,6 +150,33 @@ describe("S0-b provider revoke", () => {
     expect(bodies).toEqual(["token=refresh-R"]);
     db.studio_google_calendar_credentials = [{ connection_id: "c2", encrypted_access_token: "garbage" }];
     expect(await revokeGoogleCalendarGrant("c2")).toBe("failed");
+  });
+  it("Google grant revoke is skipped while another connection uses the same Google account", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    globalThis.fetch = fetchMock as any;
+    db.studio_google_calendar_connections = [
+      { id: "own", status: "connected", google_account_email: "a@x.test" },
+      { id: "other", status: "connected", google_account_email: "a@x.test" },
+      { id: "solo", status: "connected", google_account_email: "b@x.test" },
+    ];
+    db.studio_google_calendar_credentials = [
+      { connection_id: "own", encrypted_access_token: encryptIntegrationSecret("a"), encrypted_refresh_token: encryptIntegrationSecret("r") },
+      { connection_id: "solo", encrypted_access_token: encryptIntegrationSecret("a"), encrypted_refresh_token: encryptIntegrationSecret("r") },
+    ];
+    expect(await revokeGoogleCalendarGrant("own")).toBe("skipped_shared_account");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await revokeGoogleCalendarGrant("solo")).toBe("revoked");
+  });
+  it("Wave transient refresh failure leaves a visible note and a disconnect during refresh is not overwritten", async () => {
+    db.studio_wave_connections = [{ id: "w9", status: "connected", posting_enabled: true }];
+    db.studio_wave_credentials = [{ connection_id: "w9", encrypted_access_token: encryptIntegrationSecret("a"), encrypted_refresh_token: encryptIntegrationSecret("r"), token_expires_at: expired() }];
+    globalThis.fetch = (async () => new Response("{}", { status: 503 })) as any;
+    await expect(getValidWaveAccessToken("w9")).rejects.toThrow(/temporarily/);
+    expect(db.studio_wave_connections[0].last_error).toMatch(/temporarily/);
+    db.studio_wave_connections[0].status = "disconnected";
+    globalThis.fetch = (async () => new Response(JSON.stringify({ access_token: "n", token_type: "bearer", expires_in: 60 }), { status: 200 })) as any;
+    await getValidWaveAccessToken("w9").catch(() => null);
+    expect(db.studio_wave_connections[0].status).toBe("disconnected");
   });
   it("Wave: posts client credentials and token to the documented revoke endpoint without throwing", async () => {
     const calls: Array<{ url: string; body: URLSearchParams }> = [];

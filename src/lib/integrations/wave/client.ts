@@ -8,7 +8,7 @@ export const WAVE_READ_SCOPES = ["user:read", "business:read", "account:read"] a
 export class WaveTokenError extends Error {
   constructor(message: string, public status: number | null) { super(message); this.name = "WaveTokenError"; }
   /** 400/401 from the token endpoint means the grant is gone (revoked or replaced); network errors and 5xx are transient. */
-  get permanent() { return this.status === 400 || this.status === 401; }
+  get permanent() { return this.status !== null && this.status < 500 && this.status !== 429 && this.status !== 408; }
 }
 
 export const WAVE_REQUESTED_SCOPES = [...WAVE_READ_SCOPES, "transaction:write"] as const;
@@ -73,7 +73,7 @@ async function tokenRequest(values: Record<string, string>) {
     });
   } catch { throw new WaveTokenError("Wave token endpoint is unreachable.", null); }
   if (!response.ok) throw new WaveTokenError(`Wave token request failed (${response.status}).`, response.status);
-  return (await response.json()) as WaveTokenSet;
+  try { return (await response.json()) as WaveTokenSet; } catch { throw new WaveTokenError("Wave token response was not readable.", null); }
 }
 
 const WAVE_REVOKE_URL = "https://api.waveapps.com/oauth2/token-revoke/";
@@ -87,6 +87,7 @@ export async function revokeWaveToken(token: string): Promise<WaveRevokeOutcome>
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, token }),
       cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
     });
     return response.ok ? "revoked" : "failed";
   } catch { return "failed"; }
