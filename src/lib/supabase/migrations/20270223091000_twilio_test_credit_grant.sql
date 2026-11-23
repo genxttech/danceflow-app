@@ -40,6 +40,7 @@
 --
 -- Requires 20261122 (credits), 20261128 (months), 20261202 (approval registry), 20261209 (_tw4rfl_lock, audit vocabulary pattern), 20261229/20261230 (U-4 evidence).
 -- Rollback: rollback/20270223091000_twilio_test_credit_grant_rollback.sql (refuses while any row of this migration exists; never destroys evidence).
+-- Also redefines sms_credit_overview (adds test_credit_cents / fee_available_cents) and tw4_credit_topup_pending (the $500 ceiling ignores test credit); both md5-pinned.
 -- OPERATOR PROCEDURE: docs/twilio/TW-4F_Test_Credit_Runbook.md. Nothing in this file grants credit, sets a budget or turns the switch on.
 
 begin;
@@ -674,6 +675,103 @@ begin
           and v_lg = coalesce(b.granted_cents, 0) and v_lr = coalesce(b.reversed_cents, 0) + coalesce(b.forfeited_cents, 0) and (v_cv ->> 'ok')::boolean
           -- the unused test credit is always still there: never more than the balance minus the fee holds (texting holds are backed by test credit first)
           and v_unused <= greatest(coalesce(a.balance_cents - a.reserved_cents, 0) + public._tw4tc_open_sms(p_entity_id), 0));
+end $$;
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- 7. the studio-facing view and the purchase ceiling see test credit for what it is
+--    * sms_credit_overview (authenticated, owner/admin of the location; body of 20261123 plus three fields): test_credit_cents (unused test credit, texting only),
+--      fee_available_cents (what setup and monthly fees may use) and texting_available_cents (= available_cents, kept unchanged for existing readers).
+--    * tw4_credit_topup_pending (body of 20261125): the $500 balance ceiling counts the business's OWN credit only; DanceFlow's test credit never blocks a purchase.
+--    Both predecessor bodies are md5-pinned above the change; the rollback restores them byte-exactly.
+-- ---------------------------------------------------------------------------------------------------------------
+do $$
+begin
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.sms_credit_overview(uuid)'::regprocedure), chr(13), '')) is distinct from '9c24016b4360b4a2ec382a9db97e09cd' then
+    raise exception 'test-credit precondition failed: public.sms_credit_overview(uuid) differs from its 20261123 definition';
+  end if;
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_topup_pending(uuid,uuid,text,integer,timestamp with time zone)'::regprocedure), chr(13), '')) is distinct from '2c7f609f3496572caf8c2e99ffc94831' then
+    raise exception 'test-credit precondition failed: public.tw4_credit_topup_pending differs from its 20261125 definition';
+  end if;
+end $$;
+
+-- unused test credit of a business (0 without a test budget)
+create or replace function public._tw4tc_unused(p_entity uuid)
+returns bigint language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$ select coalesce((select b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents - b.forfeited_cents
+                          from public.studio_sms_test_credit_budgets b where b.legal_entity_id = p_entity), 0)::bigint; $$;
+revoke all on function public._tw4tc_unused(uuid) from public, anon, authenticated, service_role;
+
+create or replace function public.sms_credit_overview(p_studio_id uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  a public.studio_sms_credit_accounts;
+  v_entity uuid;
+  v_test bigint;
+begin
+  if auth.uid() is null or coalesce(public._sms_onb_studio_role(p_studio_id), '') not in ('studio_owner', 'studio_admin') then
+    raise exception 'not authorized' using errcode = '42501';
+  end if;
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  if v_entity is null then
+    return jsonb_build_object('legal_business', false, 'balance_cents', 0, 'reserved_cents', 0, 'available_cents', 0, 'on_hold', false, 'low_balance', false, 'pending_topups_cents', 0, 'this_location_net_charges_cents', 0,
+      'test_credit_cents', 0, 'fee_available_cents', 0, 'texting_available_cents', 0);
+  end if;
+  select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = v_entity;
+  v_test := greatest(public._tw4tc_unused(v_entity), 0);
+  return jsonb_build_object(
+    'legal_business', true,
+    'balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0),
+    'available_cents', greatest(coalesce(a.balance_cents, 0) - coalesce(a.reserved_cents, 0), 0),
+    'texting_available_cents', greatest(coalesce(a.balance_cents, 0) - coalesce(a.reserved_cents, 0), 0),
+    -- DanceFlow test credit (texting only; never purchasable or refundable) and what setup and monthly fees may use
+    'test_credit_cents', v_test,
+    'fee_available_cents', greatest(coalesce(a.balance_cents, 0) - coalesce(a.reserved_cents, 0) - greatest(v_test - public._tw4tc_open_sms(v_entity), 0), 0),
+    'on_hold', coalesce(a.hold, false), 'low_balance', a.low_balance_flagged_at is not null, 'low_balance_threshold_cents', coalesce(a.low_balance_threshold_cents, 1000),
+    'pending_topups_cents', coalesce((select sum(t.amount_cents) from public.studio_sms_credit_topups t where t.legal_entity_id = v_entity and t.status = 'pending' and (t.expires_at is null or t.expires_at > now())), 0),
+    'this_location_net_charges_cents', coalesce((select -sum(l.balance_delta_cents) from public.studio_sms_credit_ledger l
+        where l.legal_entity_id = v_entity and l.studio_id = p_studio_id and l.kind in ('capture', 'usage_charge', 'usage_refund')), 0),
+    'pilot_ceiling_cents', (select x.ceiling_cents from public.studio_sms_pilot_exceptions x where x.legal_entity_id = v_entity),
+    'pilot_used_cents', coalesce((select sum(r.amount_cents) from public.studio_sms_credit_reservations r where r.legal_entity_id = v_entity and r.funding = 'pilot' and r.status in ('reserved', 'captured')), 0));
+end $$;
+
+create or replace function public.tw4_credit_topup_pending(p_entity_id uuid, p_paid_by_studio_id uuid, p_provider_ref text, p_amount_cents int, p_expires_at timestamptz default null)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  a public.studio_sms_credit_accounts;
+  t public.studio_sms_credit_topups;
+  v_pending bigint;
+begin
+  if p_expires_at is not null and (p_expires_at <= now() or p_expires_at > now() + interval '24 hours') then
+    raise exception 'a checkout must expire within the next 24 hours' using errcode = '22023';
+  end if;
+  a := public._tw4c_lock(p_entity_id);
+  select * into t from public.studio_sms_credit_topups x where x.provider = 'stripe' and x.provider_ref = p_provider_ref;
+  if t.id is not null then
+    if t.legal_entity_id <> p_entity_id or t.amount_cents <> p_amount_cents then
+      raise exception 'this payment belongs to another legal business or amount' using errcode = '23505';
+    end if;
+    return jsonb_build_object('topup_id', t.id, 'status', t.status);
+  end if;
+  if a.hold then
+    raise exception 'the credit account is on hold' using errcode = 'TW007'; -- re-checked under the account lock: a hold placed after the checkout context was read still wins
+  end if;
+  if p_amount_cents not in (2500, 5000, 10000) then
+    raise exception 'top-ups are $25, $50 or $100 packs' using errcode = '22023';
+  end if;
+  select coalesce(sum(x.amount_cents), 0) into v_pending from public.studio_sms_credit_topups x
+   where x.legal_entity_id = p_entity_id and x.status = 'pending' and (x.expires_at is null or x.expires_at > now());
+  -- 20270223091000: the ceiling counts the business's own credit; unused DanceFlow test credit never blocks a purchase
+  if a.balance_cents - public._tw4tc_unused(p_entity_id) + v_pending + p_amount_cents > 50000 then
+    raise exception 'this top-up would exceed the $500 balance ceiling' using errcode = 'TW009';
+  end if;
+  insert into public.studio_sms_credit_topups (legal_entity_id, paid_by_studio_id, provider, provider_ref, amount_cents, expires_at)
+  values (p_entity_id, p_paid_by_studio_id, 'stripe', p_provider_ref, p_amount_cents, p_expires_at) returning * into t;
+  return jsonb_build_object('topup_id', t.id, 'status', t.status);
 end $$;
 
 revoke all on function public.tw4_credit_test_set_switch(boolean, uuid, text),

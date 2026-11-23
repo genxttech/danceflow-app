@@ -112,6 +112,11 @@ export default function SmsCreditPanel({ view, purchasesEnabled, returned, initi
           <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Available</dt>
           <dd className="mt-1 text-2xl font-semibold text-slate-900">{formatUsd(overview.availableCents)}</dd>
           {overview.balanceCents < 0 ? <p className="text-xs font-semibold text-red-700">Balance: {formatUsd(overview.balanceCents)}</p> : null}
+          {overview.testCreditCents > 0 ? (
+            <p className="text-xs text-slate-600">
+              Includes {formatUsd(overview.testCreditCents)} test credit from DanceFlow (texting only). {formatUsd(overview.feeAvailableCents)} can pay setup and monthly fees.
+            </p>
+          ) : null}
         </div>
         <div className="rounded-xl bg-slate-50 p-3">
           <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reserved</dt>

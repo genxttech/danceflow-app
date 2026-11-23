@@ -390,6 +390,27 @@ commit;`);
       adjust(EP, 1);
     });
 
+    it("the studio view shows test credit separately and the $500 purchase ceiling ignores it (owner's own session)", () => {
+      const owner = `ad${RUN}-0000-4000-8000-000000000703`;
+      psql(`begin;
+insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at, last_sign_in_at) values ('${owner}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'owner-${RUN}@tc-e2e.test', now(), now(), now()) on conflict (id) do nothing;
+insert into public.profiles (id, platform_role) values ('${owner}', null) on conflict (id) do nothing;
+insert into public.user_studio_roles (user_id, studio_id, role, active) values ('${owner}', '${SP}', 'studio_owner', true) on conflict do nothing;
+commit;`);
+      const asOwner = (sql: string) => psql(`begin; set local role authenticated; select set_config('request.jwt.claims', '${JSON.stringify({ sub: owner, role: "authenticated" })}', true); ${sql} commit;`).split("\n").pop() ?? "";
+      resetPilot(47_000);
+      setBudget(EP, status(EP).granted_cents + 1000);
+      grant(EP, 1000);
+      const ov = JSON.parse(asOwner(`select public.sms_credit_overview('${SP}')::text;`)) as Record<string, number>;
+      expect([ov.balance_cents, ov.available_cents, ov.texting_available_cents, ov.test_credit_cents, ov.fee_available_cents]).toEqual([48_000, 48_000, 48_000, 1000, 47_000]);
+      // own 47,000 + 2,500 fits; + 5,000 does not (before this migration the test credit would have blocked the $25 pack too: 48,000 + 2,500 > 50,000)
+      const pack = `cs_tc_${hex(6)}`;
+      call("tw4_credit_topup_pending", EP, SP, pack, 2500, null);
+      expect(hasCode(callErr("tw4_credit_topup_pending", EP, SP, `cs_tc_${hex(6)}`, 5000, null), "TW009")).toBe(true);
+      call("tw4_credit_topup_failed", pack, `evt_${hex(5)}`);
+      resetPilot(0);
+    });
+
     it("the verifier is not ok when unused test credit exceeds what the business holds (the invariant is checked, not assumed)", () => {
       resetPilot(0);
       setBudget(EP, status(EP).granted_cents + 200);
@@ -523,6 +544,9 @@ commit;`);
         const rolled = fpLines(run);
         expect(rolled).not.toEqual(applied);
         expect(rolled.filter((l) => /tw4tc|tw4_credit_test|test_grant|test_credit|credit_test_/.test(l))).toEqual([]);
+        // the two redefined functions are back to their predecessor bodies byte-exactly (the same md5 pins the forward checks)
+        expect(run(`select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.sms_credit_overview(uuid)'::regprocedure`)).toBe("9c24016b4360b4a2ec382a9db97e09cd");
+        expect(run(`select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_topup_pending(uuid,uuid,text,integer,timestamp with time zone)'::regprocedure`)).toBe("2c7f609f3496572caf8c2e99ffc94831");
         expect(run(`select to_regclass('public.studio_sms_test_credit_budgets') is null and to_regprocedure('${GRANT}') is null
           and not exists (select 1 from pg_trigger where tgname = 'studio_sms_credit_ledger_40_test_credit')
           and not exists (select 1 from pg_constraint c where c.conrelid in ('public.studio_sms_credit_ledger'::regclass, 'public.studio_sms_approval_refs'::regclass, 'public.studio_sms_onboarding_audit'::regclass)
