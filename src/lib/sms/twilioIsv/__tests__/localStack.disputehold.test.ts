@@ -344,6 +344,10 @@ commit;`);
       dispute(pA, `dp_${hex(6)}`, 5000, "withdrawn");
       expect(acct(w)).toMatchObject({ hold: true, reason: "manual review before dispute" });
       expect(holds(w)[0]).toMatchObject({ hold_state: "held", account_already_held: true });
+      // the alert says what actually happened: nothing was placed because the account was already on hold
+      const already = alertsOf(w, "credit_dispute")[0].summary;
+      expect(already).toMatch(/already on hold, so no new hold was placed/);
+      expect(already).not.toMatch(/was placed on hold/);
       expect(release(w, holds(w)[0].id)).toMatchObject({ account_hold_cleared: false, account_on_hold: true });
       expect(acct(w)).toMatchObject({ hold: true, reason: "manual review before dispute" });
       call("tw4_credit_set_hold", w.entity, false, null, ADMIN);                       // no dispute hold left: the generic function works

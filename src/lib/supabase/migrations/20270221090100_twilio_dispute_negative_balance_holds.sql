@@ -193,7 +193,11 @@ begin
   values (public._tw4c_any_location(d.legal_entity_id), null, 'system', null, 'credit_hold',
           left('dispute_hold;state=' || h.hold_state || ';hold=' || h.id || ';withdrawn_cents=' || d.withdrawn_cents || ';df_borne_dispute_fee_cents=' || v_fee
                || ';fee_basis=stripe_standard_fee_estimate;studio_charged=0', 300));
-  if v_on then
+  if v_on and a.hold then
+    -- the account was already on hold (a manual hold, or another dispute's hold): nothing changed on the account and its reason was left as it is
+    perform public._tw4rfl_alert(d.legal_entity_id, null, null, 'credit_dispute', 'dispute:' || d.id, 'admin', 'critical',
+      'A Stripe dispute was opened on a prepaid texting credit purchase. The credit account was already on hold, so no new hold was placed and its reason was left as it is. The dispute is recorded as held and DanceFlow bears the dispute fee. Review it and release the dispute hold with a written note.');
+  elsif v_on then
     perform public._tw4rfl_alert(d.legal_entity_id, null, null, 'credit_dispute', 'dispute:' || d.id, 'admin', 'critical',
       'A Stripe dispute was opened on a prepaid texting credit purchase. The credit account was placed on hold and DanceFlow bears the dispute fee. Review it and release the hold with a written note.');
   else
