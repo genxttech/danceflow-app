@@ -29,6 +29,8 @@
 --
 -- NOT TOUCHED: STOP/START/HELP handling, inbound recording, sending, any balance, reservation, ceiling, authorization, charge, resource or exposure row. No
 -- Twilio call is possible from SQL. Requires 20261208090000, 20261209090000, 20261211090000 and 20261231140000 (the alert-kind constraint they extend).
+-- NO KILL SWITCH OF ITS OWN: the check runs whenever the scan pass runs (SMS_FEE_LIFECYCLE_SCAN + the database scan switch). To stop it alone, roll back the
+-- application. The SQL rollback is REFUSED once any funding_exposure_* alert exists: from the first alert on, this is forward-fix only.
 -- ORDER: apply this SQL before the app that calls tw4_rfl_funding_exposure_check (until then the scan counts the missing function as an error, fail-loud).
 -- Rollback: rollback/20270223090000_twilio_funding_exposure_alerts_rollback.sql (refuses while any alert row uses one of the four kinds).
 -- NOT APPLIED to any shared environment by this file's authoring.

@@ -76,6 +76,15 @@ What each alert means for DanceFlow: Twilio bills the parent account for every l
 | `funding_exposure_threshold`, `fx-thr:<business>:<month>` / `fx-thr-all:<UTC month>` (critical) | Recorded open exposure, in provider cents, of one business reached `_tw4fx_entity_threshold_cents()` (1000), or the platform total reached `_tw4fx_platform_threshold_cents()` (5000). The platform alert is attached to the business with the largest share. | Review every open exposure of that business, or of the platform. Escalate to the owner for an absorb-or-cancel decision. Check the Twilio Console balance and auto-recharge. |
 | `exposureUnattributed` > 0 in the route counts | A listed location has no legal business link, so no alert can be addressed. | Find it (`tw4_act_exposure(actor)`) and fix the link or the onboarding state. |
 
+**No kill switch of its own.** The check runs in every scan pass. It stops only when the whole scan stops (`SMS_FEE_LIFECYCLE_SCAN` unset, or the database `scan` switch off), or when the application is rolled back to a build that does not call it. Alert delivery follows the existing `SMS_FEE_LIFECYCLE_DELIVERY` flag and `delivery` switch. **Rollback is forward-fix only after the first alert.** The SQL rollback is refused once any `funding_exposure_*` alert row exists, and alert history is never deleted.
+
+`tw4_rfl_health` also reports `exposure_unattributed_locations`: the number of listed locations, counted per location rather than per row, that have no legal-business link. No alert can be addressed to them, so check this count after each pass.
+
+**Merge notes.**
+- PR #800 also edits `src/lib/sms/providerFeeAlerts/templates.ts`, adding its own kinds to `RFL_ALERT_KINDS` and `COPY`. The two edits conflict textually. Keep both sets of kinds and copy.
+- In `scripts/qa/scenarios.json`, PR #800's `20270221090100` must stay before `20270223090000` in both the `main` and `numeric` lists. Keep every sibling line.
+- Both migrations rebuild the alert-kind constraint from the live list, so they work in either order. The scenarios must still list them in numeric order.
+
 Rules: every alert is deduplicated per key, so a repeated pass or a concurrent pass adds nothing. Summaries never carry an amount, number, SID or name. These alerts never block or delay STOP/START/HELP.
 
 ## 8. Rollback
