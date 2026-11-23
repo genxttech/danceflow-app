@@ -662,5 +662,32 @@ commit;`);
       proves("42501", mutate("_tw4tc_on_ledger", "if p_caller_flag <> 'on' then", "if false then"),
         `select public._tw4c_post('${EP}', null, 'test_grant', 100, 0, 'test_grant:mut-${hex(4)}', null, null, null, null);`);
     });
+
+    /** the scenario passes with the real code and FAILS with the mutated one (the guard is what makes the good outcome happen) */
+    const needed = (code: string, mutated: string, scenario: string) => {
+      expect(psqlError(`begin; ${scenario} rollback;`), "control must pass").toBe("");
+      expect(hasCode(psqlError(`begin; ${mutated} ${scenario} rollback;`), code), `mutated scenario must fail with ${code}`).toBe(true);
+    };
+    const assertSql = (cond: string, msg: string) => `do $a$ begin if not (${cond}) then raise exception '${msg}' using errcode = 'P0001'; end if; end $a$;`;
+
+    it("forfeit on a non-texting debit: without it the test credit survives a debt and the verifier says not ok", () => {
+      setBudget(EP, status(EP).granted_cents + 100);
+      grant(EP, 100);
+      const s0 = status(EP);
+      expect(s0.unused_cents).toBeGreaterThan(0);
+      const debit = -(Math.max(s0.non_test_available_cents, 0) + 1);
+      const scenario = `select public.tw4_credit_adjust('${EP}', ${debit}, 'mut-forfeit-${hex(4)}', 'mutation check: debit below own money', '${P}');
+        ${assertSql(`(public.tw4_credit_test_status('${EP}') ->> 'unused_cents')::bigint = 0 and (public.tw4_credit_test_status('${EP}') ->> 'ok')::boolean`, "test credit absorbed a debit")}`;
+      needed("P0001", mutate("_tw4tc_on_ledger", "v_take := case when v_pool - v_unused < 0 then v_unused else 0 end;", "v_take := 0;"), scenario);
+    });
+
+    it("the in-flight texting hold is not counted twice: the old formula refuses a fee own money can pay (TW007)", () => {
+      const s0 = status(EP);
+      expect(s0.unused_cents).toBeGreaterThan(0);
+      const scenario = `select public.tw4_credit_adjust('${EP}', 100, 'mut-own-${hex(4)}', 'mutation check: some own money', '${P}');
+        ${reserveSql(EP, SP, "sms_usage", 1).replace(/^begin;|commit;$/gm, "")}
+        ${reserveSql(EP, SP, "number", Math.max(s0.non_test_available_cents, 0) + 100).replace(/^begin;|commit;$/gm, "")}`;
+      needed("TW007", mutate("_tw4tc_on_ledger", "n.reserved_delta_cents - greatest(v_unused - v_open_sms, 0) < 0 then", "n.reserved_delta_cents - v_unused < 0 then"), scenario);
+    });
   });
 });
