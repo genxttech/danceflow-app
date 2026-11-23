@@ -180,3 +180,10 @@ Nits: `client_ref` on `session_revoked`; dead m13 precondition branch (comment o
 ## 13. I3-3 specification revision 2 (review conditional GO; owner decisions added)
 
 `NSI_I3_3_DB_Spec.md` revision 2 addresses P1-1..P1-6 and the P2s (studio-local date with the UTC-12 fallback, the birthday rule applied first inside the database, declaration provenance, monotone automatic determinations, an explicit reference date and open-request rule, lock order for the session functions, no daily row growth, threshold clamp, neutral declaration classes, explicit privilege statements). New or changed owner decisions, all **pending** with draft defaults: **O5** (threshold, 29 February rule, wording), **O5b** (may a studio set a threshold below 18; draft: clamp to 18), **O11** (a declared adult requires staff confirmation; draft: yes), **O12** (an extra `under_13` declaration class; draft: yes, routing only). The migration is **M15**; M14 (hold semantics and purge liveness) comes first. No SQL is written for M15 until the revision 2 spec is reviewed.
+
+## 14. Non-heavy follow-up docs (2026-11-23, text only, for independent review)
+- `NSI_I3_3_DB_Spec.md` **revision 3**: reconciled with the final M14 bytes (section 9: isolation guard, no hold check in determinations, erase interaction, audit `client_ref`, catalog 104 -> 110, rollback to the M14 catalog); queued for the quick re-review.
+- `NSI_I3_2_DB_Spec.md` (M16, draft rev 1): guardian challenge, attestation, two-party guardian issue, decline, respondent guard, N1 vocabulary.
+- `NSI_P1A_Staff_Minted_Links.md`: P1-A resolved as engineering rules (option B for the student path, option C for guardians); only **O11** and **O5b** remain open on the minor/evidence path; all labelled recommended, pending owner decision.
+- `NSI_I1_Local_Fixture_Port_Plan.md`: the 14 call sites and the recipe; the port itself needs the heavy lock and is not done.
+M14 is not applied to DEV; waiting for the delta-review GO relayed by the coordinator.
