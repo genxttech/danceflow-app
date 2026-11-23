@@ -70,17 +70,40 @@ describe("S0-g1 integration vault", () => {
     expect(() => decryptIntegrationSecret("v2.BAD KID.a.b.c")).toThrow(/Unsupported/);
     expect(() => decryptIntegrationSecret("v1.a.b")).toThrow(/Unsupported/);
     expect(integrationSecretKeyId("garbage")).toBeNull();
+    process.env.INTEGRATION_TOKEN_ACTIVE_KEY_ID = "k2";
     process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS = "not json";
     expect(() => encryptIntegrationSecretV2("x")).toThrow(/JSON/);
-    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS = JSON.stringify({ "Bad.Kid": K2 });
-    expect(() => encryptIntegrationSecretV2("x")).toThrow(/key id/);
     process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS = JSON.stringify({ k2: "short" });
     expect(() => encryptIntegrationSecretV2("x")).toThrow(/32 bytes/);
+    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS = JSON.stringify({ k2: 5 });
+    expect(() => encryptIntegrationSecretV2("x")).toThrow(/key value/);
     delete process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS;
+    delete process.env.INTEGRATION_TOKEN_ACTIVE_KEY_ID;
     process.env.INTEGRATION_TOKEN_ACTIVE_KEY_ID = "nope";
     expect(() => encryptIntegrationSecretV2("x")).toThrow(/not configured/);
     process.env.INTEGRATION_TOKEN_ACTIVE_KEY_ID = "bad id";
     expect(() => encryptIntegrationSecretV2("x")).toThrow(/key id/);
+  });
+
+  it("a broken or hostile rotation keyring never affects k1 (legacy) secrets", () => {
+    const v1 = legacyFixture("keep-me");
+    const v2 = encryptIntegrationSecretV2("also", "ctx");
+    for (const bad of ["not json", "[]", JSON.stringify({ "Bad.Kid": K2 }), JSON.stringify({ k1: K2 }), JSON.stringify({ k2: "short" })]) {
+      process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS = bad;
+      expect(decryptIntegrationSecret(v1)).toBe("keep-me");
+      expect(decryptIntegrationSecret(v2, "ctx")).toBe("also");
+    }
+  });
+
+  it("the key id is authenticated and short tags or ivs are refused", () => {
+    process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS = JSON.stringify({ k2: K1 });
+    const v2 = encryptIntegrationSecretV2("s", "c");
+    const parts = v2.split(".");
+    expect(() => decryptIntegrationSecret(["v2", "k2", ...parts.slice(2)].join("."), "c")).toThrow();
+    const shortTag = [...parts]; shortTag[3] = Buffer.alloc(4).toString("base64url");
+    expect(() => decryptIntegrationSecret(shortTag.join("."), "c")).toThrow(/Unsupported/);
+    const shortIv = [...parts]; shortIv[2] = Buffer.alloc(8).toString("base64url");
+    expect(() => decryptIntegrationSecret(shortIv.join("."), "c")).toThrow(/Unsupported/);
   });
 
   it("each encryption uses a fresh iv", () => {

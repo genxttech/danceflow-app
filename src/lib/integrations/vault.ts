@@ -21,29 +21,27 @@ function parseKey(raw: string, label: string) {
   return key;
 }
 
-function keyring() {
-  const ring = new Map<string, Buffer>();
-  const legacy = process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY;
-  if (legacy) ring.set(LEGACY_KEY_ID, parseKey(legacy, "INTEGRATION_TOKEN_ENCRYPTION_KEY"));
-  const extra = process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS;
-  if (extra) {
-    let parsed: unknown;
-    try { parsed = JSON.parse(extra); } catch { throw new Error("INTEGRATION_TOKEN_ENCRYPTION_KEYS must be a JSON object."); }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("INTEGRATION_TOKEN_ENCRYPTION_KEYS must be a JSON object.");
-    for (const [kid, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!KID_PATTERN.test(kid)) throw new Error("Invalid integration key id.");
-      if (typeof value !== "string") throw new Error("Invalid integration key value.");
-      ring.set(kid, parseKey(value, `Integration key ${kid}`));
-    }
+/** Only the requested key is parsed, so a typo in the rotation keyring can never break decryption of "k1" (legacy) secrets. "k1" always means INTEGRATION_TOKEN_ENCRYPTION_KEY; an entry named k1 in the JSON is ignored. */
+function keyFor(kid: string) {
+  if (!KID_PATTERN.test(kid)) throw new Error("Invalid integration key id.");
+  if (kid === LEGACY_KEY_ID) {
+    const legacy = process.env.INTEGRATION_TOKEN_ENCRYPTION_KEY;
+    if (!legacy) throw new Error(`Integration encryption key "${kid}" is not configured.`);
+    return parseKey(legacy, "INTEGRATION_TOKEN_ENCRYPTION_KEY");
   }
-  return ring;
+  const extra = process.env.INTEGRATION_TOKEN_ENCRYPTION_KEYS;
+  if (!extra) throw new Error(`Integration encryption key "${kid}" is not configured.`);
+  let parsed: unknown;
+  try { parsed = JSON.parse(extra); } catch { throw new Error("INTEGRATION_TOKEN_ENCRYPTION_KEYS must be a JSON object."); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("INTEGRATION_TOKEN_ENCRYPTION_KEYS must be a JSON object.");
+  const value = Object.prototype.hasOwnProperty.call(parsed, kid) ? (parsed as Record<string, unknown>)[kid] : undefined;
+  if (value === undefined) throw new Error(`Integration encryption key "${kid}" is not configured.`);
+  if (typeof value !== "string") throw new Error("Invalid integration key value.");
+  return parseKey(value, `Integration key ${kid}`);
 }
 
-function keyFor(kid: string) {
-  const key = keyring().get(kid);
-  if (!key) throw new Error(`Integration encryption key "${kid}" is not configured.`);
-  return key;
-}
+/** The key id is part of the authenticated data, so a swapped header fails authentication. */
+function v2Aad(kid: string, context: string) { return Buffer.from(`v2.${kid}\n${context}`, "utf8"); }
 
 export function activeIntegrationKeyId() {
   const kid = process.env.INTEGRATION_TOKEN_ACTIVE_KEY_ID || LEGACY_KEY_ID;
@@ -54,7 +52,7 @@ export function activeIntegrationKeyId() {
 /** Legacy v1 output. */
 export function encryptIntegrationSecret(value: string) {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", keyFor(LEGACY_KEY_ID), iv);
+  const cipher = createCipheriv("aes-256-gcm", keyFor(LEGACY_KEY_ID), iv, { authTagLength: 16 });
   const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
   return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
 }
@@ -63,8 +61,8 @@ export function encryptIntegrationSecret(value: string) {
 export function encryptIntegrationSecretV2(value: string, context = "") {
   const kid = activeIntegrationKeyId();
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", keyFor(kid), iv);
-  cipher.setAAD(Buffer.from(context, "utf8"));
+  const cipher = createCipheriv("aes-256-gcm", keyFor(kid), iv, { authTagLength: 16 });
+  cipher.setAAD(v2Aad(kid, context));
   const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
   return ["v2", kid, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
 }
@@ -82,14 +80,17 @@ export function decryptIntegrationSecret(value: string, context = "") {
   } else if (parts[0] === "v2" && parts.length === 5 && KID_PATTERN.test(parts[1])) {
     kid = parts[1];
     [, , ivValue, tagValue, ciphertextValue] = parts;
-    aad = Buffer.from(context, "utf8");
+    aad = v2Aad(kid, context);
   } else {
     throw new Error("Unsupported encrypted integration secret.");
   }
   if (!ivValue || !tagValue || !ciphertextValue) throw new Error("Unsupported encrypted integration secret.");
-  const decipher = createDecipheriv("aes-256-gcm", keyFor(kid), Buffer.from(ivValue, "base64url"));
+  const iv = Buffer.from(ivValue, "base64url");
+  const tag = Buffer.from(tagValue, "base64url");
+  if (iv.length !== 12 || tag.length !== 16) throw new Error("Unsupported encrypted integration secret.");
+  const decipher = createDecipheriv("aes-256-gcm", keyFor(kid), iv, { authTagLength: 16 });
   if (aad) decipher.setAAD(aad);
-  decipher.setAuthTag(Buffer.from(tagValue, "base64url"));
+  decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(Buffer.from(ciphertextValue, "base64url")), decipher.final()]).toString("utf8");
 }
 
