@@ -641,3 +641,9 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 - `DanceFlow_Master_Roadmap.md:166` lists "Twilio Q1–Q5 confirmation … OPEN", but `TW-4F_Production_Onboarding_Plan.md` §13 records the ticket #29647095 answers as of 2026-10-19.
 - `TW-4F_R2b_RFL_Integration.md` §6 lists "ConfiDance month-two controls" as open. The controls exist (`tw4_rfl_pilot_cover`), but activation is still blocked by `_tw4act_funding` (F-1).
 - `TW-4F_Recurring_Fee_Lifecycle_Design.md` §12 lists D1–D6 as outstanding. They were decided in `TW-4F_RFL_Ops_Design.md` §1.
+
+## Corrections (2026-11-23)
+- F-1 ("MISSING (P1 blocker)") is stale: the pilot funding continuity layer (20261219 and later) fixed `pilot_month_two_undefined`.
+- F-5 ("UNCONNECTED") is stale: the reconciler readiness gate (TW024, 20261218) is connected and `_tw4usage_reconciler_ready` is required for billed sends.
+- The route headers of `sms-usage-reconcile`, `sms-provider-fee-lifecycle` and the two price monitors said "NOT registered in vercel.json"; they are registered (dark behind their env flags). Corrected in the TW-4F financial-safety release PR.
+- Open and tracked in `TW-4F_Financial_Safety_Gates_2026-11-23.md`: sender re-verification, inventory reconcile and recurring crons were unscheduled; test-credit mechanism; exposure alerts; inbound absorbed controls for all studios; Stripe dispute and negative-balance holds.
