@@ -468,6 +468,11 @@ commit;`);
       expect(count("select 1 from pg_trigger where tgname = 'studio_sms_credit_accounts_negative_alert'")).toBe(0);
       expect(psql("select pg_get_constraintdef(oid) from pg_constraint where conname = 'studio_sms_provider_alerts_kind_check'")).not.toMatch(/credit_dispute|credit_negative/);
       psql(rollback);                                                                   // re-runnable
+      // a legacy MANUAL hold whose reason is literally 'dispute' would be mistaken for the automatic one: the migration refuses until it is given another reason
+      replica(`update public.studio_sms_credit_accounts set hold = true, hold_reason = ' Dispute ' where legal_entity_id = '${WORLDS[0].entity}';`);
+      expect(psqlError(readFileSync(join(MIG, MIGRATION), "utf8"))).toMatch(/manual hold whose reason is "dispute"/);
+      expect(psql("select to_regclass('public.studio_sms_credit_dispute_holds') is null")).toBe("t");
+      replica(`update public.studio_sms_credit_accounts set hold = false, hold_reason = null where legal_entity_id = '${WORLDS[0].entity}';`);
       psql(readFileSync(join(MIG, MIGRATION), "utf8"));                                // and the migration re-applies cleanly
       expect(psql("select public._tw4dh_dispute_fee_cents() || ':' || public._tw4dh_auto_hold_on()")).toBe("1500:false");
     });

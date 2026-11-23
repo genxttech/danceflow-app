@@ -50,6 +50,10 @@ begin
   if to_regclass('public.studio_sms_credit_dispute_holds') is not null then
     raise exception 'dispute hold precondition failed: already applied';
   end if;
+  -- the reason 'dispute' becomes reserved for the automatic hold: a manual hold that already carries it would be mistaken for one (and cleared by a dispute release)
+  if exists (select 1 from public.studio_sms_credit_accounts a where a.hold and lower(btrim(coalesce(a.hold_reason, ''))) = 'dispute') then
+    raise exception 'dispute hold precondition failed: an account is on a manual hold whose reason is "dispute"; give it another reason with tw4_credit_set_hold first';
+  end if;
   select c.conname, pg_get_constraintdef(c.oid) into v_name, v_def from pg_constraint c
    where c.conrelid = 'public.studio_sms_provider_alerts'::regclass and c.contype = 'c' and pg_get_constraintdef(c.oid) like '%authorization_expiring%';
   if v_def is null or v_name <> 'studio_sms_provider_alerts_kind_check' then
