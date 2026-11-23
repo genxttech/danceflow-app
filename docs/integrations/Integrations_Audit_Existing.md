@@ -93,3 +93,21 @@ The briefing named two integrations; there are three code paths. Gusto is retain
 
 ## 6. Reuse for a generic Connected Apps layer
 Keep and generalise: the cookie-state helper (add a DB-backed pending-connection record), `encryptIntegrationSecret` (move, add key id), Wave's credentials-in-a-separate-table and no-policy pattern, `needs_reauth` semantics, the Google item-map reconciler as the "projection" pattern, Wave's runs/lines/claims/uncertain state as the "money-adjacent write" pattern, the audit-events table shape, the hub status cards, the cron-secret helper. Do not reuse: per-provider tables with duplicated columns, request-origin fallbacks, status derivation in page components.
+
+## 7. Production configuration verification (OD-8, read-only, 2026-11-23)
+Method: Vercel project env listing (names and ages only; values are never displayed or read), `vercel.json` in the repo, and PROD read-only SQL through `danceflow-ops/sb.sh prod-read` (a `BEGIN READ ONLY … ROLLBACK` wrapper) selecting only counts and status/flag columns. No secrets, tokens or personal data were read; nothing was changed.
+
+| Check | Result |
+|---|---|
+| Production env var **names** present | `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET` (set about 137 days ago), `WAVE_CLIENT_ID`, `WAVE_CLIENT_SECRET`, `WAVE_REDIRECT_URI`, `WAVE_POSTING_ENABLED`, `INTEGRATION_TOKEN_ENCRYPTION_KEY` (about 154 days), `CRON_SECRET`, `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_SITE_URL`. **Absent:** `WAVE_AUTOPOST_CRON_SECRET` (not required: the route also accepts `CRON_SECRET`), no `GUSTO_*` variables are present (consistent with dormant) |
+| Value of `WAVE_POSTING_ENABLED` | **Not verifiable by engineering without reading the value** (Vercel masks it; reading values is prohibited by the secret-handling rule). Owner can confirm in the Vercel dashboard |
+| `vercel.json` crons | Google Calendar sync `*/30` present; **no `wave-autopost` entry**, so auto-post cannot run on the repo schedule (finding W1 stands). No evidence of an external scheduler in the repo |
+| Wave rows (PROD) | 1 connection, status `connected`, `posting_enabled = true`, `posting_mode = approval_required`; 1 posting entitlement, status `pilot`; **0 sync runs and 0 sync lines**, i.e. Wave posting has never produced a run in PROD |
+| Google Calendar rows (PROD) | 2 connections, both scope `studio`, both `needs_reauth` with `last_sync_status = failed`; most recent sync 2026-10-27 16:31 UTC (about 4 weeks before this check); 0 instructor-scope connections; 0 connected rows missing the `calendar.events` scope |
+| Gusto rows (PROD) | 0 connections |
+
+Reading the results:
+- **Google Calendar is effectively not working in PROD:** both studio connections have been failing for about four weeks and nobody was alerted (no notification on `needs_reauth`, audit gap G6/§12 of the architecture). A plausible cause, **unverified**, is that Google issues refresh tokens that expire after 7 days to OAuth clients whose consent screen is in *Testing* publishing status, or the studios revoked access; either needs the Google console to confirm.
+- **Google consent-screen verification/publishing state: not verifiable by engineering.** It is visible only to someone signed in to the Google Cloud console for the OAuth client; engineering has no such session, and none was opened or changed.
+- **Wave** is a single pilot studio in an approval-required posting mode with no runs ever created; the auto-post path is unscheduled. `approval_required` is a third posting mode (`manual_review`, `approval_required`, `auto_post_safe` per the constraint); §3.1 above lists only two and should be read with this correction.
+- Implication for the roadmap: before building more on Google OAuth, reconnect or retire the two failing connections and settle the consent-screen state (OD-8); add needs-reauth notification as part of slice A0.

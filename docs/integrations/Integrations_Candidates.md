@@ -52,7 +52,7 @@ Internal-confidential: §9 contains the generic Competition-adjacent position on
 
 ### 2.2 Xero
 - **API/pricing (official, effective 2026-03-02, AUD):** Starter free, 5 connections; Core $35/mo, 50; Plus $245/mo, 1,000 (requires App Certification); Advanced $1,445/mo, 10,000 (certification + security assessment). Egress $2.40/GB; daily rate caps 1,000 (Starter) / 5,000 (others); Starter/Core cannot be App-Store listed. Apps created from 2026-03-02 must use granular scopes [P: developer.xero.com/pricing, /faq/pricing-and-policy-updates, /faq/granular-scopes].
-- **Complexity:** M–L. **Recommendation: Later (Starter tier suffices for a pilot; the 5-connection cap makes a broad rollout a cost decision — OD).**
+- **Complexity:** M–L. **Recommendation: Later (Starter tier suffices for a pilot; the 5-connection cap would make a broad rollout a cost question for a future owner decision; no pricing decision is made now (OD-5)).**
 
 ### 2.3 Wave (existing)
 - Public developer portal live, GraphQL endpoint unchanged, no deprecation notice found [P: developer.waveapps.com]. Connecting businesses need Wave Pro/Advisor; a lapsed subscription makes token refresh fail with 403. Whether *new* apps are accepted could not be confirmed (support page 403) [?]. Wave may set request limits at its discretion [P: terms].

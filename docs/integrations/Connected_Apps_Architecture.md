@@ -1,6 +1,6 @@
 # Connected Apps Architecture (design proposal)
 
-Status: DRAFT proposal, docs only. Nothing here is implemented or approved. Owner decisions are marked **OD-n** (collected in the Roadmap). No pricing decisions are made here; pricing questions are flagged as owner decisions.
+Status: DRAFT proposal, docs only. Nothing here is implemented. First three priorities approved by the owner 2026-11-23 (OD-10); OD-5: no pricing or plan-gating decision now and no paid entitlements; OD-9: every provider enrollment and fee needs separate owner authorization. Owner decisions are marked **OD-n** (collected in the Roadmap).
 Basis: audit of existing integrations (`Integrations_Audit_Existing.md`), candidate research (`Integrations_Candidates.md`), and existing patterns in the repo (cookie OAuth state, AES-GCM secret helper, Wave runs/lines/claims, Google item-map reconciler, PAY-WH-1 outbox, `outbound_deliveries`, `requireStudioFeature`).
 
 ## 1. Goals and non-goals
@@ -20,7 +20,7 @@ Principle: DanceFlow stays the system of record. Integrations are **projections*
 | Job | One unit of outbound or inbound work in the outbox |
 
 ## 3. Data model (proposed, per studio-scoped table; all rows carry `studio_id`)
-- `integration_providers` — static/seeded registry (code-owned, not editable by studios): key, display name, auth type (`oauth2`, `api_key`, `webhook_only`, `none`), capabilities with required scopes, `approval_state` (`not_required|pending|approved|restricted_test_users`), docs URL, min plan feature key, owner kinds allowed.
+- `integration_providers` — static/seeded registry (code-owned, not editable by studios): key, display name, auth type (`oauth2`, `api_key`, `webhook_only`, `none`), capabilities with required scopes, `approval_state` (`not_required|pending|approved|restricted_test_users`), docs URL, owner kinds allowed.
 - `integration_connections` — id, studio_id, owner_kind, owner_ref (instructor id / student profile id / null), provider_key, status (`pending|connected|needs_reauth|paused|error|disconnecting|disconnected`), external_account_id/label (email or company name), granted_scopes[], requested_scopes[], connected_by, connected_at, last_health_at, last_health_status, last_error_code (a stable code, not a provider message), `version` for optimistic locking.
 - `integration_credentials` — connection_id (PK), `key_id`, encrypted blobs (access, refresh, API key, webhook secret), expiry, rotation counter. RLS enabled, **no policies, no grants to anon/authenticated**; read only by the service role through one server module (Wave's current pattern; fixes audit finding G1).
 - `integration_capability_bindings` — connection_id, capability, enabled, config jsonb (validated per provider by a schema in code), updated_by.
@@ -109,7 +109,7 @@ Per-provider token buckets in code (from provider docs), per-connection and glob
 Version rule everywhere: each mapping stores the last content hash we wrote; if the external object's etag/hash is not what we last wrote we log `external_drift` and apply the table rule above, rather than guess.
 
 ## 10. Entitlements, flags and approval tracking
-- Gate order for any provider capability: global kill switch env (`INTEGRATION_<PROVIDER>_ENABLED`) → provider `approval_state` → studio plan feature (`requireStudioFeature(<key>)`; mapping of providers to plans and any per-integration price is **OD-5, an owner decision**) → optional per-studio allowlist (Wave's entitlement pattern, for pilots) → connection `status` → capability switch.
+- Gate order for any provider capability: global kill switch env (`INTEGRATION_<PROVIDER>_ENABLED`) → provider `approval_state` → per-studio feature flag/allowlist (OD-5: **no pricing or plan-gating decision now; no paid entitlement exists or is implied**; if gating is ever decided it can reuse `requireStudioFeature` as a separate change) → optional per-studio allowlist (Wave's entitlement pattern, for pilots) → connection `status` → capability switch.
 - The provider registry carries `approval_state` so the UI can say "Available to pilot studios only" while Google/Microsoft/Meta verification or app review is in progress; the platform admin page shows the review checklist per provider (consent-screen verification, app review submission date, expected lead time).
 - All provider enrollments (developer accounts, OAuth app registration, app review submissions) are **owner-authorized actions**; this document does not perform or schedule any.
 - Dancer-facing connectors follow the same flag ladder plus store policy checks for the mobile apps.
@@ -150,3 +150,49 @@ Least scopes; data-minimisation switches (e.g. do not put client names in extern
 
 ## 17. Test strategy (developer-owned QA)
 Provider fakes for OAuth and APIs (deterministic), contract tests per provider adapter, RLS tests (cross-studio, cross-role, staff/dancer ownership), vault tests (rotation, tamper), outbox tests (lease expiry, duplicate delivery, crash after external write, `uncertain` resolution), webhook tests (bad signature, replay, ordering), disconnect/deletion tests, and a QA matrix entry per provider capability. Items needing live provider accounts are marked BLOCKED until the owner authorizes the account.
+
+## 18. Security requirements (normative for the first three priorities and every later slice)
+"Must" items are release blockers; each maps to a test in the slice's QA matrix. Nothing here activates anything; all features ship off/dark.
+
+### 18.1 Calendar subscription feeds (ICS)
+1. Feed URLs carry an unguessable token (at least 256-bit random, base64url), stored **hash-only** (SHA-256); the plaintext is shown once at creation/rotation. A feed token is never a session or API credential.
+2. One feed token per (studio, subject, audience) where subject is a dancer or staff member; a token resolves to exactly one studio and one subject and can never widen to another studio, dancer or staff member.
+3. **Revocation** takes effect on the next request (no cache may outlive revocation beyond the stated short TTL). **Rotation** creates a new token and keeps the old one valid for a short, configurable overlap (default 0; max 24 h) so subscribed clients can be re-pointed, then expires it.
+4. Automatic invalidation: dancer account removal/merge/deletion, staff deactivation, role loss, studio offboarding, and a user's "reset my feeds" action revoke the affected tokens.
+5. Unknown, revoked and expired tokens return identical responses (404, no timing difference, no hint); never reveal whether a subject exists.
+6. Rate limiting per token and per IP; request logging by token id (never plaintext); `Referrer-Policy: no-referrer`; tokenised URLs excluded from analytics.
+7. Minimal event detail by default (OD-7/OD-12): the dancer feed shows time, class/lesson title, location/room and instructor first name; no other participants, contact data, payment data or notes. Richer detail is opt-in per subject. A staff feed may show student first names only if the same data is visible to that staff member in the app today.
+8. **Exclusions:** minors' (U18) data beyond what the guardian-linked profile already exposes to that guardian, Competition-governed data (scoring/results, judge identity, U18 competitor data, payment data), and any event class the Competition coordinator has excluded until release. Enforced by an allowlist of event types, not a blocklist.
+9. Tenant isolation is enforced in the query layer **and** at token resolution: service-role code paths must filter on the token's `studio_id` and subject id. Tests include cross-studio and cross-subject attempts.
+
+### 18.2 Public REST API credentials
+1. API keys are random, with a non-secret prefix stored for lookup, and are stored **hash-only** (SHA-256 or keyed HMAC of a 256-bit secret); shown once.
+2. **Scopes** are least-privilege and resource-specific (for example `leads:write`, `schedule:read`, `clients:lookup`). A key never exceeds its creator's role at creation and is re-checked against it on use, or is studio-owned and owner-managed per OD-1.
+3. Per-key limits: requests per minute and per day, page size, burst; plus per-studio and global ceilings. 429 with `Retry-After`.
+4. Each key records created_by, created_at, last_used_at, last_used_ip (truncated), expires_at (default 12 months) and status; usage is visible to the studio. **Rotation with overlap:** two active keys per integration slot, the old one auto-expiring.
+5. Writes require an `Idempotency-Key`; replays within 24 h return the first result.
+6. Keys are accepted only over HTTPS in an `Authorization: Bearer` header, never in URLs or query strings, and never appear in logs or error bodies.
+7. No endpoint returns SMS bodies, SMS consent history, card data, health data, minors' protected fields or Competition data classes (18.4).
+
+### 18.3 Outbound webhooks
+1. **Signatures:** each delivery carries `DanceFlow-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + raw_body)>`; per-endpoint secret of at least 256 bits, shown once; receiver guidance and sample code in the KB.
+2. **Timestamp tolerance:** receivers should reject `t` older than 5 minutes; retries are re-signed with a fresh `t` and keep the same delivery id.
+3. **Replay protection:** each delivery has a unique `delivery_id`; `event_id` is stable across retries; payload carries `created_at` and `attempt`. Receivers dedupe on `event_id`.
+4. **Secret rotation with overlap:** a new secret can be added while the old stays valid for up to 7 days (both signatures sent), then the old is retired. Rotation is audited.
+5. Endpoints must be HTTPS and public. SSRF guard: no private, loopback, link-local or metadata ranges, DNS re-check at send time, redirects not followed. 10 s timeout, size cap, exponential backoff, auto-disable after sustained failure with owner notification.
+6. Event allowlist with minimal payloads (ids and changed fields, no free-text notes). Adding an event or field needs a data-classification review (18.4).
+7. Delivery log (status, latency, response code, truncated response) kept 30 days; owner replay re-sends with a new `delivery_id` and the same `event_id`.
+
+### 18.4 Privacy and data minimisation
+1. Data flows are classified per field (public, studio-internal, personal, sensitive). Only fields classified for the target are exposed; sensitive classes need explicit design approval.
+2. **Hard exclusions in every generic channel (feeds, API, webhooks, Zapier/Make):** SMS content and consent/opt-out data (TW-4F coordinator engineering position), minors' (U18) data, Competition scoring/results and judge identity, payment/Stripe and card data, health data, authentication artefacts. Enforced in code by allowlists and covered by tests; lifting one needs a documented owner decision (and for Competition a rulebook-governed decision).
+3. Consent: contact exports to marketing tools need a recorded consent source. Webhook consumers are the studio's processors; the KB must say the studio is responsible for what it forwards.
+4. Data-subject requests: dancer deletion revokes their feed tokens and removes them from future events; already-delivered webhooks cannot be recalled (documented).
+5. Wallet passes (priority 3): the QR carries an opaque, rotatable token only, never PII or an identifier usable elsewhere; pass content follows the 18.1 minimal-detail rule.
+
+### 18.5 Secrets, rotation, audit
+1. Provider tokens and signing keys live only in the vault (section 7); feed tokens, API keys and webhook secrets are hash-only or vault-encrypted as appropriate. **No secret appears in logs, error messages, audit metadata, ARIA tool results, exports or support views.**
+2. Every create, rotate, revoke, expire, scope change, enable and disable on tokens, keys, endpoints and connections writes an `integration_audit_events` row with actor (user, system, ARIA), subject and non-secret metadata; owners can view and export it; platform admins see it through the studio-context rules.
+3. Anomaly signals (spike in 404s on feed tokens, key used from a new country, repeated signature failures) raise a notification and can auto-pause the credential.
+4. Incident runbook: bulk-revoke all feed tokens, all API keys, or all credentials for a provider, with a tested path.
+5. Kill switches: per-surface env flag (feeds, API, webhooks, Zapier app, wallet) and per-studio allowlist; off by default in every environment until a release gate.
