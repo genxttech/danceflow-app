@@ -34,9 +34,9 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("scheduled sender re-verification route", () => {
-  it("is not registered on any schedule", () => {
-    const vercel = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as { crons?: Array<{ path: string }> };
-    expect((vercel.crons ?? []).some((c) => c.path.includes("sms-sender-reverify"))).toBe(false);
+  it("is registered every 15 minutes by the TW-4F financial-safety release (dark: the route answers 404 until SMS_SENDER_REVERIFY=on)", () => {
+    const vercel = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as { crons?: Array<{ path: string; schedule: string }> };
+    expect((vercel.crons ?? []).filter((c) => c.path.includes("sms-sender-reverify"))).toEqual([{ path: "/api/cron/sms-sender-reverify", schedule: "*/15 * * * *" }]);
   });
 
   it("answers 404 and does nothing unless SMS_SENDER_REVERIFY=on", async () => {
