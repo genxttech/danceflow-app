@@ -155,7 +155,7 @@ drop function if exists public.tw4_dispute_record_switch_set(boolean, uuid, text
 drop function if exists public._tw4dh_auto_hold_on();
 drop function if exists public._tw4dh_record_on();
 drop function if exists public._tw4dh_switch_on(text);
-drop function if exists public._tw4dh_dispute_fee_cents();
+drop function if exists public._tw4dh_est_provider_fee_cents();
 drop function if exists public._tw4dh_negative_alert();
 drop table if exists public.studio_sms_credit_dispute_holds;
 drop function if exists public._tw4dh_guard();
