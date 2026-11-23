@@ -93,3 +93,22 @@ Today the evaluator treats a client as an existing student, and so never asks fo
 | C | Count only appointments created on or after the studio's `enabled_at`. | Simple, but then every studio's whole existing roster is treated as new the first time they book after enablement. Unacceptable. |
 
 Recommendation: A for V1, revisit B after the pilot data (the simulation RPC already shows who would be skipped). This does not block Gate A work, but the decision (and the staff list if A) must exist before collection opens.
+
+## 8. Consolidated owner decision package (concise; recommendations are engineering's)
+
+None of these blocks the work in flight (DEV-safe SQL, local design). Each is needed before the stage shown. No pricing decision exists (owner correction): pilot grants, staff role and Gate A are the only access controls.
+
+| # | Decision | Needed before | Recommendation |
+|---|---|---|---|
+| O1 (P2-1) | Who counts as an "existing student" (any earlier lesson, including imported, partner-only, unselected-type, other-form history, never gets an automatic request) | Gate A | Keep the conservative rule; add a staff "existing student, not asked" list with a one-click manual request (small read RPC and UI) |
+| O2 (D1/A8) | Which staff roles may create guardian invitations and choose recipients | I3-2 | Owner, admin, front desk (same set that may attest guardian consent); instructors no |
+| O3 (D2) | Account-free link for everyone, or portal-only for people who already have a portal account | I3-4 | Link for everyone; portal sign-in as an optional convenience |
+| O4 (D3) | Guardian decline: terminal, or staff may re-invite the same request | I3-3 | Terminal; staff opens a new request if the family changes its mind |
+| O5 (D4) | Minor threshold and the "pending legal review" wording (spec 14.9) | I3-3 and Gate A | Keep 18 as a studio setting, with the pending-legal-review note visible until cleared |
+| O6 (D5) | Invitation life and session limits | I3-1 | 14-day link, 30-minute sliding session, 4-hour absolute |
+| O7 (D7) | What front desk and instructors may see about intake delivery rows | I4 | Owner/admin/front desk: status only, never content; instructors: none |
+| O8 (P2-3 of M7-M9) | A lapsed pilot grant that is renewed: should bookings made during the lapse be back-filled | pilot renewals | No back-fill: bookings made while access was off stay out (matches the `enabled_at` rule) |
+| O9 (B1/B8) | Platform retention periods and the legal basis for evidence, audit and minors | Gate A | Owner/legal decision with counsel; engineering supplies the options table (retention.md in the spec 14.9 list); no recommendation on the legal content |
+| O10 | Release sequence: unfreeze marketing (M-0 close-out) before any intake email | I4 | Keep the rule: no intake email anywhere until M-0 closes and its rollback window expires; T4 follows |
+
+Engineering tasks that are NOT owner decisions: provisioning `INTAKE_ROOT_SECRET`, confirming the trusted client-IP source on Vercel, Resend tracking-off check, mail-client fragment test (needs authorized test sends before any invitation email).
