@@ -10,6 +10,7 @@ import { StudioScheduleScreen } from "@/screens/StudioScheduleScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
 import SignInScreen from "../../app/sign-in";
 import { fakeApi, STUDIO_ID, StaffTestProviders } from "@/test-utils/staff";
+import { FRONT_DESK_CARDS, INSTRUCTOR_CARDS, OWNER_CARDS } from "@/test-utils/pulseFixtures";
 
 /*
   Reading-order guard: the order a screen reader walks each key screen (sign-in, Today, Studio view, Pulse, roster, client, More). It is what
@@ -107,6 +108,44 @@ describe("reading order of the key screens", () => {
   it("Pulse: heading, scope and date, the numbers, what is next (a button), then new clients", async () => {
     const o = await show(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => PULSE) }));
     expect(inOrder(o, ["Pulse", /Studio today · /, "Today", "appointments: 5", "still to come: 4", "cancelled: 1", "Next up", /^\[Next up: Private lesson/, "Clients", "new in the last 7 days: 3"])).toBe(true);
+  });
+
+  it("Pulse cards (owner): what needs you first, then requests, leads, ARIA, worth a look, health, next up; each stat is one spoken item", async () => {
+    const o = await show(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => ({ ...PULSE, cards: OWNER_CARDS })) }));
+    expect(
+      inOrder(o, [
+        "Pulse",
+        "Needs you",
+        "2 lesson requests waiting",
+        "1 lead follow-up overdue",
+        "1 lead not contacted yet",
+        "1 ARIA suggestion to review",
+        "Lesson requests",
+        "requests waiting: 2",
+        "New leads",
+        "new leads in 7 days: 2",
+        /^\[Priya Nair, Website, not contacted/,
+        /^\[Marcus Webb, Instagram, follow-up overdue/,
+        "ARIA suggestions",
+        "Worth a look",
+        "cancelled today: 1",
+        "Studio health",
+        "sessions today: 5",
+        "Next up",
+      ]),
+    ).toBe(true);
+  });
+
+  it("Pulse cards (front desk): no ARIA anywhere, everything else in the same order", async () => {
+    const fd = await show(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => ({ ...PULSE, cards: FRONT_DESK_CARDS })) }));
+    expect(fd.some((line) => /ARIA/.test(line))).toBe(false);
+    expect(inOrder(fd, ["Needs you", "Lesson requests", "New leads", "Worth a look", "Studio health"])).toBe(true);
+  });
+
+  it("Pulse cards (instructor): own sessions, no leads, ARIA or package line", async () => {
+    const ins = await show(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => ({ ...PULSE, scope: "own" as const, instructorId: "ins-1", newClientsLast7Days: null, cards: INSTRUCTOR_CARDS })) }));
+    expect(ins.some((line) => /New leads|ARIA|running low|request from /.test(line))).toBe(false);
+    expect(inOrder(ins, ["Needs you", "Lesson requests", "Booking request", "Your sessions", "sessions today: 2"])).toBe(true);
   });
 
   it("class roster: the class, its details, the capacity, then each dancer followed by their own marks", async () => {
