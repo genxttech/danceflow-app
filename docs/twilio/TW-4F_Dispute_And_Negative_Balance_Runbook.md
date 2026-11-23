@@ -89,3 +89,8 @@ Turning hold off stops NEW holds only; holds already placed stay until released.
 - Whether the recorded fee should come from Stripe's balance transaction instead of the 1500 estimate (needs an application change to the webhook handler).
 - When to turn the switches on (proposed: before studios pay by Stripe, per the financial safety gates).
 - **Gate acceptance (section 0):** is "negative-balance alert plus the existing `_tw4c_require_funds` refusal and unfunded recurring charges" acceptable for the "negative-balance hold and alert" gate row, or is a real negative-balance hold wanted in a follow-up?
+
+## 7. Notes for reviewers and merge order
+
+- **Textual merge conflicts with sibling slices are expected, not semantic ones.** `scripts/qa/scenarios.json` (each slice appends its migration to `main` and `numeric`) and `RFL_ALERT_KINDS` / `COPY` in `src/lib/sms/providerFeeAlerts/templates.ts` (each slice that adds an alert kind edits the same lines) will conflict when siblings land. Resolve by keeping every slice's entries; the kind list must match the `studio_sms_provider_alerts_kind_check` constraint of the last migration applied. Whoever merges second rebases and re-runs this suite.
+- **Pre-existing, not changed here:** a LOST dispute leaves `studio_sms_credit_disputes.state = 'open'` (only a won dispute moves the state; `charge.dispute.closed` with `lost` records nothing). The credit stays withdrawn, so the money is right, but the row still counts as open against what other disputes of that payment may reinstate. This needs its own follow-up; this migration neither fixes nor depends on it.
