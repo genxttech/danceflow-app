@@ -218,7 +218,7 @@ commit;`);
     it("the negative-credit trigger can NEVER fail the statement that moved the balance (a failing alert write is only a warning)", () => {
       const w = world();
       call("tw4_credit_adjust", w.entity, 500, `fund-${hex(4)}`, "fixture funding for trigger safety", ADMIN);
-      expect(psql("select pg_get_functiondef('public._tw4dh_negative_alert()'::regprocedure) ~* 'exception\s+when others'")).toBe("t");
+      expect(psql("select pg_get_functiondef('public._tw4dh_negative_alert()'::regprocedure) like '%when others then%raise warning%'")).toBe("t");
       psql("alter table public.studio_sms_provider_alerts add constraint tmp_dh_fail check (kind <> 'credit_negative') not valid;");
       try {
         // the alert insert is now impossible; the debit that crosses zero (the shape of an inbound STOP/HELP absorbed debit) must still succeed
