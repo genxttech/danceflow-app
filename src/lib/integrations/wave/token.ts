@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptIntegrationSecret, encryptIntegrationSecret } from "./secrets";
-import { refreshWaveAccessToken } from "./client";
+import { refreshWaveAccessToken, WaveTokenError } from "./client";
 
 async function markWaveConnectionNeedsReauth(connectionId: string, message: string) {
   const admin = createAdminClient();
@@ -31,7 +31,12 @@ export async function getValidWaveAccessToken(connectionId: string) {
   let tokens: Awaited<ReturnType<typeof refreshWaveAccessToken>>;
   try {
     tokens = await refreshWaveAccessToken(decryptIntegrationSecret(data.encrypted_refresh_token));
-  } catch {
+  } catch (error) {
+    if (error instanceof WaveTokenError && !error.permanent) {
+      // transient: keep the connection and posting state, leave a visible note; the next run retries
+      await admin.from("studio_wave_connections").update({ last_error: "Wave is temporarily unavailable. Sync will retry.", updated_at: new Date().toISOString() }).eq("id", connectionId).neq("status", "disconnected");
+      throw new Error("Wave is temporarily unavailable. Try again shortly.");
+    }
     await markWaveConnectionNeedsReauth(connectionId, "Wave authorization expired. Reconnect Wave.");
     throw new Error("Wave authorization expired. Reconnect Wave.");
   }
@@ -49,7 +54,7 @@ export async function getValidWaveAccessToken(connectionId: string) {
     last_error: null,
     last_refreshed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }).eq("id", connectionId);
+  }).eq("id", connectionId).neq("status", "disconnected");
 
   return tokens.access_token;
 }

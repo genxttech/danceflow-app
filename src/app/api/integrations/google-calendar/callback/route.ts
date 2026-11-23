@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
-import { exchangeGoogleCalendarCode, getGoogleAccountEmail, listGoogleCalendars } from "@/lib/integrations/google-calendar/client";
+import { missingScopes } from "@/lib/integrations/scopes";
+import { GOOGLE_REQUIRED_SCOPES, googleAccountHasOtherConnection, revokeGoogleToken, exchangeGoogleCalendarCode, getGoogleAccountEmail, listGoogleCalendars } from "@/lib/integrations/google-calendar/client";
 import { getGoogleCalendarAccess, googleCalendarReturnPath } from "@/lib/integrations/google-calendar/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { saveGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
@@ -30,6 +31,13 @@ export async function GET(request: NextRequest) {
       return redirectWithClearedState(request, `${returnPath}?error=instructor_mismatch`);
     }
     const tokens = await exchangeGoogleCalendarCode({ code, redirectUri: callbackUrl(request) });
+    // Granular consent lets the user untick calendar access; storing that as "connected" would fail every sync. Revoke what was just granted.
+    if (missingScopes(tokens.scope, GOOGLE_REQUIRED_SCOPES).length > 0) {
+      // The grant is per Google account: do not revoke it if another DanceFlow connection uses the same account.
+      const email = await getGoogleAccountEmail(tokens.access_token).catch(() => null);
+      if (!(await googleAccountHasOtherConnection(email))) await revokeGoogleToken(tokens.refresh_token ?? tokens.access_token);
+      return redirectWithClearedState(request, `${returnPath}?error=insufficient_scope`);
+    }
     const accountEmail = await getGoogleAccountEmail(tokens.access_token);
     const calendars = await listGoogleCalendars(tokens.access_token);
     const primaryCalendar = calendars.find((calendar) => calendar.primary) ?? calendars[0] ?? null;

@@ -12,7 +12,8 @@ import {
   isCategoryAccountTypeAllowed,
 } from "@/lib/accounting/categories";
 import { buildWavePostingLines, WAVE_ACCOUNTING_CATEGORIES, WAVE_PAYMENT_METHODS, type WavePaymentMethodKey } from "@/lib/integrations/wave/categories";
-import { createWaveMoneyTransaction, getWaveAccounts, WavePostingUncertainError } from "@/lib/integrations/wave/client";
+import { decryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
+import { revokeWaveToken, createWaveMoneyTransaction, getWaveAccounts, WavePostingUncertainError } from "@/lib/integrations/wave/client";
 import { getValidWaveAccessToken } from "@/lib/integrations/wave/token";
 
 async function waveContext() {
@@ -405,6 +406,11 @@ export async function postNextWaveLineAction(formData: FormData) {
 export async function disconnectWaveAction() {
   const { supabase, studioId, connection } = await waveContext();
   const admin = createAdminClient();
+  // Revoke at Wave first (best effort, never blocks the local disconnect).
+  const { data: stored } = await admin.from("studio_wave_credentials").select("encrypted_access_token, encrypted_refresh_token").eq("connection_id", connection.id).maybeSingle<{ encrypted_access_token: string; encrypted_refresh_token: string | null }>();
+  if (stored) {
+    try { await revokeWaveToken(decryptIntegrationSecret(stored.encrypted_refresh_token ?? stored.encrypted_access_token)); } catch { /* undecryptable: nothing to revoke */ }
+  }
   const { error: credentialError } = await admin.from("studio_wave_credentials").delete().eq("connection_id", connection.id);
   if (credentialError) throw new Error(credentialError.message);
   const { error } = await supabase.from("studio_wave_connections").update({
