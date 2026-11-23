@@ -24,3 +24,14 @@ Files: `src/lib/supabase/migrations/20261118101000_nsi_i3_m12_invitations_sessio
 3. **Not built in M12:** the parallel-issue concurrency script, the level-10 DEV-safe suite for shared DEV (the existing I1 DEV-safe suite now covers the new tables and surface and runs on DEV unchanged), and the full-chain replay on the M12 bytes. They are required before a PROD discussion; the first two are needed before the DEV apply review closes.
 4. The I3-4 signature swap of `intake_save_draft` and `intake_submit_response` (session-hash forms) is not part of M12; M12 must not be wired to a UI until that migration exists.
 5. `intake_issue_invitation` is the only issue path; the reconciler's service-role path is I4.
+
+## Update after the independent reviews (final bytes, still unapplied)
+
+- Migration sha256 `54e62dfb669f56b4019359b62f567667b4276780dbcfadf3b090f6c4a8fc4187` (LF; the stored blob is what the DEV apply must hash), rollback sha256 `04da22c2e3713fc0585e9da0c72335ec40447ed920bd04a54a044b86c4ab3c01`. Catalog M11 `9c575d50…|670` to M12 `3353ac98…|768`.
+- Review items folded in place: lock order (client lock, then request, then invitation rows) for exchange, issue, revoke, bulk revoke and erase; expected-generation parameter and the staff next-generation read; live-appointment pre-check before any revoke; unknown tokens write nothing; the live-session cap is exact under concurrency (invitation row lock); sessions record and enforce the minting actor; `link_exchanged` is a system event carrying the generation; bulk revoke capped at 500 per call in a fixed lock order; purge uses a non-waiting client lock (`try_lock_client`) so it can never wait on, or deadlock with, a writer. Spec revision 3 reconciles the text with the SQL (section 0).
+- Suites on M12: M12 26, M11 18, M10 17, M7 36, M9 17, I1 foundation 109, I2-local 92 (function count 103), level-10 DEV-safe 9.
+- **13 mutation probes detected** (11 behavior probes via the suite; 2 lock-removal probes via the deterministic concurrency checks).
+- Concurrency C1-C6: one winner among eight parallel issues; exactly 10 sessions for 12 parallel exchanges; resend vs exchange; rate-limit counter exact; deterministic proof that exchange, bulk revoke and issue wait for the client lock without holding the invitation row; erase vs exchange, revoke vs exchange and erase vs issue over six rounds: zero deadlocks, consistent end states.
+- Defects found by the local runs and fixed before any apply: extra execute grant; audit key outside the allowlist; rate-limit PK without the window length; a non-discriminating probe; purge row locks needing a privilege the restricted role does not have (replaced by `try_lock_client`); harness bugs (timing measured against unrelated background jobs, short ids).
+- Still deviations: no `p_reason` on revoke; purge not audited; no separate request-closure writer; I3-4 signature swap pending.
+- Evidence: `rehearsal/m12_local/lifecycle_run_final_2026-11-23.txt`.

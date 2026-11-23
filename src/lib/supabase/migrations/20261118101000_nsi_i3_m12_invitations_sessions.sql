@@ -168,6 +168,7 @@ declare
     'public.intake_issue_invitation|10|authenticated|t',
     'public.intake_next_invitation_generation|10|authenticated|t',
     'intake_private.request_has_live_target|10||t',
+    'intake_private.try_lock_client|10|intake_destructive|f',
     'public.intake_revoke_invitations|10|authenticated|t',
     'public.intake_revoke_all_invitations_for_key|10|service_role|t',
     'public.intake_rate_limit_hit|10|service_role|t',
@@ -599,8 +600,9 @@ as $$
 declare i public.intake_invitations;
 begin
   select * into i from public.intake_invitations x where x.id = new.invitation_id;
-  if i.id is null or i.studio_id <> new.studio_id or i.request_id <> new.request_id or i.audience <> new.audience then
-    raise exception 'nsi: session must match its invitation (studio, request, audience)' using errcode = '42501';
+  if i.id is null or i.studio_id <> new.studio_id or i.request_id <> new.request_id or i.audience <> new.audience
+     or new.issued_by_user is distinct from i.issued_by_user then
+    raise exception 'nsi: session must match its invitation (studio, request, audience, minting actor)' using errcode = '42501';
   end if;
   if new.absolute_expires_at <= new.created_at or new.idle_expires_at > new.absolute_expires_at then
     raise exception 'nsi: session limits are inconsistent' using errcode = '22023';
@@ -660,6 +662,16 @@ drop trigger if exists intake_sessions_30_guard on public.intake_sessions;
 create trigger intake_sessions_30_guard before update on public.intake_sessions for each row execute function intake_private.sessions_update_guard();
 drop trigger if exists intake_rate_limits_30_guard on public.intake_rate_limits;
 create trigger intake_rate_limits_30_guard before update on public.intake_rate_limits for each row execute function intake_private.rate_limits_update_guard();
+
+-- Non-waiting variant of lock_client (same key). Used by the purge, which must never wait for a lock another writer holds: it simply skips
+-- that client's rows and retries on the next run. (The restricted role has SELECT and DELETE only, so it cannot use row locks such as
+-- FOR UPDATE SKIP LOCKED.)
+create or replace function intake_private.try_lock_client(p_studio_id uuid, p_client_id uuid)
+returns boolean language sql volatile
+set search_path = pg_catalog, pg_temp
+as $$
+  select pg_try_advisory_xact_lock(hashtextextended('intake:client:' || p_studio_id::text || ':' || p_client_id::text, 0));
+$$;
 
 -- A request with no active appointment attachment has no live-target requirement; one that has attachments needs at least one live one.
 create or replace function intake_private.request_has_live_target(p_request_id uuid)
@@ -738,6 +750,7 @@ begin
   if v_client is null then raise exception 'nsi: unknown request' using errcode = '22023'; end if;
   perform intake_private.lock_client(p_studio_id, v_client);
   select * into q from public.intake_requests r where r.id = p_request_id and r.studio_id = p_studio_id for update;
+  if q.id is null then raise exception 'nsi: unknown request' using errcode = '22023'; end if;
   if q.status not in ('pending', 'invited', 'in_progress') then
     raise exception 'nsi: the request is not open' using errcode = '22023';
   end if;
@@ -798,7 +811,7 @@ end $$;
 
 -- Operator runbook: root-key compromise. service_role only; bounded batches; audited per studio with counts. One invitation at a time,
 -- taking the client lock first (the same order as issue, revoke, exchange and erase), so it can never deadlock with them.
-create or replace function public.intake_revoke_all_invitations_for_key(p_kid text, p_limit int default 500)
+create or replace function public.intake_revoke_all_invitations_for_key(p_kid text, p_limit int default 200)
 returns int language plpgsql security definer
 set search_path = pg_catalog, pg_temp
 as $$
@@ -810,8 +823,12 @@ declare
   v_studio text;
 begin
   if p_kid is null or p_kid !~ '^[A-Za-z0-9_-]{8}$' then raise exception 'nsi: invalid key id' using errcode = '22023'; end if;
-  for r in select i.id, i.studio_id, i.request_id from public.intake_invitations i where i.kid = p_kid and i.revoked_at is null
-           order by i.id limit least(greatest(coalesce(p_limit, 500), 1), 5000) loop
+  -- At most 500 invitations per call (default 200). Advisory client locks are held until the end of the transaction, so the rows are
+  -- taken in a fixed (studio, client) order: two concurrent runs then acquire locks in the same order and cannot deadlock each other.
+  -- Operator loop: run one call at a time and repeat until it returns 0.
+  for r in select i.id, i.studio_id, i.request_id from public.intake_invitations i join public.intake_requests q on q.id = i.request_id
+           where i.kid = p_kid and i.revoked_at is null
+           order by i.studio_id, q.client_id, i.id limit least(greatest(coalesce(p_limit, 200), 1), 500) loop
     select q.client_id into v_client from public.intake_requests q where q.id = r.request_id;
     perform intake_private.lock_client(r.studio_id, v_client);
     update public.intake_invitations i set revoked_at = now(), revoked_reason = 'key_rotation' where i.id = r.id and i.revoked_at is null;
@@ -891,8 +908,8 @@ begin
           least(now() + p_idle_seconds * interval '1 second', now() + p_absolute_seconds * interval '1 second'),
           now() + p_absolute_seconds * interval '1 second')
   returning id into v_sid;
-  perform intake_private.audit_write(i.studio_id, 'link_exchanged', 'student', null, null, i.request_id, v_client, 'intake_session', v_sid, null,
-    jsonb_build_object('audience', i.audience), 'operational');
+  perform intake_private.audit_write(i.studio_id, 'link_exchanged', 'system', null, null, i.request_id, v_client, 'intake_session', v_sid, null,
+    jsonb_build_object('audience', i.audience, 'generation', i.generation), 'operational');
   return query select v_sid;
 end $$;
 
@@ -999,16 +1016,18 @@ begin
     select x.id from public.intake_sessions x
     where (x.absolute_expires_at < now() - interval '24 hours' or x.revoked_at < now() - interval '24 hours')
       and not intake_private.client_has_active_hold(x.studio_id, intake_private.subject_of('intake_sessions', x.request_id, null))
+      and intake_private.try_lock_client(x.studio_id, intake_private.subject_of('intake_sessions', x.request_id, null))
     order by x.id limit p_limit);
   get diagnostics v_s = row_count;
   delete from public.intake_rate_limits l where (l.bucket_hash, l.window_seconds, l.window_start) in (
-    select x.bucket_hash, x.window_seconds, x.window_start from public.intake_rate_limits x where x.window_start < now() - interval '24 hours' limit p_limit);
+    select x.bucket_hash, x.window_seconds, x.window_start from public.intake_rate_limits x where x.window_start < now() - interval '24 hours' order by x.bucket_hash, x.window_seconds, x.window_start limit p_limit);
   get diagnostics v_r = row_count;
   delete from public.intake_invitations i where i.id in (
     select x.id from public.intake_invitations x
     where x.expires_at < now() - interval '90 days'
       and not exists (select 1 from public.intake_sessions s where s.invitation_id = x.id)
       and not intake_private.client_has_active_hold(x.studio_id, intake_private.subject_of('intake_invitations', x.request_id, null))
+      and intake_private.try_lock_client(x.studio_id, intake_private.subject_of('intake_invitations', x.request_id, null))
     order by x.id limit p_limit);
   get diagnostics v_i = row_count;
   return jsonb_build_object('sessions', v_s, 'rate_limits', v_r, 'invitations', v_i);
@@ -1027,12 +1046,13 @@ begin
 end $$;
 
 revoke all on function intake_private.invitations_insert_guard(), intake_private.invitations_update_guard(), intake_private.sessions_insert_guard(),
-  intake_private.sessions_update_guard(), intake_private.rate_limits_update_guard(), intake_private.link_valid(uuid), intake_private.request_has_live_target(uuid)
+  intake_private.sessions_update_guard(), intake_private.rate_limits_update_guard(), intake_private.link_valid(uuid), intake_private.request_has_live_target(uuid), intake_private.try_lock_client(uuid, uuid)
   from public, anon, authenticated, service_role, intake_destructive;
 revoke all on function public.intake_issue_invitation(uuid, uuid, uuid, int, text, bytea, bytea, timestamptz), public.intake_next_invitation_generation(uuid, uuid),
   public.intake_revoke_invitations(uuid, uuid), public.intake_revoke_all_invitations_for_key(text, int), public.intake_rate_limit_hit(bytea, int, int),
   public.intake_exchange_invitation(bytea, bytea, int, int), public.intake_session_context(bytea), public.intake_revoke_session(bytea),
   public.intake_purge_expired(int) from public, anon, authenticated, service_role, intake_destructive;
+grant execute on function intake_private.try_lock_client(uuid, uuid) to intake_destructive;
 grant execute on function public.intake_issue_invitation(uuid, uuid, uuid, int, text, bytea, bytea, timestamptz) to authenticated;
 grant execute on function public.intake_next_invitation_generation(uuid, uuid) to authenticated;
 grant execute on function public.intake_revoke_invitations(uuid, uuid) to authenticated;

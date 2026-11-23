@@ -1,6 +1,25 @@
-# NSI I3-1 (M12) database specification: invitations, sessions, rate limits (revision 2)
+# NSI I3-1 (M12) database specification: invitations, sessions, rate limits (revision 3)
 
 Status: **specification, amended after the independent review (CONDITIONAL GO, P1-1..P1-4 plus P2s), 2026-11-23.** Implementation is local-only DEV-safe work: no email, no outbox, no customer-visible surface, Gate A closed, no billing gating (pilot grants, staff role and Gate A only). Refines `NSI_I3_PartA_Design.md` §3 row I3-1 (items A1, A2, A7). Revision 1 is superseded; the changes are listed in section 9.
+
+## 0. Revision 3: reconciliation with the implemented SQL (authoritative where it differs from sections 1 to 9)
+
+Revision 2 was written before the implementation and two review rounds. Where the text below differs from this table, **this table and the migration win**.
+
+| Topic | Implemented behavior |
+|---|---|
+| Issue signature | `intake_issue_invitation(p_studio_id, p_request_id, p_invitation_id, p_generation, p_kid, p_token_salt, p_token_hash, p_expires_at)`: the caller states the generation it derived the token for; a mismatch raises 22023 (so a delivery retry can never send a link that is already dead). Staff read it first with `intake_next_invitation_generation(p_studio_id, p_request_id)` (same `assert_staff('send')` rule) |
+| Issue pre-checks | request open; **a request whose attached appointments are all dead is refused before anything is revoked** (`request_has_live_target`); expiry clamp 1 hour to 30 days |
+| Lock order (every writer) | client lock (`lock_client`) first, then the request row, then the invitation rows. Exchange, issue, revoke, bulk revoke and erase all follow it. The bulk key revoke takes one invitation at a time in (studio, client, invitation) order, at most 500 per call (default 200), one run at a time; the purge never waits on a locked row (`FOR UPDATE SKIP LOCKED`) |
+| Revoke | `intake_revoke_invitations(p_studio_id, p_request_id)` has **no `p_reason` parameter** (reason is always `staff_revoked`; `resent`, `key_rotation` are set by the system paths). Deviation recorded; `request_closed` and `erasure` reasons are reserved and currently unused |
+| Exchange | unknown token: returns nothing and writes **nothing**; known token: per-token counter (20 per 10 minutes) is incremented under the invitation row lock; the live-session cap (10) is serialized by that same lock and is exact under concurrency |
+| Audit | `link_exchanged` is a **system** event (an exchange proves possession of a link, not an authenticated student), metadata `audience` and `generation` so request plus generation joins back to the `invitation_issued` event and its staff actor. Purge is **not audited** (cross-studio); the I4 cron logs the counts |
+| Minting actor (P1-A, option 2) | `intake_invitations.issued_by_user` is copied to `intake_sessions.issued_by_user` (the session guard enforces equality, the update guard makes it immutable) |
+| Rate-limit table | primary key `(bucket_hash, window_seconds, window_start)`; **no BEFORE INSERT trigger** (writes happen only inside `intake_rate_limit_hit`, which refuses while Gate A is closed); TS keys are HMAC (subkey `intake/ratelimit/v1`) over kind, window and value |
+| Signing secret | `INTAKE_ROOT_SECRET` is 32 random bytes encoded as hex or base64 (for example `openssl rand -base64 32`); anything else, and any degenerate value, is refused by `loadIntakeKeyring`. **It is not provisioned anywhere** (Student Intake is dark); the repository's example env files do not mention it. Whether a hosting environment already holds a value was not checked (names and values are owner-controlled) |
+
+### P1-A rule (hard blocker for I3-4 and any UI wiring)
+A submission made through a link session is **never student-authenticated evidence**: respondent assurance stays `declared_unverified` whoever opens the link. The I3-4 save and submit functions must carry session and invitation provenance (session id, invitation id, generation and the minting staff member) into the response and consent evidence, so staff-minted links are visible as such. The guardian path additionally requires the L2 email code on top of the link: with copy-link available, a link alone can never count as guardian consent, which is what makes a two-party issue unnecessary for the student path.
 
 ## 1. Scope
 M12 adds student-audience invitations, sessions and rate limits. **Audience is restricted to `student`**; the guardian audience (L2 email code, L3 link, attestation) arrives with O2 and I3-2/I3-3. The `audience` column and CHECK are written so adding `guardian` later is a CHECK widening, not a redesign.

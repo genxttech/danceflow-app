@@ -25,6 +25,7 @@ drop table public.intake_invitations;
 drop table public.intake_rate_limits;
 drop function if exists intake_private.link_valid(uuid);
 drop function if exists intake_private.request_has_live_target(uuid);
+drop function if exists intake_private.try_lock_client(uuid, uuid);
 drop function if exists intake_private.invitations_insert_guard();
 drop function if exists intake_private.invitations_update_guard();
 drop function if exists intake_private.sessions_insert_guard();

@@ -1,0 +1,17 @@
+backed up current df-isoqa/base:20261205090000 (sha256:00748f0063e6)
+== A: up full-nsi-end (baseline from origin/main)
+   up exit code 0
+   NSI catalog fingerprint A: ad44f6423aa34dcbe70ca1f1481d3f55|767   appointments fp A: ff651a6c438d40a001e52ef1625c9043
+   M12 suite on A: ERROR:  NSI I3-1 SUITE PASS (26 checks)
+   M11 suite on A: ERROR:  NSI I2 M11 SUITE PASS (18 checks)
+   M10 suite on A: ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+   M7 suite on A: ERROR:  NSI I2 M7 SUITE PASS (36 checks)
+   M9 suite on A: ERROR:  NSI I2 M9 SUITE PASS (17 checks)
+   test_T_nsi_i1_foundation on A: ERROR:  NSI I1 DEV-SAFE SUITE PASS (109 checks)
+   test_T_nsi_i2_local on A: ERROR:  NSI I2 SUITE PASS (92 checks)
+== rollbacks on A: M12 -> M11 -> M10 -> M9
+   M12 rollback -> M11 fingerprint identical
+   M11 rollback -> M10 fingerprint identical
+   M10 rollback -> M9 fingerprint identical
+== B: baseline from nsi/n0-preserve (NSI inside the history by filename order)
+   baseline exit code 0

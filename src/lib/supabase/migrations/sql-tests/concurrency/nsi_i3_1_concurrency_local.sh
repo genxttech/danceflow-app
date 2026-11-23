@@ -21,6 +21,8 @@ ORIG=$(q "select pg_get_functiondef('public.intake_platform_policy()'::regproced
 q "$OPEN" >/dev/null
 q "insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at) values ('$U', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'conc-owner@nsi-i3.invalid', now(), now()) on conflict do nothing;
    insert into public.profiles (id) values ('$U') on conflict do nothing;
+   insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at) values ('a5600000-0000-0000-0000-000000000401', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'conc-padmin@nsi-i3.invalid', now(), now()) on conflict do nothing;
+   insert into public.profiles (id, platform_role) values ('a5600000-0000-0000-0000-000000000401', 'platform_admin') on conflict (id) do update set platform_role = 'platform_admin';
    insert into public.studios (id, name, slug) values ('$S', 'NSI I3-1 concurrency', 'nsi-i3-1-conc') on conflict do nothing;
    insert into public.user_studio_roles (user_id, studio_id, role, active) values ('$U', '$S', 'studio_owner', true) on conflict do nothing;
    insert into public.intake_templates (id, studio_id, name) values ('$T', '$S', 'C') on conflict do nothing;
@@ -46,6 +48,8 @@ exch() { # hash-seed session-seed -> psql output
 }
 tmp=$(mktemp -d); fail=0; dead=0
 
+RUNID="${RUNID:-0}"
+if [ "${ONLY:-}" != "C5" ]; then
 # ---- C1
 R1=$(mkreq 1)
 for i in $(seq 1 "$N"); do
@@ -68,8 +72,8 @@ for i in $(seq 1 "$M"); do ( exch "c2-token" "c2-sess-$i" > "$tmp/c2_$i" 2>&1 ) 
 wait
 served=0; errs=0; for i in $(seq 1 "$M"); do grep -qE '^[0-9a-f-]{36}$' "$tmp/c2_$i" && served=$((served+1)); grep -qiE 'ERROR|40P01' "$tmp/c2_$i" && errs=$((errs+1)); done
 sess=$(q "select count(*) from public.intake_sessions where invitation_id = '$INV2';")
-[ "$errs" = "0" ] && [ "$sess" -le 10 ] && [ "$served" = "$sess" ] || { fail=$((fail+1)); echo "C2 served=$served sessions=$sess errors=$errs"; }
-echo "C2 parallel exchanges of one token: attempts=$M served=$served live_sessions=$sess (cap 10) errors=$errs"
+[ "$errs" = "0" ] && [ "$sess" = "10" ] && [ "$served" = "10" ] || { fail=$((fail+1)); echo "C2 served=$served sessions=$sess errors=$errs"; }
+echo "C2 parallel exchanges of one token: attempts=$M served=$served live_sessions=$sess (cap 10, exactly 10 expected) errors=$errs"
 
 # ---- C3
 c3=0
@@ -98,39 +102,93 @@ allowed=0; for i in $(seq 1 "$K"); do grep -qx t "$tmp/c4_$i" && allowed=$((allo
 echo "C4 parallel rate-limit hits: attempts=$K allowed=$allowed (limit 10)"
 
 
+fi
 # ---- C5 (deterministic: held locks, no timing luck)
-RB=$(mkreq 300); IB=a5600000-0000-0000-0007-000000000300
-issue "$RB" "$IB" "c5-token" >/dev/null
-CB=$(printf 'a5600000-0000-0000-0001-%012d' 300)
+RB=$(mkreq $((300 + RUNID))); IB=$(printf 'a5600000-0000-0000-0007-%012d' $((RUNID + 300)))
+issue "$RB" "$IB" "c5-token-$RUNID" >/dev/null
+CB=$(printf 'a5600000-0000-0000-0001-%012d' $((300 + RUNID)))
 hold() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select intake_private.lock_client('$S', '$CB'); select pg_sleep($1); commit;" >/dev/null 2>&1; }
 # exchange waits for the client lock without touching the invitation row
 hold 9 &
 sleep 2
 t0=$(date +%s)
-( exch "c5-token" "c5-sess" > "$tmp/c5_exch" 2>&1 ) &
+( exch "c5-token-$RUNID" "c5-sess-$RUNID" > "$tmp/c5_exch" 2>&1; date +%s > "$tmp/c5_end_a" ) &
 sleep 3
 nowait=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_invitations where id = '$IB' for update nowait; commit;" 2>&1 | tr '\n' ' ')
 wait
-t1=$(date +%s)
+t1=$(cat "$tmp/c5_end_a" 2>/dev/null || date +%s)
 okx=0; grep -qE '^[0-9a-f-]{36}$' "$tmp/c5_exch" && okx=1
 case "$nowait" in *"$IB"*) nw=1;; *) nw=0;; esac
 if [ "$okx" = "1" ] && [ "$nw" = "1" ] && [ $((t1 - t0)) -ge 4 ]; then echo "C5a exchange waited for the client lock ($((t1 - t0)) s) without holding the invitation lock, then succeeded"; else fail=$((fail+1)); echo "C5a exchange_ok=$okx invitation_lockable_while_waiting=$nw waited=$((t1 - t0))s nowait=[$nowait]"; fi
 # bulk revoke waits for the client lock without touching the invitation row
-RC=$(mkreq 301); IC=a5600000-0000-0000-0007-000000000301
-issue "$RC" "$IC" "c5b-token" kidlock1 >/dev/null
-CC=$(printf 'a5600000-0000-0000-0001-%012d' 301)
+RC=$(mkreq $((301 + RUNID))); IC=$(printf 'a5600000-0000-0000-0007-%012d' $((RUNID + 301)))
+KID5=$(printf 'kl%06d' $((RUNID + 1)))
+issue "$RC" "$IC" "c5b-token-$RUNID" $KID5 >/dev/null
+CC=$(printf 'a5600000-0000-0000-0001-%012d' $((301 + RUNID)))
 holdc() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select intake_private.lock_client('$S', '$CC'); select pg_sleep($1); commit;" >/dev/null 2>&1; }
 holdc 9 &
 sleep 2
 t0=$(date +%s)
-( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_revoke_all_invitations_for_key('kidlock1', 100);" > "$tmp/c5_bulk" 2>&1 ) &
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_revoke_all_invitations_for_key('$KID5', 100);" > "$tmp/c5_bulk" 2>&1; date +%s > "$tmp/c5_end_b" ) &
 sleep 3
 nowait=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_invitations where id = '$IC' for update nowait; commit;" 2>&1 | tr '\n' ' ')
 wait
-t1=$(date +%s)
+t1=$(cat "$tmp/c5_end_b" 2>/dev/null || date +%s)
 revoked=$(q "select count(*) from public.intake_invitations where id = '$IC' and revoked_at is not null;")
 case "$nowait" in *"$IC"*) nw=1;; *) nw=0;; esac
 if [ "$revoked" = "1" ] && [ "$nw" = "1" ] && [ $((t1 - t0)) -ge 4 ] && grep -qx 1 "$tmp/c5_bulk"; then echo "C5b bulk key revoke waited for the client lock ($((t1 - t0)) s) without holding the invitation lock, then revoked 1"; else fail=$((fail+1)); echo "C5b revoked=$revoked lockable=$nw waited=$((t1 - t0))s out=[$(tr '\n' ' ' < "$tmp/c5_bulk")]"; fi
+
+# C5c: issue waits for the client lock without holding the invitation row
+RD=$(mkreq $((302 + RUNID))); ID1=$(printf 'a5600000-0000-0000-0007-%012d' $((RUNID + 302))); ID2=$(printf 'a5600000-0000-0000-0008-%012d' $((RUNID + 302)))
+issue "$RD" "$ID1" "c5c-token-1-$RUNID" >/dev/null
+CD=$(printf 'a5600000-0000-0000-0001-%012d' $((302 + RUNID)))
+docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select intake_private.lock_client('$S', '$CD'); select pg_sleep(9); commit;" >/dev/null 2>&1 &
+sleep 2
+t0=$(date +%s)
+( issue "$RD" "$ID2" "c5c-token-2-$RUNID" kid00001 2 > "$tmp/c5_issue" 2>&1; date +%s > "$tmp/c5_end_c" ) &
+sleep 3
+nowait=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_invitations where id = '$ID1' for update nowait; commit;" 2>&1 | tr '\n' ' ')
+wait
+t1=$(cat "$tmp/c5_end_c" 2>/dev/null || date +%s)
+case "$nowait" in *"$ID1"*) nw=1;; *) nw=0;; esac
+gen2=$(q "select count(*) from public.intake_invitations where id = '$ID2';")
+if [ "$gen2" = "1" ] && [ "$nw" = "1" ] && [ $((t1 - t0)) -ge 4 ]; then echo "C5c issue waited for the client lock ($((t1 - t0)) s) without holding the invitation lock, then issued generation 2"; else fail=$((fail+1)); echo "C5c issued=$gen2 lockable=$nw waited=$((t1 - t0))s out=[$(tr '\n' ' ' < "$tmp/c5_issue" | cut -c1-160)]"; fi
+
+if [ "${ONLY:-}" != "C5" ]; then
+# ---- C6 races: erase vs exchange, revoke vs exchange, erase vs issue (no deadlock, consistent end state)
+PADMIN=a5600000-0000-0000-0000-000000000401
+erase() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role authenticated; set request.jwt.claims = '{\"sub\":\"$PADMIN\",\"role\":\"authenticated\"}'; select public.intake_erase_client('$S', '$1', 'data_subject_request')::text;" 2>&1; }
+revoke_all() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role authenticated; set request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; select public.intake_revoke_invitations('$S', '$1');" 2>&1; }
+c6=0
+for r in $(seq 1 6); do
+  # erase vs exchange
+  RQ=$(mkreq $((400 + r))); CL=$(printf 'a5600000-0000-0000-0001-%012d' $((400 + r))); IV=$(printf 'a5600000-0000-0000-0009-%012d' $r)
+  issue "$RQ" "$IV" "c6a-$r" >/dev/null
+  ( erase "$CL" > "$tmp/c6a_$r" 2>&1 ) &
+  ( exch "c6a-$r" "c6a-s-$r" > "$tmp/c6b_$r" 2>&1 ) &
+  wait
+  left=$(q "select (select count(*) from public.intake_invitations where request_id = '$RQ') + (select count(*) from public.intake_sessions where request_id = '$RQ');")
+  if grep -qE '40P01|deadlock' "$tmp/c6a_$r" "$tmp/c6b_$r" || [ "$left" != "0" ]; then c6=$((c6+1)); echo "C6a round $r: left=$left $(tr '\n' ' ' < "$tmp/c6a_$r" | cut -c1-120) | $(tr '\n' ' ' < "$tmp/c6b_$r" | cut -c1-120)"; fi
+  # revoke vs exchange
+  RQ2=$(mkreq $((420 + r))); IV2=$(printf 'a5600000-0000-0000-000a-%012d' $r)
+  issue "$RQ2" "$IV2" "c6c-$r" >/dev/null
+  ( revoke_all "$RQ2" > "$tmp/c6c_$r" 2>&1 ) &
+  ( exch "c6c-$r" "c6c-s-$r" > "$tmp/c6d_$r" 2>&1 ) &
+  wait
+  live=$(q "select count(*) from public.intake_sessions s join public.intake_invitations i on i.id = s.invitation_id where s.request_id = '$RQ2' and s.revoked_at is null and i.revoked_at is not null;")
+  if grep -qE '40P01|deadlock' "$tmp/c6c_$r" "$tmp/c6d_$r" || [ "$live" != "0" ]; then c6=$((c6+1)); echo "C6b round $r: live_sessions_of_revoked=$live"; fi
+  # erase vs issue (second generation)
+  RQ3=$(mkreq $((440 + r))); CL3=$(printf 'a5600000-0000-0000-0001-%012d' $((440 + r))); IV3=$(printf 'a5600000-0000-0000-000b-%012d' $r); IV4=$(printf 'a5600000-0000-0000-000c-%012d' $r)
+  issue "$RQ3" "$IV3" "c6e-$r" >/dev/null
+  ( erase "$CL3" > "$tmp/c6e_$r" 2>&1 ) &
+  ( issue "$RQ3" "$IV4" "c6f-$r" kid00001 2 > "$tmp/c6f_$r" 2>&1 ) &
+  wait
+  left=$(q "select (select count(*) from public.intake_invitations where request_id = '$RQ3') + (select count(*) from public.intake_sessions where request_id = '$RQ3');")
+  if grep -qE '40P01|deadlock' "$tmp/c6e_$r" "$tmp/c6f_$r" || [ "$left" != "0" ]; then c6=$((c6+1)); echo "C6c round $r: left=$left"; fi
+done
+fail=$((fail+c6))
+echo "C6 erase vs exchange, revoke vs exchange, erase vs issue: rounds=6 failures=$c6"
+fi
 
 printf '%s\n' "$ORIG" | docker exec -i "$DB" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 >/dev/null 2>&1; ORIG=""
 gate=$(q "select intake_private.retention_gate_open();"); cat=$(q "select intake_private.assert_catalog();")

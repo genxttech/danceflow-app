@@ -128,9 +128,11 @@ select pg_temp.chk('S03b a generation-1 invitation forced back to unrevoked stil
 -- ===== S04 exchange: success and every invalid class returns the same empty answer ===================================
 select pg_temp.setkv('e1', pg_temp.fresh(true));
 select pg_temp.setkv('e1_s', pg_temp.exch(pg_temp.part(pg_temp.kv('e1'), 3), 'sess-e1'));
-select pg_temp.chk('S04a a valid link yields one session; the session resolves to its request and audience and the exchange is audited',
+select pg_temp.chk('S04a a valid link yields one session; the session resolves to its request and audience; the exchange is audited as a system event (not an authenticated student) with the invitation generation, which joins back to the issuing staff member',
   pg_temp.is_uuid(pg_temp.kv('e1_s')) and pg_temp.ctx('sess-e1') = pg_temp.part(pg_temp.kv('e1'), 1)
-  and exists (select 1 from public.intake_audit_events e where e.event_type = 'link_exchanged' and e.request_ref = pg_temp.part(pg_temp.kv('e1'), 1)::uuid));
+  and exists (select 1 from public.intake_audit_events e where e.event_type = 'link_exchanged' and e.actor_type = 'system' and e.request_ref = pg_temp.part(pg_temp.kv('e1'), 1)::uuid
+              and e.metadata = '{"audience": "student", "generation": 1}'::jsonb)
+  and exists (select 1 from public.intake_audit_events e where e.event_type = 'invitation_issued' and e.request_ref = pg_temp.part(pg_temp.kv('e1'), 1)::uuid and e.actor_user_id = pg_temp.u('owner_a')));
 -- invalid classes, one fresh request each
 select pg_temp.setkv('i_unknown', pg_temp.exch(pg_temp.hx('no-such-token'), 'x1'));
 select pg_temp.setkv('i_revoked_f', pg_temp.fresh(true));

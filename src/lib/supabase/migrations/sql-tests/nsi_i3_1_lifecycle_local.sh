@@ -79,8 +79,20 @@ apply $C 12 && say "   replay M12 ok"; [ "$(fp $C)" = "$F12" ] && say "   finger
 e=$(applyfile $C "$M/${FILES[10]}.sql"); echo "$e" | grep -q "catalog self-check failed" && say "   replay M11 fails closed" || bad "replay M11 did not fail closed: $e"
 [ "$(fp $C)" = "$F12" ] || bad "failed replay of M11 changed the catalog"
 say "== concurrency harness C1-C4 on the M12 container (commits fixtures; runs last)"
-r=$(bash "$D/concurrency/nsi_i3_1_concurrency_local.sh" $C 8 2>&1 | tail -8); echo "$r" | sed 's/^/   /'
+r=$(bash "$D/concurrency/nsi_i3_1_concurrency_local.sh" $C 8 2>&1 | tail -14); echo "$r" | sed 's/^/   /'
 echo "$r" | grep -q "SUMMARY concurrency M12: failures=0 deadlocks=0" || bad "concurrency harness"
+say "== lock-order probes: removing lock_client must be caught by the deterministic concurrency checks (C5)"
+lockprobe() { # label sed-expression
+  sed "$2" "$M/${FILES[11]}.sql" > "$TMPD/m12_lockmut.sql"
+  cmp -s "$M/${FILES[11]}.sql" "$TMPD/m12_lockmut.sql" && { bad "lock probe $1: the mutation changed nothing"; return; }
+  o=$(applyfile $C "$TMPD/m12_lockmut.sql") || { bad "lock probe $1: mutated file did not apply: $o"; return; }
+  r=$(ONLY=C5 RUNID=$3 bash "$D/concurrency/nsi_i3_1_concurrency_local.sh" $C 8 2>&1 | tail -8)
+  if echo "$r" | grep -qE "^C5[abc] .*(waited=|lockable=)" && echo "$r" | grep -q "SUMMARY concurrency M12: failures=[1-9]"; then say "   lock probe $1: detected"; else bad "lock probe $1 NOT detected: $(echo "$r" | tr '\n' ' ' | cut -c1-240)"; fi
+  apply $C 12 || true
+}
+lockprobe "exchange without lock_client" 's|  perform intake_private.lock_client(i.studio_id, v_client);|  null;|' 50
+lockprobe "issue without lock_client" 's|  perform intake_private.lock_client(p_studio_id, v_client);|  null;|' 60
+[ "$(fp $C)" = "$F12" ] && say "   catalog identical after the lock probes" || bad "catalog differs after the lock probes"
 docker rm -f $C >/dev/null 2>&1
 say "SUMMARY m12 lifecycle: failures=$fail"
 [ "$fail" = "0" ]
