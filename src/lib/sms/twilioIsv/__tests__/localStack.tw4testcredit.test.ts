@@ -469,6 +469,21 @@ commit;`);
       adjust(EP, 200);
     });
 
+    it("a usage refund never restores test credit on top of a debt: grant 10, a test-paid text of 10, an inbound charge of 3 (no funds check), the 10 refunded -> balance -3, not 7", () => {
+      resetPilot(0);
+      setBudget(EP, status(EP).granted_cents + 1000);
+      grant(EP, 1000);
+      const a = `tc-restore-${hex(4)}`;
+      call("tw4_credit_debit_usage", EP, SP, 1000, a, "fixture test-paid text");
+      psql(`begin; select public._tw4c_lock('${EP}'); select public._tw4c_post('${EP}', '${SP}', 'usage_charge', -300, 0, 'usage:in:fx-${hex(5)}', null, 'inbound', null, null); commit;`);
+      expect(status(EP).balance_cents).toBe(-300);
+      call("tw4_credit_refund_usage", EP, 1000, `${a}-r`, a);
+      const s = status(EP);
+      expect([s.balance_cents, s.unused_cents, s.ok]).toEqual([-300, 0, true]);
+      expect(hasCode(grantErr(EP, 10), "TW007")).toBe(true);
+      adjust(EP, 300);
+    });
+
     it("the studio view shows test credit separately and the $500 purchase ceiling ignores it (owner's own session)", () => {
       const owner = `ad${RUN}-0000-4000-8000-000000000703`;
       psql(`begin;
@@ -765,6 +780,28 @@ commit;`);
       expect(status(EP).unused_cents).toBe(0);
       adjust(EP, 201);
       expect(status(EP).ok).toBe(true);
+    });
+    /** the restore scenario inside one transaction (rolled back by the caller) */
+    const restoreSql = () => {
+      const a = `tc-mres-${hex(4)}`;
+      return `${budgetSql(granted() + 1000)} ${grantSql(1000)}
+        ${callSql("tw4_credit_debit_usage", EP, SP, 1000, a, "mutation: test-paid text")}
+        select public._tw4c_post('${EP}', '${SP}', 'usage_charge', -300, 0, 'usage:in:mut-${hex(5)}', null, 'inbound', null, null);
+        ${callSql("tw4_credit_refund_usage", EP, 1000, `${a}-r`, a)}`;
+    };
+    it("rule 2 mutation: without the rule after a restore, the test credit reopens the gates on a debt and the verifier says not ok", () => {
+      resetPilot(0);
+      const noRestoreRule = mutate("_tw4tc_on_ledger", /\n      perform public\._tw4tc_enforce\(n\.legal_entity_id, n\.balance_delta_cents, n\.reserved_delta_cents, 0, n\.id, 'restored test credit forfeited: own money negative'\);/, "");
+      const check = assertSql(`(public.tw4_credit_test_status('${EP}') ->> 'ok')::boolean`, "verifier not ok");
+      needed("P0001", noRestoreRule, `${restoreSql()} ${check}`);
+    });
+    it("rule 2 mutation: the grant's own-money check refuses on a positive balance that hides a debt (TW007)", () => {
+      resetPilot(0);
+      const noRestoreRule = mutate("_tw4tc_on_ledger", /\n      perform public\._tw4tc_enforce\(n\.legal_entity_id, n\.balance_delta_cents, n\.reserved_delta_cents, 0, n\.id, 'restored test credit forfeited: own money negative'\);/, "");
+      const ownCheckGone = mutate("tw4_credit_test_grant", /\n     or a\.balance_cents - \(a\.reserved_cents - public\._tw4tc_open_sms\(p_entity_id\)\) - \([^\n]*\) < 0 then/, " then");
+      const scenario = `${noRestoreRule} ${restoreSql()} ${budgetSql(granted() + 2010)} ${grantSql(10)}`;
+      expect(hasCode(psqlError(`begin; ${scenario} rollback;`), "TW007"), "own-money check refuses").toBe(true);
+      expect(psqlError(`begin; ${ownCheckGone} ${scenario} rollback;`), "without it the grant passes").toBe("");
     });
     it("the in-flight texting hold is not counted twice: the old formula refuses a fee own money can pay (TW007)", () => {
       const s0 = status(EP);

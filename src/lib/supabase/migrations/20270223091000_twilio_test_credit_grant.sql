@@ -374,6 +374,8 @@ begin
     if v_take > 0 then
       insert into public.studio_sms_test_credit_movements (legal_entity_id, ledger_entry_id, kind, cents, source_entry_id) values (n.legal_entity_id, n.id, 'restore', v_take, v_orig);
       update public.studio_sms_test_credit_budgets set restored_cents = restored_cents + v_take, updated_at = clock_timestamp() where legal_entity_id = n.legal_entity_id;
+      -- restored test credit must not reopen the balance >= 0 gates on top of a debt (an inbound text charged without a funds check, a dispute...): the rule applies
+      perform public._tw4tc_enforce(n.legal_entity_id, n.balance_delta_cents, n.reserved_delta_cents, 0, n.id, 'restored test credit forfeited: own money negative');
     end if;
   elsif n.balance_delta_cents < 0 and v_unused > 0 then
     -- any OTHER debit (a refund or dispute of a purchase, a negative adjustment, a captured fee): test credit never absorbs it (the rule above)
@@ -611,8 +613,10 @@ begin
   if not public._tw4tc_switch_on() then
     raise exception 'test credit grants are switched off' using errcode = 'TW070';
   end if;
-  if a.hold or a.balance_cents < 0 then
-    raise exception 'no test credit while the account is on hold or negative (test credit never pays an existing debt)' using errcode = 'TW007';
+  -- own money, not the balance: a balance kept positive by earlier test credit must not hide a debt
+  if a.hold or a.balance_cents < 0
+     or a.balance_cents - (a.reserved_cents - public._tw4tc_open_sms(p_entity_id)) - (b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents - b.forfeited_cents) < 0 then
+    raise exception 'no test credit while the account is on hold or the business owes money (test credit never pays an existing debt)' using errcode = 'TW007';
   end if;
   if b.granted_cents + p_cents > b.budget_cents then
     raise exception 'this grant exceeds the remaining test budget (% of % cents left)', b.budget_cents - b.granted_cents, b.budget_cents using errcode = 'TW071';
