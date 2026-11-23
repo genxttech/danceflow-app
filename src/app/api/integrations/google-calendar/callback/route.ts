@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
     const { data: existing, error: existingError } = await existingQuery.maybeSingle<{ id: string }>();
     if (existingError) throw new Error(existingError.message);
 
+    const admin = createAdminClient();
     const { data: saved, error } = existing
       ? await access.supabase
           .from("studio_google_calendar_connections")
@@ -72,7 +73,6 @@ export async function GET(request: NextRequest) {
           .select("id")
           .single<{ id: string }>();
     if (error || !saved) throw new Error(error?.message ?? "Connection could not be saved.");
-    const admin = createAdminClient();
     try {
       await saveGoogleCredentials(admin, saved.id, {
         encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
@@ -80,7 +80,8 @@ export async function GET(request: NextRequest) {
         token_expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
       });
     } catch (credentialError) {
-      await admin.from("studio_google_calendar_connections").update({ status: "needs_reauth", last_sync_error: "Credentials could not be saved. Reconnect Google Calendar." }).eq("id", saved.id);
+      const { error: compensateError } = await admin.from("studio_google_calendar_connections").update({ status: "needs_reauth", last_sync_error: "Credentials could not be saved. Reconnect Google Calendar." }).eq("id", saved.id);
+      if (compensateError) console.error("Google Calendar credential compensation failed", compensateError.message);
       throw credentialError;
     }
     return redirectWithClearedState(request, `${returnPath}?connected=1`);

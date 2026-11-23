@@ -20,6 +20,7 @@ function table(name: string) {
   const builder: any = {
     select: () => builder,
     eq: (c: string, v: any) => { filters.push((r) => r[c] === v); return builder; },
+    neq: (c: string, v: any) => { filters.push((r) => r[c] !== v); return builder; },
     update: (p: Row) => { mode = "update"; patch = p; return builder; },
     delete: () => { mode = "delete"; return builder; },
     upsert: (p: Row, opts: { onConflict: string }) => {
@@ -96,6 +97,32 @@ describe("S0-a token refresh persists to the credentials table", () => {
     expect(decryptIntegrationSecret(db.studio_google_calendar_credentials[0].encrypted_access_token)).toBe("fresh");
     expect(db.studio_google_calendar_connections[0].encrypted_access_token).toBe("legacy-old"); // expand phase: legacy untouched by refresh
     expect(db.studio_google_calendar_connections[0].status).toBe("connected");
+  });
+
+  it("a legacy-only connection keeps its refresh token after the first refresh", async () => {
+    const { encryptIntegrationSecret } = await import("@/lib/integrations/wave/secrets");
+    const { getValidGoogleCalendarAccessToken } = await import("../client");
+    const legacyRefresh = encryptIntegrationSecret("refresh-L");
+    db.studio_google_calendar_connections = [{ id: "c5", status: "connected", encrypted_access_token: encryptIntegrationSecret("old"), encrypted_refresh_token: legacyRefresh, token_expires_at: new Date(Date.now() - 1000).toISOString() }];
+    globalThis.fetch = (async () => new Response(JSON.stringify({ access_token: "fresh", expires_in: 3600 }), { status: 200 })) as any;
+    await getValidGoogleCalendarAccessToken("c5");
+    expect(db.studio_google_calendar_credentials[0].encrypted_refresh_token).toBe(legacyRefresh);
+    refreshMock.mockClear();
+    globalThis.fetch = (async (_u: string, init: any) => { refreshMock(String(init.body)); return new Response(JSON.stringify({ access_token: "again", expires_in: 3600 }), { status: 200 }); }) as any;
+    db.studio_google_calendar_credentials[0].token_expires_at = new Date(Date.now() - 1000).toISOString();
+    await getValidGoogleCalendarAccessToken("c5");
+    expect(refreshMock.mock.calls[0][0]).toContain("refresh_token=refresh-L");
+  });
+
+  it("a disconnect during an in-flight refresh wins: no token row and no connected status", async () => {
+    const { encryptIntegrationSecret } = await import("@/lib/integrations/wave/secrets");
+    const { getValidGoogleCalendarAccessToken } = await import("../client");
+    db.studio_google_calendar_connections = [{ id: "c6", status: "disconnected", encrypted_access_token: null }];
+    db.studio_google_calendar_credentials = [{ connection_id: "c6", encrypted_access_token: encryptIntegrationSecret("o"), encrypted_refresh_token: encryptIntegrationSecret("r"), token_expires_at: new Date(Date.now() - 1000).toISOString() }];
+    globalThis.fetch = (async () => new Response(JSON.stringify({ access_token: "fresh", expires_in: 3600 }), { status: 200 })) as any;
+    await expect(getValidGoogleCalendarAccessToken("c6")).rejects.toThrow();
+    expect(db.studio_google_calendar_credentials).toHaveLength(0);
+    expect(db.studio_google_calendar_connections[0].status).toBe("disconnected");
   });
 
   it("uses a still-valid stored token without calling Google", async () => {

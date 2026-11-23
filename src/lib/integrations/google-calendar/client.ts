@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { loadGoogleCredentials, saveGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
+import { deleteGoogleCredentials, loadGoogleCredentials, saveGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
 import { decryptIntegrationSecret, encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -53,12 +53,19 @@ export async function getValidGoogleCalendarAccessToken(connectionId: string) {
     const tokens = await refreshGoogleCalendarAccessToken(decryptIntegrationSecret(data.encrypted_refresh_token));
     await saveGoogleCredentials(admin, connectionId, {
       encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
+      // a legacy-only connection has no credentials row yet: carry its refresh token over (Google does not return a new one on refresh)
+      encrypted_refresh_token: tokens.refresh_token ? encryptIntegrationSecret(tokens.refresh_token) : data.encrypted_refresh_token,
       token_expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
     });
-    await admin.from("studio_google_calendar_connections").update({ status: "connected", last_sync_error: null }).eq("id", connectionId);
+    // A disconnect that landed while this refresh was in flight must win: never resurrect tokens or the connected status.
+    const { data: stillActive } = await admin.from("studio_google_calendar_connections").update({ status: "connected", last_sync_error: null }).eq("id", connectionId).neq("status", "disconnected").select("id");
+    if (!stillActive || stillActive.length === 0) {
+      await deleteGoogleCredentials(admin, connectionId);
+      throw new Error("Google Calendar is disconnected.");
+    }
     return tokens.access_token;
   } catch {
-    await admin.from("studio_google_calendar_connections").update({ status: "needs_reauth", last_sync_error: "Google Calendar authorization expired. Reconnect Google Calendar." }).eq("id", connectionId);
+    await admin.from("studio_google_calendar_connections").update({ status: "needs_reauth", last_sync_error: "Google Calendar authorization expired. Reconnect Google Calendar." }).eq("id", connectionId).neq("status", "disconnected");
     throw new Error("Google Calendar authorization expired. Reconnect Google Calendar.");
   }
 }

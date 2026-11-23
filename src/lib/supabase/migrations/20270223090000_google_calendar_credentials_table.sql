@@ -19,10 +19,12 @@ create table if not exists public.studio_google_calendar_credentials (
 alter table public.studio_google_calendar_credentials enable row level security;
 -- Intentionally no policy for authenticated/anon: only the service role (which bypasses RLS) may read or write tokens.
 revoke all on public.studio_google_calendar_credentials from public, anon, authenticated;
+grant select, insert, update, delete on public.studio_google_calendar_credentials to service_role;
 
 create or replace function public.set_studio_google_calendar_credentials_updated_at()
 returns trigger
 language plpgsql
+set search_path = public
 as $$
 begin
   new.updated_at = now();
