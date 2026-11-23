@@ -1,0 +1,28 @@
+{
+  "id": "OD11-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, untampered judging and scoring",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "1.1 item 6 (PDF p.4); contest oversight item 5.b (PDF p.19, cited as 3.4.5.b)",
+    "quote_free_summary": "Event owners provide fair, unbiased and untampered competitions, judging and scoring; judges decide independently and tampering with or altering contest scores is not allowed."
+  },
+  "rule_class": "mandatory",
+  "requirement": "No person other than the judge alters the judge's marks; the judge's own correction is bound, confirmed and fully audited.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-11-ballot-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Whether a judge's own later correction counts as altering contest scores is NOT SPECIFIED; the DanceFlow design treats an unconfirmed alteration by anyone as prohibited and a bound judge confirmation as the permitted exception, pending owner confirmation. 1.1 item 6 is an owner obligation, not a correction procedure. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-11 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

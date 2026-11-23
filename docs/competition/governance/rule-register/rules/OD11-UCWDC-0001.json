@@ -1,0 +1,20 @@
+{
+  "id": "OD11-UCWDC-0001",
+  "governing_body": "silent",
+  "format": "UCWDC Couples, ProPro/ProAm and Scoring Format: correction of a judge's ballot",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "None from UCWDC: the baseline judge-confirmation workflow is DanceFlow policy and is never presented as a UCWDC requirement.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-11-ballot-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "NOT SPECIFIED IN PROVIDED SOURCE: searches of the Couples, ProPro/ProAm and Scoring Format texts (correct, alteration, initial, erase, amend, tamper) found no procedure for correcting a judge's ballot; the finality and Judge Review Board text is recorded in OD07-UCWDC-0001 (PR 838). The Judge Certification Code of Conduct was not provided and may contain one (unconfirmed). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-11 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

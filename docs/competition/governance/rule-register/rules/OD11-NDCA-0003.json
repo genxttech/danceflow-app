@@ -1,0 +1,28 @@
+{
+  "id": "OD11-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, incorrect evaluation of markings",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "V.B.4 (PDF p.38)",
+    "quote_free_summary": "Competitors accept the adjudicators' markings as final; appeal only where the actual markings were incorrectly evaluated."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A scoring, tabulation or evaluation error never changes the original ballot; it is handled as a correction of the result (OD-07 case) and the ballot-correction workflow only records the referral.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-11-ballot-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Who corrects an incorrect evaluation is not specified in the provided source. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-11 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

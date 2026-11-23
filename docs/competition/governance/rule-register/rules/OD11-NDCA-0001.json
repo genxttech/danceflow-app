@@ -1,0 +1,28 @@
+{
+  "id": "OD11-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, correction of an adjudicator's score card",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C items 5-7 (PDF p.34, printed p.27)",
+    "quote_free_summary": "The Chairman checks marks and their transcription, refers any score card needing correction to the adjudicator concerned, and decides questions on adjudicators' marking finally."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A card needing correction is referred to the adjudicator concerned; no scorer, manager or chair replaces the adjudicator's marks; the replacement version carries the adjudicator's own authenticated confirmation bound to its exact marks.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-11-ballot-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Owner decision OD-11 (3) is stricter than IV.C.7: the Chairman may authorize the workflow but never confirm in the judge's place. Whether the Chairman's final decision on marking questions was meant to include altering a mark is not specified; DanceFlow does not read it that way. Mapping of the DanceFlow chair role to the NDCA Chairman is not approved (audit row J-01). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-11 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
