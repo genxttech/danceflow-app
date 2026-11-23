@@ -575,7 +575,7 @@ commit;`);
       replica(`update public.studio_sms_credit_accounts set hold = false, hold_reason = null where legal_entity_id = '${WORLDS[0].entity}';`);
       // forward guard: the migration applies only over the 20261125 / 20261122 bodies it replaces (a changed body is refused, nothing applied)
       for (const [fn, from, to, name] of [[APPLY, "invalid dispute event", "invalid dispute event!", "tw4_credit_apply_dispute"], [SETHOLD, "a hold needs a reason", "a hold needs a reason!", "tw4_credit_set_hold"]]) {
-        const patch = (a: string, b: string) => psql(`select replace(pg_get_functiondef('${fn}'::regprocedure), '${a}', '${b}') \gexec`);
+        const patch = (a: string, b: string) => psql(`select replace(pg_get_functiondef('${fn}'::regprocedure), '${a}', '${b}') \\gexec`);
         patch(from, to);
         try {
           const refused = psqlError(readFileSync(join(MIG, MIGRATION), "utf8"));
