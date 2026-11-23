@@ -75,7 +75,7 @@ describe("Pulse command center (pulseCards on)", () => {
     expect(await screen.findByTestId("pulse-health")).toBeTruthy();
     expect(api.pulse).toHaveBeenCalledWith(STUDIO_ID, { cards: true });
     expect(screen.getByLabelText("sessions today: 6")).toBeTruthy();
-    expect(screen.getByLabelText("done: 4")).toBeTruthy();
+    expect(screen.getByLabelText("started: 4")).toBeTruthy();
     expect(screen.getByLabelText("still ahead: 2")).toBeTruthy();
     // Needs you: separate lines, each with its own count
     expect(screen.getByLabelText("3 lesson requests waiting")).toBeTruthy();
@@ -192,5 +192,12 @@ describe("Pulse command center (pulseCards on)", () => {
     const row = await screen.findByTestId("pulse-lead-lead-2");
     expect(row.props.accessibilityLabel).toBe("Marcus Webb, Instagram, follow-up overdue");
     expect(screen.getByText(/Instagram.*follow-up overdue/)).toBeTruthy();
+  });
+
+  it("an instructor whose health card could not load still sees their own title, not the studio's", async () => {
+    renderPulse(pulse({ ...OK, health: { state: "unavailable" } }, { scope: "own", instructorId: "ins-1", newClientsLast7Days: null }));
+    expect(await screen.findByTestId("pulse-health-unavailable")).toBeTruthy();
+    expect(screen.getByText("Your sessions")).toBeTruthy();
+    expect(screen.queryByText("Studio health")).toBeNull();
   });
 });
