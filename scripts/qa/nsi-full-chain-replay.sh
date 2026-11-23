@@ -15,7 +15,7 @@ fail=0; say() { echo "$*" | tee -a "$OUT/summary.log"; }; bad() { say "FAIL: $*"
 cd "$REPO" || exit 2
 docker image inspect "$TAG" >/dev/null 2>&1 && docker tag "$TAG" "$BACKUP" && say "backed up current $TAG ($(docker image inspect $TAG --format '{{.Id}}' | cut -c1-19))"
 dbof() { docker ps --filter "label=df.isoqa=1" --format '{{.Names}}' | grep -- "-$1-db$" | head -1; }
-dump() { docker exec "$1" pg_dump -U postgres -s --no-owner -n public -n intake_private postgres 2>/dev/null | grep -vE "^\\(un)?restrict " | sed -E "s/applied_at=[0-9T:.Z-]+/applied_at=<ts>/"; }
+dump() { docker exec "$1" pg_dump -U postgres -s --no-owner -n public -n intake_private postgres 2>/dev/null | grep -v -e '^.restrict ' -e '^.unrestrict ' | sed -E "s/applied_at=[0-9T:.Z-]+/applied_at=<ts>/"; }
 fp() { docker exec -i "$1" psql -U postgres -At -f - < "$SQLT/nsi_i2_catalog_fingerprint_local.sql" 2>&1 | head -1; }
 apfp() { docker exec -i "$1" psql -U postgres -At -c "select md5((select string_agg(tgname || pg_get_triggerdef(oid), '|' order by tgname) from pg_trigger where tgrelid = 'public.appointments'::regclass and not tgisinternal) || (select string_agg(conname || pg_get_constraintdef(oid), '|' order by conname) from pg_constraint where conrelid = 'public.appointments'::regclass) || (select string_agg(indexdef, '|' order by indexname) from pg_indexes where schemaname = 'public' and tablename = 'appointments') || (select coalesce(string_agg(conrelid::regclass::text || conname, '|' order by conname), '') from pg_constraint where confrelid = 'public.appointments'::regclass))" 2>&1 | head -1; }
 
