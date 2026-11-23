@@ -1,0 +1,20 @@
+{
+  "id": "OD07-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: post-completion correction review",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): a post-completion correction needs an explicit reason, an authorized initiator and an independent designated reviewer different from the initiator and the calculator; no self-approval and no calculator-override path.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-07-post-completion-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Stricter than F2 approval (which allows a reasoned override) by owner decision OD-07 item 4. Reviewer designation concept does not exist yet. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-07 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "OD07-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples, post-event challenges",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.N.1 and II.N.3 (p.13)",
+    "quote_free_summary": "Decisions of the judges, Contest Coordinator and Event Director are final; a complaint or challenge to a panel or its results is made after the event and goes to the Judge Review Board."
+  },
+  "rule_class": "mandatory",
+  "requirement": "DanceFlow does not adjudicate formal challenges and must say so wherever the correction flow appears; a Judge Review Board outcome is never an input.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-07-post-completion-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Whether an organizer may amend a UCWDC result after the event is NOT SPECIFIED in the provided source; the Judge Certification Code of Conduct was not provided. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-07 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

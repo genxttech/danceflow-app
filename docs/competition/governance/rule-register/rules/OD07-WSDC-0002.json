@@ -1,0 +1,28 @@
+{
+  "id": "OD07-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, results reporting",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "2.3 (p.9)",
+    "quote_free_summary": "The Event Director and/or Chief Judge verify contest results; results are due to the WSDC at close and no later than three days after the event closes; late submission may carry penalties."
+  },
+  "rule_class": "mandatory",
+  "requirement": "The 3-day deadline is a reporting deadline, not a correction cutoff. Resubmission of already-reported results is NOT SPECIFIED; the product states this and does not report to WSDC.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-07-post-completion-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Searched the pinned text for resubmission or amendment of reported results: none found. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-07 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
