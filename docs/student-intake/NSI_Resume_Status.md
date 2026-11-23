@@ -145,3 +145,17 @@ Both are **hard blockers for I3-4 / any UI or outbox wiring**. M12 itself stays 
 **Recommendation:** keep option 2 now, and add one rule before I3-4: **a submission made through a staff-minted link is stored with a `staff_minted` marker and never counts as student-authored evidence** (it can be staff-assisted data entry, which is a legitimate use). Use option 1 only for the guardian-consent path in I3-2, where the stakes are higher (minor consent). This keeps the student path simple and puts the stronger control where a forged consent would matter.
 
 M12 also carries these review fixes in place (still unapplied): lock order client lock then invitation row for exchange, issue, revoke, bulk revoke and erase; expected-generation parameter on issue plus a staff `intake_next_invitation_generation` read; issue refuses a request with no live appointment before revoking anything; an unknown token writes no rate-limit row; the live-session cap is serialized by the invitation row lock; sessions record the minting actor. Not done (listed, not hidden): `p_reason` on revoke, an enum widening of revoke reasons.
+
+## 11. Open list after the M12 delta reviews (carry-forward; M12 is NOT amended again)
+
+M12 passed two independent reviews (delta review of round 2: GO, no P0/P1). The items below are scheduled as **M13, a purge-hardening migration that must land before any purge cron or I4 wiring** (the purge is unreachable on DEV: no cron, no data).
+
+| # | Item | Plan (M13) |
+|---|---|---|
+| H1 | Number of try-locks per purge call is unbounded (every candidate row evaluated takes an advisory transaction lock) | Pick a bounded set of candidate ids first, try-lock in a second step, cap distinct clients per call well below `max_locks_per_transaction` |
+| H2 | The hold check and the locks are evaluated in one statement (one snapshot) | Take locks in one statement and check holds and delete in a later statement (fresh snapshot) |
+| H3 | Missing tests | Purge skips a held client (two sessions: one holds the client lock, the purge must skip and report it); mutation probes for `try_lock_client` in the purge, for lock removal in bulk revoke, a separate probe for issue vs revoke lock removal; negative test for the session minting-actor guard |
+| H4 | `session_revoked` actor type consistency | Use the same system actor type as `link_exchanged` |
+| H5 | Operations | Run the purge one call at a time; the cron ships with I4 |
+
+**Still gating I3-4 / any UI, outbox or email wiring:** P1-A (a link session is never student-authenticated evidence; assurance stays `declared_unverified`; I3-4 save and submit carry session and invitation provenance; the guardian path needs the L2 email code on top of the link) and the P1-B-adjacent items (TS rate-limit keys are HMAC, signing secret is 32 random bytes; `INTAKE_ROOT_SECRET` is not provisioned anywhere). Next design-only work: I3-2 (guardian email challenge, attestation, role matrix) and I3-3 (minor determination service path, guardian decline). The I1-local fixture port follows.
