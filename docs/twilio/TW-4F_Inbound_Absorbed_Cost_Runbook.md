@@ -85,6 +85,12 @@ The database function answers true for these kinds before it reads anything, and
 - Integer settings must be whole numbers: the setter refuses values like `2000.0`. Every reader compares settings as numbers, and the scan checks each business separately, so one business with an unreadable setting is counted in the scan's `errors` and never stops the others. The lifecycle run records that as an error and keeps the alerts that were raised.
 - The pilot business keeps its 20261231140000 alerts unchanged and gets no duplicate volume alert. It does receive the new absorbed, anomaly and cap alerts. With the switch on, the cap applies to it as well (owner decision, see the PR).
 
+### Residual exposure that these controls do not bound (documented, accepted by the owner for the first pilot period)
+* **Unrouted senders.** A text from a number DanceFlow cannot route gets at most one 1-segment error reply per sender per day. Worst case about $0.0251 per sender including the inbound text: 100 senders $2.51; 1,000 $25.10; 10,000 $251; 100,000 $2,510. The number of senders cannot be bounded from the repository; it depends on Twilio's own filtering and on how many numbers an attacker or a routing failure produces.
+* **Automatic error replies on routed traffic** are bounded only if the daily cap switch is on (proposed 2,000 segments or $10 per day), and it is OFF for ConfiDance's first period, so only alerts apply.
+* **Inbound receive cost** is billed by Twilio before any DanceFlow code runs and cannot be stopped by this slice. Twilio has no hard spending cap; the only stop is suspending the subaccount (not automated). See the gates document section 1a.
+* The thresholds here are alert triggers, not financial ceilings.
+
 ## 8. Release order and rollback
 
 **Release note: the alerts are not dark.** `alerts_enabled` defaults to true. Once the SQL is applied, platform administrators get these emails whenever the existing provider-fee lifecycle scan and its delivery switches run. Only the reply suppression is dark (its switch defaults OFF). With `alerts_enabled` false for a business and the switch on, that business can be suppressed with no critical email. Only the `suppressed` row in `studio_sms_inbound_cost_control_events` records it.
