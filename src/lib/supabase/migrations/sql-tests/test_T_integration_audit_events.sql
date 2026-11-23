@@ -1,4 +1,4 @@
--- Integration audit events suite (LOCAL / DISPOSABLE ENVIRONMENTS ONLY). Covers 20270223120000.
+-- Integration audit events suite (LOCAL / DISPOSABLE ENVIRONMENTS ONLY). Covers 20270223130000.
 -- Prints "INTEGRATION AUDIT SUITE PASS (<n> checks)" or "... FAIL: ..." from an always-raising final block. Refuses unless auditevt.local = 'on'.
 begin;
 do $$ begin

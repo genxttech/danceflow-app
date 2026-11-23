@@ -1,4 +1,4 @@
--- 20270223120000_integration_audit_events.sql
+-- 20270223130000_integration_audit_events.sql
 -- Integrations Slice 0 / S0-g2. Provider-neutral, append-only audit trail for connect / disconnect / scope failures / revoke outcomes
 -- (Google Calendar had no audit table; Wave keeps its richer studio_wave_audit_events for posting). Rows are written by the server with the
 -- service role only. Studio owners/admins read their own studio's rows; nobody can update or delete a row. details must never hold tokens or
