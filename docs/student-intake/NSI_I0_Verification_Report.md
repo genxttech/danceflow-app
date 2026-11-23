@@ -129,7 +129,7 @@ Pass criteria: ≥ the agreed list of clients preserve the fragment; failure sho
 | Staff attestation in person only | Feasible; fits the audited-event design. Requires a permission (owner/admin/front desk) and a reason field |
 | Auto-invite existing verified linked guardians | Feasible under the L3 criterion in §2.4, from the linked account's email, never through the invitation helper, never creating link rows. One caveat: with several linked guardians, send to all qualifying ones or only the primary (`is_primary`)? Needs one line from the owner |
 | Age 18 pending legal review | Fine as a configurable setting; the setting must carry a "pending legal review" note in the admin UI until cleared |
-| Pricing tier unassigned | `student_intake` stays in no plan. Confirmed `planHasFeature` is default-deny for unlisted features |
+| Pricing tier unassigned | Superseded 2026-11-23: no separate pricing for Student Intake; no billing feature or plan entry is created. (Historical note: `planHasFeature` is default-deny for unlisted features.) |
 
 Unresolved retention and privacy questions remain unapproved (spec §10). None of the defaults above stores or implies a retention period.
 

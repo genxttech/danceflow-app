@@ -4,10 +4,12 @@
  * Two independent gates, both fail closed:
  *  1. Role: only the studio owner and studio admin configure intake (spec 4.1). Platform admins and every other role
  *     are refused here exactly as the database refuses them (`intake_private.assert_staff`, capability 'configure').
- *  2. Availability: the `student_intake` entitlement is not on any plan (pricing is not authorized) and pilot grants
- *     (`intake_feature_grants`) do not exist yet, so availability is an explicit per-studio allowlist in the
+ *  2. Availability: Student Intake is NOT a separately priced feature (owner decision 2026-11-23): there is no billing
+ *     feature, plan requirement or paid entitlement for it. Availability is a rollout control only: the database pilot grants
+ *     (`intake_feature_grants`, platform-admin managed, expiring) govern development access and staged rollout. Until the
+ *     settings UI reads those grants, this page is gated by an explicit per-studio allowlist in the
  *     STUDENT_INTAKE_CONFIG_STUDIO_IDS environment variable (comma-separated studio ids). Empty or unset = nobody.
- *     Nothing grants a studio automatically; replace this with the real entitlement when it exists.
+ *     Nothing grants a studio automatically, and nothing here can block an authorized studio on billing grounds.
  */
 
 export const STUDENT_INTAKE_CONFIG_ENV = "STUDENT_INTAKE_CONFIG_STUDIO_IDS";

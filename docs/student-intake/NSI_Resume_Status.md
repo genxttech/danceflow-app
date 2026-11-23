@@ -33,7 +33,7 @@ DEV drift check, read-only via `sb.sh dev-read`, 2026-11-23 11:37Z:
 | P2-3 lapsed grant renewal back-fills bookings made during the lapse | Open, product decision | Decision needed before pilot |
 | P2-4 `intake_designate_guardian` not entitlement-gated before Gate A | Open | Before Gate A |
 | I2-A UI uses `intake_set_service_assignment` | **Still open**: `settings/student-intake/actions.ts:68` calls the old RPC; the M8 `intake_set_service_type` (enable flag + template) is unused by the UI | Yes for config UI correctness |
-| `student_intake` BillingFeature / pricing | **Not defined**: no `student_intake` in `src/lib/billing`; availability is an allowlist in `access.ts` (M7 pilot grants exist in DB). Pricing not authorized | Owner decision before any non-pilot availability |
+| Pricing / billing entitlement | **Not applicable (owner correction 2026-11-23)**: Student Intake is not separately priced. Audited: no `student_intake` BillingFeature, plan entry, billing key, `requiredStudioPlanForFeature` use or Stripe product exists in code or SQL; nothing can block authorized access on billing grounds. M7 pilot grants (DB) are a rollout control only; the UI uses an env allowlist until it reads the grants | No |
 | T1 timezone consistency | No dedicated T1 work found on main (timezone fixes exist for other surfaces; staff API exposes `timeZone`). Treat as open | Blocks reminders/invites (I4), not config UI |
 | T2 dispatcher reliability | **Merged** (#220): `dispatch.ts` skips every `intake_*` key until an intake renderer exists | Closed |
 | T3 branded intake templates/renderers/previews | **Not started** (no intake renderer on main) | Blocks any intake email |
@@ -64,7 +64,7 @@ DEV drift check, read-only via `sb.sh dev-read`, 2026-11-23 11:37Z:
 | T3 renderers, T4 SQL, `INTAKE_ROOT_SECRET` | Invitations (I4) | Yes for email, no for I3 DB work |
 | T1 timezone | Reminders | Yes for reminders only |
 | TW-4 | SMS reminders | Yes for SMS only |
-| Pricing / BillingFeature | General availability | Not for pilot allowlist |
+| Pricing / BillingFeature | Nothing (no separate pricing exists) | **No** |
 | P2-3 product decision | Pilot grant renewals | Decision, not code |
 | UI switch to `intake_set_service_type` | Config UI correctness | Not for DB gates |
 | Migration ordering/renumbering | Nothing | **No** (see section 2) |

@@ -219,7 +219,7 @@ QA for this model:
 
 ## 6. Entitlement and lapse
 
-- `student_intake` is added to `BillingFeature` and to **no** plan. Default deny already holds because `planHasFeature` is true only for listed features [V: `lib/billing/plans.ts`]. A unit test asserts no plan lists it until pricing is authorized; plan-comparison UI must not render it [G].
+- **Owner correction 2026-11-23: Student Intake is not a separately priced feature or add-on.** No `BillingFeature`, plan requirement, paid entitlement, Stripe product or pricing change is introduced for it (the earlier plan to add `student_intake` to `BillingFeature` is withdrawn; none exists in code). "Entitlement" in this spec means the rollout control below: pilot grants govern development access, early availability and staged rollout only and are not monetization. Plan-comparison UI must not render intake as a priced item.
 - Pilot access is only through `intake_feature_grants` (platform admin, expiring).
 - Enforcement points: settings actions; reconciler and intake queueing RPCs (per studio, fail closed); the intake send-time renderer re-checks entitlement before every intake email (§22); Documents step (separate `documents` check).
 
@@ -309,7 +309,7 @@ Read-only DEV catalog queries unless noted; any PROD read needs separate authori
 4. Whether staff attestation (L0) is limited to in-person, or may include a verified phone call.
 5. Whether verified linked guardians are invited automatically.
 6. Priority: promote NSI into the near-term order, and whether I1–I2 may start as a parallel lane.
-7. Pricing tier and release authorization for `student_intake` (not needed until launch).
+7. ~~Pricing tier for `student_intake`~~ withdrawn (owner correction 2026-11-23: no separate pricing). Release authorization remains a separate owner gate.
 8. Pilot studio selection.
 
 ## 13. Explicit prerequisites for starting I1

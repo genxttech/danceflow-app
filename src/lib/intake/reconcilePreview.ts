@@ -150,7 +150,7 @@ export type ReconcilePreviewReport = {
 
 export type ReconcileDeps = {
   rpc: ReconcilePreviewRpc;
-  /** Must resolve true only for an active `student_intake` entitlement; a throw is treated as "unknown" (skip). */
+  /** Must resolve true only for a studio with an active rollout (pilot) grant for intake; this is not a billing entitlement; a throw is treated as "unknown" (skip). */
   hasEntitlement: (studioId: string) => Promise<boolean>;
   nowMs?: () => number;
 };

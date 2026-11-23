@@ -22,7 +22,7 @@
 - Completed answers retained during the active relationship, then the studio's permitted post-relationship period, capped by the platform maximum.
 - Controlled client erasure; legally required consent evidence kept separately from questionnaire answers; evidence minimized.
 - Staff-assisted, authorized exports; no account-free self-service export.
-- Independent `student_intake` entitlement, disabled until approved.
+- Rollout control only (pilot grants, disabled until granted); not a priced entitlement (owner correction 2026-11-23: no separate pricing).
 - No automated purging in I1.
 - No automatic sharing into marketing, ARIA or the client profile.
 
