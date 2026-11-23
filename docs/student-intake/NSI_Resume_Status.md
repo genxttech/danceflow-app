@@ -187,3 +187,6 @@ Nits: `client_ref` on `session_revoked`; dead m13 precondition branch (comment o
 - `NSI_P1A_Staff_Minted_Links.md`: P1-A resolved as engineering rules (option B for the student path, option C for guardians); only **O11** and **O5b** remain open on the minor/evidence path; all labelled recommended, pending owner decision.
 - `NSI_I1_Local_Fixture_Port_Plan.md`: the 14 call sites and the recipe; the port itself needs the heavy lock and is not done.
 M14 is not applied to DEV; waiting for the delta-review GO relayed by the coordinator.
+
+## 15. M14 APPLIED TO DEV (2026-11-23)
+M14 (sha256 ae6bbf0b…ef2d2) applied to shared DEV via sb.sh; DEV catalog fingerprint now **be5a715adedad4197649593d23c6ce09|770** (was 97e13781e9f0498d8e452c64d6d43e18|768), assert_catalog ok, Gate A closed, 0 rows, DEV-safe suites PASS. Report: rehearsal/d10_dev_m14/D10_report_2026-11-23.md. Delta review GO (two low items accepted as documented, bytes unchanged). PROD untouched. Next: M15 (I3-3) after the rev 3 spec re-review; then M16.
