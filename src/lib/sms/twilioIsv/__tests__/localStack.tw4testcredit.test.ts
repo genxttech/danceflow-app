@@ -93,7 +93,7 @@ const setBudget = (entity: string, cents: number, approval = ref("b"), o: Ev = {
 const budgetErr = (entity: string, cents: number, approval = ref("b"), o: Ev = {}, actor = P) => callErr("tw4_credit_test_budget_set", ...budgetArgs(entity, cents, approval, o, actor));
 const switchTo = (on: boolean) => call("tw4_credit_test_set_switch", on, P, `fixture: switch ${on ? "on" : "off"} for the suite`);
 type Status = { switch_enabled: boolean; is_pilot: boolean; budget_cents: number; granted_cents: number; budget_left_cents: number; consumed_cents: number; restored_cents: number;
-  reversed_cents: number; unused_cents: number; balance_cents: number; reserved_cents: number; non_test_available_cents: number; grants: number; ok: boolean };
+  reversed_cents: number; forfeited_cents: number; unused_cents: number; balance_cents: number; reserved_cents: number; non_test_available_cents: number; grants: number; ok: boolean };
 const status = (entity: string) => call<Status>("tw4_credit_test_status", entity);
 const count = (sql: string) => Number(psql(sql));
 const grantsOf = (entity: string) => count(`select count(*) from public.studio_sms_test_credit_grants where legal_entity_id = '${entity}'`);
@@ -344,6 +344,52 @@ commit;`);
       // a negative account refuses a grant (test credit never pays a debt)
       expect(hasCode(grantErr(EP, 50), "TW007")).toBe(true);
       adjust(EP, 150);
+    });
+
+    it("a dispute never lands on test credit: $25 bought and spent, $10 test grant, $25 dispute leaves the balance at -$25 (all test credit forfeited)", () => {
+      resetPilot(0);
+      const pay = `cs_tc_${hex(6)}`;
+      call("tw4_credit_settle_topup", EP, SP, pay, 2500, `evt_${hex(5)}`);
+      call("tw4_credit_debit_usage", EP, SP, 2500, `tc-spend-${hex(4)}`, "fixture texting");
+      expect(status(EP).balance_cents).toBe(0);
+      setBudget(EP, status(EP).granted_cents + 1000);
+      grant(EP, 1000);
+      const before = status(EP);
+      expect([before.balance_cents, before.unused_cents]).toEqual([1000, 1000]);
+      call("tw4_credit_apply_dispute", pay, `dp_${hex(5)}`, 2500, "withdrawn", `evt_${hex(5)}`);
+      const s = status(EP);
+      expect([s.balance_cents, s.unused_cents, s.forfeited_cents - before.forfeited_cents, s.ok]).toEqual([-2500, 0, 1000, true]);
+      expect(count(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${EP}' and kind = 'test_grant_reversed' and idempotency_key like 'test_forfeit:%' and balance_delta_cents = -1000`)).toBe(1);
+      expect(call<{ ok: boolean }>("tw4_credit_verify", EP).ok).toBe(true);
+      adjust(EP, 2500);
+    });
+
+    it("a negative adjustment or a refund that keeps own money >= 0 forfeits nothing; one that takes it below zero forfeits all unused test credit", () => {
+      resetPilot(600); // 600 own
+      setBudget(EP, status(EP).granted_cents + 500);
+      grant(EP, 500);
+      adjust(EP, -600); // own 0: test credit untouched
+      let s = status(EP);
+      expect([s.balance_cents, s.unused_cents, s.non_test_available_cents, s.ok]).toEqual([500, 500, 0, true]);
+      adjust(EP, -1); // own -1: everything forfeited, balance as without test credit
+      s = status(EP);
+      expect([s.balance_cents, s.unused_cents, s.ok]).toEqual([-1, 0, true]);
+      adjust(EP, 1);
+    });
+
+    it("the verifier is not ok when unused test credit exceeds what the business holds (the invariant is checked, not assumed)", () => {
+      resetPilot(0);
+      setBudget(EP, status(EP).granted_cents + 200);
+      grant(EP, 200);
+      expect(status(EP).ok).toBe(true);
+      // a forged debit that bypasses the trigger (replica mode only disables ordinary triggers; the test-credit trigger is ALWAYS, so drop it in a rolled-back transaction)
+      const out = psql(`begin;
+        alter table public.studio_sms_credit_ledger disable trigger studio_sms_credit_ledger_40_test_credit;
+        select public._tw4c_post('${EP}', null, 'adjustment', -150, 0, 'adjust:forged-${hex(4)}', null, null, null, 'forged debit for the verifier check');
+        select (public.tw4_credit_test_status('${EP}') ->> 'ok');
+        rollback;`);
+      expect(out.split("\n").pop()).toBe("false");
+      expect(status(EP).ok).toBe(true);
     });
   });
 

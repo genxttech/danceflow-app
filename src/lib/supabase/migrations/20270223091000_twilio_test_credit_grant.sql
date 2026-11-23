@@ -14,7 +14,7 @@
 --   studio_sms_test_credit_grants         append-only, one row per grant WITH its U-4 evidence (scope test_credit_grant, amount = the grant, period = the business's
 --                                         current billing month). One approval reference = one grant (shared permanent registry studio_sms_approval_refs, TW019);
 --                                         one retained document (sha256) = one grant.
---   studio_sms_test_credit_movements      append-only per-ledger-entry record of how test credit moved (grant / consume / restore / reverse).
+--   studio_sms_test_credit_movements      append-only per-ledger-entry record of how test credit moved (grant / consume / restore / reverse / forfeit).
 --
 -- Rules
 --   * Platform administrator only (42501); service_role EXECUTE only; tables have no API privileges and RLS on.
@@ -30,6 +30,9 @@
 --     not kind 'sms_usage') that would need the unused test credit: such a reservation must fit in balance - reserved - unused test credit (TW007). Texting charges
 --     (usage_charge, inbound included, and a captured sms_usage reservation) consume test credit FIRST; a usage refund of a charge that consumed test credit gives it
 --     back as test credit (never as purchased credit). STOP / START / HELP are never charged and never touch this code; nothing here can block them.
+--   * Never absorbs a non-texting debit: when a refund or dispute of a purchase, a negative adjustment or a captured fee takes the business's own money
+--     (balance - fee holds - unused test credit) below zero, ALL unused test credit is FORFEITED in the same transaction (a test_grant_reversed entry, movement
+--     'forfeit'), so the balance ends exactly where it would be without test credit and the negative-balance rules apply.
 --   * tw4_credit_test_reverse takes back unused test credit (idempotent by key, never more than the unused test credit and never money held by an open reservation).
 --   * tw4_credit_test_status is the read-only verifier (counters = movement sums = ledger sums, plus tw4_credit_verify).
 --   Refusal codes: 22023 invalid input; 42501 not a platform admin / direct write; TW007 hold, negative balance, fee would use test credit, or money held; TW019 reference
@@ -150,10 +153,11 @@ create table public.studio_sms_test_credit_budgets (
   consumed_cents bigint not null default 0 check (consumed_cents >= 0),
   restored_cents bigint not null default 0 check (restored_cents >= 0),
   reversed_cents bigint not null default 0 check (reversed_cents >= 0),
+  forfeited_cents bigint not null default 0 check (forfeited_cents >= 0),   -- taken out because a non-texting debit (refund, dispute, adjustment, fee) would otherwise have used it
   created_at timestamptz not null default clock_timestamp(),
   updated_at timestamptz not null default clock_timestamp(),
   constraint studio_sms_test_credit_budgets_within check (granted_cents <= budget_cents),
-  constraint studio_sms_test_credit_budgets_unused check (granted_cents + restored_cents - consumed_cents - reversed_cents >= 0),
+  constraint studio_sms_test_credit_budgets_unused check (granted_cents + restored_cents - consumed_cents - reversed_cents - forfeited_cents >= 0),
   constraint studio_sms_test_credit_budgets_restore check (restored_cents <= consumed_cents)
 );
 
@@ -204,12 +208,12 @@ create table public.studio_sms_test_credit_movements (
   id uuid primary key default gen_random_uuid(),
   legal_entity_id uuid not null references public.studio_sms_legal_entities(id) on delete restrict,
   ledger_entry_id uuid not null unique,
-  kind text not null check (kind in ('grant', 'consume', 'restore', 'reverse')),
+  kind text not null check (kind in ('grant', 'consume', 'restore', 'reverse', 'forfeit')),
   cents bigint not null check (cents > 0),
-  source_entry_id uuid null,   -- restore: the usage charge whose consumption is given back
+  source_entry_id uuid null,   -- restore: the usage charge whose consumption is given back; forfeit: the non-texting debit that forced it
   grant_id uuid null references public.studio_sms_test_credit_grants(id) on delete restrict,
   created_at timestamptz not null default clock_timestamp(),
-  constraint studio_sms_test_credit_movements_shape check ((kind = 'restore') = (source_entry_id is not null) and (kind = 'grant') = (grant_id is not null))
+  constraint studio_sms_test_credit_movements_shape check ((kind in ('restore', 'forfeit')) = (source_entry_id is not null) and (kind = 'grant') = (grant_id is not null))
 );
 create index studio_sms_test_credit_movements_entity on public.studio_sms_test_credit_movements (legal_entity_id, kind);
 create index studio_sms_test_credit_movements_source on public.studio_sms_test_credit_movements (source_entry_id) where source_entry_id is not null;
@@ -239,7 +243,7 @@ begin
       raise exception '% rows are append-only', tg_table_name using errcode = '42501';
     end if;
     if new.legal_entity_id is distinct from old.legal_entity_id or new.created_at is distinct from old.created_at
-       or new.granted_cents < old.granted_cents or new.consumed_cents < old.consumed_cents or new.restored_cents < old.restored_cents or new.reversed_cents < old.reversed_cents then
+       or new.granted_cents < old.granted_cents or new.consumed_cents < old.consumed_cents or new.restored_cents < old.restored_cents or new.reversed_cents < old.reversed_cents or new.forfeited_cents < old.forfeited_cents then
       raise exception 'test-credit counters only grow and a budget row is never re-assigned' using errcode = '42501';
     end if;
   end if;
@@ -268,6 +272,13 @@ create trigger studio_sms_test_credit_movements_truncate before truncate on publ
 --     the caller of _tw4c_post holds the account row lock)
 -- ---------------------------------------------------------------------------------------------------------------
 
+-- open texting reservations of a business (money held for texts in flight; test credit backs them first)
+create or replace function public._tw4tc_open_sms(p_entity uuid)
+returns bigint language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$ select coalesce(sum(r.amount_cents), 0)::bigint from public.studio_sms_credit_reservations r
+       where r.legal_entity_id = p_entity and r.status = 'reserved' and r.funding = 'credit' and r.kind = 'sms_usage'; $$;
+
 create or replace function public._tw4tc_on_ledger(n public.studio_sms_credit_ledger, p_caller_flag text)
 returns void language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -276,11 +287,14 @@ declare
   b public.studio_sms_test_credit_budgets;
   a public.studio_sms_credit_accounts;
   v_unused bigint;
+  v_open_sms bigint;
   v_rkind text;
   v_take bigint;
   v_orig uuid;
   v_consumed bigint;
   v_restored bigint;
+  v_pool bigint;
+  r jsonb;
 begin
   if n.kind in ('test_grant', 'test_grant_reversed') then
     if p_caller_flag <> 'on' then
@@ -292,14 +306,16 @@ begin
   if b.legal_entity_id is null then
     return;   -- this business never had a test budget: nothing to do (every other business is unaffected)
   end if;
-  v_unused := b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents;
+  v_unused := b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents - b.forfeited_cents;
   if n.reservation_id is not null then
-    select r.kind into v_rkind from public.studio_sms_credit_reservations r where r.id = n.reservation_id;
+    select r0.kind into v_rkind from public.studio_sms_credit_reservations r0 where r0.id = n.reservation_id;
   end if;
   if n.kind = 'reserve' then
-    -- a fee, a recurring charge or a set-aside (anything that is not a text) must fit in the credit that is NOT test credit
+    -- a fee, a recurring charge or a set-aside (anything that is not a text) must fit in the credit that is NOT test credit. Test credit already held by an open
+    -- texting reservation is inside reserved_cents once: only the part of the unused test credit NOT held for a text is subtracted again.
     if v_unused > 0 and v_rkind is distinct from 'sms_usage' then
       select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = n.legal_entity_id;
+      v_open_sms := public._tw4tc_open_sms(n.legal_entity_id);
       if a.balance_cents - a.reserved_cents - n.reserved_delta_cents - v_unused < 0 then
         raise exception 'test credit pays for texting only: this charge needs purchased credit' using errcode = 'TW007';
       end if;
@@ -318,6 +334,22 @@ begin
     if v_take > 0 then
       insert into public.studio_sms_test_credit_movements (legal_entity_id, ledger_entry_id, kind, cents, source_entry_id) values (n.legal_entity_id, n.id, 'restore', v_take, v_orig);
       update public.studio_sms_test_credit_budgets set restored_cents = restored_cents + v_take, updated_at = clock_timestamp() where legal_entity_id = n.legal_entity_id;
+    end if;
+  elsif n.balance_delta_cents < 0 and v_unused > 0 then
+    -- any OTHER debit (a refund or dispute of a purchase, a negative adjustment, a captured fee): test credit never absorbs it. The business's OWN money after this
+    -- entry is (balance - fee holds) - unused test credit (texting holds are backed by test credit first, so they are not fee holds). If that goes below zero the
+    -- debit would otherwise be paid, now or later through texting, with DanceFlow's test credit: ALL unused test credit is FORFEITED (posted out of the balance as
+    -- test_grant_reversed), so the balance ends exactly where it would be without any test credit and the usual negative-balance and hold rules apply.
+    select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = n.legal_entity_id;
+    v_pool := (a.balance_cents + n.balance_delta_cents) - (a.reserved_cents + n.reserved_delta_cents) + public._tw4tc_open_sms(n.legal_entity_id);
+    v_take := case when v_pool - v_unused < 0 then v_unused else 0 end;
+    if v_take > 0 then
+      perform set_config('tw4.testcredit_write', 'on', true);
+      r := public._tw4c_post(n.legal_entity_id, null, 'test_grant_reversed', -v_take, 0, 'test_forfeit:' || n.id, null, 'test_forfeit', null,
+                             left('unused test credit forfeited by a non-texting debit (' || n.kind || ')', 300));
+      insert into public.studio_sms_test_credit_movements (legal_entity_id, ledger_entry_id, kind, cents, source_entry_id)
+      values (n.legal_entity_id, (r ->> 'entry_id')::uuid, 'forfeit', v_take, n.id);
+      update public.studio_sms_test_credit_budgets set forfeited_cents = forfeited_cents + v_take, updated_at = clock_timestamp() where legal_entity_id = n.legal_entity_id;
     end if;
   end if;
 end $$;
@@ -341,7 +373,7 @@ begin
   perform set_config('tw4.testcredit_write', v_prev, true);
   return null;
 end $$;
-revoke all on function public._tw4tc_on_ledger(public.studio_sms_credit_ledger, text), public._tw4tc_ledger_trigger() from public, anon, authenticated, service_role;
+revoke all on function public._tw4tc_on_ledger(public.studio_sms_credit_ledger, text), public._tw4tc_ledger_trigger(), public._tw4tc_open_sms(uuid) from public, anon, authenticated, service_role;
 create trigger studio_sms_credit_ledger_40_test_credit after insert on public.studio_sms_credit_ledger for each row execute function public._tw4tc_ledger_trigger();
 alter table public.studio_sms_credit_ledger enable always trigger studio_sms_credit_ledger_40_test_credit;
 
@@ -584,7 +616,7 @@ begin
     return jsonb_build_object('entry_id', o.id, 'reversed_cents', p_cents, 'replayed', true);
   end if;
   select * into b from public.studio_sms_test_credit_budgets x where x.legal_entity_id = p_entity_id for update;
-  v_unused := coalesce(b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents, 0);
+  v_unused := coalesce(b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents - b.forfeited_cents, 0);
   if p_cents > v_unused then
     raise exception 'only % cents of test credit are unused', v_unused using errcode = 'TW071';
   end if;
@@ -619,23 +651,27 @@ begin
   select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = p_entity_id;
   select jsonb_build_object(
       'grant', coalesce(sum(m.cents) filter (where m.kind = 'grant'), 0), 'consume', coalesce(sum(m.cents) filter (where m.kind = 'consume'), 0),
-      'restore', coalesce(sum(m.cents) filter (where m.kind = 'restore'), 0), 'reverse', coalesce(sum(m.cents) filter (where m.kind = 'reverse'), 0))
+      'restore', coalesce(sum(m.cents) filter (where m.kind = 'restore'), 0), 'reverse', coalesce(sum(m.cents) filter (where m.kind = 'reverse'), 0),
+      'forfeit', coalesce(sum(m.cents) filter (where m.kind = 'forfeit'), 0))
     into v_m from public.studio_sms_test_credit_movements m where m.legal_entity_id = p_entity_id;
   select coalesce(sum(l.balance_delta_cents) filter (where l.kind = 'test_grant'), 0), coalesce(-sum(l.balance_delta_cents) filter (where l.kind = 'test_grant_reversed'), 0)
     into v_lg, v_lr from public.studio_sms_credit_ledger l where l.legal_entity_id = p_entity_id;
   v_cv := public.tw4_credit_verify(p_entity_id);
-  v_unused := coalesce(b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents, 0);
+  v_unused := coalesce(b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents - b.forfeited_cents, 0);
   return jsonb_build_object(
     'switch_enabled', public._tw4tc_switch_on(),
     'is_pilot', exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = p_entity_id),
     'budget_cents', coalesce(b.budget_cents, 0), 'granted_cents', coalesce(b.granted_cents, 0), 'budget_left_cents', coalesce(b.budget_cents - b.granted_cents, 0),
-    'consumed_cents', coalesce(b.consumed_cents, 0), 'restored_cents', coalesce(b.restored_cents, 0), 'reversed_cents', coalesce(b.reversed_cents, 0), 'unused_cents', v_unused,
+    'consumed_cents', coalesce(b.consumed_cents, 0), 'restored_cents', coalesce(b.restored_cents, 0), 'reversed_cents', coalesce(b.reversed_cents, 0), 'forfeited_cents', coalesce(b.forfeited_cents, 0), 'unused_cents', v_unused,
     'balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0),
     'non_test_available_cents', coalesce(a.balance_cents - a.reserved_cents, 0) - v_unused,
     'grants', (select count(*) from public.studio_sms_test_credit_grants g where g.legal_entity_id = p_entity_id),
     'ok', (v_m ->> 'grant')::bigint = coalesce(b.granted_cents, 0) and (v_m ->> 'consume')::bigint = coalesce(b.consumed_cents, 0)
           and (v_m ->> 'restore')::bigint = coalesce(b.restored_cents, 0) and (v_m ->> 'reverse')::bigint = coalesce(b.reversed_cents, 0)
-          and v_lg = coalesce(b.granted_cents, 0) and v_lr = coalesce(b.reversed_cents, 0) and (v_cv ->> 'ok')::boolean);
+          and (v_m ->> 'forfeit')::bigint = coalesce(b.forfeited_cents, 0)
+          and v_lg = coalesce(b.granted_cents, 0) and v_lr = coalesce(b.reversed_cents, 0) + coalesce(b.forfeited_cents, 0) and (v_cv ->> 'ok')::boolean
+          -- the unused test credit is always still there: never more than the balance minus the fee holds (texting holds are backed by test credit first)
+          and v_unused <= greatest(coalesce(a.balance_cents - a.reserved_cents, 0) + public._tw4tc_open_sms(p_entity_id), 0));
 end $$;
 
 revoke all on function public.tw4_credit_test_set_switch(boolean, uuid, text),
