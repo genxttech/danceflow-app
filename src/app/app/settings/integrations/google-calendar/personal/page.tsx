@@ -61,7 +61,7 @@ export default async function PersonalGoogleCalendarPage({ searchParams }: { sea
           <p className="mt-6 text-sm font-semibold uppercase tracking-[0.24em] text-fuchsia-100">My Teaching Calendar</p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Keep your assigned DanceFlow schedule on your own calendar.</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-fuchsia-50">
-            {instructorName}'s assigned lessons and classes automatically sync every 30 minutes. Studio events and other instructors' appointments are not included.
+            {instructorName}&apos;s assigned lessons and classes automatically sync every 30 minutes. Studio events and other instructors&apos; appointments are not included.
           </p>
         </div>
       </section>
