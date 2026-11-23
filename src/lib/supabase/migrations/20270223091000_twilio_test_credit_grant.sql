@@ -190,20 +190,23 @@ create table public.studio_sms_test_credit_grants (
   period_key text not null check (period_key ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
   document_ref text not null check (char_length(document_ref) between 6 and 500 and (document_ref ~ '^[A-Za-z0-9][A-Za-z0-9._/#+-]{5,119}$' or document_ref ~ '^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~!$''()*+,:@/-]*)?$')),
   document_sha256 text not null unique check (document_sha256 ~ '^[0-9a-f]{64}$'),
-  ledger_entry_id uuid not null unique references public.studio_sms_credit_ledger(id) on delete restrict,
+  ledger_entry_id uuid not null unique,   -- the test_grant ledger entry (no foreign key to the ledger: see the note above the movements table)
   granted_by uuid not null,
   created_at timestamptz not null default clock_timestamp(),
   constraint studio_sms_test_credit_grants_amount check (evidence_amount_cents = amount_cents)
 );
 create index studio_sms_test_credit_grants_entity on public.studio_sms_test_credit_grants (legal_entity_id, created_at);
 
+-- No foreign key points at studio_sms_credit_ledger: a referencing table would change how the ledger refuses TRUNCATE (Postgres reports the foreign key before the
+-- ledger's own "never truncated" guard runs) and would tie the ledger's DDL to these tables. The ledger is append-only (no update, delete or truncate), and every
+-- ledger_entry_id / source_entry_id below is written in the same transaction as, and from, the ledger row it names; tw4_credit_test_status cross-checks the sums.
 create table public.studio_sms_test_credit_movements (
   id uuid primary key default gen_random_uuid(),
   legal_entity_id uuid not null references public.studio_sms_legal_entities(id) on delete restrict,
-  ledger_entry_id uuid not null unique references public.studio_sms_credit_ledger(id) on delete restrict,
+  ledger_entry_id uuid not null unique,
   kind text not null check (kind in ('grant', 'consume', 'restore', 'reverse')),
   cents bigint not null check (cents > 0),
-  source_entry_id uuid null references public.studio_sms_credit_ledger(id) on delete restrict,   -- restore: the usage charge whose consumption is given back
+  source_entry_id uuid null,   -- restore: the usage charge whose consumption is given back
   grant_id uuid null references public.studio_sms_test_credit_grants(id) on delete restrict,
   created_at timestamptz not null default clock_timestamp(),
   constraint studio_sms_test_credit_movements_shape check ((kind = 'restore') = (source_entry_id is not null) and (kind = 'grant') = (grant_id is not null))
