@@ -12,7 +12,7 @@
     "quote_free_summary": "The named functionaries (and director/owner spouses and children) must not compete in any swing contest at the event, with exceptions for non-judged contests and certain separate-organization contests; directors/owners and their immediate family may not perform chief judge or scoring duties."
   },
   "rule_class": "mandatory",
-  "requirement": "Tier-2 check for chair and scorer in WSDC-declared events; the owner/director definition depends on OD-06.",
+  "requirement": "Tier-2 check for designated owners, directors, family, chief judge, secondary chief judge and score person (OD-06 designations) in WSDC-declared events.",
   "implementation": [],
   "enforcement_point": "Planned (design). Not built.",
   "tests": [],
