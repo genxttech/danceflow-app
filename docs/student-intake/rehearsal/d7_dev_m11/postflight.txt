@@ -1,0 +1,3 @@
+ "k": "assert_catalog",	 "v": "ok"  "k": "gate_open",	 "v": "false"  "k": "ensure_marker",	 "v": "other"  "k": "intake_rows_total",	 "v": "0"  "k": "outbound_intake_rows",	 "v": "0" 
+"nsi_catalog_fingerprint":"9c575d50b7ef98d73b2583e73818e8d1", "parts":670 
+"k":"appointments_fp","v":"e0c4db1b4d1b027df0e6e1593d0f14ce"
