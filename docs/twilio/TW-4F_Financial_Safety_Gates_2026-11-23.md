@@ -39,3 +39,8 @@ Compliance rule for every row: STOP/START/HELP handling never needs credit and i
 ## 3. Status of each gap (this release set)
 1. Unscheduled maintenance crons: PR "TW-4F financial safety P1: register reverify, inventory and recurring crons (dark)" (release line). Flags stay off until their release gates.
 2. Controlled test credit, exposure scan, inbound absorbed controls, dispute and negative-balance holds: tracked as separate slices; each needs an isolated-QA run and independent review before merge, and nothing ships to production without its release approval.
+3. Inbound absorbed controls for all businesses (slice C, PR #793, migration 20270222190000; dark, Git-only):
+   - What it adds: per-business alerts for volume, absorbed cost, anomaly and the daily cap, plus a switch-gated suppression of non-compliance automatic replies at the cap. It never refuses a text and never affects STOP/START/HELP.
+   - Limit: the cap protects only against overage from **routed** traffic, meaning texts recorded in `studio_sms_inbound_usage`. Texts that receive error replies (unrouted, unrecognized sender, invalid) are not recorded there, and `studio_sms_inbound_unresolved` is not read. So a flood of unrouted-sender texts, and the outbound cost of the error replies to it, are bounded only by the existing per-sender error-reply limit (one per sender per account per UTC day).
+   - Follow-up: count unresolved texts and the error-reply outbound cost in the cap and the alerts.
+   - Runbook: `docs/twilio/TW-4F_Inbound_Absorbed_Cost_Runbook.md`.

@@ -49,11 +49,20 @@ The database function answers true for these kinds before it reads anything, and
 
 ## 5. Limits (known, by design)
 
+- **What the cap does not cover.** The cap protects only against overage from routed traffic: texts that reached a studio of the business and were recorded in `studio_sms_inbound_usage`.
+  - The texts whose error replies the cap suppresses (invalid, unrecognized sender, not routed, service unavailable) are never written to `studio_sms_inbound_usage`.
+  - `_tw4ib_window` also does not read `studio_sms_inbound_unresolved`.
+  - So a flood of texts from senders that cannot be routed does not move the cap, the absorbed-cost alerts or the anomaly detection.
+  - The outbound cost of the error replies themselves is not counted either.
+  - Such a reply flood is bounded only by the existing per-sender limit: one error reply per sender per account per UTC day (`tw4_inbound_reply_allowed`, which fails closed). Many distinct senders can still each get one reply.
+  - Follow-up (not built): count unresolved texts per receiving subaccount and the estimated outbound cost of error replies in `_tw4ib_window`, so the cap and the alerts also see this traffic.
+- **The anomaly baseline uses today's timezone for past days.** The trailing days are measured as local days in the timezone that governs the current day. If the business's timezone changed during the trailing window, the earlier days are cut at the new zone's midnights. Their totals can then shift by a few hours of traffic. Accepted as is.
 - Absorbed cost uses the recorded estimates (`_tw4ia_absorbed_cents`). Texts recorded while no inbound price was published carry no estimate and count as $0. Only the segment cap protects those days. Estimates round up per text, so the cost figure is slightly pessimistic.
 - Numbers come from recorded texts, one per provider message SID, so replays never count twice. A text the webhook failed to record counts only once the reconciler records it.
 - The scan runs only when the provider-fee lifecycle scan runs (its own switch and schedule). The reply path checks the cap live, so suppression does not wait for the scan once the switch is on.
 - Days and months use the business's governing timezone (`_tw4ml_tz_for`). On the day a recorded timezone change takes effect at a month boundary, that local day follows the new month's zone.
-- The `sms_in_daily_cap` alert is raised once per local day. If the switch is turned on after it was raised, the summary still says "switched off" for that day.
+- The `sms_in_daily_cap` alert is raised once per local day. Its wording reflects the business's state when it was raised: suppressed, cleared by an administrator that day, or switch off. A later change that day does not reword it.
+- Integer settings must be whole numbers: the setter refuses values like `2000.0`. Every reader compares settings as numbers, and the scan checks each business separately, so one business with an unreadable setting is counted in the scan's `errors` and never stops the others. The lifecycle run records that as an error and keeps the alerts that were raised.
 - The pilot business keeps its 20261231140000 alerts unchanged and gets no duplicate volume alert. It does receive the new absorbed, anomaly and cap alerts. With the switch on, the cap applies to it as well (owner decision, see the PR).
 
 ## 6. Release order and rollback
