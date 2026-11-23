@@ -109,3 +109,34 @@ versioned (never by editing `ordinal_rank@1` or `studio_ordinal_majority@1`) and
 - The UCWDC hand computation above was done by reading; no UCWDC engine or independent test exists.
 - Page numbers for UCWDC citations follow the printed footers; the Rule #1.1 and #2.3 references follow the owner list.
 - The SQL recompute test was not run; the TypeScript tests were not run in this docs-only change.
+
+## 7. OD-14: over-capacity callback ties (owner decision 2026-11-23, Option A)
+
+**Preserved as DanceFlow Studio policy** (owner decisions D-CT-4, 2026-10-24, and OD-1 option D, 2026-10-30; register
+`OD14-DF-0001`): when tied couples at the callback cut exceed the Final's capacity, the engine outcome
+`blocked_tie_over_capacity` (`studioCallbackTally.ts`) leaves every row undecided and the trigger
+`cf1_guard_advancement_approval` (`20270120090000_competition_cf1_callback_final_advancement.sql`) refuses approval with
+`COMP_ADVANCEMENT_BLOCKED`. No arbitrary manager selection, no runoff, no automatic advance of all tied competitors.
+This is not UCWDC, NDCA or WSDC behavior.
+
+| Body | What the pinned source says about ties at the cut | Status | Register |
+|---|---|---|---|
+| UCWDC v16.9b | Rule #1, item 4 (p.2): promote the designated number "plus ties, if any occur"; Rule #2, item 4 says the same for Semi-Finals. No capacity exception is stated | Advance-plus-ties **NOT IMPLEMENTED**; blocker for a future UCWDC profile | `OD14-UCWDC-0001` |
+| NDCA June 2026 | IV.C.1.f ("except in the case of a tie") versus IV.C.2 (no more than eight in a Final) | **UNRESOLVED source conflict**; no cap or exception enforced or invented | `OD14-NDCA-0001`, `OD09-NDCA-0004` (PR 839) |
+| WSDC 2026.1C | Section 5 (printed p.23): the Chief Judge's scores break a callback tie, after the original calculation. No "advance all tied" rule was found in the provided text | **CONFIRMED** tie-break text; "advance all tied" and over-capacity behavior **NOT CONFIRMED** (website detail not provided); not implemented | `OD14-WSDC-0001` |
+
+**Citation reconciliation.** The UCWDC promotion rule is **Rule #1, item 4 (p.2)**, i.e. "Rule #1.4" as the audit
+inventory calls it. It is not "Rule #4": the standalone Rule #4 (p.3) is the majority-size tiebreaker.
+
+**Correction made in this PR.** `docs/competition/callback-to-final-advancement-design.md` section 0.2 previously said, for
+a tie at the cut-off when promoted plus ties exceed capacity: "**Silent.** Q1 in the UCWDC spec concerns the Semi-Finals
+retirement cut only; no Prelims → Finals over-capacity tie rule is confirmed." That row now states that UCWDC does speak
+to ties (promote plus ties) while stating no capacity exception, and that the Studio block is DanceFlow policy.
+
+**Disclosure surfaces (later, separately approved).** The section 4 checklist also covers: the unresolved-tie
+message on the results page and approval screen, and the approver-facing explanation of `COMP_ADVANCEMENT_BLOCKED`.
+Use wording such as "DanceFlow Studio policy: a tie that exceeds the Final's capacity blocks advancement until it is
+resolved by an approved process." Do not imply a body requires this block.
+
+**Coordination.** OD-09 (PR 839): NDCA recall and Final-size prerequisites; OD-13: Studio scoring labels; OD-24:
+missing NDCA and WSDC algorithm text; OD-01 (PR 832): unverified body-compliant results are not published.
