@@ -711,6 +711,8 @@ declare
   v_lr bigint;
   v_cv jsonb;
   v_unused bigint;
+  v_mis bigint;
+  v_in bigint;
 begin
   select * into b from public.studio_sms_test_credit_budgets x where x.legal_entity_id = p_entity_id;
   select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = p_entity_id;
@@ -722,6 +724,30 @@ begin
   select coalesce(sum(l.balance_delta_cents) filter (where l.kind = 'test_grant'), 0), coalesce(-sum(l.balance_delta_cents) filter (where l.kind = 'test_grant_reversed'), 0)
     into v_lg, v_lr from public.studio_sms_credit_ledger l where l.legal_entity_id = p_entity_id;
   v_cv := public.tw4_credit_verify(p_entity_id);
+  -- F-2: every movement names a ledger row of THIS business that carries it (kind, sign, amount, key), every test-kind ledger row has its movement, and no usage
+  -- charge is restored for more than it consumed. Any mismatch makes ok false and is counted in movement_mismatches.
+  select (select count(*) from public.studio_sms_test_credit_movements m
+           where m.legal_entity_id = p_entity_id and not exists (
+             select 1 from public.studio_sms_credit_ledger l where l.id = m.ledger_entry_id and l.legal_entity_id = p_entity_id and case m.kind
+               when 'grant' then l.kind = 'test_grant' and l.balance_delta_cents = m.cents and l.idempotency_key = 'test_grant:' || m.grant_id
+               when 'reverse' then l.kind = 'test_grant_reversed' and -l.balance_delta_cents = m.cents and l.idempotency_key like 'test\_reverse:%'
+               when 'forfeit' then l.kind = 'test_grant_reversed' and -l.balance_delta_cents = m.cents and l.idempotency_key = 'test_forfeit:' || m.source_entry_id
+               when 'consume' then l.kind in ('usage_charge', 'capture') and m.cents <= -l.balance_delta_cents
+               when 'restore' then l.kind = 'usage_refund' and m.cents <= l.balance_delta_cents and l.ref = 'refund_of:' || m.source_entry_id
+               else false end))
+       + (select count(*) from public.studio_sms_credit_ledger l
+           where l.legal_entity_id = p_entity_id and l.kind in ('test_grant', 'test_grant_reversed')
+             and (select count(*) from public.studio_sms_test_credit_movements m where m.ledger_entry_id = l.id) <> 1)
+       + (select count(*) from (select r.source_entry_id, sum(r.cents) restored from public.studio_sms_test_credit_movements r
+                                 where r.legal_entity_id = p_entity_id and r.kind = 'restore' group by r.source_entry_id) x
+           where x.restored > coalesce((select sum(c.cents) from public.studio_sms_test_credit_movements c where c.ledger_entry_id = x.source_entry_id and c.kind = 'consume'), 0))
+    into v_mis;
+  -- inbound texts paid with test credit (D4: allowed, with this explicit accounting): consumed on 'usage:in:' charges, net of their restores
+  select coalesce((select sum(m.cents) from public.studio_sms_test_credit_movements m join public.studio_sms_credit_ledger l on l.id = m.ledger_entry_id
+                    where m.legal_entity_id = p_entity_id and m.kind = 'consume' and l.idempotency_key like 'usage:in:%'), 0)
+       - coalesce((select sum(m.cents) from public.studio_sms_test_credit_movements m join public.studio_sms_credit_ledger l on l.id = m.source_entry_id
+                    where m.legal_entity_id = p_entity_id and m.kind = 'restore' and l.idempotency_key like 'usage:in:%'), 0)
+    into v_in;
   v_unused := coalesce(b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents - b.forfeited_cents, 0);
   return jsonb_build_object(
     'switch_enabled', public._tw4tc_switch_on(),
@@ -739,10 +765,14 @@ begin
       select ceil(coalesce(b.consumed_cents - b.restored_cents, 0)::numeric
                   * coalesce(p.unit_cost_micros::numeric / nullif(p.unit_price_micros, 0), p.provider_cost_cents::numeric / nullif(p.customer_price_cents, 0)))::bigint
         from public.studio_sms_price_list p where p.kind = 'sms_usage' and p.active),
+    'test_paid_inbound_cents', v_in,
+    'movement_mismatches', v_mis,
+    -- exhausted: test credit was granted and none is left (texting then needs own money; charged inbound texts follow the inbound ceiling: the pilot's is 0)
+    'exhausted', coalesce(b.granted_cents, 0) > 0 and v_unused = 0,
     'grants', (select count(*) from public.studio_sms_test_credit_grants g where g.legal_entity_id = p_entity_id),
     'ok', (v_m ->> 'grant')::bigint = coalesce(b.granted_cents, 0) and (v_m ->> 'consume')::bigint = coalesce(b.consumed_cents, 0)
           and (v_m ->> 'restore')::bigint = coalesce(b.restored_cents, 0) and (v_m ->> 'reverse')::bigint = coalesce(b.reversed_cents, 0)
-          and (v_m ->> 'forfeit')::bigint = coalesce(b.forfeited_cents, 0)
+          and (v_m ->> 'forfeit')::bigint = coalesce(b.forfeited_cents, 0) and v_mis = 0
           and v_lg = coalesce(b.granted_cents, 0) and v_lr = coalesce(b.reversed_cents, 0) + coalesce(b.forfeited_cents, 0) and (v_cv ->> 'ok')::boolean
           -- THE RULE holds: own money (balance - fee holds - unused test credit) is not negative, or no test credit is free (all of it is held for texts in flight)
           and (v_unused <= public._tw4tc_open_sms(p_entity_id) or coalesce(a.balance_cents - a.reserved_cents, 0) + public._tw4tc_open_sms(p_entity_id) - v_unused >= 0));

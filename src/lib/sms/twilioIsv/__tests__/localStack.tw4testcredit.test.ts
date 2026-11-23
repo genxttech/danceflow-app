@@ -147,6 +147,7 @@ function makeBusiness(name: string, pilot: boolean): { entity: string; studio: s
 insert into public.studios (id, name, slug, public_name, timezone) values ('${studio}', 'TC ${name} ${RUN}', 'tc-${name}-${RUN}', null, 'UTC');
 insert into public.studio_sms_legal_entities (id, legal_name, ein_last4, spend_cap_cents, created_by) values ('${entity}', ${lit(pilot ? "ConfiDance Unlimited, LLC" : `TC Ordinary ${RUN} LLC`)}, '9998', 15000, '${P}');
 insert into public.studio_sms_entity_studios (studio_id, legal_entity_id, link_kind, linked_by, verification_note, linked_at) values ('${studio}', '${entity}', 'founding', '${P}', 'fixture: verified synthetic business', now());
+insert into public.studio_sms_twilio_accounts (legal_entity_id, twilio_account_sid, friendly_name, environment, status, created_by) values ('${entity}', 'AC${randomBytes(16).toString("hex")}', 'tc-${name}', 'test', 'active', '${P}');
 commit;`);
   call("tw4_monthly_limit_set_admin", entity, P, 20_000, null, "fixture: monthly limit for the test-credit suite");
   if (pilot) call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, entity, 15000, `Founder written pilot approval ${RUN}`, P));
@@ -193,6 +194,8 @@ commit;`);
     ({ entity: EN, studio: SN } = makeBusiness("ordinary", false));
     // a per-text price (cents, no micros) for the provider-cost estimate of test-paid texting; published through the dual-control fixture
     seedPriceIfMissing(psql, { kind: "sms_usage", customer: 4, provider: 3, description: "fixture per-text price", approver: P });
+    // a published inbound per-segment price (whole cents): charged inbound texts are what D4 is about
+    seedPriceIfMissing(psql, { kind: "sms_inbound", customer: 2, provider: 1, description: "fixture inbound per-segment price", approver: P });
   });
 
   describe("1. privileges and shape", () => {
@@ -482,6 +485,60 @@ commit;`);
       expect([s.balance_cents, s.unused_cents, s.ok]).toEqual([-300, 0, true]);
       expect(hasCode(grantErr(EP, 10), "TW007")).toBe(true);
       adjust(EP, 300);
+    });
+
+    /** one inbound text through the REAL recorder (webhook source), as the pilot business's own subaccount */
+    const inbound = (segments: number, classification = "ordinary") => {
+      const acct = psql(`select twilio_account_sid from public.studio_sms_twilio_accounts where legal_entity_id = '${EP}' and status = 'active'`);
+      const sid = `SM${randomBytes(16).toString("hex")}`;
+      const out = call<{ recorded: boolean; charged_cents: number; uncollected_cents: number }>("tw4_inbound_record", SP, acct, sid, segments, 0, classification, null, null, "webhook");
+      return { sid, ...out };
+    };
+
+    it("D4: a charged inbound text paid with test credit is explicitly accounted (consume movement on its usage_charge row; a refund restores it) and verified", () => {
+      resetPilot(0);
+      setBudget(EP, status(EP).granted_cents + 100);
+      grant(EP, 100);
+      const before = status(EP).test_paid_inbound_cents;
+      const t1 = inbound(1);
+      expect([t1.recorded, t1.charged_cents, t1.uncollected_cents]).toEqual([true, 2, 0]);
+      const row = psql(`select id || '|' || balance_delta_cents from public.studio_sms_credit_ledger where legal_entity_id = '${EP}' and idempotency_key = 'usage:in:${t1.sid}'`).split("|");
+      expect(row[1]).toBe("-2");
+      expect(psql(`select kind || ':' || cents from public.studio_sms_test_credit_movements where ledger_entry_id = '${row[0]}'`)).toBe("consume:2");
+      let s = status(EP);
+      expect([s.test_paid_inbound_cents - before, s.unused_cents, s.movement_mismatches, s.ok]).toEqual([2, 98, 0, true]);
+      // a refund of that inbound charge gives the test credit back, tied to the same charge
+      call("tw4_credit_refund_usage", EP, 2, `in-refund-${hex(4)}`, `in:${t1.sid}`);
+      expect(psql(`select count(*) from public.studio_sms_test_credit_movements where kind = 'restore' and source_entry_id = '${row[0]}' and cents = 2`)).toBe("1");
+      s = status(EP);
+      expect([s.test_paid_inbound_cents - before, s.unused_cents, s.movement_mismatches, s.ok]).toEqual([0, 100, 0, true]);
+    });
+
+    it("D4 controlled exhaustion: when test credit runs out an inbound text is charged only what is available (pilot ceiling 0), the rest is absorbed and counted; compliance texts and recording are unaffected", () => {
+      resetPilot(0);
+      setBudget(EP, status(EP).granted_cents + 3);
+      grant(EP, 3);
+      const absorbed0 = Number(psql(`select public._tw4ia_absorbed_cents('${EP}', '-infinity'::timestamptz)`));
+      // 2 segments = 4 cents billable, 3 available: charged 3 (all the test credit), 1 uncollected; never below zero, never more than the test credit
+      const t1 = inbound(2);
+      expect([t1.recorded, t1.charged_cents, t1.uncollected_cents]).toEqual([true, 3, 1]);
+      let s = status(EP);
+      expect([s.balance_cents, s.unused_cents, s.exhausted, s.ok]).toEqual([0, 0, true, true]);
+      // exhausted: the next ordinary text is recorded, charged nothing (no ledger row), fully absorbed
+      const t2 = inbound(1);
+      expect([t2.recorded, t2.charged_cents, t2.uncollected_cents]).toEqual([true, 0, 2]);
+      expect(psql(`select count(*) from public.studio_sms_credit_ledger where idempotency_key = 'usage:in:${t2.sid}'`)).toBe("0");
+      // STOP / START / HELP (compliance) are recorded and never charged
+      const stop = inbound(1, "compliance");
+      expect([stop.recorded, stop.charged_cents, stop.uncollected_cents]).toEqual([true, 0, 0]);
+      s = status(EP);
+      expect([s.balance_cents, s.unused_cents, s.movement_mismatches, s.ok]).toEqual([0, 0, 0, true]);
+      // deterministic: a redelivery of the same text returns the same result and changes nothing
+      const again = call<{ replayed: boolean; charged_cents: number; uncollected_cents: number }>("tw4_inbound_record", SP,
+        psql(`select twilio_account_sid from public.studio_sms_twilio_accounts where legal_entity_id = '${EP}' and status = 'active'`), t1.sid, 2, 0, "ordinary", null, null, "webhook");
+      expect([again.replayed, again.charged_cents, again.uncollected_cents]).toEqual([true, 3, 1]);
+      // the absorbed cost is readable state and feeds the existing pilot absorbed-inbound alert (no new alert kind)
+      expect(Number(psql(`select public._tw4ia_absorbed_cents('${EP}', '-infinity'::timestamptz)`))).toBeGreaterThan(absorbed0);
     });
 
     it("the studio view shows test credit separately and the $500 purchase ceiling ignores it (owner's own session)", () => {
@@ -843,6 +900,17 @@ commit;`);
       const scenario = `${noRestoreRule} ${restoreSql()} ${budgetSql(granted() + 2010)} ${grantSql(10)}`;
       expect(hasCode(psqlError(`begin; ${scenario} rollback;`), "TW007"), "own-money check refuses").toBe(true);
       expect(psqlError(`begin; ${ownCheckGone} ${scenario} rollback;`), "without it the grant passes").toBe("");
+    });
+    it("F-2 mutation: a consume movement that names a non-usage ledger row is caught only by the movement-to-ledger check", () => {
+      resetPilot(0);
+      const forge = `${budgetSql(granted() + 10)} ${grantSql(10)}
+        select set_config('tw4.testcredit_write', 'on', true);
+        update public.studio_sms_test_credit_budgets set consumed_cents = consumed_cents + 5 where legal_entity_id = '${EP}';
+        insert into public.studio_sms_test_credit_movements (legal_entity_id, ledger_entry_id, kind, cents)
+          select '${EP}', l.id, 'consume', 5 from public.studio_sms_credit_ledger l
+           where l.legal_entity_id = '${EP}' and l.kind = 'release' and not exists (select 1 from public.studio_sms_test_credit_movements m where m.ledger_entry_id = l.id) limit 1;
+        ${assertSql(`not (public.tw4_credit_test_status('${EP}') ->> 'ok')::boolean and (public.tw4_credit_test_status('${EP}') ->> 'movement_mismatches')::int >= 1`, "forged movement not detected")}`;
+      needed("P0001", mutate("tw4_credit_test_status", "and (v_m ->> 'forfeit')::bigint = coalesce(b.forfeited_cents, 0) and v_mis = 0", "and (v_m ->> 'forfeit')::bigint = coalesce(b.forfeited_cents, 0)"), forge);
     });
     it("the in-flight texting hold is not counted twice: the old formula refuses a fee own money can pay (TW007)", () => {
       // the rule-1/rule-2 mutation checks above leave no unused test credit: grant some for this check

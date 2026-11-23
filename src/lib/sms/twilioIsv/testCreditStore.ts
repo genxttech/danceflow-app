@@ -54,6 +54,12 @@ export type TestCreditStatus = {
   test_paid_texting_cents: number;
   /** DanceFlow's estimated provider cost of that texting at the CURRENT per-text price; null without a price. */
   test_paid_texting_provider_cost_estimate_cents: number | null;
+  /** Inbound texts paid with test credit, net of refunds (explicitly accounted: a consume movement on each 'usage:in:' charge). */
+  test_paid_inbound_cents: number;
+  /** Movements that do not match the ledger row they name (or test rows without a movement); any value above 0 makes ok false. */
+  movement_mismatches: number;
+  /** Test credit was granted and none is left. */
+  exhausted: boolean;
   grants: number;
   ok: boolean;
 };
