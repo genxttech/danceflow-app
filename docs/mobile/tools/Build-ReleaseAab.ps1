@@ -40,6 +40,7 @@ param(
   # Dry mode: no build, no worktree, no Gradle, no keystore. Runs ONLY the signer-pin check and the baked-config check on an
   # existing -Aab, with the same fail-closed exit codes. Used to prove the path handling and to re-check an AAB read-only.
   [switch]$CheckOnly,
+  [switch]$SetupCheck,   # preflight: stale-workspace cleanup + worktree create/verify/remove at -Commit; no keystore, no build
   [string]$Aab = ""
 )
 $ErrorActionPreference = "Stop"
@@ -51,6 +52,22 @@ $ErrorActionPreference = "Stop"
 function Resolve-CallerPath([string]$p) {
   if (-not $p) { return $p }
   return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($p)
+}
+# --- 0b. Windows long-path safe directory removal. Remove-Item -Recurse fails on the deeply nested React Native / CMake .cxx
+# object paths ("Filename too long" / "Could not find a part of the path"). robocopy /MIR from an EMPTY directory deletes such trees
+# without MAX_PATH limits; then the (now empty) root is removed. Scoped: only a path under C:\dfr\ is ever removed this way.
+function Remove-DirTree([string]$p) {
+  if (-not $p -or -not (Test-Path -LiteralPath $p)) { return }
+  $full = [System.IO.Path]::GetFullPath($p).TrimEnd('\')
+  if ($full -notlike 'C:\dfr\*' -or $full.Length -lt 10) { throw "Remove-DirTree refuses a path outside C:\dfr\: $full" }
+  $empty = Join-Path $env:TEMP ("empty-" + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $empty | Out-Null
+  try {
+    & robocopy $empty $full /MIR /NFL /NDL /NJH /NJS /NC /NS /NP /R:1 /W:1 | Out-Null   # exit codes 0-7 = success
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed to empty $full (exit $LASTEXITCODE)" }
+    $global:LASTEXITCODE = 0
+    Remove-Item -LiteralPath $full -Recurse -Force
+  } finally { Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue }
 }
 $EnvFile = Resolve-CallerPath $EnvFile
 $ExpectedFile = Resolve-CallerPath $ExpectedFile
@@ -74,6 +91,29 @@ if ($CheckOnly) {
   if ($LASTEXITCODE -ne 0) { Write-Host "BAKED CONFIG: FAIL (verifier exit $LASTEXITCODE)." -ForegroundColor Red; $bad++ }
   if ($bad) { Write-Host "DO NOT UPLOAD $Aab" -ForegroundColor Red; exit 1 }
   Write-Host "CHECKS: PASS (signer equals the pin; baked config verified)." -ForegroundColor Green
+  exit 0
+}
+
+if ($SetupCheck) {
+  # --- setup preflight: proves the long-path-safe cleanup + worktree setup work. No keystore, no password, no Gradle.
+  if ($Commit -notmatch "^[0-9a-f]{40}$") { throw "-SetupCheck needs the full 40-char -Commit." }
+  $w = "C:\dfr\rel-$App"
+  if (Test-Path -LiteralPath $w) { Write-Host "SETUP CHECK: removing existing $w" -ForegroundColor Yellow; Remove-DirTree $w }
+  & git -C $RepoRoot worktree prune | Out-Null; $global:LASTEXITCODE = 0
+  & git -C $RepoRoot worktree add --detach $w $Commit | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "SETUP CHECK FAIL: git worktree add failed for $Commit." }
+  $h = (& git -C $w rev-parse HEAD).Trim()
+  if ($h -ne $Commit) { throw "SETUP CHECK FAIL: worktree HEAD $h is not $Commit." }
+  # synthetic over-MAX_PATH tree like the CMake .cxx output
+  $deep = "\\?\$w\mobile\$App\android\app\.cxx\" + ((1..14 | ForEach-Object { "very-long-directory-name-segment-$_" }) -join "\")
+  New-Item -ItemType Directory -Path $deep -Force | Out-Null
+  Set-Content -LiteralPath "$deep\x.o" -Value "x"
+  Write-Host "Synthetic deep tree length: $($deep.Length)" -ForegroundColor Cyan
+  Remove-DirTree $w
+  & git -C $RepoRoot worktree prune | Out-Null; $global:LASTEXITCODE = 0
+  if (Test-Path -LiteralPath $w) { throw "SETUP CHECK FAIL: $w still exists after cleanup." }
+  if (& git -C $RepoRoot worktree list --porcelain | Select-String -SimpleMatch ($w -replace '\\', '/')) { throw "SETUP CHECK FAIL: worktree still registered." }
+  Write-Host "SETUP CHECK: PASS (deep tree removed, worktree gone and deregistered, HEAD was exactly $Commit)." -ForegroundColor Green
   exit 0
 }
 
@@ -108,7 +148,15 @@ $out = "C:\dfr-out\release"
 $tmp = "C:\dfr\tmp-rel-$App-$short"
 
 # --- 2. clean worktree at the exact commit
-if (Test-Path -LiteralPath $work) { & git -C $RepoRoot worktree remove --force $work | Out-Null; if (Test-Path -LiteralPath $work) { Remove-Item -Recurse -Force $work } }
+# Do NOT call `git worktree remove` on a stale tree: git cannot delete the deep .cxx paths ("Filename too long") and, under
+# $ErrorActionPreference=Stop in Windows PowerShell 5.1, a native stderr line becomes a terminating NativeCommandError even with 2>$null.
+# Instead: delete the directory with the long-path-safe method, prune the (now dangling) registration, then VERIFY both are gone.
+if (Test-Path -LiteralPath $work) { Write-Host "Removing stale workspace $work ..." -ForegroundColor Yellow; Remove-DirTree $work }
+& git -C $RepoRoot worktree prune | Out-Null; $global:LASTEXITCODE = 0
+if (Test-Path -LiteralPath $work) { throw "CLEANUP FAILED: $work still exists after long-path-safe removal. Close anything using it (Explorer, an editor, a stray java/node process) and retry." }
+$registered = (& git -C $RepoRoot worktree list --porcelain | Select-String -SimpleMatch ($work -replace '\\', '/'))
+if ($registered) { throw "CLEANUP FAILED: git still lists $work as a worktree after prune." }
+$global:LASTEXITCODE = 0
 & git -C $RepoRoot worktree add --detach $work $Commit | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "git worktree add failed for $Commit (fetch first?)." }
 $head = (& git -C $work rev-parse HEAD).Trim()
@@ -134,7 +182,7 @@ try {
   }
 
   # --- 4. private TEMP, no CI, JDK 17, build
-  if (Test-Path -LiteralPath $tmp) { Remove-Item -Recurse -Force $tmp }
+  if (Test-Path -LiteralPath $tmp) { Remove-DirTree $tmp }
   New-Item -ItemType Directory -Force -Path $tmp | Out-Null
   $env:TEMP = $tmp; $env:TMP = $tmp
   Remove-Item Env:CI -ErrorAction SilentlyContinue
@@ -153,7 +201,7 @@ try {
     Set-Content -LiteralPath (Join-Path $android "local.properties") -Value ("sdk.dir=" + ($Sdk -replace "\\", "/"))
   }
   $stale = Join-Path $android "app\build\generated\assets\createBundleReleaseJsAndAssets"
-  if (Test-Path -LiteralPath $stale) { Remove-Item -Recurse -Force $stale }
+  if (Test-Path -LiteralPath $stale) { Remove-DirTree $stale }
 
   Push-Location $android
   try {
