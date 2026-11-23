@@ -52,7 +52,7 @@ select pg_temp.chk('M05 with Gate A closed the rate limit denies and writes noth
 select pg_temp.chk('M06 exchange rejects out-of-range parameters (22023) before any work',
   pg_temp.val_as('service_role', format('select count(*) from public.intake_exchange_invitation(decode(%L, ''hex''), decode(%L, ''hex''), 10, 14400)', repeat('01', 32), repeat('02', 32))) like 'ERR 22023%');
 select pg_temp.chk('M07 erase_client_impl carries the m12 marker; purge and erase implementations are owned by the restricted role; no function has a default ACL',
-  (select position('nsi-body:m12' in prosrc) > 0 from pg_proc where proname = 'erase_client_impl')
+  (select prosrc ~ 'nsi-body:m1[24]' from pg_proc where proname = 'erase_client_impl')
   and (select bool_and(pg_get_userbyid(proowner) = 'intake_destructive') from pg_proc where proname in ('erase_client_impl', 'purge_expired_impl'))
   and not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where ((n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private') and p.proacl is null));
 select pg_temp.chk('M08 the audit event-type CHECK knows the four M12 event types and nothing was queued for delivery',

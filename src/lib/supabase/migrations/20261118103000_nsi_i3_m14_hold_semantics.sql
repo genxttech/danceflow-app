@@ -773,7 +773,7 @@ begin
   if current_setting('transaction_isolation') <> 'read committed' then
     raise exception 'nsi: the purge requires READ COMMITTED (the hold checks rely on seeing every committed hold)' using errcode = '55000';
   end if;
-  -- 1. bounded candidate clients (reads only): held clients are excluded here with the SAME predicate as the delete-time check, so they
+  -- 1. bounded candidate clients (reads only): held clients are excluded here with the SAME predicate (the definer function; the restricted role has no table privilege on the holds) as the delete-time check, so they
   --    never consume the window; ordered by the oldest eligible-since per client, then by key
   select coalesce(array_agg(x.k order by x.since, x.k), '{}') into v_keys from (
     select c.k, min(c.since) as since from (
@@ -787,7 +787,7 @@ begin
        where i.expires_at < now() - interval '90 days'
          and not exists (select 1 from public.intake_sessions s2 where s2.invitation_id = i.id)
     ) c
-    where not exists (select 1 from public.intake_legal_holds h where h.studio_id = c.sid and h.client_ref = c.cid and h.released_at is null)
+    where not intake_private.client_has_active_hold(c.sid, c.cid)
     group by c.k order by min(c.since), c.k limit c_max_clients) x;
   -- 2. non-waiting client locks, all in this one statement (a client whose lock a writer holds is skipped)
   select coalesce(array_agg(k.k), '{}') into v_locked from unnest(v_keys) as k(k)

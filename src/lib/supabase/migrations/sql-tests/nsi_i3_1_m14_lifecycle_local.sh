@@ -47,13 +47,13 @@ mutate() { # label sed-expression expected-substring
   cmp -s "$M/${FILES[13]}.sql" "$TMPD/m14_mut.sql" && { bad "probe $1: the mutation changed nothing"; return; }
   o=$(applyfile $C "$TMPD/m14_mut.sql") || { say "   probe $1: mutated file refused by the migration itself: detected"; return; }
   r=$(LINES_OUT=2 "$D/run_i2_m7_m9_local.sh" $C test_T_nsi_i3_1_m14_local.sql "$FP" | grep -E "SUITE" | head -1)
-  if echo "$r" | grep -q "FAIL" && echo "$r" | grep -q "$3"; then say "   probe $1: detected ($3)"; else bad "probe $1 NOT detected: \${r:0:200}"; fi
+  if echo "$r" | grep -q "FAIL" && echo "$r" | grep -q "$3"; then say "   probe $1: detected ($3)"; else bad "probe $1 NOT detected: ${r:0:200}"; fi
   apply $C 14 || true
 }
 mutate "hold check honors effective_at again" 's|and h.client_ref = p_client_id and h.released_at is null);|and h.client_ref = p_client_id and h.released_at is null and h.effective_at <= now());|' "T01"
 mutate "delete guard skips the hold check" 's|  if intake_private.client_has_active_hold(v_studio, v_client) then|  if false then|' "T04"
 mutate "delete guard allows an unresolvable subject" "s|    raise exception 'nsi: delete refused: the subject of this row cannot be resolved' using errcode = '42501';|    return old;|" "T03"
-mutate "purge does not pre-filter held clients" 's|    where not exists (select 1 from public.intake_legal_holds h where h.studio_id = c.sid and h.client_ref = c.cid and h.released_at is null)|    where true|' "T07"
+mutate "purge does not pre-filter held clients" 's|    where not intake_private.client_has_active_hold(c.sid, c.cid)|    where true|' "T07"
 mutate "hold creation allowed for an erased client's request" 's|  if intake_private.erasure_barrier_active(p_studio_id, v_client) then|  if false then|' "T05"
 mutate "revoke_session audit without client_ref" "s|s.request_id, (select q.client_id from public.intake_requests q where q.id = s.request_id), 'intake_session', s.id|s.request_id, null, 'intake_session', s.id|" "T06"
 [ "$(fp $C)" = "$F14" ] && say "   catalog identical after the probes" || bad "catalog differs after the probes"

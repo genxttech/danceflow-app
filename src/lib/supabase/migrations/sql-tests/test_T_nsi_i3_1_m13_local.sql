@@ -120,8 +120,8 @@ select pg_temp.chk('P04 a session with the invitation''s minting actor inserts (
 
 -- ===== P05 markers, ACLs unchanged ===================================================================================
 select pg_temp.chk('P05 the purge implementation and revoke_session carry the m13 marker; the purge stays owned by the restricted role and service_role-only through its wrapper; the catalog self-check passes',
-  (select position('nsi-body:m13' in prosrc) > 0 and pg_get_userbyid(proowner) = 'intake_destructive' from pg_proc where proname = 'purge_expired_impl')
-  and (select position('nsi-body:m13' in prosrc) > 0 from pg_proc where proname = 'intake_revoke_session')
+  (select prosrc ~ 'nsi-body:m1[34]' and pg_get_userbyid(proowner) = 'intake_destructive' from pg_proc where proname = 'purge_expired_impl')
+  and (select prosrc ~ 'nsi-body:m1[34]' from pg_proc where proname = 'intake_revoke_session')
   and has_function_privilege('service_role', 'public.intake_purge_expired(int)', 'execute')
   and not has_function_privilege('authenticated', 'public.intake_purge_expired(int)', 'execute')
   and not has_function_privilege('service_role', 'intake_private.purge_expired_impl(int)', 'execute')
