@@ -1,0 +1,2 @@
+function volatility=stable: hold committed during the delete's row-lock wait; rows left in t=1; delete output: ERROR:  held (seen by the guard) CONTEXT:  PL/pgSQL function exp.guard_stable() line 1 at RAISE 
+function volatility=volatile: hold committed during the delete's row-lock wait; rows left in t=1; delete output: ERROR:  held (seen by the guard) CONTEXT:  PL/pgSQL function exp.guard_volatile() line 1 at RAISE 
