@@ -66,3 +66,9 @@ Same isolated-worktree runner (pinned `NSI_REF`), scenarios `full-nsi-end` (M1-M
 - Rollbacks on A: M12 to M11 (`9c575d50…`), M11 to M10, M10 to M9, each exact. Summary line: `failures=0`.
 - Caveats unchanged: the baseline image is not PROD (`appointments` fingerprint `ff651a6c…` vs PROD `e0c4db1b…`); M8 and M7 rollbacks were not repeated on A.
 - An earlier partial run on the pre-round-2 bytes (A phase only, killed to amend) is kept as `summary_m12_pre_final_partial.txt`.
+
+## Runbook rules for replays and DEV applies (read before touching a database that already has later NSI migrations)
+1. **Never replay an older NSI migration file on a database that already has a newer one.** The older file's self-check cannot know the newer markers, so it silently restores the older function bodies. Example (measured, `NSI_I3_1_M13_Notes.md`): replaying `20261118101000_…m12…sql` on an M13 database restores the M12 `purge_expired_impl` and `intake_revoke_session` and the catalog fingerprint equals M12 again; re-applying M13 restores it. Replays are done only through `scripts/qa/nsi-full-chain-replay.sh` (fresh containers), never by hand on a shared database.
+2. **DEV apply order is strictly increasing by file name, one file at a time**, each with preflight (expected fingerprint, expected body markers, objects absent), the file's sha256 from the stored LF blob, and a postflight (new fingerprint, `assert_catalog`, DEV-safe suites only). Never run a lifecycle, concurrency or mutation harness on a shared database.
+3. After a DEV apply, record the report under `rehearsal/dN_dev_mX/` and update the expected fingerprint in this runbook and in `scripts/qa/nsi-full-chain-replay.sh` (`NSI_EXPECT_FP`).
+4. If a rollback is ever needed on DEV it runs newest first (M13 before M12) and only the rollback file of the newest applied migration; each rollback restores the previous fingerprint exactly and is refused once data of its migration exists.
