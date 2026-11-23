@@ -524,6 +524,86 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
   });
 
   // -------------------------------------------------------------------------------------------------------------------------------------------------
+  describe("mutation checks: each guard of the check is load-bearing (the mutant runs inside a rolled-back transaction, then the real function)", () => {
+    /** Installs the check with ONE textual change, runs `probe` (its LAST output line is returned) and rolls everything back. */
+    const mutant = (find: string, repl: string, probe: string): string => {
+      const def = psql("select pg_get_functiondef('public.tw4_rfl_funding_exposure_check()'::regprocedure)");
+      expect(def).toContain(find);
+      const out = psql(`begin;\n${def.replace(find, repl)};\n${probe}\nrollback;`).split("\n");
+      return out[out.length - 1].trim();
+    };
+    const count = (where: string) => `select count(*) from public.studio_sms_provider_alerts where ${where};`;
+
+    it("M1 unfunded charge: without the status filter nothing is raised for an unfunded charge", () => {
+      const w = world({ fund: 100 });
+      register(w, "campaign");
+      const auth = authFixture(w, "monthly");
+      chargedFixture(w, auth, "monthly", keyAdd(monthOf(w), -1));
+      expect(charge(auth, monthOf(w)).outcome).toBe("unfunded");
+      const id = psql(`select id from public.studio_sms_recurring_charges where authorization_id = '${auth}' and period_key = '${monthOf(w)}'`);
+      const where = `kind = 'funding_exposure_unfunded' and dedupe_key = 'fx-unf:${id}'`;
+      expect(mutant("c.status = 'unfunded'", "c.status = 'never'", `select public.tw4_rfl_funding_exposure_check(); ${count(where)}`)).toBe("0");
+      check();
+      expect(psql(count(where))).toBe("1");
+    });
+
+    it("M2 number without authorization: a mis-mapped reason loses the critical fx-noauth alert", () => {
+      const l = location({ state: "campaign_pending" });
+      const where = `dedupe_key = 'fx-noauth:${l.studio}:${monthOf(l)}'`;
+      expect(mutant("when 'number_without_authorization' then", "when 'number_without_authorization_mutated' then", `select public.tw4_rfl_funding_exposure_check(); ${count(where)}`)).toBe("0");
+      check();
+      expect(psql(count(where))).toBe("1");
+    });
+
+    it("M3 grace: without the cover guard a COVERED resource would be warned", () => {
+      const w = world();
+      const res = register(w, "campaign");
+      age(res, "5 days");
+      const a = authFixture(w, "monthly");
+      for (const k of [keyAdd(monthOf(w), -1), monthOf(w)]) chargedFixture(w, a, "monthly", k);
+      const where = `kind = 'funding_exposure_grace_ending' and resource_id = '${res}'`;
+      expect(Number(mutant("continue when v_cov like 'covered:%';", "", `select public.tw4_rfl_funding_exposure_check(); ${count(where)}`))).toBeGreaterThan(0);
+      check();
+      expect(psql(count(where))).toBe("0");
+    });
+
+    it("M4 threshold: the boundary is inclusive (exactly the threshold raises; '>' would not)", () => {
+      const w = world();
+      const res = randomUUID();
+      replica(`insert into public.studio_sms_provider_resources (id, legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, e164, fee_kind, source, registered_by, registered_at)
+          values ('${res}', '${w.entity}', '${w.studio}', '${w.account}', 'number', '${sid("PN")}', '${e164()}', 'number', 'admin', '${P}', now() - interval '400 days');
+        insert into public.studio_sms_provider_exposure (resource_id, legal_entity_id, studio_id, period_key, reason, expected_provider_cents)
+          values ('${res}', '${w.entity}', '${w.studio}', '${monthOf(w)}', 'no_authorization', ${Number(psql("select public._tw4fx_entity_threshold_cents()"))});`);
+      const where = `dedupe_key = 'fx-thr:${w.entity}:${monthOf(w)}'`;
+      expect(mutant(">= public._tw4fx_entity_threshold_cents()", "> public._tw4fx_entity_threshold_cents()", `select public.tw4_rfl_funding_exposure_check(); ${count(where)}`)).toBe("0");
+      check();
+      expect(psql(count(where))).toBe("1");
+    });
+
+    it("M5 dedupe: a per-run key would raise the open-exposure alert on every pass; the monthly key raises it once", () => {
+      const w = world();
+      const res = register(w, "campaign");
+      age(res, "75 days");
+      scan(w);
+      const where = `kind = 'funding_exposure_unauthorized' and resource_id = '${res}' and dedupe_key like 'fx-open:%'`;
+      expect(mutant("'fx-open:' || z.resource_id || ':' || public._tw4ml_month_key(z.legal_entity_id, now())", "'fx-open:' || z.resource_id || ':' || clock_timestamp()",
+        `select public.tw4_rfl_funding_exposure_check(); select public.tw4_rfl_funding_exposure_check(); ${count(where)}`)).toBe("2");
+      check();
+      check();
+      expect(psql(count(where))).toBe("1");
+    });
+
+    it("M6 unattributed: without the counter a location with no legal business disappears from the counts", () => {
+      const studio = randomUUID();
+      psql(`insert into public.studios (id, name, slug, public_name, timezone) values ('${studio}', 'FX orphan M6', 'fx-orphan-${hex(4)}', null, 'UTC');`);
+      replica(`insert into public.studio_sms_onboarding (id, studio_id, state, legal_name, entity_type, ein_last4, submission_seq, submitted_at)
+        values ('${randomUUID()}', '${studio}', 'active', 'FX orphan LLC', 'llc', '7777', 1, now());`);
+      expect(mutant("v_unattributed := v_unattributed + 1;", "", "select public.tw4_rfl_funding_exposure_check() ->> 'unattributed';")).toBe("0");
+      expect(check().unattributed).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------------------------------------------------------------------------------
   describe("notification only, privileges and the rollback", () => {
     it("the check changes no money, authorization, charge, resource, exposure, sender, onboarding, inbound or opt-out row", () => {
       location({ state: "active" });
