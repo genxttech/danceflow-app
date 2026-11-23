@@ -4,7 +4,15 @@
 -- posting_enabled = false). With posting on, those writes raised "Use the controlled Wave posting toggle", so a Wave connection
 -- could neither be marked needs_reauth nor disconnected. Turning posting OFF is the safe direction and is now always allowed;
 -- turning it ON, or changing who/when it was enabled, still requires the controlled RPC (GUC app.wave_posting_toggle = 'allowed').
+-- W10 (found by the suite for this migration): studio_wave_connections.status only allows connected / reauthorization_required / error /
+-- disconnected (20260622_wave_integration_v0.sql), but every app path (token refresh, UI banners, platform page) writes and reads 'needs_reauth'.
+-- The needs_reauth write therefore violated the check constraint and its error was ignored, so a failed refresh never parked the connection.
+-- The constraint now also allows needs_reauth (the old value stays allowed; no existing row changes).
 begin;
+
+alter table public.studio_wave_connections drop constraint if exists studio_wave_connections_status_check;
+alter table public.studio_wave_connections add constraint studio_wave_connections_status_check
+  check (status in ('connected', 'needs_reauth', 'reauthorization_required', 'error', 'disconnected'));
 
 create or replace function public.protect_wave_posting_toggle()
 returns trigger language plpgsql
