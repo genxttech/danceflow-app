@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
 import { exchangeGoogleCalendarCode, getGoogleAccountEmail, listGoogleCalendars } from "@/lib/integrations/google-calendar/client";
 import { getGoogleCalendarAccess, googleCalendarReturnPath } from "@/lib/integrations/google-calendar/access";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { saveGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
 import { isValidOAuthState, parseOAuthStateCookie, safeOAuthErrorCode } from "@/lib/security/oauth";
 
 function appOrigin(request: Request) { return (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin).replace(/\/$/, ""); }
@@ -41,13 +43,10 @@ export async function GET(request: NextRequest) {
       calendar_id: primaryCalendar?.id ?? "primary",
       calendar_summary: primaryCalendar?.summary ?? "Primary calendar",
       scopes: tokens.scope ? tokens.scope.split(" ").filter(Boolean) : [],
-      encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
-      token_expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
       updated_by: access.context.userId,
       created_by: access.context.userId,
       last_sync_error: null,
     };
-    if (tokens.refresh_token) payload.encrypted_refresh_token = encryptIntegrationSecret(tokens.refresh_token);
 
     let existingQuery = access.supabase
       .from("studio_google_calendar_connections")
@@ -60,15 +59,30 @@ export async function GET(request: NextRequest) {
     const { data: existing, error: existingError } = await existingQuery.maybeSingle<{ id: string }>();
     if (existingError) throw new Error(existingError.message);
 
-    const { error } = existing
+    const { data: saved, error } = existing
       ? await access.supabase
           .from("studio_google_calendar_connections")
           .update(payload)
           .eq("id", existing.id)
+          .select("id")
+          .single<{ id: string }>()
       : await access.supabase
           .from("studio_google_calendar_connections")
-          .insert(payload);
-    if (error) throw new Error(error.message);
+          .insert(payload)
+          .select("id")
+          .single<{ id: string }>();
+    if (error || !saved) throw new Error(error?.message ?? "Connection could not be saved.");
+    const admin = createAdminClient();
+    try {
+      await saveGoogleCredentials(admin, saved.id, {
+        encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
+        encrypted_refresh_token: tokens.refresh_token ? encryptIntegrationSecret(tokens.refresh_token) : null,
+        token_expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
+      });
+    } catch (credentialError) {
+      await admin.from("studio_google_calendar_connections").update({ status: "needs_reauth", last_sync_error: "Credentials could not be saved. Reconnect Google Calendar." }).eq("id", saved.id);
+      throw credentialError;
+    }
     return redirectWithClearedState(request, `${returnPath}?connected=1`);
   } catch (error) {
     console.error("Google Calendar OAuth callback failed", error instanceof Error ? error.message : error);

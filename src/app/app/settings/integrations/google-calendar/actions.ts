@@ -13,6 +13,8 @@ import {
   syncGoogleCalendarConnection,
   type GoogleCalendarConnectionRow,
 } from "@/lib/integrations/google-calendar/sync";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { deleteGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
 import {
   getValidGoogleCalendarAccessToken,
   listGoogleCalendars,
@@ -85,13 +87,12 @@ export async function disconnectGoogleCalendarAction(formData: FormData) {
   const cleanup = await cleanupGoogleCalendarConnectionEvents(connection);
   if (cleanup.failed > 0) redirect(withParam(returnTo, "error", "disconnect_cleanup_failed"));
 
+  // Tokens go first: a failure here leaves the connection visibly connected so the user can retry, never "disconnected" with live tokens.
+  await deleteGoogleCredentials(createAdminClient(), connection.id);
   const { error } = await access.supabase
     .from("studio_google_calendar_connections")
     .update({
       status: "disconnected",
-      encrypted_access_token: null,
-      encrypted_refresh_token: null,
-      token_expires_at: null,
       last_sync_error: null,
     })
     .eq("id", connection.id);
