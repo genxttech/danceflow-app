@@ -729,6 +729,7 @@ async function a1Flows(owner) {
     out: OUT,
     pkg: APP,
     assistantName: "ARIA",
+    promptText: "show me pulse", // matches ARIA stub rule words ["pulse"]: reply "Preview answer" + the Open Pulse chip
     flagsOn: !!opts.aria,
     density: Number((/(\d+)\s*$/.exec(sh("wm density")) ?? [, "420"])[1]),
     writeFile: (p, t) => fs.writeFileSync(p, t),
