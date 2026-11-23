@@ -7,11 +7,11 @@ Inputs: `Integrations_Audit_Existing.md`, `Integrations_Candidates.md`, `Connect
 
 | # | Item | Why first | Effort | Risk | Approval lead time | Duplication risk |
 |---|---|---|---|---|---|---|
-| 1 | **Per-dancer and per-staff ICS calendar feeds** (extend the existing token-ICS pattern; webcal links in Business, Student app and portal) | Apple, Outlook and Google Calendar all consume ICS, so one native feature covers every read-only calendar need, including the dancer audience, which no OAuth integration serves. Pattern already exists for instructors and coaches | S (≈6–10 d) | Low: secret URL leakage (mitigate with revocable tokens, minimal event detail) | None | Low: replaces future per-vendor read integrations |
+| 1 | **Per-dancer and per-staff ICS calendar feeds** (reuse the ICS formatting and the revocable-token idea; **new hash-only token storage, not the existing plaintext instructor-feed storage or detail level**, see Audit §9; webcal links in Business, Student app and portal) | Apple, Outlook and Google Calendar all consume ICS, so one native feature covers every read-only calendar need, including the dancer audience, which no OAuth integration serves. Pattern already exists for instructors and coaches | M (≈10–15 d incl. new token table, invalidation hooks, instructor-feed migration) | Low: secret URL leakage (mitigate with revocable tokens, minimal event detail) | None | Low: replaces future per-vendor read integrations |
 | 2 | **Webhooks + public REST API + scoped API keys, then a private (invite-link) Zapier app and Make app** | One investment opens QuickBooks/Xero/Mailchimp/Sheets/Slack/HubSpot/Meta lead-ads without per-vendor approval. Zapier is table stakes among competing platforms. Built on the shared outbox, so it also forces the Connected Apps core to exist | M (≈25–35 d for core webhooks+API; +8–12 d Zapier private app; +5 d Make) | Medium: data-classification of events, abuse/rate limits, support load | None for webhooks/API; private Zapier/Make need only a free developer account (separate owner authorization, OD-9); public listing later | Low |
 | 3 | **Apple Wallet + Google Wallet passes** (memberships, class packs, event tickets; QR for check-in) | Highest dancer-visible value among the near-term set, ties to Student app check-in; no third-party data leaves DanceFlow beyond the pass | M (≈20–30 d both, incl. update service) | Medium: signing-key custody, certificate renewal, update-registration bugs | Apple: Developer Program membership and pass certificate (no pass review); Google: issuer account + publishing-access review (duration undocumented) | Low |
 
-Also near-term but not "integrations": **Slice 0, Connected Apps hardening** (§3) is a prerequisite to anything OAuth-based and should start immediately because it fixes live defects.
+Also near-term but not "integrations": **Slice A0, Connected Apps hardening** (§3) is a prerequisite to anything OAuth-based and should start immediately because it fixes live defects.
 
 Why not the obvious alternatives first:
 - *QuickBooks/Xero direct*: Intuit/Xero moved to metered tiers; QuickBooks token rotation and chart-of-accounts mapping make it L; QuickBooks-ready CSV/journal export plus Zapier covers most value sooner (ranked #4 below).
@@ -25,18 +25,18 @@ Why not the obvious alternatives first:
 
 ## 3. Phasing and engineering slices
 
-### Phase A — Foundations (weeks 1–6)
+### Phase A — Foundations (staffing assumption: one engineer; A is roughly 8–11 calendar weeks)
 | Slice | Content | Est. | Depends on |
 |---|---|---|---|
-| A0 Audit remediation (live code) | G1 token column isolation (move to credentials table), G3 event timeZone fix, G4 cron time-budget + `maxDuration` + backoff, G5 scope verification, G8 pause on inactive instructor; Wave tests (W2), confirm/schedule wave-autopost (W1), provider revoke on disconnect (G2/W3), OAuth/refresh tests (G10) | 10–14 d | none; Wave scheduling needs owner confirmation (OD-8b) |
-| A1 Vault v2 + audit + pending-connect | key ids, rotation job, `integration_audit_events`, DB-backed OAuth state with PKCE | 6–8 d | A0 (reuse) |
+| A0 Audit remediation (live code; **dark PRs only**) | G1 minimal fix (service-role writes after role check; the credentials-table move belongs to A2/A3), G3 event timeZone/exclusive-end/retention/draft fixes, G4 cron time budget + `maxDuration` + backoff, G5 scope verification, G8 pause on inactive instructor, G13 refresh-failure classification, G14 "disconnect anyway" (OD-3), G15 reconnect keeps calendar, W2 Wave tests, W9 Wave disconnect/needs_reauth through a SECURITY DEFINER disable RPC, provider revoke on disconnect (G2/W3), OAuth/refresh tests (G10), needs-reauth notification | 14–20 d | **Owner gates (engineering prepares dark PRs only):** any PROD SQL (W9, G1 policy change) and scheduling or enabling `wave-autopost` in PROD (OD-8: scheduler unconfirmed; the Wave connection has `posting_enabled=true`) |
+| A1 Vault v2 + audit + pending-connect | key ids, rotation job, `integration_audit_events`, DB-backed OAuth state with PKCE | 6–8 d | none (independent of A0) |
 | A2 Generic connection model + outbox + inbound-event table | tables, RLS, claim/lease worker, health, error taxonomy; hub cards from registry (read-only first) | 15–20 d | A1; NSI outbox decision (shared pattern, no shared SQL with NSI unless NSI T4 authorizes) |
 | A3 Migrate Google Calendar to generic layer | dual-read cutover, keep reconciler as capability | 8–10 d | A2 |
 
-### Phase B — First three integrations (weeks 4–14, overlaps A)
+### Phase B — First three integrations (roughly 14–20 weeks end to end for one engineer; B1 and B2 can start once A1/A2 land, and run in parallel with a second engineer)
 | Slice | Content | Est. | Depends on |
 |---|---|---|---|
-| B1 Dancer/staff ICS | token table, revoke/rotate UI, webcal links, student-app/portal entry points, KB article | 6–10 d | Student app release train (APPS coordinator) |
+| B1 Dancer/staff ICS | hash-only token table, revoke/rotate UI, migrate or rotate existing instructor feeds, webcal links, student-app/portal entry points, KB article | 10–15 d | A1 (audit table, kill switches); Student app release train (APPS coordinator); design in `Calendar_Feeds_Design.md` |
 | B2 Outbound webhooks | endpoint mgmt UI, signing, event allowlist, delivery log, replay | 12–15 d | A2 |
 | B3 Public REST API + API keys | read lead/schedule/client lookup, create lead, idempotency, rate limits, docs | 12–18 d | A2; Staff API conventions |
 | B4 Zapier private app, Make app | triggers via REST hooks, polling fallback, test accounts, KB recipes | 10–15 d | B2, B3; each developer account needs separate owner authorization and any fee (OD-9) |
@@ -76,7 +76,7 @@ Read tools and suggest-only notifications ship with A2 (connection health, faile
 | OD-6 | Retention for mappings/job history/audit after disconnect | 90 days mappings; audit per studio policy |
 | OD-7 | Data minimisation default for external calendar descriptions (client names) | Minimal by default, opt-in detail |
 | OD-8 | Production configuration verification (read-only). **Partly answered** by engineering 2026-11-23, see Audit §7: env var names present; Wave posting entitlement `pilot` for 1 studio; Google Calendar has 2 studio connections, both `needs_reauth`, last sync 2026-10-27. **Not verifiable by engineering:** Google consent-screen publishing/verification status and the value of `WAVE_POSTING_ENABLED` | Owner confirms Google console state; decide whether to reconnect or retire the 2 failing connections |
-| OD-9 | **PRESERVED:** each provider enrollment and any fee (Apple pass certificate, Google Wallet issuer account, Zapier/Make developer accounts, Google Business Profile access application) needs its own separate owner authorization when its slice is about to start. The OD-10 approval does not authorize any enrollment or fee | Authorize per slice, not in advance |
+| OD-9 | **PRESERVED:** each provider enrollment and any fee (Apple Developer Program membership if not already held and the pass certificate, Google Wallet issuer account, Zapier/Make developer accounts, Google Business Profile access application) needs its own separate owner authorization when its slice is about to start. The OD-10 approval does not authorize any enrollment or fee | Authorize per slice, not in advance |
 | OD-10 | **APPROVED (owner, via APPS coordinator, 2026-11-23):** the first three are roadmap priorities: (1) per-dancer and per-staff calendar subscriptions, (2) secure public REST API + webhooks + private Zapier/Make, (3) Apple/Google Wallet passes. Priorities only: no production activation, provider enrollment or fees | Approved |
 | OD-11 | Public Zapier listing (and its support commitment) vs staying private | Stay private until demand |
 | OD-12 | Default privacy for dancer ICS (detail level, token rotation cadence) | Minimal detail, rotate on request |
@@ -87,4 +87,4 @@ Read tools and suggest-only notifications ship with A2 (connection health, faile
 Provider policy churn (Meta, Google, Spotify, Intuit, Xero changed terms/pricing in 2025–26); approval unknowns (Google Wallet, Google Business Profile, Zoom, Slack); support load from customer-owned third-party accounts; token/key custody (mitigated by vault v2); scope creep into two-way edits (mitigated by projection rule); mobile release capacity; research items still unverified (Candidates §12).
 
 ## 8. Definition of done per integration (developer-owned QA)
-QA matrix entry per capability (PASS only with evidence; BLOCKED where a live provider account is needed and not authorized); RLS cross-tenant tests; vault/rotation tests; outbox crash/duplicate tests; revoke/disconnect/purge tests; KB article and support runbook; flag/entitlement wiring; audit events; ARIA tools tested for role limits.
+QA matrix entry per capability (PASS only with evidence; BLOCKED where a live provider account is needed and not authorized); RLS cross-tenant tests; vault/rotation tests; outbox crash/duplicate tests; revoke/disconnect/purge tests; KB article and support runbook; flag/allowlist wiring; audit events; ARIA tools tested for role limits.

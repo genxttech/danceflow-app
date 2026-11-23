@@ -10,7 +10,7 @@ Internal-confidential: §9 contains the generic Competition-adjacent position on
 | Capability | Already built | Third-party "integration" adds | Position |
 |---|---|---|---|
 | Calendar subscription (read-only) | Public ICS for studios and organizers; token ICS for instructors and coach schedules; embed calendar | Nothing technical; Apple/Outlook/Google all consume ICS | Extend natively (per-dancer feed), do not build per-vendor read integrations |
-| Calendar push to Google | Live (one-way, studio + instructor) | Two-way/busy-time is the real gap | Maintain; fix defects first |
+| Calendar push to Google | Live code, but both PROD connections have been in `needs_reauth` since 2026-10-27 (one-way, studio + instructor) | Two-way/busy-time is the real gap | Maintain; fix defects first |
 | Lead capture and intake | Native forms, embeds, NSI (dark) | Meta/Google ad leads as extra sources | Import via generic webhook/Zapier before native ad integrations |
 | SMS/email | Twilio TW-4F, Resend | WhatsApp/Instagram DMs, Mailchimp | Separate consent/billing surfaces; mostly reject (§4) |
 | Documents/waivers | Native documents (Phase 8) | DocuSign/Dropbox Sign | Reject for now |
@@ -66,7 +66,7 @@ Internal-confidential: §9 contains the generic Competition-adjacent position on
 ## 3. Automation and long tail
 
 ### 3.1 Webhooks + public REST API (generic, native)
-- No vendor approval; prerequisite for Zapier/Make; competitors treat Zapier as table stakes (§8). Complexity M; support moderate (key rotation, signing, retries, delivery log). **Recommendation: Near.** Design in Architecture §13. SMS content/phone numbers and Competition data classes are hard exclusions (§9; TW-4F coordinator confirmed SMS stays out of outbound events — engineering position, not an owner decision).
+- No vendor approval; prerequisite for Zapier/Make; competitors treat Zapier as table stakes (§8). Complexity M; support moderate (key rotation, signing, retries, delivery log). **Recommendation: Near.** Design in Architecture §13. SMS content/phone numbers and Competition data classes are hard exclusions (§9; TW-4F coordinator's engineering position (not an owner decision): SMS stays out of outbound events).
 
 ### 3.2 Zapier
 - Free to build. Private (invite-link) integrations can be built by anyone and stay private; a **public** app must be built by the API owner, fully launched on production endpoints, with non-expiring test account, full API docs, every trigger/action tested with a live Zap; REST Hook triggers need subscribe/unsubscribe plus a polling fallback [P: docs.zapier.com/platform/publish/integration-publishing-requirements, /platform/build/hook-trigger]. Official: developer reaches out within about a week; total review unpublished, community reports ~10 to 60+ days [S, anecdotal].
@@ -91,7 +91,7 @@ Internal-confidential: §9 contains the generic Competition-adjacent position on
 
 ### 5.1 Apple Wallet + Google Wallet passes
 - **Use:** Membership/class-pack/event-ticket pass on the dancer's phone; lock-screen QR for check-in; updated as remaining classes/expiry change. Maps to memberships, packages, bookings, check-in (Student app) and event tickets.
-- **Apple:** Apple Developer Program membership, Pass Type ID and signing certificate, web service URL and APNs push for updates; certificate renews yearly [?: Apple page returned no text; from vendor knowledge, **re-verify**]. No pass review process [?].
+- **Apple:** Apple Developer Program membership, Pass Type ID and signing certificate, web service URL and APNs push for updates; certificate renews yearly [?: Apple page returned no text; from vendor knowledge, **re-verify**]. No pass review process [?] (unverified; Apple Developer Program membership is a fee if not already held).
 - **Google:** Issuer account, Wallet API enabled, service account; starts in **Demo Mode** (only test accounts); "Request publishing access" triggers Google review; lead time undocumented [P: developers.google.com/wallet/generic/getting-started/issuer-onboarding, /auth/rest].
 - **Security:** keep signing keys in the vault/KMS; QR carries an opaque, rotatable token only (no PII); revoke on cancellation.
 - **Mobile:** buttons need no extra store review; privacy labels/Data Safety unchanged unless new SDKs [?].
@@ -154,7 +154,7 @@ Jackrabbit: partner marketplace (payments, payroll, QuickBooks export, Zapier, c
 | 13 | HubSpot, Klaviyo, CC, AC; Calendly/Cal.com; Square; DocuSign; Spotify API; Fitbit/Garmin; Teams; CalDAV write; embedded payroll; review APIs | 3rd | Low | M–L | high | high | Reject |
 
 ## 11. Cross-cutting provider-approval facts (lead times)
-No review: Apple Wallet, ICS, Make invite link, Zapier private, Mailchimp/Constant Contact app registration. Documented: Google sensitive-scope verification up to 10 days (+ CASA for restricted); HubSpot ≤10 business days initial; Zapier first response ~1 week. Undocumented/anecdotal: Meta Business Verification (weeks–60 days), Google Wallet publishing, Google Business Profile, Zoom (3 days–4+ weeks), Slack (weeks), Gusto/ADP/Paychex (weeks–months), Spotify Extended Quota (~6 weeks, org-only). Install-count gates: HubSpot 3, Klaviyo 5 active installs. Webhook/subscription renewals needed: Microsoft Graph (<7 days), Google `watch`.
+No review (Apple Wallet unverified): Apple Wallet, ICS, Make invite link, Zapier private, Mailchimp/Constant Contact app registration. Documented: Google sensitive-scope verification up to 10 days (+ CASA for restricted); HubSpot ≤10 business days initial; Zapier first response ~1 week. Undocumented/anecdotal: Meta Business Verification (weeks–60 days), Google Wallet publishing, Google Business Profile, Zoom (3 days–4+ weeks), Slack (weeks), Gusto/ADP/Paychex (weeks–months), Spotify Extended Quota (~6 weeks, org-only). Install-count gates: HubSpot 3, Klaviyo 5 active installs. Webhook/subscription renewals needed: Microsoft Graph (<7 days), Google `watch`.
 
 ## 12. Items needing re-verification before commitment
 Intuit (assessment, rate limits, webhooks, pricing), Apple Wallet certificate/update specifics, Google `calendar.events` sensitivity label, Wave new-app acceptance, Gusto/Paychex/ADP costs, Stripe Terminal pricing, Meta data-use terms, Mailchimp API policy/rate limits, builder app-store rules, minors/waiver law.
