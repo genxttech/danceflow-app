@@ -42,10 +42,18 @@ export type TestCreditStatus = {
   consumed_cents: number;
   restored_cents: number;
   reversed_cents: number;
+  /** Taken back because a debit would otherwise have been paid with test credit (own money below zero). */
+  forfeited_cents: number;
   unused_cents: number;
   balance_cents: number;
   reserved_cents: number;
   non_test_available_cents: number;
+  /** Money held for texts in flight (backed by test credit first). */
+  open_texting_holds_cents: number;
+  /** Texting paid with test credit, net of usage refunds, at customer prices: DanceFlow's cost of the test, NOT revenue. */
+  test_paid_texting_cents: number;
+  /** DanceFlow's estimated provider cost of that texting at the CURRENT per-text price; null without a price. */
+  test_paid_texting_provider_cost_estimate_cents: number | null;
   grants: number;
   ok: boolean;
 };

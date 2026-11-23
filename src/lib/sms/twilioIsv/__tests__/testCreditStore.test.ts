@@ -137,3 +137,18 @@ describe("TW-4F controlled test credit wrapper (dark, service role)", () => {
     expect(sql.replace(/coalesce\(a\.low_balance_threshold_cents, 1000\)/g, "")).not.toMatch(/\b1000\b/);
   });
 });
+
+describe("TestCreditStatus matches tw4_credit_test_status", () => {
+  it("every key the database returns is typed, and nothing typed is missing", () => {
+    const sql = readFileSync(join(process.cwd(), "src/lib/supabase/migrations/20270223091000_twilio_test_credit_grant.sql"), "utf8");
+    const st = sql.indexOf("create or replace function public.tw4_credit_test_status(");
+    const body = sql.slice(st, sql.indexOf("end $$;", st));
+    const ret = body.slice(body.indexOf("return jsonb_build_object("));
+    const dbKeys = [...ret.matchAll(/^\s*'([a-z_]+)',|,\s*'([a-z_]+)',/gm)].map((m) => m[1] ?? m[2]).filter((k) => !["grant", "consume", "restore", "reverse", "forfeit"].includes(k));
+    const ts = readFileSync(join(process.cwd(), "src/lib/sms/twilioIsv/testCreditStore.ts"), "utf8");
+    const typ = ts.slice(ts.indexOf("export type TestCreditStatus = {"), ts.indexOf("};", ts.indexOf("export type TestCreditStatus = {")));
+    const tsKeys = [...typ.matchAll(/^\s*([a-z_]+):/gm)].map((m) => m[1]);
+    expect(tsKeys.length).toBeGreaterThan(15);
+    expect([...new Set(dbKeys)].sort()).toEqual([...new Set(tsKeys)].sort());
+  });
+});
