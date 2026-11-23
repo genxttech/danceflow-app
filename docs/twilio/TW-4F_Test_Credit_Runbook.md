@@ -11,7 +11,7 @@ The ConfiDance pilot ceiling (decision 10) only pays for pilot setup fees. It ne
 | Only the pilot business | the legal business must hold the pilot exception (`studio_sms_pilot_exceptions`); otherwise `TW072`. Eligibility is exactly "holds the pilot exception". The exception exists at most once in the whole system, and only for the verified ConfiDance Unlimited, LLC legal business (`tw4_pilot_exception_create`). So no other business can ever receive test credit without a reviewed migration. |
 | Platform administrator only | `_tw4c_admin`; otherwise `42501`. The five functions are `service_role` EXECUTE only. No UI, route or cron calls them. |
 | Dark by default | database kill switch (`studio_sms_test_credit_switch_log`; no row = OFF), plus the app flag `TW4_TEST_CREDIT_ENABLED=1` for the TypeScript wrapper (`src/lib/sms/twilioIsv/testCreditStore.ts`). The flag only gates what can create credit (grant, budget, switch ON). Switch OFF and reversing unused credit always work. |
-| Bounded | per-business TEST BUDGET, default 0. A grant over the remaining budget is refused (`TW071`). Reversals do not free budget. The budget is at most 50000 cents (the existing $500 balance ceiling). No amount is encoded anywhere. |
+| Bounded | per-business TEST BUDGET, default 0. A grant over the remaining budget is refused (`TW071`). Reversals do not free budget. **The owner-approved ConfiDance test budget is $10 (1000 cents)**, set as data with its own written authorization (§3.2); it is not encoded in the migration. The database refuses any budget above 50000 cents (the existing $500 balance ceiling). That bound is a technical **ceiling, never a spending authorization**: only the recorded budget and each evidence-backed grant authorize anything. |
 | Written authorization | every budget change and every grant records U-4 evidence: date (not in the future, at most 31 days old), role (`founder_written` / `owner_written`), scope (`test_credit_budget` / `test_credit_grant`), amount (must equal the amount recorded), period (the business's current billing month, `YYYY-MM`), document reference, sha256 of the retained text. Otherwise `TW052`. |
 | One approval, one decision | the approval reference goes into the permanent shared registry `studio_sms_approval_refs`. A reused reference (also one used for a fee approval) is refused with `TW019`. Each retained document (sha256) authorizes one grant and one budget change. An identical retry returns `replayed: true` and changes nothing. |
 | Texting only | its own ledger kinds `test_grant` / `test_grant_reversed`. A ledger trigger refuses any non-texting reservation (setup fees, recurring fees, recurring set-asides) that would need unused test credit (`TW007`). Texting uses test credit first. A usage refund of a test-paid charge comes back as test credit. |
@@ -43,6 +43,8 @@ Notation: `<entity>` is the pilot legal business id, `<admin>` is the operator's
 4. Choose an approval reference of 10 to 200 characters that has never been used anywhere, for example `Owner email 2027-02-20 test credit grant 1`.
 
 ### 3.2 Set the budget (once; with its own evidence)
+
+The budget decision and each grant are **separate written authorizations**, each with its own retained document, sha256 and approval reference. Evidence must be at most 31 days old (owner-accepted). For ConfiDance the approved example is `<budget_cents>` = `1000` ($10). Then grant up to 1000 cents in total, for example one grant of `1000`, or two of `500`, each with its own authorization.
 
 ```sql
 select public.tw4_credit_test_budget_set('<entity>', <budget_cents>, '<budget approval ref>', '<admin>',
@@ -141,7 +143,7 @@ The database keeps hashes and references, never the authorization text. Every ta
   * the credit account's own verification;
   * the own-money rule.
 
-  It does **not** check that each `consume` and `restore` movement matches the ledger row it names. Follow-up F-2: optional hardening that joins each movement to its ledger entry and compares amounts.
+  It also checks each movement against the ledger row it names (F-2, done): kind, sign, amount and key. A `consume` must be on a usage charge or texting capture for at most that charge. A `restore` must be on the usage refund of the charge it names. Every test-kind ledger row must have exactly one movement, and no charge may be restored for more than it consumed. Any mismatch is counted in `movement_mismatches` and makes `ok` false.
 * **Deferred check after a release.** The check that forfeits test credit freed by a released texting hold runs at COMMIT, as a deferred constraint trigger. A session that runs `SET CONSTRAINTS ALL IMMEDIATE`, or names that trigger, after a release has the check run at once, before the text's charge in the same transaction. That can forfeit test credit that the charge would have used. Application code does not do this; operators must not either.
 * **Replication and restores.** The test-credit triggers are ENABLE ALWAYS:
   * Logical replication applies the rows and fires the triggers again (a direct test-kind insert is refused).
@@ -154,9 +156,15 @@ The database keeps hashes and references, never the authorization text. Every ta
 * Operational: switch OFF (§3.5) and reverse the unused balance (§5).
 * Schema: `rollback/20270223091000_twilio_test_credit_grant_rollback.sql`. It only applies while no row of this migration exists, so it is for an environment where the mechanism was never used. Once used, the migration stays applied.
 
-## 8. Open owner decisions
+## 8. Owner decisions
 
-* **D1 (dual control).** The repo's dual control (two registered administrators in authenticated AAL2 sessions) exists only for price changes. The comparable money actions (pilot exception, pilot spend approvals, credit adjustment) use one platform administrator plus U-4 evidence, and this mechanism follows them. Should a test grant require a second, different administrator to approve?
-* **D2.** Is the 31-day freshness window for the authorization right? The pilot spend approvals use 400 days.
-* **D3.** Is the 50000-cent upper bound on the budget right? It is the existing balance ceiling. The proposed amount itself is not encoded.
-* **D4.** Should inbound texts that are charged, rather than absorbed, be allowed to consume test credit? They currently are, because they are messaging usage.
+* **D1 (dual control), open.** The repo's dual control (two registered administrators in authenticated AAL2 sessions) exists only for price changes. The comparable money actions (pilot exception, pilot spend approvals, credit adjustment) use one platform administrator plus U-4 evidence, and this mechanism follows them. Should a test grant require a second, different administrator to approve?
+* **D2, accepted.** A 31-day freshness window for each written authorization, with separate authorizations for the budget and for each grant.
+* **D3, accepted.** The ConfiDance test budget is **$10 (1000 cents)**, not $150. The 50000-cent bound is a database ceiling, never a spending authorization.
+* **D4, accepted with conditions.** Charged inbound texts may use test credit **only** with explicit accounting and controlled exhaustion. Both are implemented and tested:
+  * **Accounting.** Each charged inbound text is an ordinary `usage_charge` with key `usage:in:<message sid>`, at the published inbound price. The part paid with test credit is a `consume` movement tied to that ledger row. A refund of that charge (`tw4_credit_refund_usage`, original key `in:<sid>`) gives the test credit back as a `restore` movement tied to the same charge. `tw4_credit_test_status.test_paid_inbound_cents` shows the net amount, and the F-2 check verifies each movement against its row.
+  * **Exhaustion.** The existing inbound rule decides, unchanged. The pilot's inbound ceiling is 0, so a text is charged at most `least(billable, available)`: never more than the test credit plus own money that is free. The balance never goes negative and the free test credit never goes negative. The rest is recorded as `uncollected_cents` on `studio_sms_inbound_usage` and absorbed by DanceFlow. A redelivery returns the same result.
+  * **Never affected.** The text is always recorded and never refused. STOP/START/HELP (compliance) texts are never charged and never touch credit.
+  * **Visibility.** `exhausted = true` in the status once the test credit is used up. The absorbed cost feeds the existing pilot absorbed-inbound alert (80% / 100% of the $20 allowance, `_tw4ia_absorbed_cents`). No new alert kind is added.
+* **F-1 (open).** The usage reconciler and the monthly-limit sums still include test-paid texting (§6). Subtract `test_paid_texting_cents` by hand until a reviewed reconciler change lands.
+* **F-2 (done).** Movement-to-ledger verification (see "Verifier coverage").
