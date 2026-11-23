@@ -271,6 +271,8 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 - **Blast radius.** Dark; none for (a).
 - **Decision.** Is the block still acceptable when a declared body says ties advance?
 
+**OD-14 DECIDED 2026-11-23 (owner): Option A, preserve the Studio over-capacity tie block.** `blocked_tie_over_capacity` and the existing advancement-approval guard are preserved for Studio/Custom. No arbitrary manager selection, runoff procedure or automatic advancement of all tied competitors. Recorded as DanceFlow Studio policy, not UCWDC, NDCA or WSDC compliance. The outdated CFD statement that UCWDC is silent on over-capacity ties is corrected: UCWDC Scoring Format Prelim Rule #4 addresses advancement plus ties. UCWDC advance-plus-ties is NOT IMPLEMENTED for a future UCWDC profile. The NDCA IV.C.1.f versus IV.C.2 conflict stays unresolved with no invented exception or unverified Final-cap enforcement. WSDC tie resolution is recorded separately, pending confirmation against the pinned rulebook. OD-01 restrictions preserved. Documentation coordinated with OD-09, OD-13, OD-24. Authorized: docs-only rule-register, compliance-gap and Studio-scoring disclosure-spec updates. Not authorized: UI, export, scoring-engine or SQL changes, merge, DEV/PROD SQL apply, deployment, activation.
+
 ### OD-15 Qualifications, certification, membership and role mapping of officials
 
 - **Issue.** A judge or scorer needs only an active studio/organizer team membership and a verified email; no roster, membership, certification or license field, and no UCWDC Contest Coordinator or NDCA scrutineer concept.
