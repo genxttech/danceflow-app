@@ -99,15 +99,15 @@ The owner reads this output back against the written authorization (amount, busi
 
 ## 5. Reverse the unused balance (end of the test, or on any doubt)
 
-1. `select public.tw4_credit_test_status('<entity>');` and read `unused_cents`.
-2. If any text is in flight, wait until its reservation settles. Money held by an open reservation cannot be reversed (`TW007`).
+1. `select public.tw4_credit_test_status('<entity>');` and read `unused_cents` and `open_texting_holds_cents`.
+2. Only FREE test credit can be reversed: `unused_cents - open_texting_holds_cents`, and never more than the available credit. Test credit backing a text in flight pays that text when it is charged. If any text is in flight, wait until its reservation settles, then reverse what remains. A larger amount is refused with `TW007`, and the message gives the free amount.
 3. Run:
 
 ```sql
-select public.tw4_credit_test_reverse('<entity>', <unused_cents>, 'reverse-<grant_id>', 'Pilot test finished: unused test credit returned', '<admin>');
+select public.tw4_credit_test_reverse('<entity>', <free_cents>, 'reverse-<grant_id>', 'Pilot test finished: unused test credit returned', '<admin>');
 ```
 
-4. Verify again (§4): `unused_cents = 0`, `ok = true`. The reversal works whether the switch is on or off. Re-running it with the same key is a replay. The same key with another amount is refused. A reversal does not free budget: a later grant needs a raised budget and new evidence.
+4. Verify again (§4): `unused_cents = 0`, `ok = true`. The reversal works whether the switch is on or off. Re-running it with the same key is a replay. The same key with another amount, another administrator or another reason is refused. A reversal does not free budget: a later grant needs a raised budget and new evidence.
 
 ## 6. Evidence to retain (permanently)
 

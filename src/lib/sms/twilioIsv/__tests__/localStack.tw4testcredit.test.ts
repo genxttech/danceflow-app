@@ -560,6 +560,20 @@ commit;`);
       expect(hasCode(grantErr(EP, 1), "TW071")).toBe(true);
     });
 
+    it("only FREE test credit can be reversed: own 500, test 800, a 500 text hold -> reversing 301 is refused (TW007), 300 passes; the text is then paid by test credit", () => {
+      resetPilot(500);
+      setBudget(EP, status(EP).granted_cents + 800);
+      grant(EP, 800);
+      const hold = holdText(EP, SP, 500);
+      expect(hasCode(callErr("tw4_credit_test_reverse", EP, 301, `rv-${hex(4)}`, "reverse more than the free test credit", P), "TW007")).toBe(true);
+      call("tw4_credit_test_reverse", EP, 300, `rv-${hex(4)}`, "reverse exactly the free test credit", P);
+      psql(textSql(EP, SP, hold, 500));
+      const s = status(EP);
+      // the text was paid by the 500 of test credit that backed it: own money is untouched
+      expect([s.balance_cents, s.unused_cents, s.non_test_available_cents, s.ok]).toEqual([500, 0, 500, true]);
+      resetPilot(0);
+    });
+
     it("an account on hold refuses a grant", () => {
       setBudget(EP, status(EP).granted_cents + 100);
       call("tw4_credit_set_hold", EP, true, "fixture hold for the suite", P);
@@ -741,6 +755,16 @@ commit;`);
       expect(s0.unused_cents, "the suite leaves unused test credit for this check").toBeGreaterThan(0);
       proves("TW007", mutate("_tw4tc_on_ledger", "if a.balance_cents - a.reserved_cents - n.reserved_delta_cents - greatest(v_unused - v_open_sms, 0) < 0 then", "if false then"),
         reserveSql(EP, SP, "number", s0.non_test_available_cents + 1).replace(/^begin;|commit;$/gm, ""));
+    });
+    it("reverse only the free part: with the old bound (available) a reversal takes the test credit backing a text in flight (TW007)", () => {
+      resetPilot(500);
+      setBudget(EP, status(EP).granted_cents + 800);
+      grant(EP, 800);
+      const hold = holdText(EP, SP, 500);
+      proves("TW007", mutate("tw4_credit_test_reverse", "if p_cents > greatest(v_unused - public._tw4tc_open_sms(p_entity_id), 0) or a.balance_cents - a.reserved_cents < p_cents then", "if a.balance_cents - a.reserved_cents < p_cents then"),
+        callSql("tw4_credit_test_reverse", EP, 301, `rv-mut-${hex(4)}`, "mutation check: more than the free part", P));
+      psql(textSql(EP, SP, hold, null));
+      resetPilot(0);
     });
     it("test kinds only from the grant / reverse functions (42501)", () => {
       proves("42501", mutate("_tw4tc_on_ledger", "if p_caller_flag <> 'on' then", "if false then"),

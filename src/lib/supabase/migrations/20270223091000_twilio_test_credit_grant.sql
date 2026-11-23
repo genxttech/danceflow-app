@@ -33,7 +33,7 @@
 --   * Never absorbs a non-texting debit: when a refund or dispute of a purchase, a negative adjustment or a captured fee takes the business's own money
 --     (balance - fee holds - unused test credit) below zero, ALL unused test credit is FORFEITED in the same transaction (a test_grant_reversed entry, movement
 --     'forfeit'), so the balance ends exactly where it would be without test credit and the negative-balance rules apply.
---   * tw4_credit_test_reverse takes back unused test credit (idempotent by key, never more than the unused test credit and never money held by an open reservation).
+--   * tw4_credit_test_reverse takes back FREE test credit only (idempotent by key; never the part backing a text in flight, never more than the available credit).
 --   * tw4_credit_test_status is the read-only verifier (counters = movement sums = ledger sums, plus tw4_credit_verify).
 --   Refusal codes: 22023 invalid input; 42501 not a platform admin / direct write; TW007 hold, negative balance, fee would use test credit, or money held; TW019 reference
 --   reused; TW052 evidence; TW070 switch off; TW071 over the test budget or over the unused test credit; TW072 not the pilot business.
@@ -682,8 +682,11 @@ begin
   if p_cents > v_unused then
     raise exception 'only % cents of test credit are unused', v_unused using errcode = 'TW071';
   end if;
-  if a.balance_cents - a.reserved_cents < p_cents then
-    raise exception 'part of the unused test credit is held by an open reservation; wait for it to settle' using errcode = 'TW007';
+  -- only the FREE test credit can be taken back: the part backing a text in flight pays that text (reversing it would make the business's own money pay
+  -- DanceFlow's test text), and never more than the account's available credit
+  if p_cents > greatest(v_unused - public._tw4tc_open_sms(p_entity_id), 0) or a.balance_cents - a.reserved_cents < p_cents then
+    raise exception 'only % cents of test credit are free to reverse; the rest is held for texts in flight: wait for them to settle',
+      least(greatest(v_unused - public._tw4tc_open_sms(p_entity_id), 0), greatest(a.balance_cents - a.reserved_cents, 0)) using errcode = 'TW007';
   end if;
   perform set_config('tw4.testcredit_write', 'on', true);
   r := public._tw4c_post(p_entity_id, null, 'test_grant_reversed', -p_cents, 0, 'test_reverse:' || btrim(p_key), null, 'test_reverse', p_actor, btrim(p_reason));
