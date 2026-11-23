@@ -199,14 +199,14 @@ begin
   v := (p_value #>> '{}')::numeric;
   return case p_key
     when 'anomaly_multiple' then v between 1.5 and 100
-    when 'anomaly_trailing_days' then v = trunc(v) and v between 1 and 31
-    when 'daily_segment_alert' then v = trunc(v) and v between 1 and 1000000
-    when 'anomaly_min_segments' then v = trunc(v) and v between 1 and 1000000
-    when 'cap_daily_segments' then v = trunc(v) and v between 1 and 1000000
-    when 'daily_absorbed_alert_cents' then v = trunc(v) and v between 1 and 1000000
-    when 'monthly_absorbed_alert_cents' then v = trunc(v) and v between 1 and 1000000
-    when 'anomaly_min_absorbed_cents' then v = trunc(v) and v between 1 and 1000000
-    when 'cap_daily_absorbed_cents' then v = trunc(v) and v between 1 and 1000000
+    when 'anomaly_trailing_days' then scale(v) = 0 and v between 1 and 31
+    when 'daily_segment_alert' then scale(v) = 0 and v between 1 and 1000000
+    when 'anomaly_min_segments' then scale(v) = 0 and v between 1 and 1000000
+    when 'cap_daily_segments' then scale(v) = 0 and v between 1 and 1000000
+    when 'daily_absorbed_alert_cents' then scale(v) = 0 and v between 1 and 1000000
+    when 'monthly_absorbed_alert_cents' then scale(v) = 0 and v between 1 and 1000000
+    when 'anomaly_min_absorbed_cents' then scale(v) = 0 and v between 1 and 1000000
+    when 'cap_daily_absorbed_cents' then scale(v) = 0 and v between 1 and 1000000
     else false end;
 end $$;
 
@@ -268,7 +268,7 @@ declare
   m record;
   h record;
   cfg jsonb := public._tw4ib_config(p_entity);
-  n int := (cfg->>'anomaly_trailing_days')::int;
+  n int := greatest(1, least(31, floor((cfg->>'anomaly_trailing_days')::numeric)))::int;   -- robust to a stored 7.0
   v_key text := public._tw4ml_month_key(p_entity, p_at);
   v_hist_from timestamptz;
 begin
@@ -288,8 +288,8 @@ create function public._tw4ib_cap_trigger(p_cfg jsonb, p_segments bigint, p_abso
 returns text language sql immutable
 set search_path = pg_catalog, pg_temp
 as $$
-  select case when p_absorbed >= (p_cfg->>'cap_daily_absorbed_cents')::bigint then 'absorbed'
-              when p_segments >= (p_cfg->>'cap_daily_segments')::bigint then 'segments' end;
+  select case when p_absorbed >= (p_cfg->>'cap_daily_absorbed_cents')::numeric then 'absorbed'
+              when p_segments >= (p_cfg->>'cap_daily_segments')::numeric then 'segments' end;
 $$;
 
 -- records today's suppression for a business (once per local day); true when this call created it
@@ -331,8 +331,17 @@ declare
   v_anom int := 0;
   v_cap int := 0;
   v_sup int := 0;
+  v_err int := 0;
+  l_vol int;
+  l_absn int;
+  l_anom int;
+  l_cap int;
+  l_sup int;
 begin
   for z in select distinct u.legal_entity_id from public.studio_sms_inbound_usage u where u.received_at >= p_at - interval '32 days' order by u.legal_entity_id loop
+    -- one business at a time: a failure for one business (for example an unreadable stored setting) is counted and never stops the others
+    l_vol := 0; l_absn := 0; l_anom := 0; l_cap := 0; l_sup := 0;
+    begin
     cfg := public._tw4ib_config(z.legal_entity_id);
     mt := public._tw4ib_metrics(z.legal_entity_id, p_at);
     v_pilot := exists (select 1 from public.studio_sms_pilot_exceptions pe where pe.legal_entity_id = z.legal_entity_id);
@@ -340,41 +349,45 @@ begin
     v_seg := (mt->>'segments_today')::bigint;
     v_abs := (mt->>'absorbed_today_cents')::bigint;
     if (cfg->>'alerts_enabled')::boolean then
-      if not v_pilot and v_seg > (cfg->>'daily_segment_alert')::bigint then
+      if not v_pilot and v_seg > (cfg->>'daily_segment_alert')::numeric then
         if public._tw4rfl_alert(z.legal_entity_id, null, null, 'sms_in_volume_high', 'inbv:' || z.legal_entity_id || ':' || v_day, 'admin', 'warning',
-             'Inbound text volume for a business passed its daily threshold. Nothing has been blocked; review inbound traffic.') then v_vol := v_vol + 1; end if;
+             'Inbound text volume for a business passed its daily threshold. Nothing has been blocked; review inbound traffic.') then l_vol := l_vol + 1; end if;
       end if;
-      if v_abs >= (cfg->>'daily_absorbed_alert_cents')::bigint then
+      if v_abs >= (cfg->>'daily_absorbed_alert_cents')::numeric then
         if public._tw4rfl_alert(z.legal_entity_id, null, null, 'sms_in_absorbed_high', 'inba:' || z.legal_entity_id || ':day:' || v_day, 'admin', 'warning',
-             'Inbound text cost absorbed by DanceFlow for a business passed its daily threshold. Nothing has been blocked; review inbound traffic.') then v_absn := v_absn + 1; end if;
+             'Inbound text cost absorbed by DanceFlow for a business passed its daily threshold. Nothing has been blocked; review inbound traffic.') then l_absn := l_absn + 1; end if;
       end if;
-      if (mt->>'absorbed_month_cents')::bigint >= (cfg->>'monthly_absorbed_alert_cents')::bigint then
+      if (mt->>'absorbed_month_cents')::bigint >= (cfg->>'monthly_absorbed_alert_cents')::numeric then
         if public._tw4rfl_alert(z.legal_entity_id, null, null, 'sms_in_absorbed_high', 'inba:' || z.legal_entity_id || ':month:' || (mt->>'month_key'), 'admin', 'warning',
-             'Inbound text cost absorbed by DanceFlow for a business passed its monthly threshold. Nothing has been blocked; review inbound traffic.') then v_absn := v_absn + 1; end if;
+             'Inbound text cost absorbed by DanceFlow for a business passed its monthly threshold. Nothing has been blocked; review inbound traffic.') then l_absn := l_absn + 1; end if;
       end if;
-      if v_seg >= (cfg->>'anomaly_min_segments')::bigint and v_seg > (cfg->>'anomaly_multiple')::numeric * (mt->>'avg_segments')::numeric then
+      if v_seg >= (cfg->>'anomaly_min_segments')::numeric and v_seg > (cfg->>'anomaly_multiple')::numeric * (mt->>'avg_segments')::numeric then
         if public._tw4rfl_alert(z.legal_entity_id, null, null, 'sms_in_anomaly', 'inbx:' || z.legal_entity_id || ':' || v_day || ':segments', 'admin', 'warning',
-             'Inbound text volume for a business is far above its recent daily average. Nothing has been blocked; review inbound traffic.') then v_anom := v_anom + 1; end if;
+             'Inbound text volume for a business is far above its recent daily average. Nothing has been blocked; review inbound traffic.') then l_anom := l_anom + 1; end if;
       end if;
-      if v_abs >= (cfg->>'anomaly_min_absorbed_cents')::bigint and v_abs > (cfg->>'anomaly_multiple')::numeric * (mt->>'avg_absorbed_cents')::numeric then
+      if v_abs >= (cfg->>'anomaly_min_absorbed_cents')::numeric and v_abs > (cfg->>'anomaly_multiple')::numeric * (mt->>'avg_absorbed_cents')::numeric then
         if public._tw4rfl_alert(z.legal_entity_id, null, null, 'sms_in_anomaly', 'inbx:' || z.legal_entity_id || ':' || v_day || ':absorbed', 'admin', 'warning',
-             'Absorbed inbound text cost for a business is far above its recent daily average. Nothing has been blocked; review inbound traffic.') then v_anom := v_anom + 1; end if;
+             'Absorbed inbound text cost for a business is far above its recent daily average. Nothing has been blocked; review inbound traffic.') then l_anom := l_anom + 1; end if;
       end if;
     end if;
     v_trig := public._tw4ib_cap_trigger(cfg, v_seg, v_abs);
     if v_trig is not null then
       if v_on and public._tw4ib_suppress(z.legal_entity_id, mt->>'timezone', (mt->>'local_day')::date, (mt->>'day_starts_at')::timestamptz, (mt->>'day_ends_at')::timestamptz,
                                          v_trig, v_seg, v_abs, 'scan') then
-        v_sup := v_sup + 1;
+        l_sup := l_sup + 1;
       end if;
       if (cfg->>'alerts_enabled')::boolean and public._tw4rfl_alert(z.legal_entity_id, null, null, 'sms_in_daily_cap', 'inbc:' || z.legal_entity_id || ':' || v_day, 'admin', 'critical',
            case when v_on then 'Inbound texts for a business reached the daily cap. Its automatic non-compliance replies are suppressed until its next local day or until cleared; STOP, START and HELP are unaffected and no text is refused.'
                 else 'Inbound texts for a business reached the daily cap. Automatic reply suppression is switched off, so nothing was suppressed and no text is refused; review inbound traffic.' end) then
-        v_cap := v_cap + 1;
+        l_cap := l_cap + 1;
       end if;
     end if;
+    v_vol := v_vol + l_vol; v_absn := v_absn + l_absn; v_anom := v_anom + l_anom; v_cap := v_cap + l_cap; v_sup := v_sup + l_sup;
+    exception when others then
+      v_err := v_err + 1;   -- this business's partial work is rolled back; it is retried on the next scan
+    end;
   end loop;
-  return jsonb_build_object('volume_alerts', v_vol, 'absorbed_alerts', v_absn, 'anomaly_alerts', v_anom, 'cap_alerts', v_cap, 'suppressed', v_sup);
+  return jsonb_build_object('volume_alerts', v_vol, 'absorbed_alerts', v_absn, 'anomaly_alerts', v_anom, 'cap_alerts', v_cap, 'suppressed', v_sup, 'errors', v_err);
 end $$;
 
 create function public.tw4_inbound_cost_controls_check()

@@ -81,7 +81,7 @@ const record = (w: World, providerSid: string, cls: "ordinary" | "compliance" = 
   json(`select public.tw4_inbound_record('${w.studios[0]}'::uuid, '${w.account}', '${providerSid}', 1, 0, '${cls}', ${reply === null ? "null" : q(reply)}, null, 'webhook')::text`);
 
 const metrics = (w: World, at = "now()") => json<Record<string, string | number>>(`select public._tw4ib_metrics('${w.entity}', ${at})::text`);
-const check = (at = "now()") => json<{ volume_alerts: number; absorbed_alerts: number; anomaly_alerts: number; cap_alerts: number; suppressed: number }>(`select public._tw4ib_check(${at})::text`);
+const check = (at = "now()") => json<{ volume_alerts: number; absorbed_alerts: number; anomaly_alerts: number; cap_alerts: number; suppressed: number; errors: number }>(`select public._tw4ib_check(${at})::text`);
 const replyAllowed = (account: string | null, kind: string, at = "now()") => psql(`select public._tw4ib_reply_allowed(${account === null ? "null" : q(account)}, ${q(kind)}, ${at})`);
 const alertsOf = (w: World, kind?: string) =>
   json<Array<{ kind: string; dedupe_key: string; audience: string; severity: string; studio_id: string | null; summary: string }>>(
@@ -421,6 +421,42 @@ commit;`);
       expect(count("select 1 from public.studio_sms_inbound_cost_control_events where event in ('config_set', 'switch_set')")).toBe(before + 5);
       expect(psqlError(`update public.studio_sms_inbound_cost_controls set reason = 'rewritten reason text'`)).toMatch(/append-only/);
       expect(psqlError(`delete from public.studio_sms_inbound_reply_cap_switch_log`)).toMatch(/append-only/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------------------------------------
+  describe("integer settings written as decimals, and one business's unreadable setting (review item 1)", () => {
+    it("the setter refuses 2000.0 and 7.0 for integer settings (scale must be 0); a decimal multiple stays allowed", () => {
+      const set = (settings: string) => psqlError(`select public.tw4_inbound_cost_controls_set(null, '${ADMIN}', '${settings}'::jsonb, 'decimal integer settings check')`);
+      expect(set('{"cap_daily_segments": 2000.0}')).toMatch(/22023/);
+      expect(set('{"anomaly_trailing_days": 7.0}')).toMatch(/22023/);
+      expect(set('{"cap_daily_absorbed_cents": 1000.00}')).toMatch(/22023/);
+      expect(set('{"anomaly_multiple": 2.5}')).toBe("");
+      setConfig(null, { anomaly_multiple: null });
+    });
+
+    it("a stored 30.0 / 7.0 / 25.0 override (written before validation) is still read correctly: the business is scanned, capped and measured", () => {
+      const odd = world();
+      replica(`insert into public.studio_sms_inbound_cost_controls (scope, legal_entity_id, settings, set_by, reason)
+        values ('entity', '${odd.entity}', '{"cap_daily_segments": 30.0, "anomaly_trailing_days": 7.0, "daily_segment_alert": 25.0}'::jsonb, '${ADMIN}', 'legacy decimal override fixture');`);
+      for (let i = 0; i < 2; i++) inbound(odd, { seg: 20 });   // 40 segments today
+      expect(metrics(odd).trailing_days).toBe(7);
+      expect(check()).toMatchObject({ errors: 0 });
+      expect(alertsOf(odd, "sms_in_volume_high")).toHaveLength(1);   // 40 > 25.0
+      expect(alertsOf(odd, "sms_in_daily_cap")).toHaveLength(1);     // 40 >= 30.0
+      expect(replyAllowed(odd.account, "error_invalid")).toMatch(/^[tf]$/);   // the reply check reads it without a cast error
+    });
+
+    it("an unreadable stored setting for ONE business is counted as an error and never stops the scan for the others", () => {
+      const bad = world();
+      const good = world();
+      replica(`insert into public.studio_sms_inbound_cost_controls (scope, legal_entity_id, settings, set_by, reason)
+        values ('entity', '${bad.entity}', '{"cap_daily_segments": "not a number"}'::jsonb, '${ADMIN}', 'unreadable override fixture');`);
+      for (let i = 0; i < 11; i++) { inbound(bad, { seg: 20 }); inbound(good, { seg: 20 }); }   // 220 segments each: over the volume threshold
+      const out = check();
+      expect(out.errors).toBeGreaterThanOrEqual(1);
+      expect(alertsOf(good, "sms_in_volume_high")).toHaveLength(1);
+      expect(alertsOf(bad)).toHaveLength(0);                          // its partial work was rolled back
     });
   });
 
