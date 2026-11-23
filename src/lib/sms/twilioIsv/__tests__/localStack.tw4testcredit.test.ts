@@ -446,17 +446,24 @@ commit;`);
           return String((error as { stderr?: Buffer | string }).stderr ?? error);
         }
       };
-      const fp = `select md5(coalesce((select string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')|' || md5(p.prosrc) || '|' || coalesce(p.proacl::text, ''), ',' order by p.proname, pg_get_function_identity_arguments(p.oid))
-          from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'), '') || coalesce((select string_agg(c.conname || '=' || pg_get_constraintdef(c.oid), ',' order by c.conname) from pg_constraint c
-          where c.conrelid in ('public.studio_sms_credit_ledger'::regclass, 'public.studio_sms_approval_refs'::regclass, 'public.studio_sms_onboarding_audit'::regclass)), '')
-          || coalesce((select string_agg(tgname, ',' order by tgname) from pg_trigger where tgrelid = 'public.studio_sms_credit_ledger'::regclass), ''))`;
+      // the catalog pieces this migration touches, one line each: functions (body md5 + ACL), the three tables' constraints, the ledger's triggers
+      const fpSql = `select kind || '|' || name || '|' || val from (
+          select 'fn' kind, p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' name, md5(p.prosrc) || '|' || coalesce(p.proacl::text, '') val
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
+          union all select 'con', c.conrelid::regclass::text || '.' || c.conname, pg_get_constraintdef(c.oid) from pg_constraint c
+            where c.conrelid in ('public.studio_sms_credit_ledger'::regclass, 'public.studio_sms_approval_refs'::regclass, 'public.studio_sms_onboarding_audit'::regclass)
+          union all select 'trg', tgname, tgenabled::text from pg_trigger where tgrelid = 'public.studio_sms_credit_ledger'::regclass and not tgisinternal) x order by 1`;
+      const fpLines = (r: (sql: string) => string) => r(fpSql).split("\n").filter(Boolean);
+      /** constraints compared as logic: an OR / AND chain may be re-parenthesized by the deparser after a drop and re-add (same expression, different text) */
+      const logical = (lines: string[]) => lines.map((l) => (l.startsWith("con|") ? l.replace(/[()\s]/g, "") : l));
       try {
         sh(`psql -U postgres -q -c 'create database ${scratch}'`);
         sh(`pg_dump -U postgres -s --no-owner ${DB} | psql -U postgres -d ${scratch} -q > /dev/null 2>&1; true`);
-        const applied = run(fp);
+        const applied = fpLines(run);
         run(back);
-        const rolled = run(fp);
-        expect(rolled).not.toBe(applied);
+        const rolled = fpLines(run);
+        expect(rolled).not.toEqual(applied);
+        expect(rolled.filter((l) => /tw4tc|tw4_credit_test|test_grant|test_credit|credit_test_/.test(l))).toEqual([]);
         expect(run(`select to_regclass('public.studio_sms_test_credit_budgets') is null and to_regprocedure('${GRANT}') is null
           and not exists (select 1 from pg_trigger where tgname = 'studio_sms_credit_ledger_40_test_credit')
           and not exists (select 1 from pg_constraint c where c.conrelid in ('public.studio_sms_credit_ledger'::regclass, 'public.studio_sms_approval_refs'::regclass, 'public.studio_sms_onboarding_audit'::regclass)
@@ -465,13 +472,68 @@ commit;`);
         expect(run(`select pg_get_constraintdef(c.oid) like '%cancellation%' and pg_get_constraintdef(c.oid) like '%spend_authorization%' from pg_constraint c where c.conname = 'studio_sms_approval_refs_source_check'`)).toBe("t");
         expect(run(`select pg_get_constraintdef(c.oid) like '%rfl_cover_recorded%' from pg_constraint c where c.conname = 'studio_sms_onboarding_audit_action_check'`)).toBe("t");
         run(back); // re-runnable
-        expect(run(fp)).toBe(rolled);
+        expect(fpLines(run)).toEqual(rolled);
         run(forward);
-        expect(run(fp)).toBe(applied);
+        const again = fpLines(run);
+        const textual = again.filter((l, i) => l !== applied[i]);
+        if (textual.length) console.log(["re-apply: textual-only catalog differences (checked logically below):", ...textual, "was:", ...applied.filter((l) => !again.includes(l))].join("\n"));
+        expect(again.filter((l) => !l.startsWith("con|"))).toEqual(applied.filter((l) => !l.startsWith("con|")));
+        expect(logical(again).sort()).toEqual(logical(applied).sort());
         expect(fail(forward)).toMatch(/already applied/);
       } finally {
         sh(`psql -U postgres -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${scratch}'" -c 'drop database if exists ${scratch}' > /dev/null 2>&1; true`);
       }
     }, 900_000);
+  });
+  describe("10. mutation checks: each key guard, removed in a rolled-back transaction, lets the refused case through", () => {
+    const fwd = forward.replace(/\r/g, "");
+    const fnStmt = (name: string) => {
+      const st = fwd.indexOf(`create or replace function public.${name}(`);
+      expect(st, name).toBeGreaterThan(0);
+      return fwd.slice(st, fwd.indexOf("end $$;", st) + 7);
+    };
+    const mutate = (name: string, from: string | RegExp, to: string) => {
+      const orig = fnStmt(name);
+      const out = orig.replace(from, to);
+      expect(out, `mutation of ${name} must change its body`).not.toBe(orig);
+      return out;
+    };
+    /** the scenario fails with the real guard (code) and succeeds with the mutated one; both inside a transaction that is rolled back */
+    const proves = (code: string, mutated: string, scenario: string) => {
+      expect(hasCode(psqlError(`begin; ${scenario} rollback;`), code), `control must fail with ${code}`).toBe(true);
+      const err = psqlError(`begin; ${mutated} ${scenario} rollback;`);
+      expect(err, "mutated scenario must pass").toBe("");
+    };
+    const granted = () => status(EP).granted_cents;
+    const budgetSql = (cents: number, actor = P) => callSql("tw4_credit_test_budget_set", ...budgetArgs(EP, cents, ref("mut-b"), {}, actor));
+    const grantSql = (cents: number, o: Ev = {}, actor = P) => callSql("tw4_credit_test_grant", ...grantArgs(EP, cents, ref("mut-g"), o, actor));
+
+    it("kill switch (TW070)", () => {
+      proves("TW070", mutate("tw4_credit_test_grant", "if not public._tw4tc_switch_on() then", "if false then"),
+        `${callSql("tw4_credit_test_set_switch", false, P, "mutation check: switch off")} ${budgetSql(granted() + 50)} ${grantSql(50)}`);
+    });
+    it("test budget (TW071)", () => {
+      proves("TW071", mutate("tw4_credit_test_grant", "if b.granted_cents + p_cents > b.budget_cents then", "if false then"), `${budgetSql(granted())} ${grantSql(1)}`);
+    });
+    it("pilot business only (TW072)", () => {
+      proves("TW072", mutate("tw4_credit_test_budget_set", "perform public._tw4tc_require_pilot(p_entity_id);", ""),
+        callSql("tw4_credit_test_budget_set", ...budgetArgs(EN, 100, ref("mut-pilot"))));
+    });
+    it("U-4 evidence (TW052)", () => {
+      proves("TW052", mutate("tw4_credit_test_grant", /perform public\._tw4tc_check_evidence\([\s\S]*?\);/, ""), `${budgetSql(granted() + 10)} ${grantSql(10, { on: day(3) })}`);
+    });
+    it("platform admin only (42501)", () => {
+      proves("42501", mutate("tw4_credit_test_grant", "perform public._tw4c_admin(p_actor);", ""), `${budgetSql(granted() + 5)} ${grantSql(5, {}, N)}`);
+    });
+    it("texting only: the fee guard in the ledger trigger (TW007)", () => {
+      const s0 = status(EP);
+      expect(s0.unused_cents, "the suite leaves unused test credit for this check").toBeGreaterThan(0);
+      proves("TW007", mutate("_tw4tc_on_ledger", "if a.balance_cents - a.reserved_cents - n.reserved_delta_cents - v_unused < 0 then", "if false then"),
+        reserveSql(EP, SP, "number", s0.non_test_available_cents + 1).replace(/^begin;|commit;$/gm, ""));
+    });
+    it("test kinds only from the grant / reverse functions (42501)", () => {
+      proves("42501", mutate("_tw4tc_on_ledger", "if p_caller_flag <> 'on' then", "if false then"),
+        `select public._tw4c_post('${EP}', null, 'test_grant', 100, 0, 'test_grant:mut-${hex(4)}', null, null, null, null);`);
+    });
   });
 });
