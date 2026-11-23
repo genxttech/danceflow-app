@@ -82,7 +82,7 @@ grant execute on function public.tw4_act_exposure(uuid) to service_role;
 create or replace function public.tw4_rfl_health(p_actor uuid)
 returns jsonb language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   v_last timestamptz;
   v_ok timestamptz;
@@ -105,7 +105,7 @@ begin
     'oldest_pending_alert_age_seconds', (select floor(extract(epoch from now() - min(a.created_at)))::bigint from public.studio_sms_provider_alerts a where a.status = 'pending'),
     'open_exposure_count', (select count(*) from public.studio_sms_provider_exposure e where e.state = 'open'),
     'open_cancel_operations', (select count(*) from public.studio_sms_provider_cancel_ops o where o.status in ('authorized', 'in_flight', 'unknown_outcome')));
-end $;
+end $$;
 
 drop function if exists public.tw4_rfl_funding_exposure_check();
 drop function if exists public._tw4fx_unattributed_locations();

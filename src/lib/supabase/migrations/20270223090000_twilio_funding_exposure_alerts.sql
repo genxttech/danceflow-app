@@ -137,10 +137,10 @@ end $$;
 create function public._tw4fx_unattributed_locations()
 returns int language sql security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
   select count(distinct (e.value ->> 'studio_id'))::int from jsonb_array_elements(public._tw4fx_exposure_rows()) e
    where not exists (select 1 from public.studio_sms_entity_studios es where es.studio_id = (e.value ->> 'studio_id')::uuid);
-$;
+$$;
 
 -- unchanged contract: the administrator check, then the same rows
 create or replace function public.tw4_act_exposure(p_actor uuid)
@@ -271,7 +271,7 @@ end $$;
 create or replace function public.tw4_rfl_health(p_actor uuid)
 returns jsonb language plpgsql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   v_last timestamptz;
   v_ok timestamptz;
@@ -295,7 +295,7 @@ begin
     'open_exposure_count', (select count(*) from public.studio_sms_provider_exposure e where e.state = 'open'),
     'open_cancel_operations', (select count(*) from public.studio_sms_provider_cancel_ops o where o.status in ('authorized', 'in_flight', 'unknown_outcome')),
     'exposure_unattributed_locations', public._tw4fx_unattributed_locations());
-end $;
+end $$;
 
 revoke all on function public._tw4fx_unattributed_locations() from public, anon, authenticated, service_role;
 revoke all on function public._tw4fx_entity_threshold_cents(), public._tw4fx_platform_threshold_cents(), public._tw4fx_grace_warning(), public._tw4fx_exposure_rows()
