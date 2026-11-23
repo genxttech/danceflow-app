@@ -2,7 +2,15 @@
 
 Status: operating procedure for migration `20270221090100_twilio_dispute_negative_balance_holds.sql` (Git-only; not applied to any hosted database by this change). Nothing here authorizes a price change, a new studio fee, a refund, a Stripe action or a production write. Every hosted step goes through the normal release approval and `danceflow-ops/sb.sh`.
 
+## 0. Owner acceptance needed: this is an alert, not a hold, for negative balances
+
+`docs/twilio/TW-4F_Financial_Safety_Gates_2026-11-23.md` lists "negative-balance hold and alert" before the first test message. **This change delivers the alert only.** It places no hold on a negative balance. What stands in for a hold today is the existing refusal: `_tw4c_require_funds` refuses every fee-bearing reservation, checkout-driven spend and chargeable outbound text while available credit is below zero, and unfunded recurring charges do not run. STOP, START and HELP are never blocked.
+
+The owner must either (a) accept "alert plus the existing refusal" as satisfying that gate row, or (b) ask for a real negative-balance hold in a follow-up slice. This change does not edit the gates document, and the gate row is not satisfied until the owner decides. The **dispute** hold (switch below) is a real hold, but only while its switch is ON.
+
 ## 1. What the database does by itself
+
+**Everything in this section happens only while the record switch is ON (section 2).** With it OFF (the default) a dispute and a negative balance behave exactly as they did before this migration: no row, no audit entry, no alert, no hold.
 
 | Event | Recorded | Hold | Alert (platform administrators only) |
 | --- | --- | --- | --- |
@@ -21,17 +29,31 @@ The automatic hold is the existing account hold, so it blocks exactly what a man
 
 It never blocks STOP, START or HELP handling, inbound recording (`tw4_inbound_record`), or compliance and error replies (`tw4_inbound_reply_allowed`): none of them reads the hold.
 
-## 2. The switch (dark by default)
+## 2. The switches (dark by default)
 
-With no switch row the automatic hold is OFF: a dispute is recorded as `not_held`, the alert says no hold was placed, and money paths behave exactly as before. Alerts and the fee record are always written; they are delivered only when the existing alert-delivery switch is on.
+Two database switches, both OFF until an administrator turns them on (no row = OFF; platform administrator only; written reason of 10-300 characters; append-only log `studio_sms_dispute_hold_switch_log`, one latest row per scope):
 
-Turn it on only with release approval, before studios pay by Stripe (TW-4F financial safety gates, row "Stripe dispute"):
+| Switch | Function | Gates |
+| --- | --- | --- |
+| record | `tw4_dispute_record_switch_set(on, admin, reason)` | the dispute-hold row, its audit row and admin alert, the won-dispute alert, and the negative-available-credit trigger. OFF = the migration changes nothing at runtime. |
+| hold | `tw4_dispute_hold_switch_set(on, admin, reason)` | the automatic account hold. Needs record ON (refused 55000 otherwise); record cannot be turned off while hold is ON. |
+
+With record ON and hold OFF a dispute is recorded as `not_held`, the alert says no hold was placed, and money paths behave as before. Alerts are delivered only when the existing alert-delivery switch is on. A dispute that happens while record is OFF leaves no row and is never backfilled; if one occurs, handle it from Stripe's dashboard.
+
+Turn them on only with release approval, before studios pay by Stripe (TW-4F financial safety gates, row "Stripe dispute"):
 
 ```sql
+select public.tw4_dispute_record_switch_set(true, '<platform admin user id>', '<written reason, 10-300 characters>');
 select public.tw4_dispute_hold_switch_set(true, '<platform admin user id>', '<written reason, 10-300 characters>');
 ```
 
-Turning it off (`false`) stops NEW holds only; holds already placed stay until released. The log `studio_sms_dispute_hold_switch_log` is append-only.
+Turning hold off stops NEW holds only; holds already placed stay until released.
+
+**The negative-credit alert can never block a debit.** It is an AFTER UPDATE trigger whose work (switch read, ledger lookup, alert insert) runs in a sub-transaction that turns any error into a warning. A failure writes no alert; it cannot fail the statement that moved the balance, including an inbound STOP, START or HELP debit.
+
+**Forward-only after the first event.** Once record has been ON and has written a dispute-hold row, a `credit_dispute` alert or a `credit_negative` alert, this migration cannot be rolled back (section 5): that evidence is never deleted. Rolling back is possible only while record has stayed OFF (and no switch row exists). Turning the switches off stops new behaviour without losing evidence.
+
+**Reserved reason.** The migration refuses to apply while any account is on a manual hold whose reason is literally `dispute` (any case): give it another reason with `tw4_credit_set_hold` first. After the migration, `tw4_credit_set_hold` refuses that reason.
 
 ## 3. Responding to a `credit_dispute` alert
 
@@ -59,10 +81,11 @@ Turning it off (`false`) stops NEW holds only; holds already placed stay until r
 
 ## 5. Rollback
 
-`rollback/20270221090100_twilio_dispute_negative_balance_holds_rollback.sql` restores the previous `tw4_credit_apply_dispute` and `tw4_credit_set_hold`, drops the trigger, functions and tables, and removes the two alert kinds. It refuses (55000) while any dispute-hold row, switch change, `credit_dispute` / `credit_negative` alert, or account held with reason `dispute` exists: that evidence is never deleted. To stop the behaviour without losing evidence, turn the switch off instead.
+`rollback/20270221090100_twilio_dispute_negative_balance_holds_rollback.sql` restores the previous `tw4_credit_apply_dispute` and `tw4_credit_set_hold`, drops the trigger, functions and tables, and removes the two alert kinds. It refuses (55000) while any dispute-hold row, switch change, `credit_dispute` / `credit_negative` alert, or account held with reason `dispute` exists: that evidence is never deleted. It also refuses (55000) unless `tw4_credit_apply_dispute` and `tw4_credit_set_hold` are still exactly the versions this migration installed (a later migration that changed either must be reviewed first; the check ignores CR). To stop the behaviour without losing evidence, turn the switches off instead.
 
 ## 6. Open owner decisions
 
 - Whether a WON dispute should release its hold automatically (today: it stays until an administrator releases it).
 - Whether the recorded fee should come from Stripe's balance transaction instead of the 1500 estimate (needs an application change to the webhook handler).
-- When to turn the switch on (proposed: before studios pay by Stripe, per the financial safety gates).
+- When to turn the switches on (proposed: before studios pay by Stripe, per the financial safety gates).
+- **Gate acceptance (section 0):** is "negative-balance alert plus the existing `_tw4c_require_funds` refusal and unfunded recurring charges" acceptable for the "negative-balance hold and alert" gate row, or is a real negative-balance hold wanted in a follow-up?
