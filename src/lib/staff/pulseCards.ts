@@ -218,6 +218,7 @@ export function countLowPackages(rows: PackageRow[]) {
   return low;
 }
 
+/** `sessionsDone` is today's live sessions that have started (the day summary has start times only, so one in progress counts); the app labels it "started". */
 export function summarizeHealth(today: { total: number; upcoming: number; cancelled: number }) {
   return { sessionsToday: today.total, sessionsAhead: today.upcoming, sessionsDone: Math.max(0, today.total - today.upcoming) };
 }

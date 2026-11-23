@@ -13,6 +13,8 @@ type Props = {
   cards: PulseCards;
   now: Date;
   onOpenLead?: (clientId: string) => void;
+  /** The viewer's scope from the Pulse response: names the health card even when it could not load. */
+  scope?: "studio" | "own";
 };
 
 function Card({ title, testID, children }: { title: string; testID: string; children: React.ReactNode }) {
@@ -48,7 +50,7 @@ function Stat({ label, value, testID }: { label: string; value: number; testID: 
 const isOverdue = (iso: string | null, now: Date) => iso !== null && new Date(iso).getTime() <= now.getTime();
 const isUnavailable = (card: unknown): card is CardUnavailable => (card as CardUnavailable | null)?.state === "unavailable";
 
-export function PulseCardsView({ cards, now, onOpenLead }: Props) {
+export function PulseCardsView({ cards, now, onOpenLead, scope }: Props) {
   const needs = needsYouItems(cards);
   const anyNeedsCard = [cards.requests, cards.leads, cards.aria].some((card) => card && !isUnavailable(card));
   const { requests, leads, aria, exceptions, health } = cards;
@@ -173,7 +175,7 @@ export function PulseCardsView({ cards, now, onOpenLead }: Props) {
         <Card title={health.scope === "studio" ? "Studio health" : "Your sessions"} testID="pulse-health">
           <View style={styles.stats}>
             <Stat label={health.sessionsToday === 1 ? "session today" : "sessions today"} value={health.sessionsToday} testID="pulse-health-today" />
-            <Stat label="done" value={health.sessionsDone} testID="pulse-health-done" />
+            <Stat label="started" value={health.sessionsDone} testID="pulse-health-done" />
             <Stat label="still ahead" value={health.sessionsAhead} testID="pulse-health-ahead" />
           </View>
           {health.truncated ? (
@@ -183,7 +185,7 @@ export function PulseCardsView({ cards, now, onOpenLead }: Props) {
           ) : null}
         </Card>
       ) : isUnavailable(health) ? (
-        <Unavailable title="Studio health" testID="pulse-health-unavailable" />
+        <Unavailable title={scope === "own" ? "Your sessions" : "Studio health"} testID="pulse-health-unavailable" />
       ) : null}
     </>
   );
