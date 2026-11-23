@@ -821,6 +821,10 @@ commit;`);
       expect(psqlError(`begin; ${ownCheckGone} ${scenario} rollback;`), "without it the grant passes").toBe("");
     });
     it("the in-flight texting hold is not counted twice: the old formula refuses a fee own money can pay (TW007)", () => {
+      // the rule-1/rule-2 mutation checks above leave no unused test credit: grant some for this check
+      resetPilot(0);
+      setBudget(EP, status(EP).granted_cents + 100);
+      grant(EP, 100);
       const s0 = status(EP);
       expect(s0.unused_cents).toBeGreaterThan(0);
       const scenario = `select public.tw4_credit_adjust('${EP}', 100, 'mut-own-${hex(4)}', 'mutation check: some own money', '${P}');
