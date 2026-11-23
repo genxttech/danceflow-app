@@ -22,6 +22,14 @@ export class ProviderFeeError extends Error {
   }
 }
 
+/** The inbound alert step failed (or was partial) AFTER raising `alerts` new alerts: the run counts them and still records the error. */
+export class InboundCheckError extends ProviderFeeError {
+  constructor(code: string, readonly alerts: number) {
+    super(code);
+    this.name = "InboundCheckError";
+  }
+}
+
 type Client = Pick<SupabaseClient, "rpc">;
 type Resource = "messaging_service" | "campaign" | "number";
 
@@ -154,7 +162,13 @@ export class ProviderFeeLifecycleStore {
   async inboundAllowanceCheck(): Promise<number> {
     const row = await this.call<{ allowance_warnings?: number; allowance_critical?: number; volume?: number } | null>("tw4_rfl_inbound_allowance_check", {});
     const pilot = Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
-    return pilot + (await this.inboundCostControlsCheck());
+    try {
+      return pilot + (await this.inboundCostControlsCheck());
+    } catch (error) {
+      // the pilot alerts were raised: keep their count (and any partial count) while still failing the step visibly
+      const partial = error instanceof InboundCheckError ? error.alerts : 0;
+      throw new InboundCheckError(error instanceof ProviderFeeError ? error.code : "unknown", pilot + partial);
+    }
   }
 
   /**
@@ -170,7 +184,10 @@ export class ProviderFeeLifecycleStore {
     }
     const row = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
     const n = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0);
-    return n(row.volume_alerts) + n(row.absorbed_alerts) + n(row.anomaly_alerts) + n(row.cap_alerts);
+    const alerts = n(row.volume_alerts) + n(row.absorbed_alerts) + n(row.anomaly_alerts) + n(row.cap_alerts);
+    // a business the database could not check (its work rolled back, retried next scan) makes the step an error, keeping the alerts that were raised
+    if (n(row.errors) > 0) throw new InboundCheckError("inbound_cost_partial", alerts);
+    return alerts;
   }
 
   async inventoryGaps(): Promise<number> {
@@ -328,7 +345,8 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
   }
   try {
     summary.inboundAlerts = await store.inboundAllowanceCheck();   // before escalation and delivery, so a new alert can be delivered in this same pass
-  } catch {
+  } catch (error) {
+    if (error instanceof InboundCheckError) summary.inboundAlerts = error.alerts;   // alerts raised before the failure still count
     summary.errors += 1;
   }
   try {
