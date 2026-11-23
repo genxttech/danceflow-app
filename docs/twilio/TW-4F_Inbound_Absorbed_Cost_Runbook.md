@@ -8,7 +8,27 @@ A received text is never refused (owner decision D1). `tw4_inbound_record` charg
 
 Example: a 10,000-segment flood in one day on a business with $10.00 of credit, at the suite's fixture price (2 cents to the studio, 1 cent estimated provider cost per segment). The first 1,000 texts are charged ($20.00, down to -$10.00). The next 9,000 texts are uncollected ($180.00 not collected), and DanceFlow absorbs about $90.00 of provider cost that day. The isolated QA suite reproduces this example through the real recording function.
 
-## 2. What the controls do (and never do)
+## 2. Alerts versus enforcement
+
+- **Alerts only inform.** All four new alert kinds are administrator emails and change nothing.
+- **The only enforcement:** while the database switch is on (default OFF) and a business's recorded routed traffic today is at or over its daily cap, the four error replies are not sent for texts received by that business's subaccount.
+- **Never blocked:** inbound receive cost (Twilio bills every received text), inbound recording, the studio's charge for ordinary texts, STOP / START / HELP handling and confirmations, consent, outbound texting, numbers and senders.
+- **The daily cap is not a financial ceiling.** It does not limit what DanceFlow pays Twilio. Ordinary texts get no automatic reply (D3), so in a routed flood the cap has nothing to suppress and saves nothing. The exposure figures, scenarios and the ConfiDance recommendation are in `docs/twilio/TW-4F_Inbound_Cost_Thresholds_Proposal.md`.
+
+## 3. Proposed thresholds and the cap (owner decision pending)
+
+These are the defaults in `_tw4ib_defaults`. The cited costs, the ConfiDance scenarios and the false-positive risk of each are in the proposal note, sections 1, 2 and 4.
+
+| Setting | Default | Fires | False-positive risk (small studio) |
+| --- | --- | --- | --- |
+| Daily volume alert | 200 segments | email | low (busiest normal day about 100) |
+| Daily / monthly absorbed alert | $5.00 / $20.00 (the code's estimate, rounded up per text) | email | low; **blind until an inbound price with a cost is published** |
+| Anomaly | 5x the 7-day average, floor 100 segments or $2.00 | email | moderate on reply-wave days when the baseline is quiet |
+| Daily cap | 2,000 segments or $10.00 | critical email; with the switch on, error replies suppressed | very low; when it does happen, error-path senders get silence for the rest of the day |
+
+Recommendation for ConfiDance's first pilot period: **monitoring only (switch off)**. See the proposal note, section 6.
+
+## 4. What the controls do (and never do)
 
 They never refuse, delay or charge an inbound text. They never touch STOP / START / HELP handling, consent, the ledger, balances, ceilings, reservations, senders or numbers.
 
@@ -30,26 +50,26 @@ Never suppressed:
 
 The database function answers true for these kinds before it reads anything, and the route never asks it about them. The route's check fails open: an error or a missing function sends the reply exactly as before, and the existing per-sender error limit still applies.
 
-## 3. Configuration (platform administrators only)
+## 5. Configuration (platform administrators only)
 
 - `tw4_inbound_cost_controls_set(entity_or_null, actor, settings_json, reason)` changes the platform-wide row (entity null) or one business's override. Unknown keys and out-of-range values are refused, a reason of 10 to 300 characters is required, and a JSON `null` removes an override. A business's effective configuration is resolved in order: built-in defaults (`_tw4ib_defaults`), then the platform row, then the business row. Rows are append-only.
 - `tw4_inbound_reply_cap_switch_set(actor, enabled, reason)` turns the automatic response on or off for all businesses. Each change is appended to the switch log.
 - `tw4_inbound_cost_controls_status(actor, entity)` shows the switch, the effective configuration, today's numbers and today's suppression state.
 - Every configuration change, switch change, suppression and clearance is appended to `studio_sms_inbound_cost_control_events`.
 
-## 4. Response procedure (when an alert arrives)
+## 6. Response procedure (when an alert arrives)
 
 1. Open the business's status with `tw4_inbound_cost_controls_status`. Compare today's segments and absorbed cost with the trailing average.
 2. Find the source in the Twilio Console for that subaccount, read-only: sender numbers, message bodies, and whether this is a loop with another automated system.
 3. Decide:
    - Legitimate traffic (an event, a campaign reply wave): raise that business's thresholds with a written reason and, if it is suppressed, clear it. Tell the owner that the studio absorbs nothing extra, because uncollected inbound is DanceFlow's cost.
-   - Abuse or a loop: the owner (not the agent) blocks the sender at the provider or asks Twilio support. The cap's suppression stops DanceFlow from replying into the loop. Inbound recording and STOP / START / HELP continue.
+   - Abuse or a loop: the owner (not the agent) blocks the sender at the provider or asks Twilio support. Nothing in this slice reduces the inbound cost of a flood. DanceFlow sends no automatic reply to ordinary texts, so a loop is not fed by DanceFlow replies. The cap's suppression only stops error replies. Inbound recording and STOP / START / HELP continue.
 4. Clear with `tw4_inbound_reply_suppression_clear(entity, actor, note)` only once the cause is understood. Write the note for the audit trail. Clearing lasts for the rest of that business's local day.
 5. If absorbed cost becomes material, the owner decides on a per-business ceiling change (`tw4_inbound_exposure_set`) or on contacting the studio. This procedure never charges the studio more and never refuses texts.
 
-## 5. Limits (known, by design)
+## 7. Limits (known, by design)
 
-- **What the cap does not cover.** The cap protects only against overage from routed traffic: texts that reached a studio of the business and were recorded in `studio_sms_inbound_usage`.
+- **What the cap does not cover.** The cap counts only routed traffic: texts that reached a studio of the business and were recorded in `studio_sms_inbound_usage`. It is not a financial ceiling (section 2).
   - The texts whose error replies the cap suppresses (invalid, unrecognized sender, not routed, service unavailable) are never written to `studio_sms_inbound_usage`.
   - `_tw4ib_window` also does not read `studio_sms_inbound_unresolved`.
   - So a flood of texts from senders that cannot be routed does not move the cap, the absorbed-cost alerts or the anomaly detection.
@@ -65,6 +85,25 @@ The database function answers true for these kinds before it reads anything, and
 - Integer settings must be whole numbers: the setter refuses values like `2000.0`. Every reader compares settings as numbers, and the scan checks each business separately, so one business with an unreadable setting is counted in the scan's `errors` and never stops the others. The lifecycle run records that as an error and keeps the alerts that were raised.
 - The pilot business keeps its 20261231140000 alerts unchanged and gets no duplicate volume alert. It does receive the new absorbed, anomaly and cap alerts. With the switch on, the cap applies to it as well (owner decision, see the PR).
 
-## 6. Release order and rollback
+## 8. Release order and rollback
 
 Apply the SQL before, or together with, the app. The app tolerates the function's absence: the scan counts 0 and replies go out as before. Turn the switch on only after the alerts have been observed on real traffic. To roll back, roll the app back first (optional), then run the rollback. It refuses while any configuration, switch, suppression, event or new-kind alert row exists, because that history is never deleted.
+
+## 9. Untouched paths (verified on the PR head)
+
+Inbound recording and STOP / START / HELP handling are unchanged. The evidence:
+
+- **No existing database function is replaced.** The migration only uses `create function` with new names (`_tw4ib_*`, `tw4_inbound_cost_controls_*`, `tw4_inbound_auto_reply_allowed`, `tw4_inbound_reply_cap_switch_set`, `tw4_inbound_reply_suppression_clear`). It contains no `or replace` and never writes to `studio_sms_inbound_usage`, the ledger, consent or credit tables. `tw4_inbound_record`, `tw4_inbound_reply_allowed`, `tw4_rfl_inbound_allowance_check` and `record_sms_inbound_opt_event` keep their existing bodies. Asserted by the suite test "the migration replaces no existing function" in `src/lib/sms/twilioIsv/__tests__/localStack.inboundcost.test.ts`.
+- **The route change is one line**, `src/app/api/sms/twilio/inbound/route.ts:135`, inside `errorReply` only.
+  - A fallback STOP returns before it (`:131`).
+  - HELP and START are excluded by the `asKind !== "help" && asKind !== "start"` guard on the same line.
+  - Routed STOP / START / HELP never reach `errorReply`: the STOP reply is at `:316-317`, the HELP / START confirmations go through `complianceReply` at `:279`.
+  - Recording is unchanged: `recordInboundUsage` at `:264` inside `finish`.
+  - The ordinary-text no-reply path is unchanged (`:336-337`).
+- **Tests:**
+  - `src/app/api/sms/twilio/inbound/__tests__/route.costControls.test.ts`: STOP / START / HELP, both routed and unrouted, are confirmed and never consult the cap; consent still changes.
+  - The existing route suites still pass: `route.tw1`, `route.a2p1`, `route.compliance.tw4f`, `route.inboundUsage`, `route.recurring` and `route.senderAccount.tw4sr` (276/276 unit tests in total).
+  - DB: `localStack.inboundcost` "compliance replies are NEVER suppressed at the cap, and STOP / START / HELP are still recorded".
+  - DB: `localStack.tw4inbound`, the existing recording suite, 29/29.
+  - DB: `localStack.inboundalert`, the existing pilot alert suite, 15/15.
+  - SQL mutation: removing the compliance early-return fails the compliance-at-cap test.

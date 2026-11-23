@@ -24,6 +24,8 @@
 --      (tw4_inbound_reply_suppression_clear, written note, audited). Ordinary texts already get no automatic reply (D3). STOP / START / HELP confirmations and
 --      every carrier-required reply are NEVER suppressed: tw4_inbound_auto_reply_allowed answers true for those kinds before reading anything, and the route
 --      never asks it for them. A cleared day is not suppressed again that day.
+--      The daily cap is NOT a financial ceiling and NOT a hold: the alerts only inform, and this suppression of the four error replies is the only enforcement.
+--      It never reduces inbound receive cost (Twilio bills every received text), and it counts routed (recorded) traffic only (runbook section 7).
 --   3. CONFIGURATION in studio_sms_inbound_cost_controls (append-only; platform row, per-business override, built-in defaults in _tw4ib_defaults), set only by a
 --      platform administrator with a written reason (tw4_inbound_cost_controls_set). The switch is set by tw4_inbound_reply_cap_switch_set (platform administrator,
 --      written reason). Every set, switch change, suppression and clearance is appended to studio_sms_inbound_cost_control_events.
