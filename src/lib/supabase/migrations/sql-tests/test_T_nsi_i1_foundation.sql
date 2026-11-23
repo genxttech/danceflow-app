@@ -49,8 +49,8 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 select pg_temp.chk('F01 catalog self-check passes', pg_temp.try('select intake_private.assert_catalog()') = 'ok',
   pg_temp.try('select intake_private.assert_catalog()'));
-select pg_temp.chk('F02 exactly 19 intake tables (18 + M7 grants), all with RLS',
-  (select count(*) = 19 and bool_and(relrowsecurity) from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r'));
+select pg_temp.chk('F02 exactly 19 intake tables (18 + M7 grants; 22 from M12), all with RLS',
+  (select count(*) = case when to_regclass('public.intake_sessions') is not null then 22 else 19 end and bool_and(relrowsecurity) from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r'));
 select pg_temp.chk(format('F03 %s has no privilege on %s', r, c.relname),
   not (has_table_privilege(r, c.oid, 'SELECT') or has_table_privilege(r, c.oid, 'INSERT') or has_table_privilege(r, c.oid, 'UPDATE')
        or has_table_privilege(r, c.oid, 'DELETE') or has_table_privilege(r, c.oid, 'TRUNCATE')))
@@ -65,7 +65,8 @@ select pg_temp.chk(format('F04 authenticated privilege on %s matches matrix', c.
 from pg_class c where c.relnamespace = 'public'::regnamespace and c.relname like 'intake\_%' and c.relkind = 'r';
 select pg_temp.chk(format('F05 intake_destructive privilege on %s matches matrix', c.relname),
   case when c.relname in ('intake_requests', 'intake_request_appointments', 'intake_respondents', 'intake_responses', 'intake_response_revisions',
-                          'intake_minor_determinations', 'intake_completions', 'intake_client_relationship_state', 'intake_guardian_designations')
+                          'intake_minor_determinations', 'intake_completions', 'intake_client_relationship_state', 'intake_guardian_designations',
+                          'intake_invitations', 'intake_sessions', 'intake_rate_limits')
        then has_table_privilege('intake_destructive', c.oid, 'SELECT') and has_table_privilege('intake_destructive', c.oid, 'DELETE')
             and not has_table_privilege('intake_destructive', c.oid, 'INSERT') and not has_table_privilege('intake_destructive', c.oid, 'UPDATE')
        else not (has_table_privilege('intake_destructive', c.oid, 'SELECT') or has_table_privilege('intake_destructive', c.oid, 'INSERT')
@@ -79,7 +80,7 @@ select pg_temp.chk('F07 service_role executes exactly the service surface',
   (select array_agg(distinct p.proname order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where ((n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
      and has_function_privilege('service_role', p.oid, 'EXECUTE'))
-  = array['intake_ensure_request', 'intake_platform_policy', 'intake_reconcile_preview', 'intake_reconcile_status', 'intake_save_draft', 'intake_submit_response']::name[]);
+  = (select array_agg(x order by x) from unnest(array['intake_ensure_request', 'intake_platform_policy', 'intake_reconcile_preview', 'intake_reconcile_status', 'intake_save_draft', 'intake_submit_response']::name[] || case when to_regclass('public.intake_sessions') is not null then array['intake_exchange_invitation', 'intake_purge_expired', 'intake_rate_limit_hit', 'intake_revoke_all_invitations_for_key', 'intake_revoke_session', 'intake_session_context']::name[] else '{}'::name[] end) x));
 select pg_temp.chk('F08 no intake_private function executable by authenticated or service_role',
   not exists (select 1 from pg_proc p where p.pronamespace = 'intake_private'::regnamespace
               and (has_function_privilege('authenticated', p.oid, 'EXECUTE') or has_function_privilege('service_role', p.oid, 'EXECUTE'))));
@@ -87,7 +88,7 @@ select pg_temp.chk('F09 erase implementation owned by intake_destructive; wrappe
   (select pg_get_userbyid(proowner) = 'intake_destructive' from pg_proc where oid = 'intake_private.erase_client_impl(uuid,uuid,uuid,text,boolean,text)'::regprocedure)
   and not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where ((n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
-                    and p.proname <> 'erase_client_impl' and pg_get_userbyid(p.proowner) <> 'postgres'));
+                    and p.proname not in ('erase_client_impl', 'purge_expired_impl') and pg_get_userbyid(p.proowner) <> 'postgres'));
 select pg_temp.chk('F10 every NSI function pins search_path = pg_catalog, pg_temp',
   not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where ((n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')

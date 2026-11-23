@@ -463,16 +463,16 @@ select pg_temp.chk('A02 service_role cannot reach the internal evaluator, the in
 select pg_temp.chk('A03 service_role executes exactly the documented service surface',
   (select array_agg(distinct p.proname order by p.proname) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where ((n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private') and has_function_privilege('service_role', p.oid, 'EXECUTE'))
-  = array['intake_ensure_request', 'intake_platform_policy', 'intake_reconcile_preview', 'intake_reconcile_status', 'intake_save_draft', 'intake_submit_response']::name[]);
+  = (select array_agg(x order by x) from unnest(array['intake_ensure_request', 'intake_platform_policy', 'intake_reconcile_preview', 'intake_reconcile_status', 'intake_save_draft', 'intake_submit_response']::name[] || case when to_regclass('public.intake_sessions') is not null then array['intake_exchange_invitation', 'intake_purge_expired', 'intake_rate_limit_hit', 'intake_revoke_all_invitations_for_key', 'intake_revoke_session', 'intake_session_context']::name[] else '{}'::name[] end) x));
 select pg_temp.chk('A04 M6 functions: postgres-owned, SECURITY DEFINER, pinned search_path, no PUBLIC/anon/authenticated execute',
   (select count(*) = 3 and bool_and(pg_get_userbyid(proowner) = 'postgres' and prosecdef and 'search_path=pg_catalog, pg_temp' = any (proconfig)
      and not has_function_privilege('anon', oid, 'EXECUTE') and not has_function_privilege('authenticated', oid, 'EXECUTE')
      and not has_function_privilege('intake_destructive', oid, 'EXECUTE'))
    from pg_proc where proname in ('evaluate_appointment_eligibility', 'intake_reconcile_preview', 'intake_reconcile_status')));
 select pg_temp.chk('A05 catalog self-check passes with M6', pg_temp.try('select intake_private.assert_catalog()') = 'ok', pg_temp.try('select intake_private.assert_catalog()'));
-select pg_temp.chk('A06 exactly 19 tables and 85 functions (70 + 3 + 12), collection gate closed',
-  (select count(*) = 19 from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r')
-  and (select count(*) = 85 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
+select pg_temp.chk('A06 exactly 19 tables and 85 functions (70 + 3 + 12; 22 and 100 from M12), collection gate closed',
+  (select count(*) = case when to_regclass('public.intake_sessions') is not null then 22 else 19 end from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r')
+  and (select count(*) = case when to_regclass('public.intake_sessions') is not null then 100 else 85 end from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
   and not intake_private.retention_gate_open());
 select pg_temp.chk('A07 appointments fingerprint equals the pre-migration baseline (no appointment schema change)',
   nullif(current_setting('nsi.appointments_fp', true), '') is not null

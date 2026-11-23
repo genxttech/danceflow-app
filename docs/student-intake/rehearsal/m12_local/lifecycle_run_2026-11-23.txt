@@ -1,0 +1,27 @@
+== forward M1-M11, then M12
+   fingerprint M11: 9c575d50b7ef98d73b2583e73818e8d1|670
+   fingerprint M12: 39aeb74daa0bece8f04e5ba70327ddbf|764
+   M12 boundary suite: ERROR:  NSI I3-1 SUITE PASS (21 checks)
+   M11 suite on M12: ERROR:  NSI I2 M11 SUITE PASS (18 checks)
+   M10 suite on M12: ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+   M7 suite on M12: ERROR:  NSI I2 M7 SUITE PASS (36 checks)
+   M9 suite on M12: ERROR:  NSI I2 M9 SUITE PASS (17 checks)
+   M12 test_T_nsi_i1_foundation: ERROR:  NSI I1 DEV-SAFE SUITE PASS (109 checks)
+   M12 test_T_nsi_i2_local: ERROR:  NSI I2 SUITE PASS (92 checks)
+== mutation probes (each mutated M12 must make the suite FAIL; the good file is re-applied afterwards)
+   probe context skips link_valid: detected (S05)
+   probe issue skips assert_staff: detected (S01)
+   probe exchange skips the rate limit: detected (S08b)
+   catalog identical after the probes (good file re-applied)
+   M12 boundary suite after the probes: ERROR:  NSI I3-1 SUITE PASS (21 checks)
+== rollback restores M11 exactly; refused once an M12 audit event exists
+   rollback M12 -> M11 fingerprint identical
+   M11 suite after rollback (back on M11): ERROR:  NSI I2 M11 SUITE PASS (18 checks)
+   re-applied M12 fingerprint identical
+   rollback refused once an M12 audit event exists
+   refused rollback left the catalog unchanged
+== replays on an M12 database
+   replay M12 ok
+   fingerprint unchanged by the M12 replay
+   replay M11 fails closed
+SUMMARY m12 lifecycle: failures=0
