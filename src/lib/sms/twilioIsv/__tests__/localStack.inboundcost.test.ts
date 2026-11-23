@@ -264,6 +264,19 @@ commit;`);
       expect(psqlError(`update public.studio_sms_inbound_reply_suppressions set trigger = 'segments' where legal_entity_id = '${flood.entity}'`)).toMatch(/only be cleared, once/);
       expect(psqlError(`delete from public.studio_sms_inbound_cost_control_events where legal_entity_id = '${flood.entity}'`)).toMatch(/append-only/);
     });
+
+    it("the cap alert says what is actually true: 'suppressed' when a suppression is active, 'cleared' when the administrator already cleared today (switch on)", () => {
+      const active = world();
+      const cleared = world();
+      for (const w of [active, cleared]) setConfig(w, { cap_daily_segments: 5 });
+      for (const w of [active, cleared]) inbound(w, { seg: 6 });
+      expect(replyAllowed(cleared.account, "error_invalid")).toBe("f");    // the reply path suppressed it first
+      json(`select public.tw4_inbound_reply_suppression_clear('${cleared.entity}', '${ADMIN}', 'cleared before the scan ran ${RUN}')::text`);
+      check();
+      expect(alertsOf(active, "sms_in_daily_cap")[0].summary).toMatch(/are suppressed until/);
+      expect(alertsOf(cleared, "sms_in_daily_cap")[0].summary).toMatch(/cleared by a platform administrator today/);
+      expect(alertsOf(cleared, "sms_in_daily_cap")[0].summary).not.toMatch(/are suppressed until/);
+    });
   });
 
   // ---------------------------------------------------------------------------------------------------------------------------------------------

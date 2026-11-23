@@ -332,6 +332,7 @@ declare
   v_cap int := 0;
   v_sup int := 0;
   v_err int := 0;
+  v_active boolean;
   l_vol int;
   l_absn int;
   l_anom int;
@@ -376,8 +377,11 @@ begin
                                          v_trig, v_seg, v_abs, 'scan') then
         l_sup := l_sup + 1;
       end if;
+      -- the alert says what is actually true for the business today, not only what the switch says
+      v_active := v_on and exists (select 1 from public.studio_sms_inbound_reply_suppressions x where x.legal_entity_id = z.legal_entity_id and x.local_day = (mt->>'local_day')::date and x.cleared_at is null);
       if (cfg->>'alerts_enabled')::boolean and public._tw4rfl_alert(z.legal_entity_id, null, null, 'sms_in_daily_cap', 'inbc:' || z.legal_entity_id || ':' || v_day, 'admin', 'critical',
-           case when v_on then 'Inbound texts for a business reached the daily cap. Its automatic non-compliance replies are suppressed until its next local day or until cleared; STOP, START and HELP are unaffected and no text is refused.'
+           case when v_active then 'Inbound texts for a business reached the daily cap. Its automatic non-compliance replies are suppressed until its next local day or until cleared; STOP, START and HELP are unaffected and no text is refused.'
+                when v_on then 'Inbound texts for a business reached the daily cap. Its automatic reply suppression was cleared by a platform administrator today, so replies continue; STOP, START and HELP are unaffected and no text is refused.'
                 else 'Inbound texts for a business reached the daily cap. Automatic reply suppression is switched off, so nothing was suppressed and no text is refused; review inbound traffic.' end) then
         l_cap := l_cap + 1;
       end if;
