@@ -1,5 +1,9 @@
 # Governing-body source registry
 
+> **Permanent governance:** all rule-dependent Competition OS decisions are governed by
+> [RULEBOOK_GOVERNANCE.md](RULEBOOK_GOVERNANCE.md); rules are traced in the
+> [rule register](governance/rule-register/README.md). Every register entry must cite a SHA-256 listed below.
+
 Every governing-body fact in a Competition OS rules profile must cite a document listed here. The source
 files are kept outside the repository (they are the governing bodies' publications). Their SHA-256 values
 pin exactly which edition was read, so a later edition is a deliberate, reviewed change.

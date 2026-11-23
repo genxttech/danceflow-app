@@ -1,0 +1,25 @@
+{
+  "id": "EXAMPLE-0001",
+  "example": true,
+  "governing_body": "UCWDC",
+  "format": "EXAMPLE ONLY: illustrative format; not a real register entry",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "EXAMPLE: replace with the real section reference",
+    "quote_free_summary": "EXAMPLE: one-sentence paraphrase of what the rule requires, in our own words."
+  },
+  "rule_class": "mandatory",
+  "requirement": "EXAMPLE: what Competition OS must do to honor the rule.",
+  "implementation": [],
+  "enforcement_point": "EXAMPLE: e.g. server action, database function, or UI gate where the rule is enforced.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Template entry. Real entries are added by the retrospective audit and by rule-dependent changes.",
+  "applicable_event_versions": ["2026 (v1-26-2026)"],
+  "decision_refs": [],
+  "last_reviewed": "2026-11-22"
+}
