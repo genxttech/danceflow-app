@@ -71,3 +71,7 @@ Gates preserved: spending, price publication, SMS activation, #445, #326.
 
 ## 11. Owner decision 2026-11-18: inbound proposal at $0.0155
 Owner chose "File $0.0155". The six proposals to file in the owner's signed-in session (unpublished until separately authorized): outbound $0.017 (cost $0.012695); inbound **$0.0155** (cost field $0.010205 expected blend as in the manifest; 19.8% net margin on the worst carrier at $0.0118; see TW-4F_Final_Price_Reconciliation_2026-11-18.md, which supersedes the cost figures in section 8); brand $7.00 (cost $4.50 conservative); vetting $21.00 ($15.00); campaign monthly $2.25 ($1.50); number monthly $1.65 ($1.15). Engineering cannot file them (owner session required); filing starts the 24h cooling-off, then the owner signs each with the key.
+
+## Corrections (2026-11-23, from the financial-safety verification of origin/main 11c80dda)
+- Section 9 says absorbed inbound is "already bounded ($20/day allowance, 200 segments/day alert)". In migration 20261231140000 the $20 is CUMULATIVE since the pilot exception was created, and both it and the 200-segment alert are NOTIFICATION ONLY: nothing blocks. Neither applies to non-pilot businesses.
+- Section 5 says "$150 ceiling for setup and absorbed inbound". The ceiling trigger counts only pilot setup reservations (reserved, captured, burned) at customer prices. Absorbed inbound is never counted against it, and neither is outbound texting, recurring fees after the first month, or anything Twilio bills the parent account. See `TW-4F_Financial_Safety_Gates_2026-11-23.md`.
