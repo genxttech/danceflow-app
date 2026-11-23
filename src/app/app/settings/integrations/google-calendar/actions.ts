@@ -15,6 +15,7 @@ import {
   type GoogleCalendarConnectionRow,
 } from "@/lib/integrations/google-calendar/sync";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordIntegrationEvent } from "@/lib/integrations/audit";
 import { deleteGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
 import {
   revokeGoogleCalendarGrant,
@@ -99,7 +100,7 @@ export async function disconnectGoogleCalendarAction(formData: FormData) {
 
   // Tokens go first: a failure here leaves the connection visibly connected so the user can retry, never "disconnected" with live tokens.
   // Revoke at Google first (best effort, never blocks the local disconnect); the app should also disappear from the user's Google account permissions.
-  await revokeGoogleCalendarGrant(connection.id);
+  const revokeOutcome = await revokeGoogleCalendarGrant(connection.id);
   await deleteGoogleCredentials(createAdminClient(), connection.id);
   const { error } = await access.supabase
     .from("studio_google_calendar_connections")
@@ -109,6 +110,7 @@ export async function disconnectGoogleCalendarAction(formData: FormData) {
     })
     .eq("id", connection.id);
   if (error) throw new Error(`Failed to disconnect Google Calendar: ${error.message}`);
+  await recordIntegrationEvent({ studioId: access.context.studioId, provider: "google_calendar", eventType: "disconnected", connectionId: connection.id, actorUserId: access.context.userId, details: { scope, revoke: revokeOutcome, cleanup_skipped: cleanupSkipped } });
   revalidatePath("/app/settings/integrations");
   revalidatePath(returnTo);
   redirect(withParam(withParam(returnTo, "disconnected", "1"), "cleanup_skipped", cleanupSkipped ? "1" : "0"));

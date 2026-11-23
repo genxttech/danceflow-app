@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
+import { recordIntegrationEvent } from "@/lib/integrations/audit";
 import { missingScopes } from "@/lib/integrations/scopes";
 import { exchangeWaveAuthorizationCode, getWaveUserAndBusinesses, revokeWaveToken, WAVE_READ_SCOPES } from "@/lib/integrations/wave/client";
 import { isValidOAuthState, parseOAuthStateCookie, safeOAuthErrorCode } from "@/lib/security/oauth";
@@ -40,7 +41,9 @@ export async function GET(request: NextRequest) {
   try {
     const tokens = await exchangeWaveAuthorizationCode(code);
     // transaction:write is optional (posting stays off without it); the read scopes are required for any use.
-    if (missingScopes(tokens.scope, WAVE_READ_SCOPES).length > 0) {
+    const missing = missingScopes(tokens.scope, WAVE_READ_SCOPES);
+    if (missing.length > 0) {
+      await recordIntegrationEvent({ studioId: saved.studioId, provider: "wave", eventType: "connect_rejected_scope", outcome: "failed", actorUserId: user.id, details: { missing } });
       await revokeWaveToken(tokens.refresh_token ?? tokens.access_token);
       return settingsRedirect(request, "insufficient_scope");
     }
@@ -84,6 +87,7 @@ export async function GET(request: NextRequest) {
       })));
       if (businessesError) throw new Error(businessesError.message);
     }
+    await recordIntegrationEvent({ studioId: saved.studioId, provider: "wave", eventType: "connected", connectionId: connection.id, actorUserId: user.id, details: { scopes: tokens.scope?.split(" ").filter(Boolean) ?? [], business_selected: Boolean(selected) } });
     return settingsRedirect(request, selected ? "connected" : "select_business");
   } catch (caught) {
     console.error("Wave OAuth callback failed", caught);
