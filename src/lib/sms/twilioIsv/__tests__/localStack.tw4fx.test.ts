@@ -320,6 +320,21 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       expect(call<Array<{ studio_id: string; funding: { detail: string } }>>("tw4_act_exposure", P).find((x) => x.studio_id === studio)?.funding.detail).toBe("no_legal_entity");
       expect(check().unattributed).toBeGreaterThanOrEqual(1);
       expect(alerts(`studio_id = '${studio}' or dedupe_key like '%${studio}%'`)).toEqual([]);
+      expect(Number(call<{ exposure_unattributed_locations: number }>("tw4_rfl_health", P).exposure_unattributed_locations)).toBe(check().unattributed);   // visible to an administrator
+    });
+
+    it("unattributed is counted per LOCATION, not per exposure row, and shows in tw4_rfl_health", () => {
+      const health = () => Number(call<{ exposure_unattributed_locations: number }>("tw4_rfl_health", P).exposure_unattributed_locations);
+      const before = health();
+      expect(check().unattributed).toBe(before);
+      const l = location({ state: "active" });
+      // the location loses its legal-business link (fixture only): it is now listed TWICE (funding continuity and number without authorization) with no business
+      replica(`delete from public.studio_sms_entity_studios where studio_id = '${l.studio}';`);
+      const rows = call<Array<{ studio_id: string; reason: string }>>("tw4_act_exposure", P).filter((x) => x.studio_id === l.studio).map((x) => x.reason).sort();
+      expect(rows).toEqual(["funding_continuity", "number_without_authorization"]);
+      expect(health()).toBe(before + 1);
+      expect(check().unattributed).toBe(before + 1);
+      expect(hasCode(callErr("tw4_rfl_health", randomUUID()), "42501")).toBe(true);   // the read stays administrator-only
     });
 
     it("two checks running at once raise each alert exactly once", async () => {
@@ -611,7 +626,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       psql(`insert into public.studios (id, name, slug, public_name, timezone) values ('${studio}', 'FX orphan M6', 'fx-orphan-${hex(4)}', null, 'UTC');`);
       replica(`insert into public.studio_sms_onboarding (id, studio_id, state, legal_name, entity_type, ein_last4, submission_seq, submitted_at)
         values ('${randomUUID()}', '${studio}', 'active', 'FX orphan LLC', 'llc', '7777', 1, now());`);
-      expect(mutant("v_unattributed := v_unattributed + 1;", "", "select public.tw4_rfl_funding_exposure_check() ->> 'unattributed';")).toBe("0");
+      expect(mutant("v_unattributed := public._tw4fx_unattributed_locations();", "v_unattributed := 0;", "select public.tw4_rfl_funding_exposure_check() ->> 'unattributed';")).toBe("0");
       expect(check().unattributed).toBeGreaterThanOrEqual(1);
     });
   });
@@ -641,7 +656,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
         expect(can(role, "public.tw4_act_exposure(uuid)")).toBe("f");
       }
       for (const role of ["anon", "authenticated", "service_role"]) {
-        for (const fn of ["public._tw4fx_exposure_rows()", "public._tw4fx_entity_threshold_cents()", "public._tw4fx_platform_threshold_cents()", "public._tw4fx_grace_warning()"]) expect(can(role, fn)).toBe("f");
+        for (const fn of ["public._tw4fx_exposure_rows()", "public._tw4fx_entity_threshold_cents()", "public._tw4fx_platform_threshold_cents()", "public._tw4fx_grace_warning()", "public._tw4fx_unattributed_locations()"]) expect(can(role, fn)).toBe("f");
       }
       expect(psql(`select count(*) from pg_proc where proname in ('tw4_rfl_funding_exposure_check', '_tw4fx_exposure_rows') and prosecdef and array_to_string(proconfig, ',') like 'search_path=pg_catalog, public, pg_temp'`)).toBe("2");
     });
@@ -659,6 +674,8 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       psql(file(RB));
       expect(psql("select to_regprocedure('public.tw4_rfl_funding_exposure_check()') is null and to_regprocedure('public._tw4fx_exposure_rows()') is null")).toBe("t");
       expect(psql("select left(md5(replace(prosrc, chr(13), '')), 12) from pg_proc where oid = 'public.tw4_act_exposure(uuid)'::regprocedure")).toBe("86f81f72241d");
+      expect(psql("select left(md5(replace(prosrc, chr(13), '')), 12) from pg_proc where oid = 'public.tw4_rfl_health(uuid)'::regprocedure")).toBe("eb5aaef9b251");   // the 20261211 body
+      expect(call<Record<string, unknown>>("tw4_rfl_health", P)).not.toHaveProperty("exposure_unattributed_locations");
       expect(psql("select pg_get_constraintdef(oid) from pg_constraint where conname = 'studio_sms_provider_alerts_kind_check'")).not.toContain("funding_exposure_");
       expect(psqlError(file(RB))).toMatch(/not applied/);   // a second rollback refuses
       psql(file(FWD));

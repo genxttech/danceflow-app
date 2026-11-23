@@ -24,7 +24,8 @@
 --     funding_exposure_threshold     the recorded open exposure of ONE business, or of the whole platform, reached its threshold (_tw4fx_entity_threshold_cents,
 --                                    _tw4fx_platform_threshold_cents: single constants), once per business month (platform: once per UTC month, attached to the
 --                                    business with the largest share so the existing recipient function can address it)
---   Summaries carry no amount, number, SID or name. A listed location that has no legal business cannot be attached to an alert: it is COUNTED (unattributed).
+--   Summaries carry no amount, number, SID or name. A listed location that has no legal business cannot be attached to an alert: it is COUNTED once per
+--   LOCATION (unattributed) in the check's result and in tw4_rfl_health ('exposure_unattributed_locations'; the 20261211 body plus that one key).
 --
 -- NOT TOUCHED: STOP/START/HELP handling, inbound recording, sending, any balance, reservation, ceiling, authorization, charge, resource or exposure row. No
 -- Twilio call is possible from SQL. Requires 20261208090000, 20261209090000, 20261211090000 and 20261231140000 (the alert-kind constraint they extend).
@@ -45,7 +46,7 @@ begin
   if to_regprocedure('public.tw4_act_exposure(uuid)') is null or to_regprocedure('public._tw4c_admin(uuid)') is null or to_regprocedure('public.tw4_num_rent_basis(uuid)') is null
      or to_regprocedure('public._tw4act_funding(uuid)') is null or to_regprocedure('public._tw4rfl_alert(uuid,uuid,uuid,text,text,text,text,text)') is null
      or to_regprocedure('public._tw4rfl_cover(public.studio_sms_provider_resources,text)') is null or to_regprocedure('public._tw4rfl_due_from(public.studio_sms_provider_resources,text)') is null
-     or to_regprocedure('public.tw4_rfl_inbound_allowance_check()') is null
+     or to_regprocedure('public.tw4_rfl_inbound_allowance_check()') is null or to_regprocedure('public.tw4_rfl_health(uuid)') is null
      or to_regprocedure('public._tw4ml_month_key(uuid,timestamptz)') is null or to_regprocedure('public._tw4ml_key_add(text,integer)') is null
      or to_regprocedure('public._tw4ml_tz_for(uuid,text)') is null or to_regprocedure('public._tw4rfl_charge_kinds(text)') is null then
     raise exception 'funding exposure alert precondition failed: 20261208090000, 20261209090000, 20261211090000 and 20261231140000 are not all applied';
@@ -56,6 +57,10 @@ begin
   -- the body this migration moves must be the 20261208 one (a later change would be silently replaced otherwise)
   if (select left(md5(replace(p.prosrc, chr(13), '')), 12) from pg_proc p where p.oid = 'public.tw4_act_exposure(uuid)'::regprocedure) is distinct from '86f81f72241d' then
     raise exception 'funding exposure alert precondition failed: tw4_act_exposure is not the 20261208090000 body';
+  end if;
+  -- tw4_rfl_health gains one count below: it must still be the 20261211 body
+  if (select left(md5(replace(p.prosrc, chr(13), '')), 12) from pg_proc p where p.oid = 'public.tw4_rfl_health(uuid)'::regprocedure) is distinct from 'eb5aaef9b251' then
+    raise exception 'funding exposure alert precondition failed: tw4_rfl_health is not the 20261211090000 body';
   end if;
   select c.conname, pg_get_constraintdef(c.oid) into v_name, v_def from pg_constraint c
    where c.conrelid = 'public.studio_sms_provider_alerts'::regclass and c.contype = 'c' and pg_get_constraintdef(c.oid) like '%authorization_expiring%';
@@ -126,6 +131,15 @@ begin
     ) x), '[]'::jsonb);
 end $$;
 
+-- listed LOCATIONS (not rows) that have no legal business, so no alert can be addressed to them
+create function public._tw4fx_unattributed_locations()
+returns int language sql security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+  select count(distinct (e.value ->> 'studio_id'))::int from jsonb_array_elements(public._tw4fx_exposure_rows()) e
+   where not exists (select 1 from public.studio_sms_entity_studios es where es.studio_id = (e.value ->> 'studio_id')::uuid);
+$;
+
 -- unchanged contract: the administrator check, then the same rows
 create or replace function public.tw4_act_exposure(p_actor uuid)
 returns jsonb language plpgsql security definer
@@ -165,8 +179,7 @@ begin
   for z in select e.value j from jsonb_array_elements(public._tw4fx_exposure_rows()) e loop
     select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = (z.j ->> 'studio_id')::uuid;
     if v_entity is null then
-      v_unattributed := v_unattributed + 1;   -- cannot be addressed (the outbox needs a business); counted so it is never silent
-      continue;
+      continue;   -- cannot be addressed (the outbox needs a business): counted per LOCATION below and shown in tw4_rfl_health
     end if;
     v_month := public._tw4ml_month_key(v_entity, now());
     v_kind := 'funding_exposure_unauthorized';
@@ -248,9 +261,41 @@ begin
          'The recorded open fee exposure across ALL businesses reached the platform threshold. Review the exposure overview.') then v_thr := v_thr + 1; end if;
   end if;
 
+  v_unattributed := public._tw4fx_unattributed_locations();
   return jsonb_build_object('unfunded', v_unf, 'unauthorized', v_una, 'grace_ending', v_gr, 'threshold', v_thr, 'unattributed', v_unattributed);
 end $$;
 
+-- the 20261211090000 body plus ONE count: listed locations with no legal business (no alert can carry them)
+create or replace function public.tw4_rfl_health(p_actor uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  v_last timestamptz;
+  v_ok timestamptz;
+  v_status text;
+begin
+  perform public._tw4c_admin(p_actor);
+  select r.started_at, r.status into v_last, v_status from public.studio_sms_rfl_runs r order by r.started_at desc, r.id desc limit 1;
+  select max(r.finished_at) into v_ok from public.studio_sms_rfl_runs r where r.status = 'completed';
+  return jsonb_build_object(
+    'scan_switch', public.tw4_rfl_switch_enabled('scan'),
+    'delivery_switch', public.tw4_rfl_switch_enabled('delivery'),
+    'last_run_at', v_last,
+    'last_success_at', v_ok,
+    'last_status', v_status,
+    'stale', v_ok is null or v_ok < now() - interval '26 hours',
+    'runs_failed_24h', (select count(*) from public.studio_sms_rfl_runs r where r.status = 'failed' and coalesce(r.finished_at, r.started_at) > now() - interval '24 hours'),
+    'alerts_pending', (select count(*) from public.studio_sms_provider_alerts a where a.status = 'pending'),
+    'alerts_failed', (select count(*) from public.studio_sms_provider_alerts a where a.status = 'failed'),
+    'alerts_exhausted', (select count(*) from public.studio_sms_provider_alerts a where a.attempts >= 5 and (a.status = 'failed' or (a.status = 'sending' and a.claimed_at < now() - interval '15 minutes'))),
+    'oldest_pending_alert_age_seconds', (select floor(extract(epoch from now() - min(a.created_at)))::bigint from public.studio_sms_provider_alerts a where a.status = 'pending'),
+    'open_exposure_count', (select count(*) from public.studio_sms_provider_exposure e where e.state = 'open'),
+    'open_cancel_operations', (select count(*) from public.studio_sms_provider_cancel_ops o where o.status in ('authorized', 'in_flight', 'unknown_outcome')),
+    'exposure_unattributed_locations', public._tw4fx_unattributed_locations());
+end $;
+
+revoke all on function public._tw4fx_unattributed_locations() from public, anon, authenticated, service_role;
 revoke all on function public._tw4fx_entity_threshold_cents(), public._tw4fx_platform_threshold_cents(), public._tw4fx_grace_warning(), public._tw4fx_exposure_rows()
   from public, anon, authenticated, service_role;
 revoke all on function public.tw4_act_exposure(uuid) from public, anon, authenticated;

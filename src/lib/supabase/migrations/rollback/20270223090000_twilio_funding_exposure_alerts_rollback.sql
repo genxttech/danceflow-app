@@ -1,4 +1,4 @@
--- Rollback of 20270223090000_twilio_funding_exposure_alerts.sql: restores the 20261208090000 body of tw4_act_exposure, drops the check and its helpers, and
+-- Rollback of 20270223090000_twilio_funding_exposure_alerts.sql: restores the 20261208090000 body of tw4_act_exposure and the 20261211090000 body of tw4_rfl_health, drops the check and its helpers, and
 -- restores the alert-kind constraint WITHOUT the four kinds this migration added.
 -- REFUSES (55000) while any alert row uses one of those kinds (history is never deleted or rewritten), when the live constraint does not carry exactly them,
 -- or when tw4_act_exposure is no longer the body this migration installed (a later change would be lost).
@@ -16,6 +16,9 @@ begin
   end if;
   if (select replace(p.prosrc, chr(13), '') from pg_proc p where p.oid = 'public.tw4_act_exposure(uuid)'::regprocedure) not like '%public._tw4fx_exposure_rows()%' then
     raise exception 'funding exposure alert rollback refused: tw4_act_exposure was changed after 20270223090000' using errcode = '55000';
+  end if;
+  if (select replace(p.prosrc, chr(13), '') from pg_proc p where p.oid = 'public.tw4_rfl_health(uuid)'::regprocedure) not like '%public._tw4fx_unattributed_locations()%' then
+    raise exception 'funding exposure alert rollback refused: tw4_rfl_health was changed after 20270223090000' using errcode = '55000';
   end if;
   lock table public.studio_sms_provider_alerts in access exclusive mode;
   select c.conname, pg_get_constraintdef(c.oid) into v_name, v_def from pg_constraint c
@@ -75,7 +78,37 @@ end $$;
 revoke all on function public.tw4_act_exposure(uuid) from public, anon, authenticated;
 grant execute on function public.tw4_act_exposure(uuid) to service_role;
 
+-- the 20261211090000 body of tw4_rfl_health, verbatim
+create or replace function public.tw4_rfl_health(p_actor uuid)
+returns jsonb language plpgsql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  v_last timestamptz;
+  v_ok timestamptz;
+  v_status text;
+begin
+  perform public._tw4c_admin(p_actor);
+  select r.started_at, r.status into v_last, v_status from public.studio_sms_rfl_runs r order by r.started_at desc, r.id desc limit 1;
+  select max(r.finished_at) into v_ok from public.studio_sms_rfl_runs r where r.status = 'completed';
+  return jsonb_build_object(
+    'scan_switch', public.tw4_rfl_switch_enabled('scan'),
+    'delivery_switch', public.tw4_rfl_switch_enabled('delivery'),
+    'last_run_at', v_last,
+    'last_success_at', v_ok,
+    'last_status', v_status,
+    'stale', v_ok is null or v_ok < now() - interval '26 hours',
+    'runs_failed_24h', (select count(*) from public.studio_sms_rfl_runs r where r.status = 'failed' and coalesce(r.finished_at, r.started_at) > now() - interval '24 hours'),
+    'alerts_pending', (select count(*) from public.studio_sms_provider_alerts a where a.status = 'pending'),
+    'alerts_failed', (select count(*) from public.studio_sms_provider_alerts a where a.status = 'failed'),
+    'alerts_exhausted', (select count(*) from public.studio_sms_provider_alerts a where a.attempts >= 5 and (a.status = 'failed' or (a.status = 'sending' and a.claimed_at < now() - interval '15 minutes'))),
+    'oldest_pending_alert_age_seconds', (select floor(extract(epoch from now() - min(a.created_at)))::bigint from public.studio_sms_provider_alerts a where a.status = 'pending'),
+    'open_exposure_count', (select count(*) from public.studio_sms_provider_exposure e where e.state = 'open'),
+    'open_cancel_operations', (select count(*) from public.studio_sms_provider_cancel_ops o where o.status in ('authorized', 'in_flight', 'unknown_outcome')));
+end $;
+
 drop function if exists public.tw4_rfl_funding_exposure_check();
+drop function if exists public._tw4fx_unattributed_locations();
 drop function if exists public._tw4fx_exposure_rows();
 drop function if exists public._tw4fx_grace_warning();
 drop function if exists public._tw4fx_platform_threshold_cents();
