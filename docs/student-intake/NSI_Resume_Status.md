@@ -103,7 +103,7 @@ None of these blocks the work in flight (DEV-safe SQL, local design). Each is ne
 | O1 (P2-1) | Who counts as an "existing student" (any earlier lesson, including imported, partner-only, unselected-type, other-form history, never gets an automatic request) | Gate A | Keep the conservative rule; add a staff "existing student, not asked" list with a one-click manual request (small read RPC and UI) |
 | O2 (D1/A8) | Which staff roles may create guardian invitations and choose recipients | I3-2 | Owner, admin, front desk (same set that may attest guardian consent); instructors no |
 | O3 (D2) | Account-free link for everyone, or portal-only for people who already have a portal account | I3-4 | Link for everyone; portal sign-in as an optional convenience |
-| O4 (D3) | Guardian decline: terminal, or staff may re-invite the same request | I3-3 | Terminal; staff opens a new request if the family changes its mind |
+| O4 (D3) | Guardian decline: terminal, or staff may re-invite the same request. **Decline now belongs to I3-2 (M16), not I3-3** | I3-2 | Terminal; staff opens a new request if the family changes its mind |
 | O5 (D4) | Minor threshold and the "pending legal review" wording (spec 14.9) | I3-3 and Gate A | Keep 18 as a studio setting, with the pending-legal-review note visible until cleared |
 | O6 (D5) | Invitation life and session limits | I3-1 | 14-day link, 30-minute sliding session, 4-hour absolute |
 | O7 (D7) | What front desk and instructors may see about intake delivery rows | I4 | Owner/admin/front desk: status only, never content; instructors: none |
@@ -176,3 +176,7 @@ M12 passed two independent reviews (delta review of round 2: GO, no P0/P1). The 
 Nits: `client_ref` on `session_revoked`; dead m13 precondition branch (comment only); harness summary label. **None of this is on PROD** (PROD has no NSI objects) and shared DEV has Gate A closed and no data, so there is no live exposure.
 
 **Renumbering:** M14 = hold semantics and purge liveness (safety item, before any I3-3 implementation); the minor-determination migration is now **M15**; I3-2 becomes M16. Sequence: M13 DEV apply (after the clean replay on its bytes) -> M14 spec, implementation, review -> I3-3/M15 -> I3-2/M16 -> I1-local fixture port.
+
+## 13. I3-3 specification revision 2 (review conditional GO; owner decisions added)
+
+`NSI_I3_3_DB_Spec.md` revision 2 addresses P1-1..P1-6 and the P2s (studio-local date with the UTC-12 fallback, the birthday rule applied first inside the database, declaration provenance, monotone automatic determinations, an explicit reference date and open-request rule, lock order for the session functions, no daily row growth, threshold clamp, neutral declaration classes, explicit privilege statements). New or changed owner decisions, all **pending** with draft defaults: **O5** (threshold, 29 February rule, wording), **O5b** (may a studio set a threshold below 18; draft: clamp to 18), **O11** (a declared adult requires staff confirmation; draft: yes), **O12** (an extra `under_13` declaration class; draft: yes, routing only). The migration is **M15**; M14 (hold semantics and purge liveness) comes first. No SQL is written for M15 until the revision 2 spec is reviewed.
