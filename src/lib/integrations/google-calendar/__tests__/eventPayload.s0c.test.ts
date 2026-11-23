@@ -34,7 +34,17 @@ describe("S0-c studio event timeZone", () => {
   it("leaves all-day events as dates with no timeZone", () => {
     const p = eventPayload({ ...base, start_time: null, end_time: null, end_date: "2026-11-03" }, "America/Chicago");
     expect(p.start).toEqual({ date: "2026-11-01" });
-    expect(p.end).toEqual({ date: "2026-11-03" });
+    expect(p.end).toEqual({ date: "2026-11-04" }); // Google all-day end.date is exclusive
+    const single = eventPayload({ ...base, start_time: null, end_time: null }, "America/Chicago");
+    expect(single.end).toEqual({ date: "2026-11-02" });
+    const monthEnd = eventPayload({ ...base, start_date: "2026-12-31", start_time: null, end_time: null }, "America/Chicago");
+    expect(monthEnd.end).toEqual({ date: "2027-01-01" });
+  });
+
+  it("the event's own timezone wins over the studio zone; a row without one uses the studio zone", () => {
+    expect(eventPayload({ ...base, timezone: "America/Los_Angeles" }, "America/Chicago").start.timeZone).toBe("America/Los_Angeles");
+    expect(eventPayload({ ...base, timezone: null }, "America/Chicago").start.timeZone).toBe("America/Chicago");
+    expect(eventPayload({ ...base, timezone: "Not/AZone" }, "America/Chicago").start.timeZone).not.toBe("Not/AZone");
   });
 
   it("resolves missing or invalid studio timezones to the repo fallback instead of sending a bad zone", () => {
