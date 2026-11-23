@@ -199,6 +199,8 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 - **Blast radius.** Dark. (a) changes engine specs (a new engine version, never editing `@1`) and SQL recompute (PV-1): owner-gated PROD SQL apply.
 - **Decision.** Approve an NDCA-profile exception to the "excluded, never placed last" rule?
 
+**OD-08 DECIDED 2026-11-23 (owner): Option A, NDCA-specific exception, future verified NDCA profile only.** NDCA III.D.30 withdrawal policy approved for a future verified NDCA scoring profile. Studio/Custom Scratch behavior preserved. For an applicable NDCA Final: a documented injury/illness withdrawal after the Final begins is allowed; last place is awarded for each dance not performed, never automatically across all dances or the overall competition; an authorized official's recorded reason and independent confirmation are DanceFlow policy with no unnecessary medical detail; immutable audit evidence coordinated with OD-07 versioning; OD-21 replacement-couple handling stays separate; no invented Skating System arithmetic (OD-24 remains a blocker); compare the pinned June 2026 NDCA rule book against the July 2026 edition listed on NDCA's official website and record version differences and effective-date uncertainty under OD-30. Authorized: a design-level draft PR identifying the versioned scoring-engine and SQL changes. Not authorized: scoring-engine implementation, SQL apply, merge, deployment, activation.
+
 ### OD-09 NDCA advancement structure and who owns the callback count
 
 - **Issue.** The manager sets the callback target and Final size freely; NDCA sets recall at 50% minimum per round, a cap of eight in a final, and required semi/quarter-finals; WSDC puts the count with the chief judge.
