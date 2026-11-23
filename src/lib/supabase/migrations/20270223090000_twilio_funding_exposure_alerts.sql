@@ -45,7 +45,9 @@ begin
   if to_regprocedure('public.tw4_act_exposure(uuid)') is null or to_regprocedure('public._tw4c_admin(uuid)') is null or to_regprocedure('public.tw4_num_rent_basis(uuid)') is null
      or to_regprocedure('public._tw4act_funding(uuid)') is null or to_regprocedure('public._tw4rfl_alert(uuid,uuid,uuid,text,text,text,text,text)') is null
      or to_regprocedure('public._tw4rfl_cover(public.studio_sms_provider_resources,text)') is null or to_regprocedure('public._tw4rfl_due_from(public.studio_sms_provider_resources,text)') is null
-     or to_regprocedure('public.tw4_rfl_inbound_allowance_check()') is null then
+     or to_regprocedure('public.tw4_rfl_inbound_allowance_check()') is null
+     or to_regprocedure('public._tw4ml_month_key(uuid,timestamptz)') is null or to_regprocedure('public._tw4ml_key_add(text,integer)') is null
+     or to_regprocedure('public._tw4ml_tz_for(uuid,text)') is null or to_regprocedure('public._tw4rfl_charge_kinds(text)') is null then
     raise exception 'funding exposure alert precondition failed: 20261208090000, 20261209090000, 20261211090000 and 20261231140000 are not all applied';
   end if;
   if to_regprocedure('public._tw4fx_exposure_rows()') is not null then
