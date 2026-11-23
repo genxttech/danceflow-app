@@ -113,9 +113,9 @@ select pg_temp.setkv('g_ok', pg_temp.try(format('insert into public.intake_sessi
   values (%L, %L, %L, ''student'', %L, decode(%L, ''hex''), 1800, now() + interval ''30 minutes'', now() + interval ''4 hours'')',
   pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('g_f'), 1), pg_temp.part(pg_temp.kv('g_f'), 2), pg_temp.u('owner_a'), pg_temp.hx('pos-control'))));
 select pg_temp.setkv('g_bad', pg_temp.try(format('insert into public.intake_sessions (studio_id, request_id, invitation_id, audience, issued_by_user, session_hash, idle_seconds, idle_expires_at, absolute_expires_at)
-  values (%L, %L, %L, ''student'', null, decode(%L, ''hex''), 1800, now() + interval ''30 minutes'', now() + interval ''4 hours'')',
-  pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('g_f'), 1), pg_temp.part(pg_temp.kv('g_f'), 2), pg_temp.hx('neg-control'))));
-select pg_temp.chk('P04 a session with the invitation''s minting actor inserts (positive control); one with a different actor is refused (42501)',
+  values (%L, %L, %L, ''student'', %L, decode(%L, ''hex''), 1800, now() + interval ''30 minutes'', now() + interval ''4 hours'')',
+  pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('g_f'), 1), pg_temp.part(pg_temp.kv('g_f'), 2), pg_temp.u('admin_a'), pg_temp.hx('neg-control'))));
+select pg_temp.chk('P04 a session with the invitation''s minting actor inserts (positive control); one with a DIFFERENT NON-NULL actor (the admin) is refused (42501)',
   pg_temp.kv('g_ok') = 'ok' and pg_temp.kv('g_bad') like '42501%minting actor%', pg_temp.kv('g_ok') || ' / ' || pg_temp.kv('g_bad'));
 
 -- ===== P05 markers, ACLs unchanged ===================================================================================

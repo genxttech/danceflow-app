@@ -223,7 +223,8 @@ held=$(q "select count(*) from public.intake_sessions where request_id = '$RP';"
 wait
 purge2=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_purge_expired(500)::text;" 2>&1 | tail -1)
 gone=$(q "select count(*) from public.intake_sessions where request_id = '$RP';")
-if [ "$held" = "1" ] && [ $((t1 - t0)) -le 3 ] && [ "$gone" = "0" ]; then echo "C7 purge skipped the client whose lock was held ($((t1 - t0)) s, nothing deleted), then cleared it on the next call"; else fail=$((fail+1)); echo "C7 held_rows=$held purge_took=$((t1 - t0))s after_release_rows=$gone purge1=[$purge1] purge2=[$purge2]"; fi
+ok_json=$(q "select (j->>'clients_locked')::int < (j->>'clients_candidate')::int from (select '$purge1'::jsonb j) x" 2>/dev/null)
+if [ "$held" = "1" ] && [ $((t1 - t0)) -le 3 ] && [ "$gone" = "0" ] && [ "$ok_json" = "t" ]; then echo "C7 purge succeeded and skipped the client whose lock was held (clients_locked < clients_candidate, $((t1 - t0)) s, nothing deleted), then cleared it on the next call"; else fail=$((fail+1)); echo "C7 held_rows=$held purge_took=$((t1 - t0))s after_release_rows=$gone purge1=[$purge1] purge2=[$purge2]"; fi
 fi
 
 printf '%s\n' "$ORIG" | docker exec -i "$DB" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 >/dev/null 2>&1; ORIG=""
