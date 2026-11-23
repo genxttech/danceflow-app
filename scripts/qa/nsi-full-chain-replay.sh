@@ -15,7 +15,7 @@ fail=0; say() { echo "$*" | tee -a "$OUT/summary.log"; }; bad() { say "FAIL: $*"
 cd "$REPO" || exit 2
 docker image inspect "$TAG" >/dev/null 2>&1 && docker tag "$TAG" "$BACKUP" && say "backed up current $TAG ($(docker image inspect $TAG --format '{{.Id}}' | cut -c1-19))"
 dbof() { docker ps --filter "label=df.isoqa=1" --format '{{.Names}}' | grep -- "-$1-db$" | head -1; }
-dump() { docker exec "$1" pg_dump -U postgres -s --no-owner -n public -n intake_private postgres 2>/dev/null; }
+dump() { docker exec "$1" pg_dump -U postgres -s --no-owner -n public -n intake_private postgres 2>/dev/null | grep -vE "^\\(un)?restrict " | sed -E "s/applied_at=[0-9T:.Z-]+/applied_at=<ts>/"; }
 fp() { docker exec -i "$1" psql -U postgres -At -f - < "$SQLT/nsi_i2_catalog_fingerprint_local.sql" 2>&1 | head -1; }
 apfp() { docker exec -i "$1" psql -U postgres -At -c "select md5((select string_agg(tgname || pg_get_triggerdef(oid), '|' order by tgname) from pg_trigger where tgrelid = 'public.appointments'::regclass and not tgisinternal) || (select string_agg(conname || pg_get_constraintdef(oid), '|' order by conname) from pg_constraint where conrelid = 'public.appointments'::regclass) || (select string_agg(indexdef, '|' order by indexname) from pg_indexes where schemaname = 'public' and tablename = 'appointments') || (select coalesce(string_agg(conrelid::regclass::text || conname, '|' order by conname), '') from pg_constraint where confrelid = 'public.appointments'::regclass))" 2>&1 | head -1; }
 
@@ -26,7 +26,7 @@ say "   up exit code $rc"; tail -3 "$OUT/up_a.err" | cut -c1-300 | sed 's/^/   /
 CA=$(dbof nsira); [ -n "$CA" ] || { bad "no db container for A"; fail=99; }
 if [ -n "$CA" ] && [ $rc -eq 0 ]; then
   FPA=$(fp "$CA"); APA=$(apfp "$CA"); say "   NSI catalog fingerprint A: $FPA   appointments fp A: $APA"
-  [ "$FPA" = "5c8ef043e71dd17b9a4a6d95b2c1bed4|670" ] || [ "$FPA" = "5c8ef043e71dd17b9a4a6d95b2c1bed4	670" ] || bad "A NSI fingerprint is not the M11 value (got $FPA)"
+  [ "$FPA" = "${NSI_EXPECT_FP:-9c575d50b7ef98d73b2583e73818e8d1}|670" ] || [ "$FPA" = "${NSI_EXPECT_FP:-9c575d50b7ef98d73b2583e73818e8d1}	670" ] || bad "A NSI fingerprint is not the M11 value (got $FPA)"
   docker exec "$CA" psql -U postgres -At -c "select intake_private.assert_catalog(); select 'assert_catalog ok'" 2>&1 | tail -1 | sed 's/^/   /'
   dump "$CA" > "$OUT/schema_a.sql"; wc -l "$OUT/schema_a.sql" | sed 's/^/   dump lines: /'
   docker rename "$CA" nsi-i2-replay-a

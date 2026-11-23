@@ -46,3 +46,13 @@ Caveats, stated plainly
 - The stand-in is not PROD: the baseline image (July dump + replay, 22 known-unreplayable migrations skipped) has `appointments` fingerprint `ff651a6c…`, not PROD's `e0c4db1b…` (it lacks the `group_class_enrollment_holds` FK and the floor-rental financial-fields trigger). NSI adds nothing to `appointments`, so this does not affect NSI, but the image cannot certify PROD parity of unrelated objects.
 - Rollbacks M8 and M7 were not repeated on A (covered by the earlier M7-M9 lifecycle harness); suites ran on the shared baseline, one stack at a time.
 - The run predates the M11 amendments (anchor rules, preview change); it should be repeated once the final M11 bytes are reviewed (one command: `scripts/qa/nsi-full-chain-replay.sh <out>`; about 45 minutes).
+
+## Result of the second run: FINAL M11 bytes (branch commit 643e1047d, 2026-11-23)
+
+Same runner from an isolated detached worktree pinned to that commit (`NSI_REF`), same scenarios. Evidence: `rehearsal/full_chain/summary_final_bytes.txt`, `schema_diff_head_final_bytes.txt`.
+
+- A (NSI last, PROD order) and B (NSI inside the history): both reach NSI fingerprint `9c575d50b7ef98d73b2583e73818e8d1|670`, **identical to shared DEV after the M11 apply**.
+- Suites on A: M11 18/18, M10 17/17, M7 36/36, M9 17/17, I1 foundation 97/97, I2-local 92/92. Rollbacks M11 to M10 to M9 exact.
+- pg_dump A vs B: the same 6 noise lines as the first run (4 random `\restrict` tokens, 2 `applied_at` timestamps in one TW function comment); no NSI or schema difference.
+- The summary shows two `FAIL` lines. Both were runner bookkeeping, not product failures: the runner still expected the pre-amendment fingerprint (`5c8ef043…`) and did not normalize the dump noise. Fixed in the runner afterwards (`NSI_EXPECT_FP`, noise filtering); the substantive results above stand.
+- Caveats unchanged (baseline image is not PROD: `appointments` fingerprint `ff651a6c…` vs PROD `e0c4db1b…`; M8/M7 rollbacks not repeated).
