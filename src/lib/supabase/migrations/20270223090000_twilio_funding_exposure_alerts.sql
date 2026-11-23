@@ -175,7 +175,7 @@ begin
       when 'funding_continuity' then
         v_kind := 'funding_exposure_unfunded';
         v_sev := case when z.j ->> 'state' = 'active' then 'critical' else 'warning' end;
-        v_key := 'fx-fund:' || (z.j ->> 'studio_id') || ':' || coalesce(z.j -> 'funding' ->> 'detail', 'unknown') || ':' || v_month;
+        v_key := 'fx-fund:' || (z.j ->> 'studio_id') || ':' || v_month;   -- ONE per location and month, whatever the (possibly flipping) detail
         v_sum := 'A texting location (' || replace(z.j ->> 'state', '_', ' ') || ') no longer has continuous funding for its recurring provider fees ('
                  || replace(coalesce(z.j -> 'funding' ->> 'detail', 'unknown'), '_', ' ') || '). DanceFlow keeps paying the provider until it is funded or cancelled.';
       when 'number_without_authorization' then

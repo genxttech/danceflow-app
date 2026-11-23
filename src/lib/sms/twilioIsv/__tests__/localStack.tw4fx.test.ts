@@ -244,7 +244,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       expect(out.unauthorized).toBeGreaterThanOrEqual(1);
       const month = monthOf(l);
       const fund = alertsOf(l, "funding_exposure_unfunded");
-      expect(fund.map((a) => [a.dedupe_key, a.severity, a.studio_id])).toEqual([[`fx-fund:${l.studio}:campaign_authorization_short_or_missing:${month}`, "critical", l.studio]]);
+      expect(fund.map((a) => [a.dedupe_key, a.severity, a.studio_id])).toEqual([[`fx-fund:${l.studio}:${month}`, "critical", l.studio]]);
       const noauth = alertsOf(l, "funding_exposure_unauthorized").filter((a) => a.dedupe_key.startsWith("fx-noauth:"));
       expect(noauth.map((a) => [a.dedupe_key, a.severity])).toEqual([[`fx-noauth:${l.studio}:${month}`, "critical"]]);
       for (const a of [...fund, ...noauth]) expectClean(a, [l.number, l.pn, "FX World"]);
@@ -252,6 +252,19 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       const before = alertsOf(l).map((a) => a.dedupe_key);
       check();
       expect(alertsOf(l).map((a) => a.dedupe_key)).toEqual(before);
+    });
+
+    it("a FLIPPING failure detail never re-alerts: one funding-continuity alert per location per business month, whatever the detail", () => {
+      const l = location({ state: "active" });
+      const detail = () => call<Array<{ studio_id: string; reason: string; funding?: { detail: string } }>>("tw4_act_exposure", P).find((x) => x.studio_id === l.studio && x.reason === "funding_continuity")?.funding?.detail;
+      expect(detail()).toBe("campaign_authorization_short_or_missing");
+      check();
+      const kind = psql(`select public.tw4_location_fee_kinds('${l.studio}') ->> 'campaign_monthly_kind'`);
+      expect(kind).toBe("monthly");
+      authFixture(l, "monthly");   // the campaign is now authorized: the failure moves on to the number
+      expect(detail()).toBe("number_authorization_short_or_missing");
+      check();
+      expect(alertsOf(l, "funding_exposure_unfunded").map((a) => a.dedupe_key)).toEqual([`fx-fund:${l.studio}:${monthOf(l)}`]);
     });
 
     it("a SUSPENDED or READY location is a warning (not critical); a location in an earlier state is not a funding-continuity exposure", () => {
@@ -316,7 +329,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       expect(b.err).toBe("");
       const keys = alertsOf(l).map((x) => x.dedupe_key);
       expect(new Set(keys).size).toBe(keys.length);
-      expect(keys).toEqual(expect.arrayContaining([`fx-fund:${l.studio}:campaign_authorization_short_or_missing:${monthOf(l)}`, `fx-noauth:${l.studio}:${monthOf(l)}`]));
+      expect(keys).toEqual(expect.arrayContaining([`fx-fund:${l.studio}:${monthOf(l)}`, `fx-noauth:${l.studio}:${monthOf(l)}`]));
     });
   });
 
