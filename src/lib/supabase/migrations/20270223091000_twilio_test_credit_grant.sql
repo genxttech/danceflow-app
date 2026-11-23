@@ -41,7 +41,7 @@
 -- Requires 20261122 (credits), 20261128 (months), 20261202 (approval registry), 20261209 (_tw4rfl_lock, audit vocabulary pattern), 20261229/20261230 (U-4 evidence).
 -- Rollback: rollback/20270223091000_twilio_test_credit_grant_rollback.sql (refuses while any row of this migration exists; never destroys evidence).
 -- Also redefines sms_credit_overview (adds test_credit_cents / fee_available_cents) and tw4_credit_topup_pending (the $500 ceiling ignores test credit); both md5-pinned.
--- OPERATOR PROCEDURE: docs/twilio/TW-4F_Test_Credit_Runbook.md. Nothing in this file grants credit, sets a budget or turns the switch on.
+-- Release gates: docs/twilio/TW-4F_Financial_Safety_Gates_2026-11-23.md (on main), row "Controlled test credit funded". OPERATOR PROCEDURE: docs/twilio/TW-4F_Test_Credit_Runbook.md. Nothing in this file grants credit, sets a budget or turns the switch on.
 
 begin;
 

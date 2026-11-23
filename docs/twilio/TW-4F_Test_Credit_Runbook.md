@@ -26,7 +26,7 @@ Refusal codes: `22023` invalid input, `42501` not a platform administrator or a 
 ## 2. Preconditions for a real grant (all are owner gates)
 
 1. The migration is applied to the target database with the owner's separate approval. Apply it together with its app build, or before it. The app does not call it.
-2. The release gates in `TW-4F_Financial_Safety_Gates_2026-11-23.md` §2 for "Before the FIRST test message" are met. Test credit is only the "controlled test credit funded" row.
+2. The release gates in `docs/twilio/TW-4F_Financial_Safety_Gates_2026-11-23.md` (on main; not changed here) §2 for "Before the FIRST test message" are met. Test credit is only the "controlled test credit funded" row.
 3. The pilot business's monthly spending limit is set. Texting is still subject to it.
 4. **The owner's written authorization exists and is retained.** It names the legal business, the purpose (billed test texts, texting only), the exact amount in dollars and cents, the billing month, and who authorizes it, with a date. There is one document for the budget and one for each grant. Both can be the same email thread, but each needs its own retained file and therefore its own sha256.
 5. Two people: the operator who runs the SQL and the owner who reads the read-back (§4). The database requires a platform administrator actor and the evidence. It does **not** require a second administrator: see open decision D1.
