@@ -45,7 +45,8 @@ export async function GET(request: NextRequest) {
     .eq("status", "connected")
     .not("calendar_id", "is", null)
     .or("sync_lessons.eq.true,sync_classes.eq.true,sync_events.eq.true");
-  if (inactiveInstructorIds.length > 0) query = query.not("instructor_id", "in", `(${inactiveInstructorIds.join(",")})`);
+  // NULL-safe: studio-scope rows have a NULL instructor_id, and NOT (NULL = ANY(...)) is NULL, which would drop them. A second or= is ANDed with the first by PostgREST.
+  if (inactiveInstructorIds.length > 0) query = query.or(`instructor_id.is.null,instructor_id.not.in.(${inactiveInstructorIds.join(",")})`);
   const { data: connections, error } = await query
     .order("last_sync_at", { ascending: true, nullsFirst: true })
     .limit(50);

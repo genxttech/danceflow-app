@@ -24,12 +24,16 @@ function table(name: string) {
     select: () => builder,
     eq: (c: string, v: any) => { filters.push((r) => r[c] === v); return builder; },
     in: (c: string, v: any[]) => { filters.push((r) => v.includes(r[c])); return builder; },
-    not: (c: string, op: string, v: any) => {
+    not: (c: string, op: string) => {
       if (op === "is") filters.push((r) => r[c] !== null && r[c] !== undefined);
-      if (op === "in") { const ids = String(v).replace(/[()]/g, "").split(","); filters.push((r) => !ids.includes(r[c])); }
       return builder;
     },
-    or: () => builder,
+    // models PostgREST or=(instructor_id.is.null,instructor_id.not.in.(ids)) with SQL three-valued logic; the sync_* or= is a no-op here
+    or: (expr: string) => {
+      const prefix = "instructor_id.is.null,instructor_id.not.in.("; const m = expr.startsWith(prefix) && expr.endsWith(")") ? [expr, expr.slice(prefix.length, -1)] : null;
+      if (m) { const ids = m[1].split(","); filters.push((r) => r.instructor_id === null || r.instructor_id === undefined || !ids.includes(r.instructor_id)); }
+      return builder;
+    },
     order: () => builder,
     limit: () => builder,
     then: (resolve: any) => resolve({ data: (db[name] ?? []).filter((r) => filters.every((f) => f(r))), error: null }),
