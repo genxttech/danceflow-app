@@ -9,6 +9,16 @@ With it: Part B (flags ON, stub responder only): launcher visibility and 44dp ta
 
 Anything not asserted is recorded as FAIL with a detail that starts with "BLOCKED:" (TalkBack, a missing second user), never PASS; the result files have no separate BLOCKED status, so a Part B run exits non-zero until those are really walked. Clipping is not detectable from the accessibility tree: review the font-2.0 screenshots by eye.
 
+## TalkBack spike result (2026-11-23): NOT feasible on df-api35 as configured
+What works: `settings put secure enabled_accessibility_services com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService` plus `accessibility_enabled 1` binds the service (`dumpsys accessibility` shows it under Bound services). Under MSYS bash set `MSYS_NO_PATHCONV=1` or the value is mangled and silently not written. TalkBack needs `pm grant ... POST_NOTIFICATIONS` and `RECORD_AUDIO` or it opens a permission activity.
+
+Blockers found:
+1. The AVD is `google_apis` (no Play Store): Google TTS never initializes. TalkBack logs `TTS is not ready. Attempted to speak before TTS was initialized` for every utterance, and `FeatureDownloader ... Failed to bind to the service` (no Play services for voice data).
+2. TalkBack startup is heavy on this 2-CPU host: right after boot the load average hit about 21 and "System UI isn't responding" / "Android Accessibility Suite isn't responding" dialogs appeared; the second one stayed after load fell to 1.6 and tapping Wait did not clear it, and TalkBack restarted ("TalkBack on" logged repeatedly). Input injection and uiautomator still worked, but nothing stable to walk.
+3. `uiautomator dump` has no accessibility-focus attribute, so the focus order can only come from TalkBack's own output: either the spoken-text log lines (they are printed even when TTS is not ready) or screenshots of the focus ring. Neither was reached because focus never moved (Alt+Right via `input keycombination 57 22` produced no focus or speech event in the unstable run).
+
+Not tried (next options, in order): a `google_apis_playstore` or newer image with TTS voice data preinstalled and a longer settle/ANR-dismiss wait; a physical device; or replace the spoken walk with an accessibility-tree assertion suite (Espresso AccessibilityChecks / ATF) plus the existing static order and label checks. Until one of these is done the TalkBack requirement stays UNRESOLVED (BLOCKED), not passed. Evidence: `C:\dfr-out\a1-smoke\talkback-spike\` (screenshots, full logcat).
+
 ## TalkBack plan (not automated yet)
 TalkBack is installed on the df-api35 image but the traversal is not scripted yet. To run it:
 1. The df-api35 image has the TalkBack package (talkback.txt in the Part B evidence lists it). Enable with `adb shell settings put secure enabled_accessibility_services com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService` and `accessibility_enabled 1`; restore both afterwards.
