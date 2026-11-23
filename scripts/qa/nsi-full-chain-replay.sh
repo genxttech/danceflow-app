@@ -19,9 +19,9 @@ apfp() { docker exec -i "$1" psql -U postgres -At -c "select md5((select string_
 
 # ---------------------------------------------------------------- A: NSI at the end (PROD order)
 say "== A: up full-nsi-end (baseline from origin/main)"
-$ISO up full-nsi-end --name nsirA --no-api > "$OUT/up_a.json" 2> "$OUT/up_a.err"; rc=$?
+$ISO up full-nsi-end --name nsira --no-api > "$OUT/up_a.json" 2> "$OUT/up_a.err"; rc=$?
 say "   up exit code $rc"; tail -3 "$OUT/up_a.err" | cut -c1-300 | sed 's/^/   /'
-CA=$(dbof nsirA); [ -n "$CA" ] || { bad "no db container for A"; fail=99; }
+CA=$(dbof nsira); [ -n "$CA" ] || { bad "no db container for A"; fail=99; }
 if [ -n "$CA" ] && [ $rc -eq 0 ]; then
   FPA=$(fp "$CA"); APA=$(apfp "$CA"); say "   NSI catalog fingerprint A: $FPA   appointments fp A: $APA"
   [ "$FPA" = "5c8ef043e71dd17b9a4a6d95b2c1bed4|670" ] || [ "$FPA" = "5c8ef043e71dd17b9a4a6d95b2c1bed4	670" ] || bad "A NSI fingerprint is not the M11 value (got $FPA)"
@@ -42,16 +42,16 @@ if [ -n "$CA" ] && [ $rc -eq 0 ]; then
   e=$(rbk 20261118100000_nsi_i2_m11_ensure_request_hardening_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "c6b3d46bfbe354c9b67864ad9bd58bc2" ] && say "   M11 rollback -> M10 fingerprint identical" || bad "M11 rollback: $e"
   e=$(rbk 20261118099000_nsi_i2_m10_ensure_request_evaluator_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "534c5e93300ef25b5fa8496fb472d48f" ] && say "   M10 rollback -> M9 fingerprint identical" || bad "M10 rollback: $e"
 fi
-docker rm -f nsi-i2-replay-a >/dev/null 2>&1; $ISO down --name nsirA --force >/dev/null 2>&1
+docker rm -f nsi-i2-replay-a >/dev/null 2>&1; $ISO down --name nsira --force >/dev/null 2>&1
 
 # ---------------------------------------------------------------- B: NSI inside the history (baseline from the NSI branch)
 say "== B: baseline from nsi/n0-preserve (NSI inside the history by filename order)"
 $ISO baseline --ref nsi/n0-preserve > "$OUT/baseline_b.out" 2> "$OUT/baseline_b.err"; rc=$?
 say "   baseline exit code $rc"; tail -2 "$OUT/baseline_b.err" | cut -c1-300 | sed 's/^/   /'
 if [ $rc -eq 0 ]; then
-  $ISO up full-nsi-mid --name nsirB --no-api > "$OUT/up_b.json" 2> "$OUT/up_b.err"; rc=$?
+  $ISO up full-nsi-mid --name nsirb --no-api > "$OUT/up_b.json" 2> "$OUT/up_b.err"; rc=$?
   say "   up exit code $rc"; tail -3 "$OUT/up_b.err" | cut -c1-300 | sed 's/^/   /'
-  CB=$(dbof nsirB)
+  CB=$(dbof nsirb)
   if [ -n "$CB" ] && [ $rc -eq 0 ]; then
     FPB=$(fp "$CB"); APB=$(apfp "$CB"); say "   NSI catalog fingerprint B: $FPB   appointments fp B: $APB"
     dump "$CB" > "$OUT/schema_b.sql"
@@ -61,7 +61,7 @@ if [ $rc -eq 0 ]; then
       [ "$FPA" = "$FPB" ] && say "   NSI fingerprints identical" || bad "NSI fingerprints differ"
     fi
   else bad "B up failed"; fi
-  $ISO down --name nsirB --force >/dev/null 2>&1
+  $ISO down --name nsirb --force >/dev/null 2>&1
 else bad "baseline B failed"; fi
 
 # ---------------------------------------------------------------- restore the shared baseline tag

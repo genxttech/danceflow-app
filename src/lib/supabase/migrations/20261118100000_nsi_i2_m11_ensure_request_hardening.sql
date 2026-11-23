@@ -1,11 +1,14 @@
 -- New Student Intake (NSI) I2 -- M11: ensure_request hardening after the independent M10 review.
 --
--- Replaces  intake_private.evaluate_appointment_eligibility (marker nsi-body:m11), public.intake_ensure_request (nsi-body:m11) and
+-- Replaces  intake_private.evaluate_appointment_eligibility, public.intake_reconcile_preview, public.intake_ensure_request (all nsi-body:m11) and
 --           intake_private.assert_catalog (M10 body; the two body markers move m8/m10 -> m11).
 -- P2-2      an appointment link that was detached can never be re-attached (append-only); the evaluator now reports it as
---           'detached_from_request' (new outcome, NULL from ensure_request) instead of 'would_attach', which made the reconciler
---           re-evaluate it on every pass.
--- P2-3      after an attach the request anchor is recomputed as the earliest live attached appointment (spec 3.4 step 2).
+--           'detached_from_request' (new outcome, NULL from ensure_request) instead of 'would_attach', so the write attempt that
+--           could never succeed is gone. The reconciler still evaluates such an appointment, except that the preview no longer lists
+--           any appointment that has a link (attached or detached).
+-- P2-3      after an attach the request anchor is recomputed as the earliest live attached appointment of the client that has
+--           not ended (spec 3.4 step 2); it can move later when the current anchor is cancelled, attended, no-show, detached or
+--           reassigned; the row is written only on change.
 -- P2-5      corrected comment: the client lock does not serialize appointment changes (READ COMMITTED requirement for the I4 caller).
 -- Nit       explicit precondition: M10 (hence M1-M9) must be in place, checked by a DO block before anything is replaced.
 -- Depends on: M1-M10. Rollback: rollback/20261118100000_nsi_i2_m11_ensure_request_hardening_rollback.sql (no data is touched).
@@ -204,7 +207,7 @@ declare
     'public.intake_update_settings|nsi-body:m7|7',
     'public.intake_set_service_assignment|nsi-body:m8|8',
     'intake_private.evaluate_appointment_eligibility|nsi-body:m11|8',
-    'public.intake_reconcile_preview|nsi-body:m8|8',
+    'public.intake_reconcile_preview|nsi-body:m11|8',
     'public.intake_ensure_request|nsi-body:m11|8',
     'public.intake_save_template_draft|nsi-body:m9|9',
     'public.intake_publish_template_version|nsi-body:m9|9'
@@ -533,6 +536,40 @@ begin
   o_outcome := 'would_create';
 end $$;
 
+create or replace function public.intake_reconcile_preview(p_studio_id uuid, p_limit int default 100,
+  p_after_created_at timestamptz default null, p_after_id uuid default null)
+returns table (appointment_id uuid, client_id uuid, appt_created_at timestamptz, outcome text, template_id uuid, version_number int)
+language plpgsql stable security definer
+set search_path = pg_catalog, pg_temp
+as $$
+#variable_conflict use_column
+-- nsi-body:m11
+begin
+  if (p_after_created_at is null) <> (p_after_id is null) then
+    raise exception 'nsi: the cursor needs both p_after_created_at and p_after_id' using errcode = '22023';
+  end if;
+  return query
+  select c.id, c.client_id, c.created_at, e.o_outcome, e.o_template_id, e.o_version_number
+  from (
+    select a.id, a.client_id, a.created_at
+    from public.appointments a
+    where a.studio_id = p_studio_id
+      and a.client_id is not null
+      and nullif(btrim(a.source_system), '') is null
+      and a.starts_at > now()
+      and a.status::text in ('scheduled', 'rescheduled', 'confirmed')
+      and a.created_at >= (select s.enabled_at from public.intake_settings s where s.studio_id = p_studio_id and s.enabled)
+      and (p_after_created_at is null or (a.created_at, a.id) > (p_after_created_at, p_after_id))
+      -- any link, attached or detached: a detached appointment is staff's decision and is not listed again every pass
+      and not exists (select 1 from public.intake_request_appointments ra
+                      where ra.studio_id = p_studio_id and ra.appointment_id = a.id)
+    order by a.created_at, a.id
+    limit least(greatest(coalesce(p_limit, 100), 1), 200)
+  ) c
+  cross join lateral intake_private.evaluate_appointment_eligibility(p_studio_id, c.client_id, c.id, now(), null) e
+  order by c.created_at, c.id;
+end $$;
+
 create or replace function public.intake_ensure_request(p_studio_id uuid, p_client_id uuid, p_appointment_id uuid,
   p_source text default 'auto')
 returns uuid language plpgsql security definer
@@ -547,6 +584,7 @@ declare
   t public.intake_templates;
   v_id uuid;
   v_completed uuid;
+  v_anchor uuid;
 begin
   if p_source not in ('auto', 'manual') then raise exception 'nsi: invalid source' using errcode = '22023'; end if;
   perform intake_private.assert_client_in_studio(p_studio_id, p_client_id);
@@ -622,16 +660,26 @@ begin
   if p_appointment_id is not null then
     insert into public.intake_request_appointments (studio_id, request_id, appointment_id, attached_by)
     values (p_studio_id, v_id, p_appointment_id, 'reconciler') on conflict (request_id, appointment_id) do nothing;
-    -- anchor = the earliest live attached appointment (spec 3.4 step 2). It only moves earlier when a sooner booking attaches; the
-    -- draft anchor (retention) is a separate column and is never touched.
-    update public.intake_requests q
-       set anchor_appointment_id = coalesce((select ra.appointment_id
-                                             from public.intake_request_appointments ra
-                                             join public.appointments ap on ap.id = ra.appointment_id and ap.studio_id = p_studio_id
-                                             where ra.request_id = v_id and ra.detached_at is null
-                                               and ap.status::text in ('scheduled', 'rescheduled', 'confirmed')
-                                             order by ap.starts_at, ap.id limit 1), q.anchor_appointment_id)
-     where q.id = v_id and q.studio_id = p_studio_id and q.status in ('pending', 'invited', 'in_progress', 'suspended');
+    -- Anchor (spec 3.4 step 2) = the earliest LIVE attached appointment of this client that has not ended yet (live = scheduled,
+    -- rescheduled or confirmed; detached links never count). It can therefore move earlier when a sooner booking attaches AND
+    -- later when the current anchor is cancelled, marked attended or no-show, detached, reassigned to another client or has ended;
+    -- an ended-but-unmarked lesson never takes the anchor. When no appointment qualifies the anchor is left as it is. The row is
+    -- written only when the anchor actually changes. Draft retention is not affected once a draft exists: compute_draft_retention
+    -- copies the anchor into draft_anchor_appointment_id at the first draft save and uses that column from then on (the anchor
+    -- only matters for retention until then, and everything stays capped by draft_max_at).
+    select ra.appointment_id into v_anchor
+      from public.intake_request_appointments ra
+      join public.appointments ap on ap.id = ra.appointment_id and ap.studio_id = p_studio_id
+     where ra.request_id = v_id and ra.detached_at is null
+       and (ap.client_id = p_client_id or ap.partner_client_id = p_client_id)
+       and ap.status::text in ('scheduled', 'rescheduled', 'confirmed')
+       and ap.ends_at > now()
+     order by ap.starts_at, ap.id limit 1;
+    if v_anchor is not null then
+      update public.intake_requests q set anchor_appointment_id = v_anchor
+       where q.id = v_id and q.studio_id = p_studio_id and q.status in ('pending', 'invited', 'in_progress', 'suspended')
+         and q.anchor_appointment_id is distinct from v_anchor;
+    end if;
   end if;
   return v_id;
 end $$;

@@ -1,4 +1,4 @@
--- Rollback for NSI I2 M11. Restores the M10 intake_ensure_request, the M8 evaluator and the M10 assert_catalog byte-for-byte.
+-- Rollback for NSI I2 M11. Restores the M10 intake_ensure_request, the M8 evaluator and preview and the M10 assert_catalog byte-for-byte.
 -- Run before any rollback of M10 (assert_catalog refuses any other order). No data is touched. Refused while a detached link exists
 -- would not matter to the old bodies, so there is no data guard; the new outcome simply stops being produced.
 begin;
@@ -97,6 +97,39 @@ begin
     return;
   end if;
   o_outcome := 'would_create';
+end $$;
+
+create or replace function public.intake_reconcile_preview(p_studio_id uuid, p_limit int default 100,
+  p_after_created_at timestamptz default null, p_after_id uuid default null)
+returns table (appointment_id uuid, client_id uuid, appt_created_at timestamptz, outcome text, template_id uuid, version_number int)
+language plpgsql stable security definer
+set search_path = pg_catalog, pg_temp
+as $$
+#variable_conflict use_column
+-- nsi-body:m8
+begin
+  if (p_after_created_at is null) <> (p_after_id is null) then
+    raise exception 'nsi: the cursor needs both p_after_created_at and p_after_id' using errcode = '22023';
+  end if;
+  return query
+  select c.id, c.client_id, c.created_at, e.o_outcome, e.o_template_id, e.o_version_number
+  from (
+    select a.id, a.client_id, a.created_at
+    from public.appointments a
+    where a.studio_id = p_studio_id
+      and a.client_id is not null
+      and nullif(btrim(a.source_system), '') is null
+      and a.starts_at > now()
+      and a.status::text in ('scheduled', 'rescheduled', 'confirmed')
+      and a.created_at >= (select s.enabled_at from public.intake_settings s where s.studio_id = p_studio_id and s.enabled)
+      and (p_after_created_at is null or (a.created_at, a.id) > (p_after_created_at, p_after_id))
+      and not exists (select 1 from public.intake_request_appointments ra
+                      where ra.studio_id = p_studio_id and ra.appointment_id = a.id and ra.detached_at is null)
+    order by a.created_at, a.id
+    limit least(greatest(coalesce(p_limit, 100), 1), 200)
+  ) c
+  cross join lateral intake_private.evaluate_appointment_eligibility(p_studio_id, c.client_id, c.id, now(), null) e
+  order by c.created_at, c.id;
 end $$;
 
 create or replace function public.intake_ensure_request(p_studio_id uuid, p_client_id uuid, p_appointment_id uuid,

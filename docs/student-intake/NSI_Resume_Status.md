@@ -79,7 +79,7 @@ DEV drift check, read-only via `sb.sh dev-read`, 2026-11-23 11:37Z:
 ## 7. Update 2026-11-23 (later): M10 on DEV, M11 in progress, owner decision for Gate A
 
 - **M10 applied to shared DEV** (file sha256 `9fdd4a63b629…`, fingerprint `c6b3d46b…|670`, DEV-safe suite 97/97, Gate A closed, 0 rows): `rehearsal/d6_dev_m10/D6_report_2026-11-23.md`. The P1 blocker "ensure_request does not call the evaluator" is **closed on DEV**; it remains a PROD item only because PROD has no NSI objects yet.
-- **M11 (local only, not applied):** P2-2 detached link reported as `detached_from_request` (no reconciler churn), P2-3 anchor recomputed to the earliest live attached appointment, P2-5 corrected READ COMMITTED comment, explicit M10/M9 precondition. Validation evidence is added under `rehearsal/` once the lifecycle run is recorded; it needs a review pass before any DEV apply.
+- **M11:** P2-2 detached link reported as `detached_from_request` (write attempt gone; preview omits linked appointments), P2-3 anchor recomputed to the earliest live attached appointment, P2-5 corrected READ COMMITTED comment, explicit M10/M9 precondition. Validation evidence is added under `rehearsal/` once the lifecycle run is recorded; it needs a review pass before any DEV apply.
 - **No separate pricing** (owner correction): nothing in this document treats pricing or a billing entitlement as a blocker.
 
 ### Owner decision needed before Gate A (P2-1): who counts as an "existing student"?

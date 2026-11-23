@@ -27,3 +27,22 @@ Database crash or OOM (infrastructure failure, exit 3: not an application result
 
 ## Out of scope
 DEV and PROD apply (separate authorization; PROD is an owner gate), flag or env changes, intake email, Gate A.
+
+## Result of the first run (2026-11-23, M1-M11 as of branch commit fbae24e09, before the M11 review amendments)
+
+Runner `scripts/qa/nsi-full-chain-replay.sh`, scenarios `full-nsi-end` and `full-nsi-mid` in `scripts/qa/scenarios.json`. Evidence in `rehearsal/full_chain/`.
+
+| Step | Result |
+|---|---|
+| A: baseline from origin/main through 20261205 + every other post-cutoff main migration (26 files, filename order) + the TW-4F chain (38, merge order) + NSI M1-M11 at the end | all 75 migrations applied; `assert_catalog()` ok; NSI fingerprint `5c8ef043…|670` (M11) |
+| NSI suites on A | M11 9/9, M10 17/17, M7 36/36, M9 17/17, I1 foundation 97/97, I2-local 92/92 |
+| Rollbacks on A | M11 to M10 exact (`c6b3d46b…`), M10 to M9 exact (`534c5e93…`) |
+| B: baseline built from the NSI branch (NSI inside the history by filename order: 229 applied, 22 known-unreplayable skipped) + the same chain without NSI files | applied; NSI fingerprint identical to A |
+| pg_dump (public + intake_private, schema only) A vs B | 6 differing lines, **none about NSI or any schema object**: 4 are the random `\restrict` tokens of pg_dump, 2 are the `applied_at` timestamp inside one TW-4F function comment. Normalized diff = 0 |
+
+Conclusion: NSI applied last (PROD order) and NSI applied inside the history produce the same catalog; no later main migration interacts with an NSI object. **Ordering is not a problem.**
+
+Caveats, stated plainly
+- The stand-in is not PROD: the baseline image (July dump + replay, 22 known-unreplayable migrations skipped) has `appointments` fingerprint `ff651a6c…`, not PROD's `e0c4db1b…` (it lacks the `group_class_enrollment_holds` FK and the floor-rental financial-fields trigger). NSI adds nothing to `appointments`, so this does not affect NSI, but the image cannot certify PROD parity of unrelated objects.
+- Rollbacks M8 and M7 were not repeated on A (covered by the earlier M7-M9 lifecycle harness); suites ran on the shared baseline, one stack at a time.
+- The run predates the M11 amendments (anchor rules, preview change); it should be repeated once the final M11 bytes are reviewed (one command: `scripts/qa/nsi-full-chain-replay.sh <out>`; about 45 minutes).
