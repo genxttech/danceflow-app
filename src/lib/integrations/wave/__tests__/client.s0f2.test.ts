@@ -42,9 +42,9 @@ describe("createWaveMoneyTransaction error handling (S0-f2)", () => {
     expect(e).not.toBeInstanceOf(WavePostingUncertainError);
     expect(e.message).toBe("anchor.amount: too small");
   });
-  it("didSucceed=true without a transaction id is not treated as success", async () => {
+  it("didSucceed=true without a transaction id is UNCERTAIN (the transaction may exist)", async () => {
     fetchMock().mockResolvedValue(res({ data: { moneyTransactionCreate: { didSucceed: true, transaction: null } } }));
-    await expect(createWaveMoneyTransaction("tok", input)).rejects.toThrow(/rejected/);
+    await expect(createWaveMoneyTransaction("tok", input)).rejects.toBeInstanceOf(WavePostingUncertainError);
   });
   it("a 4xx is a definite failure carrying the status", async () => {
     fetchMock().mockResolvedValue(res({}, 401));

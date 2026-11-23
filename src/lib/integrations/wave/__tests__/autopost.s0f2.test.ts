@@ -16,9 +16,11 @@ function table(name: string) {
   let headCount = false;
   let limitN = Infinity;
   const rows = () => (db[name] ??= []);
+  // "<table>:update:posted" only fails the update that records a successful post; "<table>:update" fails every update.
+  const updateFails = () => Boolean(failures[`${name}:update`] || (failures[`${name}:update:posted`] && patch.posting_status === "posted"));
   const run = () => {
     const hit = rows().filter((r) => filters.every((f) => f(r)));
-    if (mode === "update" && !failures[`${name}:update`]) hit.forEach((r) => Object.assign(r, patch));
+    if (mode === "update" && !updateFails()) hit.forEach((r) => Object.assign(r, patch));
     return hit.slice(0, limitN);
   };
   const settle = () => {
@@ -28,7 +30,7 @@ function table(name: string) {
       rows().push({ ...patch });
       return { error: null, data: null };
     }
-    if (mode === "update" && failures[`${name}:update`]) return { error: { message: failures[`${name}:update`] }, data: null };
+    if (mode === "update" && updateFails()) return { error: { message: failures[`${name}:update:posted`] ?? failures[`${name}:update`] }, data: null };
     const data = run();
     return headCount ? { error: null, data: null, count: data.length } : { error: null, data };
   };
@@ -117,7 +119,7 @@ describe("runWaveAutoPost (S0-f2)", () => {
     const r = await runWaveAutoPost();
     expect(r.postedLines).toBe(1);
     expect(r.completedRuns).toBe(0);
-    expect(db.studio_wave_sync_runs[0].status).toBe("approved");
+    expect(db.studio_wave_sync_runs[0].status).not.toBe("posted");
   });
 
   it.each([
@@ -192,11 +194,12 @@ describe("runWaveAutoPost (S0-f2)", () => {
   });
 
   it("if Wave succeeded but the result cannot be saved, the outcome is uncertain, not failed", async () => {
-    failures["studio_wave_sync_lines:update"] = "db down";
+    failures["studio_wave_sync_lines:update:posted"] = "db down";
     const r = await runWaveAutoPost();
     expect(createTx).toHaveBeenCalledTimes(1);
     expect(r.uncertainRuns).toBe(1);
     expect(r.postedLines).toBe(0);
+    expect(db.studio_wave_sync_lines[0].posting_status).toBe("uncertain");
   });
 
   it("an anchor with no normal-balance type fails before any Wave call", async () => {

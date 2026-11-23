@@ -157,6 +157,8 @@ export async function createWaveMoneyTransaction(accessToken: string, input: Wav
   try { body = await response.json(); } catch { throw new WavePostingUncertainError("Wave returned an unreadable response."); }
   if (!response.ok || body.errors?.length) throw new Error(body.errors?.map((error) => error.message).join("; ") || `Wave returned ${response.status}.`);
   const result = body.data?.moneyTransactionCreate;
+  // Wave says it succeeded but gave no id: the transaction may exist, so this must not be treated as a clean failure.
+  if (result?.didSucceed && !result.transaction?.id) throw new WavePostingUncertainError("Wave reported success without a transaction id.");
   if (!result?.didSucceed || !result.transaction?.id) {
     throw new Error(result?.inputErrors?.map((error) => `${error.path ?? "input"}: ${error.message}`).join("; ") || "Wave rejected the transaction.");
   }

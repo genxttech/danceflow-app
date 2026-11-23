@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { googleHubStatus, gustoHubStatus, isNeedsActionStatus, stripeHubStatus, waveHubStatus, waveNeedsReauthorization } from "../hubStatus";
 
 const wave = (over: Partial<{ status: string | null; wave_business_id: string | null; scopes: string[] | null }> = {}) => ({ status: "connected", wave_business_id: "b", scopes: ["transaction:write"], ...over });
-const google = (over: Partial<{ status: string | null; last_sync_status: string | null; last_sync_error: string | null }> = {}) => ({ status: "connected", last_sync_status: "succeeded", last_sync_error: null, ...over });
+const google = (over: Partial<{ status: string | null; last_sync_status: string | null; last_sync_error: string | null }> = {}) => ({ status: "connected", last_sync_status: "success", last_sync_error: null, ...over });
 
 describe("integration hub status registry (S0-f2)", () => {
   it("Wave: locked without the feature, available when absent or disconnected", () => {
