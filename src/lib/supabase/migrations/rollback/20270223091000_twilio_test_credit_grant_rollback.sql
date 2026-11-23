@@ -27,7 +27,15 @@ end $$;
 -- by create or replace. Only when this migration's body is live (a re-run after a completed rollback changes nothing).
 do $outer$
 begin
-  if to_regprocedure('public._tw4tc_unused(uuid)') is not null then
+  -- restore only over THIS migration's bodies (md5 below); a re-run after a completed rollback finds the predecessor bodies and changes nothing; anything else
+  -- (a later migration redefined them) is refused: roll that migration back first.
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.sms_credit_overview(uuid)'::regprocedure), chr(13), '')) = '9c24016b4360b4a2ec382a9db97e09cd'
+     and md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_topup_pending(uuid,uuid,text,integer,timestamp with time zone)'::regprocedure), chr(13), '')) = '2c7f609f3496572caf8c2e99ffc94831' then
+    null;   -- already restored
+  elsif md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.sms_credit_overview(uuid)'::regprocedure), chr(13), '')) is distinct from '9a5d034b38a93a421c2b1a2a2d1441cc'
+     or md5(replace((select p.prosrc from pg_proc p where p.oid = 'public.tw4_credit_topup_pending(uuid,uuid,text,integer,timestamp with time zone)'::regprocedure), chr(13), '')) is distinct from '474394dfaa1dca243dc00fd98ad63d9a' then
+    raise exception 'test-credit rollback: sms_credit_overview or tw4_credit_topup_pending differs from its 20270223091000 definition; roll the later migration back first';
+  else
     execute $ov$
 create or replace function public.sms_credit_overview(p_studio_id uuid)
 returns jsonb language plpgsql stable security definer

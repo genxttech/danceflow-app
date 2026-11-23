@@ -545,6 +545,14 @@ commit;`);
       expect(r1.replayed).toBe(false);
       expect(call<{ replayed: boolean }>("tw4_credit_test_reverse", EP, 800, k, "pilot test finished, unused", P).replayed).toBe(true);
       expect(hasCode(callErr("tw4_credit_test_reverse", EP, 700, k, "pilot test finished, unused", P), "23505")).toBe(true);
+      // a replay must also be the same administrator with the same reason
+      expect(hasCode(callErr("tw4_credit_test_reverse", EP, 800, k, "a different written reason", P), "23505")).toBe(true);
+      const p2 = `ad${RUN}-0000-4000-8000-000000000704`;
+      psql(`begin;
+insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at, last_sign_in_at) values ('${p2}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'padmin2-${RUN}@tc-e2e.test', now(), now(), now()) on conflict (id) do nothing;
+insert into public.profiles (id, platform_role) values ('${p2}', 'platform_admin') on conflict (id) do update set platform_role = 'platform_admin';
+commit;`);
+      expect(hasCode(callErr("tw4_credit_test_reverse", EP, 800, k, "pilot test finished, unused", p2), "23505")).toBe(true);
       expect(psql(`select kind || ':' || balance_delta_cents from public.studio_sms_credit_ledger where id = '${r1.entry_id}'`)).toBe("test_grant_reversed:-800");
       const s = status(EP);
       expect([s.unused_cents, s.budget_left_cents, s.ok]).toEqual([0, 0, true]);
@@ -674,6 +682,10 @@ commit;`);
         expect(again.filter((l) => !l.startsWith("con|"))).toEqual(applied.filter((l) => !l.startsWith("con|")));
         expect(logical(again).sort()).toEqual(logical(applied).sort());
         expect(fail(forward)).toMatch(/already applied/);
+        // the rollback restores only over this migration's bodies: a later redefinition is refused, never overwritten
+        const ovStmt = forward.replace(/\r/g, "").slice(forward.replace(/\r/g, "").lastIndexOf("create or replace function public.sms_credit_overview("));
+        run(ovStmt.slice(0, ovStmt.indexOf("end $$;") + 7).replace("  v_test bigint;\nbegin\n", "  v_test bigint;\nbegin\n  -- a later migration's change\n"));
+        expect(fail(back)).toMatch(/differs from its 20270223091000 definition/);
       } finally {
         sh(`psql -U postgres -q -c "select pg_terminate_backend(pid) from pg_stat_activity where datname = '${scratch}'" -c 'drop database if exists ${scratch}' > /dev/null 2>&1; true`);
       }

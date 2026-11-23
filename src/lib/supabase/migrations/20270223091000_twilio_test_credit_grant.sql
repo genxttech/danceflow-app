@@ -672,8 +672,8 @@ begin
   -- a replay of the same reversal changes nothing; the same key with another amount is refused
   select * into o from public.studio_sms_credit_ledger l where l.legal_entity_id = p_entity_id and l.idempotency_key = 'test_reverse:' || btrim(p_key);
   if o.id is not null then
-    if o.kind <> 'test_grant_reversed' or o.balance_delta_cents <> -p_cents then
-      raise exception 'this reversal key was already used for another amount' using errcode = '23505';
+    if o.kind <> 'test_grant_reversed' or o.balance_delta_cents <> -p_cents or o.actor is distinct from p_actor or o.note is distinct from btrim(p_reason) then
+      raise exception 'this reversal key was already used for another amount, administrator or reason' using errcode = '23505';
     end if;
     return jsonb_build_object('entry_id', o.id, 'reversed_cents', p_cents, 'replayed', true);
   end if;
