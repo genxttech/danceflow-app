@@ -84,7 +84,9 @@ async function run(ctx) {
       await s.open();
       await sleep(2500);
       const xml = dump(`a1-off-${s.id}`);
-      const hit = nodes(xml).filter((n) => new RegExp(`${name}|assistant`, "i").test(label(n)) && !/Minimize|Expand/.test(label(n)) && !(s.allowName && s.allowName.test(label(n))));
+      // Only the A1 UI counts: the floating launcher and the sheet's own controls. A pre-existing static entry such as the Student home "Ask LUMI" shortcut card (opens /lumi, predates A1) is not an assistant UI node.
+      const a1Ui = new RegExp(`^Open ${name} assistant$|^Message ${name}$|^Minimize assistant$|^Expand to full screen$|^Show as sheet$`);
+      const hit = nodes(xml).filter((n) => a1Ui.test(label(n)) && !(s.allowName && s.allowName.test(label(n))));
       record(`A flags OFF: no assistant UI on ${s.id}`, hit.length === 0 && !isCrash(xml), hit.length ? `found: ${hit.map(label).join(" | ").slice(0, 160)}` : "");
     }
     // A2: cold start x5
