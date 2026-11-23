@@ -39,7 +39,7 @@ import {
   saveTemplateDraftAction,
   setDefaultTemplateAction,
   setIntakeEnabledAction,
-  setServiceTemplateAction,
+  setServiceTypeAction,
 } from "../actions";
 import { draftToSchema, starterDraft } from "@/lib/intake/templateSchema";
 
@@ -66,7 +66,7 @@ describe("configuration permissions", () => {
     const results = [
       await setIntakeEnabledAction(true),
       await setDefaultTemplateAction(T1),
-      await setServiceTemplateAction("coaching", T1),
+      await setServiceTypeAction("coaching", true, T1),
       await saveTemplateDraftAction("", "x", JSON.stringify(draftToSchema(starterDraft()))),
       await publishVersionAction(V1),
     ];
@@ -94,7 +94,7 @@ describe("configuration permissions", () => {
 describe("studio isolation", () => {
   it("always sends the signed-in user's studio, never one supplied by the caller", async () => {
     await setIntakeEnabledAction(false);
-    await setServiceTemplateAction("coaching", "");
+    await setServiceTypeAction("coaching", true, "");
     await publishVersionAction(V1);
     expect(rpcCalls.length).toBe(3);
     for (const call of rpcCalls) expect(call.args.p_studio_id).toBe(STUDIO);
@@ -103,19 +103,19 @@ describe("studio isolation", () => {
     tables.intake_templates = [{ id: T1, studio_id: OTHER, name: "Foreign", status: "active" }];
     tables.intake_template_versions = [{ id: V1, studio_id: OTHER, template_id: T1, version_number: 1, status: "published", published_at: null }];
     expect((await setDefaultTemplateAction(T1)).ok).toBe(false);
-    expect((await setServiceTemplateAction("coaching", T1)).ok).toBe(false);
+    expect((await setServiceTypeAction("coaching", true, T1)).ok).toBe(false);
     expect(rpcCalls).toEqual([]);
   });
   it("uses only the five configuration RPCs and never creates requests, responses or deliveries", async () => {
     await setIntakeEnabledAction(false);
     await setDefaultTemplateAction(T1);
-    await setServiceTemplateAction("private_lesson", T1);
+    await setServiceTypeAction("private_lesson", true, T1);
     rpcResult = { data: V1, error: null };
     await saveTemplateDraftAction(T1, "Main", JSON.stringify(draftToSchema(starterDraft())));
     rpcResult = { data: 2, error: null };
     await publishVersionAction(V1);
     const names = new Set(rpcCalls.map((c) => c.fn));
-    expect([...names].sort()).toEqual(["intake_publish_template_version", "intake_save_template_draft", "intake_set_service_assignment", "intake_update_settings"]);
+    expect([...names].sort()).toEqual(["intake_publish_template_version", "intake_save_template_draft", "intake_set_service_type", "intake_update_settings"]);
     for (const forbidden of ["intake_ensure_request", "intake_save_draft", "intake_submit_response", "intake_erase_client"]) expect(names.has(forbidden)).toBe(false);
   });
 });
@@ -136,15 +136,28 @@ describe("settings behavior", () => {
   it("only an already-published form can become the default or be assigned to a lesson type", async () => {
     configRows(STUDIO, false);
     expect((await setDefaultTemplateAction(T1)).ok).toBe(false);
-    expect((await setServiceTemplateAction("coaching", T1)).ok).toBe(false);
+    expect((await setServiceTypeAction("coaching", true, T1)).ok).toBe(false);
     expect(rpcCalls).toEqual([]);
   });
   it("accepts only the supported lesson types, and an empty form means use the default", async () => {
-    expect((await setServiceTemplateAction("group_class", T1)).ok).toBe(false);
-    expect((await setServiceTemplateAction("coaching", "not-a-uuid")).ok).toBe(false);
+    expect((await setServiceTypeAction("group_class", true, T1)).ok).toBe(false);
+    expect((await setServiceTypeAction("coaching", true, "not-a-uuid")).ok).toBe(false);
     expect(rpcCalls).toEqual([]);
-    expect((await setServiceTemplateAction("coaching", "")).ok).toBe(true);
-    expect(rpcCalls[0].args).toEqual({ p_studio_id: STUDIO, p_appointment_type: "coaching", p_template_id: null });
+    expect((await setServiceTypeAction("coaching", true, "")).ok).toBe(true);
+    expect(rpcCalls[0]).toEqual({ fn: "intake_set_service_type", args: { p_studio_id: STUDIO, p_appointment_type: "coaching", p_enabled: true, p_template_id: null } });
+  });
+  it("selects a type with an explicit form, and deselects it without sending a template", async () => {
+    expect((await setServiceTypeAction("private_lesson", true, T1)).ok).toBe(true);
+    expect(rpcCalls[0].args).toEqual({ p_studio_id: STUDIO, p_appointment_type: "private_lesson", p_enabled: true, p_template_id: T1 });
+    rpcCalls.length = 0;
+    expect((await setServiceTypeAction("private_lesson", false, T1)).ok).toBe(true);
+    expect(rpcCalls[0]).toEqual({ fn: "intake_set_service_type", args: { p_studio_id: STUDIO, p_appointment_type: "private_lesson", p_enabled: false, p_template_id: null } });
+    expect((await setServiceTypeAction("private_lesson", "yes" as unknown as boolean, "")).ok).toBe(false);
+  });
+  it("never calls the legacy assignment RPC", async () => {
+    await setServiceTypeAction("coaching", true, "");
+    await setServiceTypeAction("coaching", false, "");
+    expect(rpcCalls.every((c) => c.fn === "intake_set_service_type")).toBe(true);
   });
 });
 

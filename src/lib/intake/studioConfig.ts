@@ -27,7 +27,8 @@ export type VersionRow = {
   status: "draft" | "published" | "archived";
   published_at: string | null;
 };
-export type AssignmentRow = { studio_id: string; appointment_type: string; template_id: string };
+/** A row means the lesson type is selected; a NULL template means "use the studio default form". */
+export type AssignmentRow = { studio_id: string; appointment_type: string; template_id: string | null };
 
 export type TemplateView = {
   id: string;
@@ -44,6 +45,9 @@ export type ConfigView = {
   enabledAt: string | null;
   defaultTemplateId: string | null;
   templates: TemplateView[];
+  /** Lesson types that ask for intake (a row exists). Types without a row never qualify. */
+  selected: Record<ServiceType, boolean>;
+  /** Explicit form per selected type; null = the studio default. */
   assignments: Record<ServiceType, string | null>;
 };
 
@@ -55,8 +59,12 @@ export function shapeConfig(
   const versions = rows.versions.filter((v) => v.studio_id === studioId);
   const assignments = rows.assignments.filter((a) => a.studio_id === studioId);
   const assignmentByType: Record<ServiceType, string | null> = { private_lesson: null, intro_lesson: null, coaching: null };
+  const selectedByType: Record<ServiceType, boolean> = { private_lesson: false, intro_lesson: false, coaching: false };
   for (const a of assignments) {
-    if ((SERVICE_TYPES as readonly string[]).includes(a.appointment_type)) assignmentByType[a.appointment_type as ServiceType] = a.template_id;
+    if ((SERVICE_TYPES as readonly string[]).includes(a.appointment_type)) {
+      assignmentByType[a.appointment_type as ServiceType] = a.template_id;
+      selectedByType[a.appointment_type as ServiceType] = true;
+    }
   }
   const templates: TemplateView[] = rows.templates
     .filter((t) => t.studio_id === studioId)
@@ -80,6 +88,7 @@ export function shapeConfig(
     enabledAt: settings?.enabled_at ?? null,
     defaultTemplateId: settings?.default_template_id ?? null,
     templates,
+    selected: selectedByType,
     assignments: assignmentByType,
   };
 }

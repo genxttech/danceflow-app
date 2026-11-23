@@ -31,6 +31,21 @@ describe("shapeConfig", () => {
     expect(view.defaultTemplateId).toBeNull();
     expect(view.templates.map((t) => t.id)).toEqual(["ta"]);
     expect(view.assignments.coaching).toBeNull();
+    expect(view.selected.coaching).toBe(false);
+  });
+  it("a lesson type is selected only when it has a row; a NULL template means the default form", () => {
+    const view = shapeConfig(A, {
+      settings: settings(A, true, "t1"),
+      templates: [tpl("t1", A, "Main")],
+      versions: [ver("v1", A, "t1", 1, "published")],
+      assignments: [
+        { studio_id: A, appointment_type: "coaching", template_id: null },
+        { studio_id: A, appointment_type: "intro_lesson", template_id: "t1" },
+      ],
+    });
+    expect(view.selected).toEqual({ private_lesson: false, intro_lesson: true, coaching: true });
+    expect(view.assignments).toEqual({ private_lesson: null, intro_lesson: "t1", coaching: null });
+    expect(view.templates[0].assignedTypes).toEqual(["intro_lesson"]);
   });
   it("tracks the highest published version, the open draft, defaults and lesson-type use", () => {
     const view = shapeConfig(A, {

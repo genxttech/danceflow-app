@@ -7,7 +7,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("../actions", () => ({
   setDefaultTemplateAction: vi.fn(),
   setIntakeEnabledAction: vi.fn(),
-  setServiceTemplateAction: vi.fn(),
+  setServiceTypeAction: vi.fn(),
   saveTemplateDraftAction: vi.fn(),
   publishVersionAction: vi.fn(),
 }));
@@ -62,6 +62,12 @@ describe("Student Intake workspace", () => {
       expect(html.toLowerCase()).not.toContain(unsupported.toLowerCase());
     }
     expect(html).toContain("Turn on…");
+  });
+  it("shows lesson types as ticked only when selected, and says unticked types never ask", () => {
+    const html = render({ config: ready(true) });
+    expect(html).toContain("A lesson type that is not ticked never asks");
+    expect(html.match(/type="checkbox"[^>]*checked/g)?.length).toBe(1);
+    expect(html).toContain('aria-label="Form for Coaching"');
   });
   it("renders a read-only preview with a plain-language reason for each lesson", () => {
     const html = render({ config: ready(true), preview, gateAOpen: true });

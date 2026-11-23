@@ -6,7 +6,7 @@ import { CLASS_HEADLINE, QUALIFICATION_RULES, explainOutcome } from "@/lib/intak
 import { nextAction, canTurnOn, SERVICE_TYPES, SERVICE_TYPE_LABEL, type ConfigView, type ServiceType } from "@/lib/intake/studioConfig";
 import type { PreviewView } from "@/lib/intake/previewView";
 import { starterDraft, type Draft } from "@/lib/intake/templateSchema";
-import { setDefaultTemplateAction, setIntakeEnabledAction, setServiceTemplateAction } from "./actions";
+import { setDefaultTemplateAction, setIntakeEnabledAction, setServiceTypeAction } from "./actions";
 import TemplateBuilderPanel from "./TemplateBuilderPanel";
 
 export type BuilderSeed = {
@@ -141,7 +141,7 @@ export default function StudentIntakeWorkspace({
       <section className={card} aria-labelledby="use-heading">
         <h2 id="use-heading" className="text-xl font-semibold text-slate-950">Which form each lesson type uses</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Private lessons, intro lessons and coaching all use intake once it is on. Group classes are not included in this version.
+          Choose which lesson types ask a new student to complete intake. A lesson type that is not ticked never asks, even when intake is on. Group classes are not included in this version.
         </p>
         <div id="default-form" className="mt-4 space-y-3">
           <label className="grid gap-1 sm:grid-cols-[14rem_1fr] sm:items-center">
@@ -159,20 +159,29 @@ export default function StudentIntakeWorkspace({
             </select>
           </label>
           {SERVICE_TYPES.map((type: ServiceType) => (
-            <label key={type} className="grid gap-1 sm:grid-cols-[14rem_1fr] sm:items-center">
-              <span className="text-sm text-slate-800">{SERVICE_TYPE_LABEL[type]}</span>
+            <div key={type} className="grid gap-2 sm:grid-cols-[14rem_1fr] sm:items-center">
+              <label className="flex items-center gap-2 text-sm text-slate-800">
+                <input
+                  type="checkbox"
+                  checked={config.selected[type]}
+                  disabled={pending || publishedTemplates.length === 0}
+                  onChange={(e) => run(() => setServiceTypeAction(type, e.target.checked, config.assignments[type] ?? ""))}
+                />
+                <span>{SERVICE_TYPE_LABEL[type]}</span>
+              </label>
               <select
+                aria-label={`Form for ${SERVICE_TYPE_LABEL[type]}`}
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                 value={config.assignments[type] ?? ""}
-                disabled={pending || publishedTemplates.length === 0}
-                onChange={(e) => run(() => setServiceTemplateAction(type, e.target.value))}
+                disabled={pending || publishedTemplates.length === 0 || !config.selected[type]}
+                onChange={(e) => run(() => setServiceTypeAction(type, true, e.target.value))}
               >
                 <option value="">Use the default form</option>
                 {publishedTemplates.map((t) => (
                   <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
-            </label>
+            </div>
           ))}
         </div>
       </section>

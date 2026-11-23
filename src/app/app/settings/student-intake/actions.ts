@@ -55,20 +55,25 @@ export async function setDefaultTemplateAction(templateId: string): Promise<Inta
   });
 }
 
-/** `templateId` empty = use the default form for this lesson type. */
-export async function setServiceTemplateAction(serviceType: string, templateId: string): Promise<IntakeActionResult<object>> {
+/**
+ * Turns a lesson type on or off for intake. A type that is not selected never asks for intake (no default fallback).
+ * When selected, `templateId` empty = use the studio's default form for this type.
+ */
+export async function setServiceTypeAction(serviceType: string, enabled: boolean, templateId: string): Promise<IntakeActionResult<object>> {
   return guarded<object>(async ({ supabase, studioId }) => {
     if (!(SERVICE_TYPES as readonly string[]).includes(serviceType)) return { ok: false, error: "Unsupported lesson type." };
+    if (typeof enabled !== "boolean") return { ok: false, error: "Choose whether this lesson type asks for intake." };
     if (templateId && !UUID.test(templateId)) return { ok: false, error: "Choose a form." };
-    if (templateId) {
+    if (enabled && templateId) {
       const view = await loadConfigView(supabase, studioId);
       const template = view.templates.find((t) => t.id === templateId);
       if (!template || template.archived || !template.publishedVersion) return { ok: false, error: "Choose a published form." };
     }
-    const { error } = await supabase.rpc("intake_set_service_assignment", {
+    const { error } = await supabase.rpc("intake_set_service_type", {
       p_studio_id: studioId,
       p_appointment_type: serviceType as ServiceType,
-      p_template_id: templateId || null,
+      p_enabled: enabled,
+      p_template_id: enabled && templateId ? templateId : null,
     });
     if (error) return { ok: false, error: friendly(error) };
     return { ok: true };
