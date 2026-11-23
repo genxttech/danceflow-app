@@ -8,6 +8,8 @@ set -u
 OUT="${1:?out dir}"; mkdir -p "$OUT"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"; SQLT="$REPO/src/lib/supabase/migrations/sql-tests"; MIG="$REPO/src/lib/supabase/migrations"
 ISO="node $REPO/scripts/qa/iso-qa.mjs"
+# Pin the NSI git ref to a commit (NSI_REF=<sha>) so the run is immune to later pushes to the branch; the baseline build reads files from it for ~30 minutes.
+NSI_REF="${NSI_REF:-nsi/n0-preserve}"; export ISO_QA_REF_NSI="$NSI_REF"
 TAG=df-isoqa/base:20261205090000; BACKUP=nsi-replay/base-a:20261205090000
 fail=0; say() { echo "$*" | tee -a "$OUT/summary.log"; }; bad() { say "FAIL: $*"; fail=$((fail+1)); }
 cd "$REPO" || exit 2
@@ -46,7 +48,7 @@ docker rm -f nsi-i2-replay-a >/dev/null 2>&1; $ISO down --name nsira --force >/d
 
 # ---------------------------------------------------------------- B: NSI inside the history (baseline from the NSI branch)
 say "== B: baseline from nsi/n0-preserve (NSI inside the history by filename order)"
-$ISO baseline --ref nsi/n0-preserve > "$OUT/baseline_b.out" 2> "$OUT/baseline_b.err"; rc=$?
+$ISO baseline --ref "$NSI_REF" > "$OUT/baseline_b.out" 2> "$OUT/baseline_b.err"; rc=$?
 say "   baseline exit code $rc"; tail -2 "$OUT/baseline_b.err" | cut -c1-300 | sed 's/^/   /'
 if [ $rc -eq 0 ]; then
   $ISO up full-nsi-mid --name nsirb --no-api > "$OUT/up_b.json" 2> "$OUT/up_b.err"; rc=$?
