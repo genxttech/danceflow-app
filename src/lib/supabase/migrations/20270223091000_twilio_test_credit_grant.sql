@@ -280,6 +280,47 @@ set search_path = pg_catalog, public, pg_temp
 as $$ select coalesce(sum(r.amount_cents), 0)::bigint from public.studio_sms_credit_reservations r
        where r.legal_entity_id = p_entity and r.status = 'reserved' and r.funding = 'credit' and r.kind = 'sms_usage'; $$;
 
+-- THE RULE (one place): test credit never pays the business's debt. own money = balance - fee holds - unused test credit, where fee holds = reserved - open
+-- texting holds (texting holds are backed by test credit first). When own money is below zero, every unused test credit that is NOT held for a text in flight is
+-- FORFEITED (posted out of the balance as test_grant_reversed, key test_forfeit:<source entry>, movement 'forfeit'). Test credit held for an open text is kept: it
+-- pays that text when it is captured; if the hold is released instead, the deferred commit-time check below forfeits it then.
+-- p_bdelta / p_rdelta / p_hdelta: the effect of the ledger entry being processed that is not yet in the account row (0 at commit time).
+create or replace function public._tw4tc_enforce(p_entity uuid, p_bdelta bigint, p_rdelta bigint, p_hdelta bigint, p_source uuid, p_reason text)
+returns bigint language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare
+  a public.studio_sms_credit_accounts;
+  b public.studio_sms_test_credit_budgets;
+  v_u bigint;
+  v_h bigint;
+  v_take bigint;
+  r jsonb;
+begin
+  select * into b from public.studio_sms_test_credit_budgets x where x.legal_entity_id = p_entity for update;
+  if b.legal_entity_id is null then
+    return 0;
+  end if;
+  v_u := b.granted_cents + b.restored_cents - b.consumed_cents - b.reversed_cents - b.forfeited_cents;
+  if v_u <= 0 then
+    return 0;
+  end if;
+  select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = p_entity;
+  v_h := greatest(public._tw4tc_open_sms(p_entity) + p_hdelta, 0);
+  if (a.balance_cents + p_bdelta) - ((a.reserved_cents + p_rdelta) - v_h) - v_u >= 0 then
+    return 0;   -- own money is not negative: test credit stays
+  end if;
+  v_take := greatest(v_u - v_h, 0);   -- only the free part; the part held for a text in flight pays that text
+  if v_take = 0 or exists (select 1 from public.studio_sms_credit_ledger l where l.legal_entity_id = p_entity and l.idempotency_key = 'test_forfeit:' || p_source) then
+    return 0;
+  end if;
+  perform set_config('tw4.testcredit_write', 'on', true);
+  r := public._tw4c_post(p_entity, null, 'test_grant_reversed', -v_take, 0, 'test_forfeit:' || p_source, null, 'test_forfeit', null, left(p_reason, 300));
+  insert into public.studio_sms_test_credit_movements (legal_entity_id, ledger_entry_id, kind, cents, source_entry_id) values (p_entity, (r ->> 'entry_id')::uuid, 'forfeit', v_take, p_source);
+  update public.studio_sms_test_credit_budgets set forfeited_cents = forfeited_cents + v_take, updated_at = clock_timestamp() where legal_entity_id = p_entity;
+  return v_take;
+end $$;
+
 create or replace function public._tw4tc_on_ledger(n public.studio_sms_credit_ledger, p_caller_flag text)
 returns void language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
@@ -294,8 +335,6 @@ declare
   v_orig uuid;
   v_consumed bigint;
   v_restored bigint;
-  v_pool bigint;
-  r jsonb;
 begin
   if n.kind in ('test_grant', 'test_grant_reversed') then
     if p_caller_flag <> 'on' then
@@ -337,21 +376,8 @@ begin
       update public.studio_sms_test_credit_budgets set restored_cents = restored_cents + v_take, updated_at = clock_timestamp() where legal_entity_id = n.legal_entity_id;
     end if;
   elsif n.balance_delta_cents < 0 and v_unused > 0 then
-    -- any OTHER debit (a refund or dispute of a purchase, a negative adjustment, a captured fee): test credit never absorbs it. The business's OWN money after this
-    -- entry is (balance - fee holds) - unused test credit (texting holds are backed by test credit first, so they are not fee holds). If that goes below zero the
-    -- debit would otherwise be paid, now or later through texting, with DanceFlow's test credit: ALL unused test credit is FORFEITED (posted out of the balance as
-    -- test_grant_reversed), so the balance ends exactly where it would be without any test credit and the usual negative-balance and hold rules apply.
-    select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = n.legal_entity_id;
-    v_pool := (a.balance_cents + n.balance_delta_cents) - (a.reserved_cents + n.reserved_delta_cents) + public._tw4tc_open_sms(n.legal_entity_id);
-    v_take := case when v_pool - v_unused < 0 then v_unused else 0 end;
-    if v_take > 0 then
-      perform set_config('tw4.testcredit_write', 'on', true);
-      r := public._tw4c_post(n.legal_entity_id, null, 'test_grant_reversed', -v_take, 0, 'test_forfeit:' || n.id, null, 'test_forfeit', null,
-                             left('unused test credit forfeited by a non-texting debit (' || n.kind || ')', 300));
-      insert into public.studio_sms_test_credit_movements (legal_entity_id, ledger_entry_id, kind, cents, source_entry_id)
-      values (n.legal_entity_id, (r ->> 'entry_id')::uuid, 'forfeit', v_take, n.id);
-      update public.studio_sms_test_credit_budgets set forfeited_cents = forfeited_cents + v_take, updated_at = clock_timestamp() where legal_entity_id = n.legal_entity_id;
-    end if;
+    -- any OTHER debit (a refund or dispute of a purchase, a negative adjustment, a captured fee): test credit never absorbs it (the rule above)
+    perform public._tw4tc_enforce(n.legal_entity_id, n.balance_delta_cents, n.reserved_delta_cents, 0, n.id, 'unused test credit forfeited by a non-texting debit (' || n.kind || ')');
   end if;
 end $$;
 
@@ -377,6 +403,27 @@ end $$;
 revoke all on function public._tw4tc_on_ledger(public.studio_sms_credit_ledger, text), public._tw4tc_ledger_trigger(), public._tw4tc_open_sms(uuid) from public, anon, authenticated, service_role;
 create trigger studio_sms_credit_ledger_40_test_credit after insert on public.studio_sms_credit_ledger for each row execute function public._tw4tc_ledger_trigger();
 alter table public.studio_sms_credit_ledger enable always trigger studio_sms_credit_ledger_40_test_credit;
+
+-- At COMMIT, after any release: a texting hold that was released without being charged frees its test credit, which the rule then forfeits if own money is negative.
+-- Deferred so that a release immediately followed by the text's charge (the normal settlement) is judged on the final state.
+create or replace function public._tw4tc_settle_trigger()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_prev text := coalesce(current_setting('tw4.testcredit_write', true), '');
+begin
+  if not exists (select 1 from public.studio_sms_test_credit_budgets x where x.legal_entity_id = new.legal_entity_id) then
+    return null;
+  end if;
+  perform public._tw4c_lock(new.legal_entity_id);
+  perform public._tw4tc_enforce(new.legal_entity_id, 0, 0, 0, new.id, 'unused test credit forfeited after a released hold (own money negative)');
+  perform set_config('tw4.testcredit_write', v_prev, true);
+  return null;
+end $$;
+revoke all on function public._tw4tc_settle_trigger(), public._tw4tc_enforce(uuid, bigint, bigint, bigint, uuid, text) from public, anon, authenticated, service_role;
+create constraint trigger studio_sms_credit_ledger_41_test_credit_settle after insert on public.studio_sms_credit_ledger
+  deferrable initially deferred for each row when (new.kind = 'release') execute function public._tw4tc_settle_trigger();
+alter table public.studio_sms_credit_ledger enable always trigger studio_sms_credit_ledger_41_test_credit_settle;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- 5. helpers
@@ -684,8 +731,8 @@ begin
           and (v_m ->> 'restore')::bigint = coalesce(b.restored_cents, 0) and (v_m ->> 'reverse')::bigint = coalesce(b.reversed_cents, 0)
           and (v_m ->> 'forfeit')::bigint = coalesce(b.forfeited_cents, 0)
           and v_lg = coalesce(b.granted_cents, 0) and v_lr = coalesce(b.reversed_cents, 0) + coalesce(b.forfeited_cents, 0) and (v_cv ->> 'ok')::boolean
-          -- the unused test credit is always still there: never more than the balance minus the fee holds (texting holds are backed by test credit first)
-          and v_unused <= greatest(coalesce(a.balance_cents - a.reserved_cents, 0) + public._tw4tc_open_sms(p_entity_id), 0));
+          -- THE RULE holds: own money (balance - fee holds - unused test credit) is not negative, or no test credit is free (all of it is held for texts in flight)
+          and (v_unused <= public._tw4tc_open_sms(p_entity_id) or coalesce(a.balance_cents - a.reserved_cents, 0) + public._tw4tc_open_sms(p_entity_id) - v_unused >= 0));
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------

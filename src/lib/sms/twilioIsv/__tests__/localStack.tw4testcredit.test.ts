@@ -119,6 +119,18 @@ select public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount
   from public.studio_sms_credit_reservations r where r.legal_entity_id = '${entity}' and r.status = 'reserved' and r.funding = 'credit';
 update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where legal_entity_id = '${entity}' and status = 'reserved';
 commit;`);
+/** A texting hold, then its settlement exactly as the send path does it (_tw4us_charge: release the hold, then ONE usage_charge linked to it), or a release only. */
+const holdText = (entity: string, studio: string, cents: number): string => {
+  psql(reserveSql(entity, studio, "sms_usage", cents));
+  return psql(`select id from public.studio_sms_credit_reservations where legal_entity_id = '${entity}' and kind = 'sms_usage' and status = 'reserved' order by created_at desc limit 1`);
+};
+const textSql = (entity: string, studio: string, hold: string, chargeCents: number | null) => `begin;
+select public._tw4c_lock('${entity}');
+select public._tw4c_post(r.legal_entity_id, r.studio_id, 'release', 0, -r.amount_cents, 'release:' || r.reservation_key, r.id, 'fixture text', null, null)
+  from public.studio_sms_credit_reservations r where r.id = '${hold}';
+update public.studio_sms_credit_reservations set status = 'released', closed_at = now() where id = '${hold}';
+${chargeCents == null ? "" : `select public._tw4c_post('${entity}', '${studio}', 'usage_charge', ${-chargeCents}, 0, 'usage:sms:fx-${hex(5)}', '${hold}', 'fixture text', null, null);`}
+commit;`;
 /** Brings the pilot business back to a known state: no open reservations, no unused test credit, balance exactly `balance` cents of ordinary credit. */
 function resetPilot(balance = 0) {
   releaseAll(EP);
@@ -140,6 +152,29 @@ commit;`);
   if (pilot) call("tw4_pilot_exception_create", ...pilotExceptionArgs(psql, entity, 15000, `Founder written pilot approval ${RUN}`, P));
   return { entity, studio };
 }
+
+/** grant 1000, own 200 (a $2 purchase): own pays a $2 fee capture; a $10 test-text hold opens; the $2 purchase is refunded through Stripe */
+const heldTextAfterRefund = (mutated = false) => {
+  resetPilot(0);
+  const pay = `cs_tc_${hex(6)}`;
+  call("tw4_credit_settle_topup", EP, SP, pay, 200, `evt_${hex(5)}`);
+  setBudget(EP, status(EP).granted_cents + 1000);
+  grant(EP, 1000);
+  expect(status(EP).balance_cents).toBe(1200);
+  const fee = `fx:number:${hex(6)}`;
+  psql(`begin; select public._tw4c_lock('${EP}');
+    with r as (insert into public.studio_sms_credit_reservations (legal_entity_id, studio_id, kind, amount_cents, funding, reservation_key) values ('${EP}', '${SP}', 'number', 200, 'credit', '${fee}') returning id)
+    select public._tw4c_post('${EP}', '${SP}', 'reserve', 0, 200, 'reserve:${fee}', (select id from r), 'fixture fee', null, null) from r;
+    select public._tw4c_post(r.legal_entity_id, r.studio_id, 'capture', -200, -200, 'capture:' || r.reservation_key, r.id, 'fixture fee', null, null) from public.studio_sms_credit_reservations r where r.reservation_key = '${fee}';
+    update public.studio_sms_credit_reservations set status = 'captured', closed_at = now() where reservation_key = '${fee}';
+    commit;`);
+  const hold = holdText(EP, SP, 1000);
+  call("tw4_credit_apply_refund", pay, 200, `evt_${hex(5)}`, "fixture refund of the $2 purchase");
+  const s = status(EP);
+  // own money is -200, but all remaining test credit is held for the text in flight: nothing is forfeited yet, and the verifier is satisfied
+  if (!mutated) expect([s.balance_cents, s.reserved_cents, s.unused_cents, s.ok]).toEqual([800, 1000, 1000, true]);
+  return hold;
+};
 
 describe.skipIf(!enabled)("TW-4F controlled test credit (real schema)", () => {
   beforeAll(() => {
@@ -417,6 +452,23 @@ commit;`);
       adjust(EP, 1);
     });
 
+    it("test credit held for a text in flight is not forfeited by a debit: when the text is charged it pays it, and the business owes exactly its own -$2", () => {
+      const hold = heldTextAfterRefund();
+      psql(textSql(EP, SP, hold, 1000));
+      const s = status(EP);
+      expect([s.balance_cents, s.reserved_cents, s.unused_cents, s.ok]).toEqual([-200, 0, 0, true]);
+      expect(call<{ ok: boolean }>("tw4_credit_verify", EP).ok).toBe(true);
+      adjust(EP, 200);
+    });
+
+    it("if that hold is released without a charge, the freed test credit is forfeited at commit: the business owes exactly its own -$2", () => {
+      const hold = heldTextAfterRefund();
+      psql(textSql(EP, SP, hold, null));
+      const s = status(EP);
+      expect([s.balance_cents, s.reserved_cents, s.unused_cents, s.forfeited_cents > 0, s.ok]).toEqual([-200, 0, 0, true, true]);
+      adjust(EP, 200);
+    });
+
     it("the studio view shows test credit separately and the $500 purchase ceiling ignores it (owner's own session)", () => {
       const owner = `ad${RUN}-0000-4000-8000-000000000703`;
       psql(`begin;
@@ -678,9 +730,42 @@ commit;`);
       const debit = -(Math.max(s0.non_test_available_cents, 0) + 1);
       const scenario = `select public.tw4_credit_adjust('${EP}', ${debit}, 'mut-forfeit-${hex(4)}', 'mutation check: debit below own money', '${P}');
         ${assertSql(`(public.tw4_credit_test_status('${EP}') ->> 'unused_cents')::bigint = 0 and (public.tw4_credit_test_status('${EP}') ->> 'ok')::boolean`, "test credit absorbed a debit")}`;
-      needed("P0001", mutate("_tw4tc_on_ledger", "v_take := case when v_pool - v_unused < 0 then v_unused else 0 end;", "v_take := 0;"), scenario);
+      needed("P0001", mutate("_tw4tc_enforce", "if (a.balance_cents + p_bdelta) - ((a.reserved_cents + p_rdelta) - v_h) - v_u >= 0 then", "if true then"), scenario);
     });
 
+    /** applies a mutated function body for the duration of a multi-statement scenario, then restores this migration's body */
+    const withMutation = (name: string, mutated: string, body: () => void) => {
+      psql(mutated);
+      try {
+        body();
+      } finally {
+        psql(fnStmt(name));
+      }
+    };
+    it("rule 1 mutation: forfeiting the test credit held for a text in flight makes the business pay DanceFlow's test text (-$12 instead of -$2)", () => {
+      withMutation("_tw4tc_enforce", mutate("_tw4tc_enforce", "v_take := greatest(v_u - v_h, 0);", "v_take := v_u;"), () => {
+        const hold = heldTextAfterRefund(true);
+        psql(textSql(EP, SP, hold, 1000));
+        expect(status(EP).balance_cents).toBe(-1200);
+      });
+      adjust(EP, 1200);
+      expect(status(EP).ok).toBe(true);
+    });
+    it("rule 1 mutation: without the commit-time check a released hold leaves free test credit on a debt (verifier not ok)", () => {
+      psql("alter table public.studio_sms_credit_ledger disable trigger studio_sms_credit_ledger_41_test_credit_settle;");
+      try {
+        const hold = heldTextAfterRefund(true);
+        psql(textSql(EP, SP, hold, null));
+        const s = status(EP);
+        expect([s.unused_cents, s.ok]).toEqual([1000, false]);
+      } finally {
+        psql("alter table public.studio_sms_credit_ledger enable always trigger studio_sms_credit_ledger_41_test_credit_settle;");
+      }
+      adjust(EP, -1); // any non-texting debit applies the rule: the free test credit is forfeited
+      expect(status(EP).unused_cents).toBe(0);
+      adjust(EP, 201);
+      expect(status(EP).ok).toBe(true);
+    });
     it("the in-flight texting hold is not counted twice: the old formula refuses a fee own money can pay (TW007)", () => {
       const s0 = status(EP);
       expect(s0.unused_cents).toBeGreaterThan(0);

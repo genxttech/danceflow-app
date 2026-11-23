@@ -98,13 +98,16 @@ $tp$;
 end $outer$;
 drop function if exists public._tw4tc_unused(uuid);
 
+drop trigger if exists studio_sms_credit_ledger_41_test_credit_settle on public.studio_sms_credit_ledger;
 drop trigger if exists studio_sms_credit_ledger_40_test_credit on public.studio_sms_credit_ledger;
 drop function if exists public.tw4_credit_test_status(uuid);
 drop function if exists public.tw4_credit_test_reverse(uuid, int, text, text, uuid);
 drop function if exists public.tw4_credit_test_grant(uuid, int, text, uuid, date, text, text, int, text, text, text);
 drop function if exists public.tw4_credit_test_budget_set(uuid, int, text, uuid, date, text, text, int, text, text, text);
 drop function if exists public.tw4_credit_test_set_switch(boolean, uuid, text);
+drop function if exists public._tw4tc_settle_trigger();
 drop function if exists public._tw4tc_ledger_trigger();
+drop function if exists public._tw4tc_enforce(uuid, bigint, bigint, bigint, uuid, text);
 drop function if exists public._tw4tc_on_ledger(public.studio_sms_credit_ledger, text);
 drop function if exists public._tw4tc_open_sms(uuid);
 drop function if exists public._tw4tc_budget(uuid);
