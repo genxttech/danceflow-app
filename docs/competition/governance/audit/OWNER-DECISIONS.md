@@ -192,7 +192,7 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 
 - **Issue.** The manager sets the callback target and Final size freely; NDCA sets recall at 50% minimum per round, a cap of eight in a final, and required semi/quarter-finals; WSDC puts the count with the chief judge.
 - **Sources.** NDCA IV.C.1.a (p.27): the Chairman determines the recall count (at least 50% of couples each round, limited exceptions) and should consult the organizer; IV.C.1.b and IV.C.2 (p.27): no more than eight couples in any final round; IV.C.1.c: for professional and championship adult amateur events a semi-final when eight or more couples are pre-registered and a quarter-final when fifteen or more (recommended for multi-dance Pro/Am); IV.C.1.e (p.27): a semi-final may be split into two heats; IV.C.1.f (p.27). WSDC Definitions (p.3): heats, number of callbacks and cuts to finals decided by the chief judge or secondary chief judge. UCWDC-SF Rule #1.1-#1.3 (pp.1-2): the Contest Coordinator decides Prelims and the number of Yes marks; Rule #2: Semi-Finals.
-- **Today.** `start_competition_round` (`COMPO1_CALLBACK_TARGET_UNSET`), A4a `20270120091000_competition_cf1_a4a_callback_target_guard.sql`, A0 `_cf1_callback_target_check` (`COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY`), `finalCapacity.ts`; target T ≥ 2 and ≤ round capacity (≤ 100); one callback round then a Final (S-22). Rows X-02, S-14N, S-19N, S-19W, O-03 (inconsistent); S-19U (RI); S-19, S-22 (unsupported).
+- **Today.** `start_competition_round` (`COMPO1_CALLBACK_TARGET_UNSET`), A4a `20270120091000_competition_cf1_a4a_callback_target_guard.sql`, A0 `_cf1_callback_target_check`, A4a (error string `COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY`), `finalCapacity.ts`; target T ≥ 2 and ≤ round capacity (≤ 100); one callback round then a Final (S-22). Rows X-02, S-14N, S-19N, S-19W, O-03 (inconsistent); S-19U (RI); S-19, S-22 (unsupported).
 - **Options.** (a) For declared NDCA/WSDC events: cap a Final at 8 (NDCA), require T ≥ 50% of entries, allow quarter/semi rounds, and record that the chair/chief judge decided T. (b) Only record a chair acknowledgement on the round-start audit row. (c) Keep organizer-set T and treat these as body rules not supported (OD-01).
 - **Recommendation (engineering, NOT approved).** (c) now through OD-01, (a) when an NDCA profile is built. Multi-round (semi/quarter) support is a separate build (S-22).
 - **Blast radius.** Dark. (a) is SQL (guard) plus engine support: owner-gated PROD SQL apply.
@@ -201,7 +201,7 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 ### OD-10 Ballot visibility before publication
 
 - **Issue.** Managers and scorers can read every judge's ballot before results are published.
-- **Sources.** NDCA III.D.16 (p.22): only the Chairman of Adjudicators and the Scrutineer have direct access to the original marking sheets until the end of the competition.
+- **Sources.** NDCA III.D.16 (p.21): only the Chairman of Adjudicators and the Scrutineer have direct access to the original marking sheets until the end of the competition.
 - **Today.** `src/lib/competition/results/contract.ts` `RESULT_READER_MATRIX` (manager and scorer: ballots all); E2 RLS `competition_ballots_manager_read`, `competition_ballots_scorer_read` (K0 §7). Row J-31N (inconsistent).
 - **Options.** (a) For declared NDCA events restrict ballot reads to chair and scorer. (b) Keep manager read (organizer must see results) and document it. (c) Make manager reads audited.
 - **Recommendation (engineering, NOT approved).** (a)+(c): restrict by role for declared-NDCA and audit every read. It supports judge independence at no cost to normal operation.
@@ -321,7 +321,7 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 ### OD-22 Withdrawing or hiding a published result
 
 - **Issue.** A manager can withdraw a published result at any time and a correction hides the stale result from entrants; WSDC requires results open to all competitors for at least 30 days, UCWDC says decisions are final with post-event review.
-- **Sources.** WSDC §3.1 item 9 (cited by the inventories as 3.1.9 p.12): results posted at the event and open to all competitors for at least 30 days; inaccurate results must be corrected. NDCA III.D.17 (p.22). UCWDC-C II.N.1 and II.N.3 (p.13); UCWDC-SF Rule #8.1 (p.4): if tied marks differ the scoring was in error and prior rules are recalculated.
+- **Sources.** WSDC §3.1 item 9 (cited by the inventories as 3.1.9 p.12): results posted at the event and open to all competitors for at least 30 days; inaccurate results must be corrected. NDCA III.D.17 (p.21). UCWDC-C II.N.1 and II.N.3 (p.13); UCWDC-SF Rule #8.1 (p.4): if tied marks differ the scoring was in error and prior rules are recalculated.
 - **Today.** F3 `20270122090000_competition_f3_publication.sql` `withdraw_competition_round_result`; `_compf3_live()`; K0 §4 (the superseding wording was already flagged for owner confirmation); INT5-SECFIX P2-2. Rows W-19, W-20, S-26U (RI).
 - **Options.** (a) For WSDC-declared events require a "results inaccurate" reason code and re-post a corrected result within the reporting window; show "under review" while retaining the prior result. (b) Keep as is (DanceFlow policy). (c) For UCWDC decide whether post-publication manager corrections are allowed at all.
 - **Recommendation (engineering, NOT approved).** (b) now via OD-01; (a) with a WSDC profile.
@@ -331,7 +331,7 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 ### OD-23 Score reports and default visibility
 
 - **Issue.** Published results show placements only; no scrutineer sheets, DSA report or score report is ever published; default visibility is `entrants`, public by explicit choice.
-- **Sources.** NDCA III.D.17 (p.22): digital scrutineer sheets made public after each day for completed events; III.D.16 (p.22) restricts originals meanwhile. UCWDC-SF General Information (p.8): the DSA report available to contestants, adjudicators and coordinators; Rule #3.4 step 1 (p.3): raw-score columns include each judge's name "so revealed". WSDC §3.1 item 9: results, rounds, placements and score reports posted at the event; judges may be listed anonymously.
+- **Sources.** NDCA III.D.17 (p.21): digital scrutineer sheets made public after each day for completed events; III.D.16 (p.21) restricts originals meanwhile. UCWDC-SF General Information (p.8): the DSA report available to contestants, adjudicators and coordinators; Rule #3.4 step 1 (p.3): raw-score columns include each judge's name "so revealed". WSDC §3.1 item 9: results, rounds, placements and score reports posted at the event; judges may be listed anonymously.
 - **Today.** `src/lib/competition/results/viewer.ts`, `publication.ts`; F3 `publish_competition_round_result`, `competition_my_results`, `competition_round_results_public`; K0 O3, P5, P10, `RESULT_READER_MATRIX`; public results hide judge names and letters. Rows S-27U, S-27N, S-27W, J-34U (inconsistent); O-08 (RI); O-09 (unsupported, "material").
 - **Options.** (a) Per-body score-report views with judge identity optional (WSDC), scrutineer sheets (NDCA), DSA-style (UCWDC). (b) Keep placement-only as a labelled Studio decision, tell body-declared organizers they must produce the report themselves.
 - **Recommendation (engineering, NOT approved).** (b) now (via OD-01); (a) per body later; default visibility unchanged.
@@ -470,7 +470,7 @@ These need follow-up whatever you decide above (they are defects or missing cont
 | X2 | **An owner/manager can be both judge and approver.** | WSDC 3.4.1, 3.4.3 (pp.18-19) | OD-06 |
 | X3 | **Panel minimums below the bodies' minimums** (3 odd versus NDCA 5 or 7 and WSDC 5 odd for finals; E1 panel "ready" defaults to 1). | NDCA III.B.1.a,c,d (p.14); WSDC 3.4.7 (p.20) | OD-16 |
 | X4 | **No judge or scrutineer qualification model.** | NDCA III.B.1.e, III.B.2, III.B.3, III.B.4, IV.A.6; UCWDC-C II.B.1.b (p.3); UCWDC-SF p.1, p.8 | OD-15 |
-| X5 | **Managers and scorers read ballots before publication.** | NDCA III.D.16 (p.22) | OD-10 |
+| X5 | **Managers and scorers read ballots before publication.** | NDCA III.D.16 (p.21) | OD-10 |
 | X6 | **Paper-ballot transcription has no independent check.** | WSDC 3.4.9.b.i (p.20); NDCA IV.C.5-6 (p.27) | OD-12 |
 | X7 | **Web ballot on personal devices.** | NDCA IV.B.9 (p.26), IV.D.1.a(3) (p.28); WSDC 3.4.7.d (p.20) | OD-29 |
 | X8 | **Event deletion not blocked once ballots exist** (contract claims it is). | NDCA III.E item 2 | OD-04 |
@@ -487,4 +487,4 @@ These need follow-up whatever you decide above (they are defects or missing cont
 
 ## 7. Independent verification results
 
-(Filled in after the independent check; see the PR description.)
+An independent subagent (which did not see these conclusions) verified PDF SHA-256 against the registry (NDCA, UCWDC-SF, UCWDC-C, UCWDC-PA, WSDC all matched) and checked 18 citations across NDCA, WSDC and UCWDC and 14 code references. All code references were confirmed; 16 of 18 citations were confirmed. Findings fixed here: NDCA III.D.16 and III.D.17 are on printed p.21, not p.22 (corrected in OD-10, OD-23, X5); the callback-target error string lives in the A4a migration (OD-09 wording corrected). **Errata for the inventory PR author (#790, scoring file):** row S-27N cites III.D.17 as p.22; it is p.21. Judging J-31N cites III.D.16 as p.22; it is p.21. The reference to a missing event-delete guard (X-18 / OD-04) was additionally confirmed in this consolidation by a migration search, not by the subagent.
