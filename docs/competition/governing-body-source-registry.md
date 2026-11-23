@@ -41,6 +41,16 @@ A profile version is immutable once a program references it; a correction is pub
 - **Undefined algorithms.** The NDCA rule book requires the Skating System but does not define the algorithm, and the WSDC rules refer to their website for Relative Placement. Scoring engines (10F) need authoritative specifications for both.
 - **No NASDE source.** None was supplied, so WCS Classic / Showcase routine divisions have no source-grounded metadata.
 
+- **Missing UCWDC Judge Certification Code of Conduct** (website, `www.ucwdc.org/judge-certification`; referenced by UCWDC-C II.N.3, p.13, and the UCWDC-PA/-L/-T equivalents). Not provided. UCWDC has no general judge conflict-of-interest rule in the supplied rules, so any UCWDC conflict behavior is organizer policy until it is supplied. Whether to request it is the owner's decision; nobody has been contacted (OD-05, OD-15).
+
+## Source conflicts
+
+Recorded per rule 3 below. Each one that affects eligibility or integrity fails closed until the owner resolves it.
+
+| Body | Sections in conflict | Subject | Effect until resolved | Register entries |
+|---|---|---|---|---|
+| NDCA | Rule Book IV.A.1 (p.25) versus IV.D.1.a(2) (p.28) | Definition of "immediate family" for the excuse-yourself duty: IV.A.1 enumerates (spouse, children, parent, sibling, grand-parent, grand-child, niece, nephew, in-law, first cousin); IV.D.1.a(2) says "first cousin or above" (open-ended, undefined) | No NDCA family/household definition is implemented or claimed; automatic checks cover accounts only (OD-05) | `OD05-NDCA-0001`, `OD05-NDCA-0002`, `OD05-NDCA-0003` |
+
 ## Rules for using a source
 
 1. Read the rule in the document itself. A summary or extraction can point to a section, but the citation is only valid once the section text has been read.

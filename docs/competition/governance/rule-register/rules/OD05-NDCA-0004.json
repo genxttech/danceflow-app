@@ -1,0 +1,28 @@
+{
+  "id": "OD05-NDCA-0004",
+  "governing_body": "NDCA",
+  "format": "NDCA Pro/Am adjudicators who are active Pro/Am professionals",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.A.8 (p.25)",
+    "quote_free_summary": "Such an adjudicator may judge Pro/Am events but \"should excuse\" themselves from heats where their active Pro/Am student partner dances."
+  },
+  "rule_class": "recommended",
+  "requirement": "DanceFlow may block the direct case as DanceFlow policy (OD05-DF-0001) but must not present it as an NDCA requirement.",
+  "implementation": [],
+  "enforcement_point": "Planned (design). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Advisory wording; whether it binds is an owner interpretation (audit J-13N). Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

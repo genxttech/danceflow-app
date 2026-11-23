@@ -1,0 +1,20 @@
+{
+  "id": "OD05-UCWDC-0002",
+  "governing_body": "silent",
+  "format": "UCWDC events, general judge conflicts of interest",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. Panel-composition complaints are post-event to the Judge Review Board (UCWDC-C II.N.3, p.13); the Judge Certification Code of Conduct is not provided (open source gap).",
+  "implementation": [],
+  "enforcement_point": "No governing-body enforcement; any UCWDC conflict handling is organizer policy labelled as such.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Open source gap: the UCWDC Judge Certification Code of Conduct. Requesting it is the owner decision; no one has been contacted. No UCWDC conflict claim until it is supplied. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "OD05-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, Judges and Officials Handbook (ethics and code of conduct)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.D.1.a(2) (p.28)",
+    "quote_free_summary": "Restates the duty to excuse oneself for immediate family or household members dancing in a heat, defines immediate family as \"first cousin or above\", and asks the judge to notify the organizer or chairman beforehand where possible."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Same enforcement as OD05-NDCA-0001 once the owner resolves the definition; advance notification maps to a judge-declared conflict.",
+  "implementation": [],
+  "enforcement_point": "Planned (design). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "SOURCE CONFLICT with IV.A.1 on the definition (see OD05-NDCA-0001). \"Or above\" is undefined in the text read. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "OD05-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom and any event: direct identity conflicts",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): an official whose account matches a participant of an entry in the contest they would judge or score is blocked at assignment and before ballot acceptance. Ambiguous shared-account matches are REVIEW cases, never proof. Family, household and business relationships are detectable only by declaration.",
+  "implementation": [],
+  "enforcement_point": "Planned (slice 1/5 design). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Stricter than NDCA IV.A.8 and the WSDC exceptions by design; never presented as a governing-body requirement. Owner decision OD-05 slice 5. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

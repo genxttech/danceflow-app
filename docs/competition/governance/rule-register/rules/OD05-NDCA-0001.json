@@ -1,0 +1,28 @@
+{
+  "id": "OD05-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, all adjudicated heats",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.A.1 (p.25)",
+    "quote_free_summary": "An adjudicator must excuse themselves from a panel when an immediate-family or same-household member dances in a particular heat; \"immediate family\" is defined here by an enumerated list."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Block assignment/ballot where a declared or identity-detected conflict applies. Family and household are not detectable automatically; only declarations carry them.",
+  "implementation": [],
+  "enforcement_point": "Planned (design: docs/competition/governance/judging-integrity/OD-05-conflicts-design.md): triggers on panel assignments, ballots and marks; declaration RPCs. Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "SOURCE CONFLICT: IV.A.1 (enumerated list incl. in-laws, first cousin) and IV.D.1.a(2) (p.28, \"first cousin or above\") define immediate family differently. Unresolved; fails closed: no NDCA family-definition compliance is claimed and no definition is chosen. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
