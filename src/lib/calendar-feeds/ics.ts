@@ -34,14 +34,11 @@ export function formatIcsUtc(iso: string): string {
 
 /** TEXT value escaping per RFC 5545 plus control-character and CR/LF-injection stripping. */
 export function escapeIcsText(value: string): string {
+  const stripControls = new RegExp("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F\\u2028\\u2029]", "g");
   return value
-    .replace(/\r\n|\r|\n/g, "")
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
-    .replace(new RegExp("[\\u2028\\u2029]", "g"), "")
-    .replace(/\\/g, "\\\\")
-    .replace(/;/g, "\\;")
-    .replace(/,/g, "\\,")
-    .replace(//g, "\\n");
+    .split(/\r\n|\r|\n/) // real line breaks become the TEXT escape \n (never a raw CR/LF in the output)
+    .map((line) => line.replace(stripControls, "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,"))
+    .join("\\n");
 }
 
 /** RFC 5545 line folding at 75 OCTETS (not UTF-16 units), never splitting a code point. */

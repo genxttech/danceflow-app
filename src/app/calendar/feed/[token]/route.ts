@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { handleFeedRequest } from "@/lib/calendar-feeds/handler";
+import { handleFeedRequest, unavailable } from "@/lib/calendar-feeds/handler";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ toke
   try {
     admin = createAdminClient();
   } catch {
-    return new Response("Temporarily unavailable", { status: 503, headers: { "Cache-Control": "private, no-store", "Retry-After": "60" } });
+    return unavailable(503, 60);
   }
   return handleFeedRequest(request, token, { admin, now, enabled: true });
 }

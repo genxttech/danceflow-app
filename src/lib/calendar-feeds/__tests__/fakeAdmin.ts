@@ -36,7 +36,7 @@ export class FakeAdmin {
       self.queries.push({ table, filters: [...filters], select: selectCols });
       let rows = (self.tables[table] ?? []).filter((row) =>
         filters.every((f) => {
-          const v = row[f.col];
+          const v = f.col.split(".").reduce((acc: any, k: string) => (acc == null ? acc : acc[k]), row);
           if (f.op === "eq") return v === f.val;
           if (f.op === "is") return (v ?? null) === f.val;
           if (f.op === "in") return (f.val as any[]).includes(v);
