@@ -1,0 +1,20 @@
+{
+  "id": "OD10-DF-0003",
+  "governing_body": "dance_flow_policy",
+  "format": "NDCA events, electronic-ballot confidentiality",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy, additional to and distinct from NDCA III.D.16: electronic ballots and their derived stored copies are treated like the original marking sheets for NDCA-declared events (owner decision). It is not claimed to be NDCA-mandated.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Records requirement 8: the NDCA rule governs original copies of marking sheets; the electronic-ballot confidentiality is DanceFlow's own policy, applied by owner decision. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

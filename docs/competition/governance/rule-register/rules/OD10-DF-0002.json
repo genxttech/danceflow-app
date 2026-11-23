@@ -1,0 +1,20 @@
+{
+  "id": "OD10-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "All Competition OS events, audit of ballot retrievals",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: every authorized ballot content retrieval or derivation writes an append-only ledger row (actor, event, scope, timestamp, purpose, channel, ballot references) in the same transaction as the read; ballot contents are never copied into audit records.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-10 requirement 5. The ledger cannot cover postgres/superuser, dashboard SQL, backups or replicas, nor callers refused at EXECUTE. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

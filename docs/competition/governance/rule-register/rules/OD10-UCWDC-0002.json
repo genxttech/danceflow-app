@@ -1,0 +1,28 @@
+{
+  "id": "OD10-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Majority Rules scoring, Divisional Scoring Analysis (DSA) report access",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "General Information (p.8)",
+    "quote_free_summary": "The DSA report must be available to contestants for their divisions, adjudicators for the divisions they judge, contest coordinators for the divisions they coordinate, and named UCWDC officers for all events."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Candidate future body exception for a results-time derived report (purpose publication_report, OD-23). It is not a pre-publication ballot right and its timing is not stated, so this design grants no exception.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Unverified: when the DSA becomes available relative to publication, and whether it exposes raw judge marks beyond the report. UCWDC Contest Coordinator is not mapped (OD-15; missing source). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

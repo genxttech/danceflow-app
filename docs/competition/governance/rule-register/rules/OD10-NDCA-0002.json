@@ -1,0 +1,28 @@
+{
+  "id": "OD10-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, officials who may hold ballot access",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.B.1.e (p.14), III.B.4 (p.16), III.D.12 (p.21)",
+    "quote_free_summary": "At least one NDCA-certified Scrutineer must officiate; the Scrutineer may not serve as Chairman of Adjudicators; judges' cards are collected by a steward and delivered to the Scrutineer."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Chairman and Scrutineer are separate event-level designations held by different accounts; neither is derived from a DanceFlow account role or official role; certification is an organizer attestation, not verified by DanceFlow.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "DanceFlow cannot verify NDCA certification (OD-15). The p.17 statement that the Scrutineer performs multi-dance calculations is reference only; its nesting in the text extraction should be confirmed visually. Depends on the OD-06 designations table (not built). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

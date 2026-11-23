@@ -1,0 +1,20 @@
+{
+  "id": "OD10-WSDC-0002",
+  "governing_body": "silent",
+  "format": "WSDC Registry Events, access to individual judge scores before results are posted",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: no clause restricting or granting access to individual judge scores or ballots before results are posted was found (full-text search of the pinned text). WSDC 3.4.9.b.i (p.20) implies the Chief Judge and the scoring team read transcribed paper results; 3.1 item 9 (p.12) is a post-event publication rule (OD-23).",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "WSDC ballot visibility is DanceFlow baseline policy (OD10-DF-0001), not a WSDC rule. Source pinned: Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf, SHA-256 140caae7...d3b5. Body-specific exceptions only after verification. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
