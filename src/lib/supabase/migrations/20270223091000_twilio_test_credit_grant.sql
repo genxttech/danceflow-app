@@ -488,8 +488,6 @@ begin
     raise exception 'the written approval reference must be 10 to 200 characters' using errcode = '22023';
   end if;
   perform public._tw4tc_require_pilot(p_entity_id);
-  perform public._tw4tc_check_evidence(p_entity_id, 'test_credit_budget', p_budget_cents, p_evidence_authorized_on, p_evidence_role, p_evidence_scope, p_evidence_amount_cents,
-    p_evidence_period_key, p_evidence_document_ref, p_evidence_sha256);
   perform public._tw4rfl_lock(p_entity_id);
   b := public._tw4tc_budget(p_entity_id);
   v_norm := public._tw4fi_ref_norm(p_approval_ref);
@@ -502,6 +500,9 @@ begin
     end if;
     raise exception 'this approval reference was already recorded with a different decision or evidence' using errcode = 'TW019';
   end if;
+  -- the evidence is checked AFTER replay detection: an identical retry of a recorded decision always returns it (replayed), even once its evidence is no longer fresh
+  perform public._tw4tc_check_evidence(p_entity_id, 'test_credit_budget', p_budget_cents, p_evidence_authorized_on, p_evidence_role, p_evidence_scope, p_evidence_amount_cents,
+    p_evidence_period_key, p_evidence_document_ref, p_evidence_sha256);
   if p_budget_cents < b.granted_cents then
     raise exception 'the test budget cannot be set below the % cents already granted', b.granted_cents using errcode = 'TW071';
   end if;
@@ -543,8 +544,6 @@ begin
     raise exception 'the written approval reference must be 10 to 200 characters' using errcode = '22023';
   end if;
   perform public._tw4tc_require_pilot(p_entity_id);
-  perform public._tw4tc_check_evidence(p_entity_id, 'test_credit_grant', p_cents, p_evidence_authorized_on, p_evidence_role, p_evidence_scope, p_evidence_amount_cents,
-    p_evidence_period_key, p_evidence_document_ref, p_evidence_sha256);
   a := public._tw4rfl_lock(p_entity_id);
   b := public._tw4tc_budget(p_entity_id);
   v_norm := public._tw4fi_ref_norm(p_approval_ref);
@@ -557,6 +556,11 @@ begin
     end if;
     raise exception 'this approval reference was already recorded with a different grant or evidence' using errcode = 'TW019';
   end if;
+  -- the evidence is checked AFTER replay detection: an identical retry of a recorded grant always returns it (replayed), even once its evidence is no longer fresh
+  perform public._tw4tc_check_evidence(p_entity_id, 'test_credit_grant', p_cents, p_evidence_authorized_on, p_evidence_role, p_evidence_scope, p_evidence_amount_cents,
+    p_evidence_period_key, p_evidence_document_ref, p_evidence_sha256);
+  -- the switch is read under a shared lock that tw4_credit_test_set_switch takes exclusively: a grant never commits after a concurrent switch-off it did not see
+  perform pg_advisory_xact_lock_shared(hashtextextended('tw4tc_switch', 0));
   if not public._tw4tc_switch_on() then
     raise exception 'test credit grants are switched off' using errcode = 'TW070';
   end if;

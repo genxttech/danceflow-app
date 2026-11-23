@@ -10,7 +10,8 @@ import { approvalRefInRange, documentRefValid, EVIDENCE_ROLES, SHA256_PATTERN, t
  * room in the business's TEST BUDGET (default 0; set only by `setBudget`, which also needs written evidence), and the owner's dated written authorization as U-4 evidence.
  *
  * Two independent off-switches: the database switch (`tw4_credit_test_set_switch`, default OFF) and this module's env flag TW4_TEST_CREDIT_ENABLED=1 (default off):
- * every mutating call refuses (code "test_credit_disabled") without the flag and never reaches the database. `status` is read-only and always allowed.
+ * every call that can CREATE test credit (grant, budget, switch ON) refuses (code "test_credit_disabled") without the flag and never reaches the database. The
+ * safe directions always work: `setSwitch(false)`, `reverse` (taking unused test credit back) and the read-only `status`.
  * Errors carry the SQLSTATE (TW007, TW019, TW052, TW070, TW071, TW072, 22023, 42501, 23505), never the database message text.
  */
 
@@ -53,7 +54,7 @@ export interface TestCreditStore {
   setSwitch(enabled: boolean, actorId: string, reason: string): Promise<{ enabled: boolean }>;
   setBudget(entityId: string, budgetCents: number, approvalRef: string, actorId: string, evidence: TestCreditEvidence): Promise<{ budgetCents: number; replayed: boolean }>;
   grant(entityId: string, cents: number, approvalRef: string, actorId: string, evidence: TestCreditEvidence): Promise<{ grantId: string; replayed: boolean }>;
-  /** Takes back UNUSED test credit (never more than is unused, never money held by an open reservation). Allowed whatever the database switch says. */
+  /** Takes back UNUSED test credit (never more than is unused, never money held by an open reservation). Allowed whatever the database switch or the env flag says. */
   reverse(entityId: string, cents: number, key: string, reason: string, actorId: string): Promise<{ replayed: boolean }>;
   status(entityId: string): Promise<TestCreditStatus>;
 }
@@ -104,7 +105,7 @@ export class SupabaseTestCreditStore implements TestCreditStore {
   }
 
   async setSwitch(enabled: boolean, actorId: string, reason: string) {
-    this.requireEnabled();
+    if (enabled) this.requireEnabled(); // turning the switch OFF is always allowed
     const r = reason.trim();
     if (r.length < 10 || r.length > 300) throw new RunnerStoreError("22023");
     const row = await this.call<{ enabled: boolean }>("tw4_credit_test_set_switch", { p_enabled: enabled, p_actor: actorId, p_reason: r });
@@ -130,7 +131,7 @@ export class SupabaseTestCreditStore implements TestCreditStore {
   }
 
   async reverse(entityId: string, cents: number, key: string, reason: string, actorId: string) {
-    this.requireEnabled();
+    // always allowed: it only takes unused test credit back
     const k = key.trim();
     const r = reason.trim();
     if (!Number.isInteger(cents) || cents <= 0 || k.length < 3 || k.length > 120 || r.length < 10 || r.length > 280) throw new RunnerStoreError("22023");

@@ -260,6 +260,24 @@ commit;`);
       expect(count(`select count(*) from public.studio_sms_spend_events where legal_entity_id = '${EP}'`)).toBe(0);
     });
 
+    it("an identical replay returns the recorded grant / budget even when its evidence would no longer pass (replay detection runs before the evidence check)", () => {
+      setBudget(EP, status(EP).budget_cents + 10);
+      const gr = ref("stale-replay-g");
+      const br = ref("stale-replay-b");
+      const ga = grantArgs(EP, 10, gr, { doc: docId(), sha: sha() });
+      const ba = budgetArgs(EP, status(EP).budget_cents, br, { doc: docId(), sha: sha() });
+      expect(call<{ replayed: boolean }>("tw4_credit_test_grant", ...ga).replayed).toBe(false);
+      expect(call<{ replayed: boolean }>("tw4_credit_test_budget_set", ...ba).replayed).toBe(false);
+      // simulate evidence that has gone stale (for example older than 31 days) by making the evidence check refuse everything, in a rolled-back transaction
+      const stale = `create or replace function public._tw4tc_check_evidence(p_entity uuid, p_scope text, p_amount bigint, p_authorized_on date, p_role text, p_ev_scope text, p_ev_amount bigint,
+        p_ev_period text, p_doc text, p_sha text) returns void language plpgsql stable security definer set search_path = pg_catalog, public, pg_temp
+        as $f$ begin raise exception 'stale evidence' using errcode = 'TW052'; end $f$;`;
+      const out = psql(`begin; ${stale} ${callSql("tw4_credit_test_grant", ...ga)} ${callSql("tw4_credit_test_budget_set", ...ba)} rollback;`).split("\n").filter((l) => l.startsWith("{"));
+      expect(out.map((l) => (JSON.parse(l) as { replayed: boolean }).replayed)).toEqual([true, true]);
+      // a NEW decision is still refused by the (stale) evidence check
+      expect(hasCode(psqlError(`begin; ${stale} ${callSql("tw4_credit_test_grant", ...grantArgs(EP, 10, ref("stale-new")))} rollback;`), "TW052")).toBe(true);
+    });
+
     it("idempotent per approval reference: the same grant replays (also when spelled differently); a different claim with the same reference or document is refused", () => {
       const r = ref("idem");
       const o: Ev = { doc: docId(), sha: sha(), on: day(-1) };
@@ -497,6 +515,18 @@ commit;`);
         p.on("close", (code) => resolve({ code: code ?? 1, err }));
         p.stdin.end(`\\set VERBOSITY verbose\n${sql}`);
       })));
+
+    it("a grant racing a switch-off waits for it and is refused (TW070): the grant reads the switch under the switch lock", async () => {
+      setBudget(EP, status(EP).granted_cents + 50);
+      const before = status(EP).granted_cents;
+      const off = `begin; ${callSql("tw4_credit_test_set_switch", false, P, "race check: switching off")} select pg_sleep(3); commit;`;
+      const late = `select pg_sleep(1); ${callSql("tw4_credit_test_grant", ...grantArgs(EP, 50, ref("race-switch")))}`;
+      const [a, b] = await parallel([off, late]);
+      expect(a.code).toBe(0);
+      expect(hasCode(b.err, "TW070"), b.err).toBe(true);
+      expect(status(EP).granted_cents).toBe(before);
+      switchTo(true);
+    });
 
     it("two grants racing for the last 300 cents of budget: exactly one succeeds; the same grant sent twice at once records once", async () => {
       resetPilot(0);

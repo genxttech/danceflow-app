@@ -39,14 +39,21 @@ describe("TW-4F controlled test credit wrapper (dark, service role)", () => {
     expect(testCreditEnabled(ON)).toBe(true);
   });
 
-  it("every mutating call refuses without the flag and never reaches the database", async () => {
+  it("every call that can create test credit refuses without the flag and never reaches the database", async () => {
     const { client, calls } = fakeClient();
     const s = new SupabaseTestCreditStore(client, {}, () => NOW);
     expect(await codeOf(s.grant("e", 500, REF, "a", ev()))).toBe("test_credit_disabled");
     expect(await codeOf(s.setBudget("e", 500, REF, "a", ev()))).toBe("test_credit_disabled");
     expect(await codeOf(s.setSwitch(true, "a", "turning on for the pilot test"))).toBe("test_credit_disabled");
-    expect(await codeOf(s.reverse("e", 100, "rev-1", "unused after the pilot test", "a"))).toBe("test_credit_disabled");
     expect(calls).toHaveLength(0);
+  });
+
+  it("the safe directions work while dark: switch OFF and reversing unused test credit", async () => {
+    const { client, calls } = fakeClient({ data: { enabled: false, replayed: false } });
+    const s = new SupabaseTestCreditStore(client, {}, () => NOW);
+    expect(await s.setSwitch(false, "a", "emergency stop of test credit")).toEqual({ enabled: false });
+    expect(await s.reverse("e", 100, "rev-1", "unused after the pilot test", "a")).toEqual({ replayed: false });
+    expect(calls.map((c) => c.fn)).toEqual(["tw4_credit_test_set_switch", "tw4_credit_test_reverse"]);
   });
 
   it("status is read-only and allowed while dark", async () => {
@@ -126,6 +133,7 @@ describe("TW-4F controlled test credit wrapper (dark, service role)", () => {
     expect(sql).not.toMatch(/\r/);
     expect(sql).toMatch(/budget_cents bigint not null default 0/);
     expect(sql).not.toMatch(/insert into public\.studio_sms_test_credit_switch_log[^;]*values \(true/i);
-    expect(sql).not.toMatch(/\b1000\b/); // the owner's proposed $10 is not encoded anywhere
+    // the owner's proposed $10 is not encoded anywhere (the only 1000 is the pre-existing $10 low-balance threshold default carried over in sms_credit_overview's body)
+    expect(sql.replace(/coalesce\(a\.low_balance_threshold_cents, 1000\)/g, "")).not.toMatch(/\b1000\b/);
   });
 });

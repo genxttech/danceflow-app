@@ -8,16 +8,18 @@ The ConfiDance pilot ceiling (decision 10) only pays for pilot setup fees. It ne
 
 | Property | How it is enforced |
 | --- | --- |
-| Only the pilot business | the legal business must hold the pilot exception (`studio_sms_pilot_exceptions`); otherwise `TW072` |
+| Only the pilot business | the legal business must hold the pilot exception (`studio_sms_pilot_exceptions`); otherwise `TW072`. Eligibility is exactly "holds the pilot exception". The exception exists at most once in the whole system, and only for the verified ConfiDance Unlimited, LLC legal business (`tw4_pilot_exception_create`). So no other business can ever receive test credit without a reviewed migration. |
 | Platform administrator only | `_tw4c_admin`; otherwise `42501`. The five functions are `service_role` EXECUTE only. No UI, route or cron calls them. |
-| Dark by default | database kill switch (`studio_sms_test_credit_switch_log`; no row = OFF), plus the app flag `TW4_TEST_CREDIT_ENABLED=1` for the TypeScript wrapper (`src/lib/sms/twilioIsv/testCreditStore.ts`) |
+| Dark by default | database kill switch (`studio_sms_test_credit_switch_log`; no row = OFF), plus the app flag `TW4_TEST_CREDIT_ENABLED=1` for the TypeScript wrapper (`src/lib/sms/twilioIsv/testCreditStore.ts`). The flag only gates what can create credit (grant, budget, switch ON). Switch OFF and reversing unused credit always work. |
 | Bounded | per-business TEST BUDGET, default 0. A grant over the remaining budget is refused (`TW071`). Reversals do not free budget. The budget is at most 50000 cents (the existing $500 balance ceiling). No amount is encoded anywhere. |
 | Written authorization | every budget change and every grant records U-4 evidence: date (not in the future, at most 31 days old), role (`founder_written` / `owner_written`), scope (`test_credit_budget` / `test_credit_grant`), amount (must equal the amount recorded), period (the business's current billing month, `YYYY-MM`), document reference, sha256 of the retained text. Otherwise `TW052`. |
 | One approval, one decision | the approval reference goes into the permanent shared registry `studio_sms_approval_refs`. A reused reference (also one used for a fee approval) is refused with `TW019`. Each retained document (sha256) authorizes one grant and one budget change. An identical retry returns `replayed: true` and changes nothing. |
 | Texting only | its own ledger kinds `test_grant` / `test_grant_reversed`. A ledger trigger refuses any non-texting reservation (setup fees, recurring fees, recurring set-asides) that would need unused test credit (`TW007`). Texting uses test credit first. A usage refund of a test-paid charge comes back as test credit. |
+| Never absorbs a debt | a refund or dispute of a purchase, a negative adjustment or a captured fee that takes the business's own money below zero forfeits all unused test credit in the same transaction. This is posted as `test_grant_reversed` with key `test_forfeit:<entry>`, and the status field `forfeited_cents` shows it. The balance ends where it would be without test credit. |
 | Not purchasable, not refundable | no top-up, Stripe, refund or dispute path can create or pay out these kinds. Only the grant and reverse functions can post them, and the trigger refuses anything else, also in replica mode. |
 | Pilot ceiling untouched | a grant creates no reservation, no spend event and nothing pilot-funded |
 | STOP / START / HELP | never charged and never touched. The trigger never refuses a texting charge. |
+| Studio view | `sms_credit_overview` adds `test_credit_cents` and `fee_available_cents`. The credit panel shows the test credit and what can pay fees, and the history labels both test kinds. The $500 purchase ceiling counts only the business's own credit. |
 
 Refusal codes: `22023` invalid input, `42501` not a platform administrator or a direct write, `TW007` account on hold or negative, or a fee would need test credit, or money is held by an open reservation, `TW019` reference or document reused, `TW052` evidence, `TW070` switch off, `TW071` over budget, below what was granted, or more than the unused amount, `TW072` not the pilot business.
 
@@ -71,6 +73,8 @@ select public.tw4_credit_test_set_switch(false, '<admin>', 'Test credit grant <g
 ```
 
 Existing test credit stays usable for texting. The switch only stops new grants.
+
+**Limit: there is no freeze of existing unused credit.** Neither the switch nor the app flag stops a business from texting with test credit it already has. To stop that use immediately, either reverse the unused balance (§5) or put the credit account on hold with `tw4_credit_set_hold`. A hold blocks all paid texting for the business, purchased credit included. STOP/START/HELP keep working.
 
 ## 4. Verify (read-only)
 

@@ -118,7 +118,9 @@ drop table if exists public.studio_sms_test_credit_budgets;
 drop table if exists public.studio_sms_test_credit_switch_log;
 drop function if exists public._tw4tc_guard();
 
--- the ledger kinds: back to the 20261122 definitions (no test rows exist: refused above)
+-- the ledger kinds: back to the 20261122 definitions (no test rows exist: refused above).
+-- NOTE: the kind and shape lists below are written out (hard-coded) from 20261122. If a LATER migration adds ledger kinds, this rollback must be updated with them
+-- (or rolled back after that migration's own rollback); applying it as-is would drop those kinds from the check.
 do $$
 begin
   if exists (select 1 from pg_constraint c where c.conrelid = 'public.studio_sms_credit_ledger'::regclass and pg_get_constraintdef(c.oid) like '%test_grant%') then
