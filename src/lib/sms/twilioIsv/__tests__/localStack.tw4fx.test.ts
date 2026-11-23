@@ -534,7 +534,7 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       };
       const entityThreshold = Number(psql("select public._tw4fx_entity_threshold_cents()"));
       const platformThreshold = Number(psql("select public._tw4fx_platform_threshold_cents()"));
-      expect([entityThreshold, platformThreshold]).toEqual([1000, 5000]);
+      expect([entityThreshold, platformThreshold]).toEqual([500, 2500]);   // owner-accepted initial ALERT thresholds (not ceilings)
       exposure(small, [[monthOf(small), entityThreshold - 1]]);
       check();
       expect(alerts(`legal_entity_id = '${small.entity}' and kind = 'funding_exposure_threshold'`)).toEqual([]);   // just below: nothing

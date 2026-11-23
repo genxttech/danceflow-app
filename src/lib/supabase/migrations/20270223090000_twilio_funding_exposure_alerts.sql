@@ -21,9 +21,10 @@
 --                                    per resource and business month
 --     funding_exposure_grace_ending  a live fee resource whose current or previous period is uncovered and whose 7-day grace ends within 72 hours (texting will
 --                                    then be suspended while the provider keeps billing), once per resource and period
---     funding_exposure_threshold     the recorded open exposure of ONE business, or of the whole platform, reached its threshold (_tw4fx_entity_threshold_cents,
---                                    _tw4fx_platform_threshold_cents: single constants), once per business month (platform: once per UTC month, attached to the
---                                    business with the largest share so the existing recipient function can address it)
+--     funding_exposure_threshold     the recorded open exposure of ONE business, or of the whole platform, reached its ALERT threshold (_tw4fx_entity_threshold_cents
+--                                    = 500, _tw4fx_platform_threshold_cents = 2500: single constants, owner-accepted initial values; alert thresholds, NOT ceilings or
+--                                    spend limits: nothing here caps or stops provider charges), once per business month (platform: once per UTC month, attached to
+--                                    the business with the largest share so the existing recipient function can address it)
 --   Summaries carry no amount, number, SID or name. A listed location that has no legal business cannot be attached to an alert: it is COUNTED once per
 --   LOCATION (unattributed) in the check's result and in tw4_rfl_health ('exposure_unattributed_locations'; the 20261211 body plus that one key).
 --
@@ -79,18 +80,19 @@ begin
   execute format('alter table public.studio_sms_provider_alerts add constraint %I check (kind = any (%L::text[]))', v_name, v_vals);
 end $$;
 
--- the single definitions of the thresholds (recorded open exposure, provider cents)
+-- the single definitions of the ALERT thresholds (recorded open exposure, provider cents; owner-accepted initial values 2026-11-23: $5 per business, $25 platform-wide).
+-- They only decide when an administrator is alerted. They are NOT ceilings or spend limits: nothing here caps, holds or stops any provider charge.
 create function public._tw4fx_entity_threshold_cents()
 returns int language sql immutable
 set search_path = pg_catalog, pg_temp
-as $$ select 1000 $$;
+as $$ select 500 $$;
 
 create function public._tw4fx_platform_threshold_cents()
 returns int language sql immutable
 set search_path = pg_catalog, pg_temp
-as $$ select 5000 $$;
+as $$ select 2500 $$;
 
--- how close to the end of the 7-day grace the administrator is warned
+-- how close to the end of the 7-day grace the administrator is warned (a warning only: the grace itself, every other alert, hold, suspension and escalation are unchanged)
 create function public._tw4fx_grace_warning()
 returns interval language sql immutable
 set search_path = pg_catalog, pg_temp
@@ -253,14 +255,14 @@ begin
              from public.studio_sms_provider_exposure e where e.state = 'open' group by e.legal_entity_id
            having sum(greatest(coalesce(e.expected_provider_cents, 0), coalesce(e.provider_billed_cents, 0))) >= public._tw4fx_entity_threshold_cents() order by e.legal_entity_id loop
     if public._tw4rfl_alert(z.legal_entity_id, null, null, 'funding_exposure_threshold', 'fx-thr:' || z.legal_entity_id || ':' || public._tw4ml_month_key(z.legal_entity_id, now()), 'admin', 'critical',
-         'The recorded open fee exposure of one business reached the platform threshold. Review its exposures and decide on authorization or cancellation.') then v_thr := v_thr + 1; end if;
+         'The recorded open fee exposure of one business reached its alert threshold (an alert, not a limit: nothing was stopped). Review its exposures and decide on authorization or cancellation.') then v_thr := v_thr + 1; end if;
   end loop;
   select coalesce(sum(greatest(coalesce(e.expected_provider_cents, 0), coalesce(e.provider_billed_cents, 0))), 0)::bigint into v_total from public.studio_sms_provider_exposure e where e.state = 'open';
   if v_total >= public._tw4fx_platform_threshold_cents() then
     select e.legal_entity_id into v_top from public.studio_sms_provider_exposure e where e.state = 'open' group by e.legal_entity_id
      order by sum(greatest(coalesce(e.expected_provider_cents, 0), coalesce(e.provider_billed_cents, 0))) desc, e.legal_entity_id limit 1;
     if public._tw4rfl_alert(v_top, null, null, 'funding_exposure_threshold', 'fx-thr-all:' || to_char(now() at time zone 'UTC', 'YYYY-MM'), 'admin', 'critical',
-         'The recorded open fee exposure across ALL businesses reached the platform threshold. Review the exposure overview.') then v_thr := v_thr + 1; end if;
+         'The recorded open fee exposure across ALL businesses reached the platform alert threshold (an alert, not a limit: nothing was stopped). Review the exposure overview.') then v_thr := v_thr + 1; end if;
   end if;
 
   v_unattributed := public._tw4fx_unattributed_locations();
