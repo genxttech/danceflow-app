@@ -553,6 +553,81 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
   });
 
   // -------------------------------------------------------------------------------------------------------------------------------------------------
+  describe("the 72-hour grace warning is purely additive (the same pass with and without it, on the same fixtures, in rolled-back transactions)", () => {
+    it("every other alert, scan result, sending state, hold and escalation is identical; the warning cannot mask an urgent alert, even with a colliding key", () => {
+      // W1 negative balance + grace near; W2 past grace (open exposure) + a number in grace + an authorization ending in 10 days (owner notices, escalation);
+      // W3 the pilot (approval needed) in grace; W4 an UNFUNDED charge in grace; W5 credit on hold + recorded exposure at the business alert threshold + grace near
+      const w1 = world();
+      age(register(w1, "campaign"), "5 days");
+      replica(`update public.studio_sms_credit_accounts set balance_cents = -100 where legal_entity_id = '${w1.entity}';`);
+      const w2 = world();
+      age(register(w2, "campaign"), "75 days");
+      age(register(w2, "number"), "5 days");
+      const ending = authFixture(w2, "monthly", { expiresInDays: 10 });
+      const w3 = world({ pilot: true });
+      age(register(w3, "campaign"), "5 days");
+      const w4 = world({ fund: 100 });
+      age(register(w4, "campaign"), "5 days");
+      expect(charge(authFixture(w4, "monthly"), monthOf(w4)).outcome).toBe("unfunded");
+      const w5 = world();
+      age(register(w5, "campaign"), "5 days");
+      const res5 = randomUUID();
+      replica(`update public.studio_sms_credit_accounts set hold = true, hold_reason = 'fixture hold for the additivity proof' where legal_entity_id = '${w5.entity}';
+        insert into public.studio_sms_provider_resources (id, legal_entity_id, studio_id, twilio_account_sid, resource_kind, provider_sid, e164, fee_kind, source, registered_by, registered_at)
+          values ('${res5}', '${w5.entity}', '${w5.studio}', '${w5.account}', 'number', '${sid("PN")}', '${e164()}', 'number', 'admin', '${P}', now() - interval '400 days');
+        insert into public.studio_sms_provider_exposure (resource_id, legal_entity_id, studio_id, period_key, reason, expected_provider_cents)
+          values ('${res5}', '${w5.entity}', '${w5.studio}', '${monthOf(w5)}', 'no_authorization', ${Number(psql("select public._tw4fx_entity_threshold_cents()"))});`);
+      const ws = [w1, w2, w3, w4, w5];
+      const entities = Array.from(new Set(ws.map((w) => `'${w.entity}'`))).join(", ");
+      const studios = ws.map((w) => `'${w.studio}'`).join(", ");
+      const mine = `legal_entity_id in (${entities}) and (studio_id is null or studio_id in (${studios})) and created_at >= now()`;
+      const def = psql("select pg_get_functiondef('public.tw4_rfl_funding_exposure_check()'::regprocedure)");
+      const noGrace = "continue when v_cov like 'covered:%';";
+      expect(def).toContain(noGrace);
+      type Pass = { other: string[]; grace: string[]; scans: string[]; state: string[]; collision: number };
+      const pass = (withGrace: boolean): Pass => {
+        const out = psql(`begin;
+${withGrace ? "" : `${def.replace(noGrace, "continue;")};`}
+${withGrace ? `insert into public.studio_sms_provider_alerts (legal_entity_id, studio_id, kind, dedupe_key, audience, severity, summary)
+  values ('${w2.entity}', '${w2.studio}', 'funding_exposure_grace_ending', 'auth:${ending}', 'admin', 'warning', 'fixture: a colliding grace warning key');` : ""}
+create temp table fx_scan (line text) on commit drop;
+select public.tw4_rfl_funding_exposure_check();
+insert into fx_scan select e.id || '=' || public.tw4_rfl_scan_entity(e.id)::text from (select distinct legal_entity_id id from public.studio_sms_entity_studios where studio_id in (${studios})) e;
+select public.tw4_rfl_funding_exposure_check();
+set local session_replication_role = replica;
+update public.studio_sms_provider_alerts set status = 'failed', attempts = 5 where ${mine} and kind <> 'funding_exposure_grace_ending';
+set local session_replication_role = origin;
+select public.tw4_rfl_escalate_delivery();
+select json_build_object(
+  'other', (select coalesce(json_agg(x order by x), '[]'::json) from (select kind || '|' || severity || '|' || audience || '|' || coalesce(studio_id::text, '-') || '|' || coalesce(resource_id::text, '-') x
+             from public.studio_sms_provider_alerts where ${mine} and kind <> 'funding_exposure_grace_ending') q),
+  'grace', (select coalesce(json_agg(dedupe_key order by dedupe_key), '[]'::json) from public.studio_sms_provider_alerts where ${mine} and kind = 'funding_exposure_grace_ending' and dedupe_key like 'fx-grace:%'),
+  'scans', (select json_agg(line order by line) from fx_scan),
+  'state', (select json_agg(s.studio_id || ':' || public._tw4rc_service_state(s.studio_id) || ':' || public._tw4rfl_df_sending(s.studio_id) || ':' || a.hold || ':' || a.balance_cents || ':' || a.reserved_cents order by s.studio_id)
+             from public.studio_sms_entity_studios s join public.studio_sms_credit_accounts a on a.legal_entity_id = s.legal_entity_id where s.studio_id in (${studios})),
+  'collision', (select count(*) from public.studio_sms_provider_alerts where ${mine} and kind = 'authorization_expiring' and dedupe_key = 'auth:${ending}'))::text;
+rollback;`).split("\n");
+        return JSON.parse(out[out.length - 1]) as Pass;
+      };
+      const withWarning = pass(true);
+      const without = pass(false);
+      expect(withWarning.grace.length).toBeGreaterThanOrEqual(ws.length);   // a warning for every fixture resource that is in its last 72 hours of grace
+      expect(without.grace).toEqual([]);
+      expect(withWarning.other).toEqual(without.other);
+      expect(withWarning.scans).toEqual(without.scans);
+      expect(withWarning.state).toEqual(without.state);
+      expect(withWarning.collision).toBe(1);   // the owner notice is raised although a warning row holds the same key
+      const kinds = new Set(withWarning.other.map((x) => x.split("|")[0]));
+      for (const k of ["exposure_open", "next_period_uncovered", "pilot_approval_needed", "negative_balance", "account_on_hold", "authorization_expiring", "owner_notice_second",
+        "owner_unresponsive", "alert_delivery_exhausted", "funding_exposure_unfunded", "funding_exposure_unauthorized", "funding_exposure_threshold"]) expect(kinds).toContain(k);
+      expect(withWarning.state.some((s) => s.split(":")[1] === "suspended")).toBe(true);   // W2's sending suspension happens at the same time either way
+      expect(psql("select pg_get_constraintdef(oid) from pg_constraint where conname = 'studio_sms_provider_alerts_once'")).toBe("UNIQUE (kind, dedupe_key)");
+      const nonPilot = [w1, w2, w4, w5].map((w) => `'${w.entity}'`).join(", ");
+      expect(Number(psql(`select count(*) from public.studio_sms_provider_alerts where legal_entity_id in (${nonPilot})`))).toBe(0);   // both passes rolled back
+    });
+  });
+
+  // -------------------------------------------------------------------------------------------------------------------------------------------------
   describe("mutation checks: each guard of the check is load-bearing (the mutant runs inside a rolled-back transaction, then the real function)", () => {
     /** Installs the check with ONE textual change, runs `probe` (its LAST output line is returned) and rolls everything back. */
     const mutant = (find: string, repl: string, probe: string): string => {
