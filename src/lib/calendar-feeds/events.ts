@@ -27,7 +27,6 @@ export const MAX_EVENTS = 1000;
 const STAFF_TYPES = ["private_lesson", "group_class", "intro_lesson", "coaching", "practice_party", "floor_space_rental"] as const;
 const DANCER_TYPES = ["private_lesson", "group_class", "intro_lesson", "coaching", "practice_party"] as const;
 const LIVE_STATUSES = ["scheduled", "confirmed", "rescheduled", "attended"];
-const FEED_STATUSES = [...LIVE_STATUSES, "cancelled"];
 
 const TYPE_LABELS: Record<string, string> = {
   private_lesson: "Private lesson",
@@ -82,18 +81,25 @@ async function must<T>(label: string, query: PromiseLike<{ data: T | null; error
 
 type Names = { clients: Map<string, { first: string; last: string; dob: string | null }>; instructors: Map<string, string>; rooms: Map<string, string> };
 
+const IN_CHUNK = 100;
+function chunks<T>(list: T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += IN_CHUNK) out.push(list.slice(i, i + IN_CHUNK));
+  return out;
+}
+
 async function loadNames(admin: SupabaseLike, studioId: string, clientIds: string[], instructorIds: string[], roomIds: string[]): Promise<Names> {
   const names: Names = { clients: new Map(), instructors: new Map(), rooms: new Map() };
-  if (clientIds.length) {
-    const rows = await must<any[]>("clients", admin.from("clients").select("id, first_name, last_name, date_of_birth").eq("studio_id", studioId).in("id", clientIds));
+  for (const ids of chunks(clientIds)) {
+    const rows = await must<any[]>("clients", admin.from("clients").select("id, first_name, last_name, date_of_birth").eq("studio_id", studioId).in("id", ids));
     for (const r of rows) names.clients.set(r.id, { first: clean(r.first_name, 40), last: clean(r.last_name, 40), dob: r.date_of_birth ?? null });
   }
-  if (instructorIds.length) {
-    const rows = await must<any[]>("instructors", admin.from("instructors").select("id, first_name").eq("studio_id", studioId).in("id", instructorIds));
+  for (const ids of chunks(instructorIds)) {
+    const rows = await must<any[]>("instructors", admin.from("instructors").select("id, first_name").eq("studio_id", studioId).in("id", ids));
     for (const r of rows) names.instructors.set(r.id, clean(r.first_name, 40));
   }
-  if (roomIds.length) {
-    const rows = await must<any[]>("rooms", admin.from("rooms").select("id, name").eq("studio_id", studioId).in("id", roomIds));
+  for (const ids of chunks(roomIds)) {
+    const rows = await must<any[]>("rooms", admin.from("rooms").select("id, name").eq("studio_id", studioId).in("id", ids));
     for (const r of rows) names.rooms.set(r.id, clean(r.name, 80));
   }
   return names;
@@ -119,9 +125,11 @@ function titleFor(row: AppointmentRow, subject: FeedSubject, names: Names, now: 
 
 function toEvent(row: AppointmentRow, subject: FeedSubject, names: Names, now: Date, cancelledAt: string | null, changedAt: string | null): FeedEvent {
   const cancelled = row.status === "cancelled" || Boolean(cancelledAt);
-  const base = sequenceFromUpdatedAt(changedAt ?? row.updated_at);
+  // SEQUENCE: 2 x seconds-since-2026 (+1 when cancelled) so a later un-cancel always outranks the earlier cancellation.
+  const base = sequenceFromUpdatedAt(changedAt ?? row.updated_at) * 2;
   const room = row.room_id ? names.rooms.get(row.room_id) : "";
-  const location = clean(row.location_name, 120) || room || undefined;
+  // Dancer feeds show the room only: staff-entered location text may be free-form (e.g. an off-site address).
+  const location = subject.subjectKind === "staff" ? clean(row.location_name, 120) || room || undefined : room || undefined;
   return {
     uid: `${row.id}@danceflow`,
     summary: titleFor(row, subject, names, now),
@@ -138,11 +146,13 @@ function toEvent(row: AppointmentRow, subject: FeedSubject, names: Names, now: D
 function inWindow(row: AppointmentRow, cancelled: boolean, now: Date): boolean {
   const end = Date.parse(row.ends_at);
   const start = Date.parse(row.starts_at);
-  if (!Number.isFinite(end) || !Number.isFinite(start)) return false;
+  if (!Number.isFinite(end) || !Number.isFinite(start) || end <= start) return false;
   if (start > now.getTime() + WINDOW_FUTURE_DAYS * DAY_MS) return false;
   const horizon = cancelled ? CANCELLED_RETENTION_DAYS : WINDOW_PAST_DAYS;
   return end >= now.getTime() - horizon * DAY_MS;
 }
+
+const LIVE_FROM_DAYS = WINDOW_PAST_DAYS;
 
 export async function loadFeedEvents(admin: SupabaseLike, subject: FeedSubject, now: Date): Promise<{ calendarName: string; events: FeedEvent[] }> {
   const studioId = subject.studioId;
@@ -150,7 +160,8 @@ export async function loadFeedEvents(admin: SupabaseLike, subject: FeedSubject, 
   const studioName = clean(studio?.public_name || studio?.name || "Studio", 80);
   const calendarName = `${studioName} Schedule`;
 
-  const windowStart = new Date(now.getTime() - CANCELLED_RETENTION_DAYS * DAY_MS).toISOString();
+  const liveFrom = new Date(now.getTime() - LIVE_FROM_DAYS * DAY_MS).toISOString();
+  const cancelledFrom = new Date(now.getTime() - CANCELLED_RETENTION_DAYS * DAY_MS).toISOString();
   const windowEnd = new Date(now.getTime() + WINDOW_FUTURE_DAYS * DAY_MS).toISOString();
   const allowedTypes = subject.subjectKind === "staff" ? [...STAFF_TYPES] : [...DANCER_TYPES];
 
@@ -158,15 +169,21 @@ export async function loadFeedEvents(admin: SupabaseLike, subject: FeedSubject, 
   const addRows = (list: AppointmentRow[]) => {
     for (const row of list) if (!rows.has(row.id)) rows.set(row.id, { row, attendeeCancelledAt: null, attendeeChangedAt: null });
   };
-  const baseQuery = () =>
+  // Live rows from -7d and cancelled rows from -30d, so old live rows never eat the cap before upcoming ones.
+  const baseQuery = (statuses: string[], from: string) =>
     admin
       .from("appointments")
       .select(APPOINTMENT_COLUMNS)
       .eq("studio_id", studioId)
       .in("appointment_type", allowedTypes)
-      .in("status", FEED_STATUSES)
-      .gte("starts_at", windowStart)
+      .in("status", statuses)
+      .gte("starts_at", from)
       .lte("starts_at", windowEnd);
+  const fetchBoth = async (apply: (q: any) => any): Promise<AppointmentRow[]> => {
+    const live = await must<AppointmentRow[]>("appointments", apply(baseQuery(LIVE_STATUSES, liveFrom)).order("starts_at", { ascending: true }).limit(MAX_EVENTS));
+    const cancelled = await must<AppointmentRow[]>("appointments", apply(baseQuery(["cancelled"], cancelledFrom)).order("starts_at", { ascending: true }).limit(MAX_EVENTS));
+    return [...live, ...cancelled];
+  };
 
   if (subject.subjectKind === "staff") {
     const instructors = await must<any[]>(
@@ -175,53 +192,80 @@ export async function loadFeedEvents(admin: SupabaseLike, subject: FeedSubject, 
     );
     const instructorIds = instructors.map((r) => r.id).filter(Boolean);
     if (!instructorIds.length) return { calendarName, events: [] };
-    addRows(await must<AppointmentRow[]>("appointments", baseQuery().in("instructor_id", instructorIds).order("starts_at", { ascending: true }).limit(MAX_EVENTS)));
+    // Defence in depth over the database revocation hooks: the staff member must still hold an active role in this studio.
+    const roles = await must<any[]>("roles", admin.from("user_studio_roles").select("user_id").eq("studio_id", studioId).eq("user_id", subject.subjectUserId).eq("active", true).limit(1));
+    if (!roles.length) return { calendarName, events: [] };
+    addRows(await fetchBoth((q) => q.in("instructor_id", instructorIds)));
   } else {
     const links = await must<any[]>(
       "links",
       admin
         .from("client_account_links")
-        .select("client_id")
+        .select("client_id, relationship_type")
         .eq("studio_id", studioId)
         .eq("user_id", subject.subjectUserId)
         .eq("status", "linked")
         .eq("can_view_schedule", true),
     );
-    let clientIds = links.map((r) => r.client_id).filter(Boolean) as string[];
-    if (subject.includeClientIds && subject.includeClientIds.length) {
+    let linked = links.filter((r) => r.client_id) as Array<{ client_id: string; relationship_type: string | null }>;
+    // A non-null selection is authoritative: an empty array means "include nobody", never "everybody".
+    if (subject.includeClientIds) {
       const allowed = new Set(subject.includeClientIds);
-      clientIds = clientIds.filter((id) => allowed.has(id));
+      linked = linked.filter((l) => allowed.has(l.client_id));
     }
+    // A person's OWN account is not served for a known minor: under-18 schedules go through the guardian link only.
+    const selfIds = linked.filter((l) => (l.relationship_type ?? "self") === "self").map((l) => l.client_id);
+    if (selfIds.length) {
+      const dobs = new Map<string, string | null>();
+      for (const ids of chunks(selfIds)) {
+        const rowsDob = await must<any[]>("clients", admin.from("clients").select("id, date_of_birth").eq("studio_id", studioId).in("id", ids));
+        for (const r of rowsDob) dobs.set(r.id, r.date_of_birth ?? null);
+      }
+      const knownMinor = (id: string) => {
+        const ms = Date.parse(String(dobs.get(id) ?? ""));
+        return Number.isFinite(ms) && isMinorOrUnknown(dobs.get(id), now);
+      };
+      linked = linked.filter((l) => (l.relationship_type ?? "self") !== "self" || !knownMinor(l.client_id));
+    }
+    const clientIds = linked.map((l) => l.client_id);
     if (!clientIds.length) return { calendarName, events: [] };
 
-    addRows(await must<AppointmentRow[]>("appointments", baseQuery().in("client_id", clientIds).order("starts_at", { ascending: true }).limit(MAX_EVENTS)));
-    addRows(await must<AppointmentRow[]>("appointments", baseQuery().in("partner_client_id", clientIds).order("starts_at", { ascending: true }).limit(MAX_EVENTS)));
+    addRows(await fetchBoth((q) => q.in("client_id", clientIds)));
+    addRows(await fetchBoth((q) => q.in("partner_client_id", clientIds)));
 
+    // Group-class bookings: only attendee rows whose appointment falls in the window (server-side filter, bounded, fail closed at the cap).
     const attendees = await must<any[]>(
       "attendees",
       admin
         .from("appointment_attendees")
-        .select("appointment_id, status, cancelled_at, updated_at")
+        .select("appointment_id, status, cancelled_at, updated_at, appointments!inner(starts_at)")
         .eq("studio_id", studioId)
         .in("client_id", clientIds)
-        .in("status", ["booked", "cancelled"]),
+        .in("status", ["booked", "cancelled"])
+        .gte("appointments.starts_at", cancelledFrom)
+        .lte("appointments.starts_at", windowEnd)
+        .order("updated_at", { ascending: false })
+        .limit(MAX_EVENTS),
     );
-    const attendeeByAppointment = new Map<string, any>();
+    if (attendees.length >= MAX_EVENTS) throw new Error("attendee window exceeds cap"); // never silently truncate
+    const attendeeByAppointment = new Map<string, { booked: boolean; cancelledAt: string | null; changedAt: string | null }>();
     for (const a of attendees) {
-      const prev = attendeeByAppointment.get(a.appointment_id);
-      if (!prev || a.status === "booked") attendeeByAppointment.set(a.appointment_id, a);
+      const entry = attendeeByAppointment.get(a.appointment_id) ?? { booked: false, cancelledAt: null, changedAt: null };
+      if (a.status === "booked") entry.booked = true;
+      else entry.cancelledAt = [entry.cancelledAt, a.cancelled_at ?? a.updated_at].filter(Boolean).sort().pop() ?? null;
+      entry.changedAt = [entry.changedAt, a.updated_at].filter(Boolean).sort().pop() ?? null; // newest change across ALL rows
+      attendeeByAppointment.set(a.appointment_id, entry);
     }
     const attendeeAppointmentIds = [...attendeeByAppointment.keys()].filter((id) => !rows.has(id));
-    for (let i = 0; i < attendeeAppointmentIds.length; i += 100) {
-      const chunk = attendeeAppointmentIds.slice(i, i + 100);
-      addRows(await must<AppointmentRow[]>("attendee appointments", baseQuery().in("id", chunk)));
+    for (const ids of chunks(attendeeAppointmentIds)) {
+      addRows(await must<AppointmentRow[]>("attendee appointments", baseQuery([...LIVE_STATUSES, "cancelled"], cancelledFrom).in("id", ids)));
     }
     for (const [appointmentId, a] of attendeeByAppointment) {
       const entry = rows.get(appointmentId);
       if (!entry) continue;
-      // this dancer's own booking state, not the class's
-      if (a.status === "cancelled") entry.attendeeCancelledAt = a.cancelled_at ?? a.updated_at ?? entry.row.updated_at;
-      entry.attendeeChangedAt = a.updated_at ?? null;
+      // this dancer's own booking state, not the class's: cancelled only when no other included profile still holds a booking
+      if (!a.booked && a.cancelledAt) entry.attendeeCancelledAt = a.cancelledAt;
+      entry.attendeeChangedAt = a.changedAt;
     }
   }
 
@@ -249,6 +293,7 @@ export async function loadFeedEvents(admin: SupabaseLike, subject: FeedSubject, 
       const changedAt = [row.updated_at, attendeeChangedAt].filter(Boolean).sort().pop() ?? null;
       return toEvent(row, subject, names, now, attendeeCancelledAt, changedAt);
     })
-    .slice(0, MAX_EVENTS);
+    .sort((a, b) => (a.startsAt === b.startsAt ? (a.uid < b.uid ? -1 : 1) : a.startsAt < b.startsAt ? -1 : 1))
+    .slice(0, MAX_EVENTS); // sort first: when capped, the furthest-future events are dropped
   return { calendarName, events };
 }

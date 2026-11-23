@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { handleFeedRequest, IP_LIMIT, TOKEN_LIMIT, tryHandleFeedRequest } from "../handler";
+import { clientIp, handleFeedRequest, IP_MISS_LIMIT, TOKEN_LIMIT, tryHandleFeedRequest } from "../handler";
 import { generateFeedSecret, hashFeedSecret } from "../token";
 import { FakeAdmin } from "./fakeAdmin";
 
@@ -11,6 +11,7 @@ function setup(opts: { resolve?: "ok" | "none" | "error"; rate?: "ok" | "deny-ip
   const admin = new FakeAdmin({
     studios: [{ id: S1, name: "Studio One", public_name: null }],
     instructors: [{ id: "i1", studio_id: S1, user_id: U, active: true, first_name: "Sam" }],
+    user_studio_roles: [{ studio_id: S1, user_id: U, active: true, role: "instructor" }],
     appointments: [
       {
         id: "a1", studio_id: S1, title: null, appointment_type: "private_lesson", status: "scheduled",
@@ -21,7 +22,7 @@ function setup(opts: { resolve?: "ok" | "none" | "error"; rate?: "ok" | "deny-ip
   });
   admin.rpcHandlers.calendar_feed_rate_check = (args) => {
     if (opts.rate === "error") return { data: null, error: { message: "boom" } };
-    const isIp = String(args.p_key).startsWith("ip:");
+    const isIp = String(args.p_key).startsWith("ip");
     const deny = (opts.rate === "deny-ip" && isIp) || (opts.rate === "deny-token" && !isIp);
     return { data: [{ allowed: !deny, hits: 1, retry_after_seconds: 42 }], error: null };
   };
@@ -93,28 +94,35 @@ describe("feed handler", () => {
     expect(admin.queries).toHaveLength(0);
   });
 
-  it("rate limits per IP and per token with Retry-After, before resolving the token", async () => {
+  it("counts only MISSES against the IP bucket and limits owned tokens per token (Retry-After on 429)", async () => {
     const { secret } = generateFeedSecret();
-    const ipDenied = setup({ rate: "deny-ip" });
+    // a successful fetch never touches the IP bucket
+    const ok = setup({ hash: hashFeedSecret(secret) });
+    await handleFeedRequest(req(), secret, deps(ok));
+    expect(ok.rpcCalls.map((c) => c.fn)).toEqual(["calendar_feed_resolve", "calendar_feed_rate_check"]);
+    expect(ok.rpcCalls[1].args).toMatchObject({ p_limit: TOKEN_LIMIT.limit, p_window_seconds: TOKEN_LIMIT.windowSeconds });
+    expect(String(ok.rpcCalls[1].args.p_key).startsWith("tok:")).toBe(true);
+    // a miss counts against the IP bucket; over the limit is a 429
+    const missed = setup({ resolve: "none" });
+    expect((await handleFeedRequest(req(), secret, deps(missed))).status).toBe(404);
+    expect(missed.rpcCalls[1].args).toMatchObject({ p_limit: IP_MISS_LIMIT.limit, p_window_seconds: IP_MISS_LIMIT.windowSeconds });
+    expect(String(missed.rpcCalls[1].args.p_key).startsWith("ipmiss:")).toBe(true);
+    const ipDenied = setup({ resolve: "none", rate: "deny-ip" });
     const r1 = await handleFeedRequest(req(), secret, deps(ipDenied));
     expect(r1.status).toBe(429);
     expect(r1.headers.get("retry-after")).toBe("42");
-    expect(ipDenied.rpcCalls.map((c) => c.fn)).not.toContain("calendar_feed_resolve");
+    // an owned token over its own limit is a 429 too
     const tokDenied = setup({ rate: "deny-token" });
     const r2 = await handleFeedRequest(req(), secret, deps(tokDenied));
     expect(r2.status).toBe(429);
-    expect(tokDenied.rpcCalls.map((c) => c.fn)).not.toContain("calendar_feed_resolve");
-    const limits = setup({ hash: hashFeedSecret(secret) });
-    await handleFeedRequest(req(), secret, deps(limits));
-    expect(limits.rpcCalls[0].args).toMatchObject({ p_limit: IP_LIMIT.limit, p_window_seconds: IP_LIMIT.windowSeconds });
-    expect(limits.rpcCalls[1].args).toMatchObject({ p_limit: TOKEN_LIMIT.limit, p_window_seconds: TOKEN_LIMIT.windowSeconds });
-    expect(String(limits.rpcCalls[1].args.p_key)).not.toContain(secret);
   });
 
   it("fails closed (503) when the limiter or resolver errors, without leaking error text", async () => {
     const { secret } = generateFeedSecret();
     const limiterDown = await handleFeedRequest(req(), secret, deps(setup({ rate: "error" })));
     expect(limiterDown.status).toBe(503);
+    const missLimiterDown = await handleFeedRequest(req(), secret, deps(setup({ resolve: "none", rate: "error" })));
+    expect(missLimiterDown.status).toBe(503);
     expect(limiterDown.headers.get("retry-after")).toBe("60");
     const resolverDown = await handleFeedRequest(req(), secret, deps(setup({ resolve: "error" })));
     expect(resolverDown.status).toBe(503);
@@ -132,23 +140,30 @@ describe("feed handler", () => {
     expect(await res.text()).not.toMatch(/relation|secret detail/);
   });
 
-  it("limiter keys are hashed (no raw IP or token in keys)", async () => {
+  it("limiter keys are hashed and IPs come from platform headers, IPv6 bucketed by /64", async () => {
     const { secret } = generateFeedSecret();
-    const admin = setup({ hash: hashFeedSecret(secret) });
-    await handleFeedRequest(req(), secret, deps(admin));
+    const admin = setup({ resolve: "none" });
+    await handleFeedRequest(req({ "x-vercel-forwarded-for": "198.51.100.7" }), secret, deps(admin));
     for (const c of admin.rpcCalls.filter((x) => x.fn === "calendar_feed_rate_check")) {
-      expect(String(c.args.p_key)).not.toContain("203.0.113.9");
+      expect(String(c.args.p_key)).not.toContain("198.51.100.7");
       expect(String(c.args.p_key).length).toBeLessThanOrEqual(128);
     }
+    const r = (h: Record<string, string>) => clientIp(new Request("https://x.test", { headers: h }));
+    expect(r({ "x-vercel-forwarded-for": "198.51.100.7", "x-forwarded-for": "6.6.6.6, 7.7.7.7" })).toBe("198.51.100.7");
+    expect(r({ "x-forwarded-for": "6.6.6.6, 7.7.7.7" })).toBe("7.7.7.7");
+    expect(r({ "x-real-ip": "2001:db8:1:2:aaaa:bbbb:cccc:dddd" })).toBe(r({ "x-real-ip": "2001:db8:1:2:1111:2222:3333:4444" }));
+    expect(r({ "x-real-ip": "2001:db8:1:2::5" })).toBe("2001:db8:1:2::/64");
   });
 });
 
 describe("fall-through mode (legacy routes)", () => {
-  it("returns null for every condition that would otherwise be a 404 or a fault, so the legacy response continues", async () => {
+  it("returns null for every condition that would otherwise be a 404 or a fault, never counting legacy tokens against the IP bucket", async () => {
     const { secret } = generateFeedSecret();
     expect(await tryHandleFeedRequest(req(), secret, deps(setup(), false))).toBeNull();
     expect(await tryHandleFeedRequest(req(), "not-a-feed-token", deps(setup()))).toBeNull();
-    expect(await tryHandleFeedRequest(req(), secret, deps(setup({ resolve: "none" })))).toBeNull();
+    const unowned = setup({ resolve: "none", rate: "deny-ip" });
+    expect(await tryHandleFeedRequest(req(), secret, deps(unowned))).toBeNull();
+    expect(unowned.rpcCalls.map((c) => c.fn)).toEqual(["calendar_feed_resolve"]);
     expect(await tryHandleFeedRequest(req(), secret, deps(setup({ resolve: "error" })))).toBeNull();
     expect(await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "error" })))).toBeNull();
     const broken = setup({ hash: hashFeedSecret(secret) });
@@ -158,31 +173,12 @@ describe("fall-through mode (legacy routes)", () => {
     expect(await tryHandleFeedRequest(req(), secret, deps(broken))).toBeNull();
   });
 
-  it("serves migrated tokens through the new renderer and enforces rate limits only for tokens it owns", async () => {
+  it("serves migrated tokens through the new renderer and rate limits only the tokens it owns", async () => {
     const { secret } = generateFeedSecret();
     const ok = await tryHandleFeedRequest(req(), secret, deps(setup({ hash: hashFeedSecret(secret) })));
     expect(ok?.status).toBe(200);
     expect(await ok!.text()).toContain("BEGIN:VCALENDAR");
-    const limited = await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "deny-ip" })));
+    const limited = await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "deny-token" })));
     expect(limited?.status).toBe(429);
-  });
-});
-
-describe("fall-through: legacy subscribers are never throttled", () => {
-  it("a well-shaped token this feature does not own returns null even when the limiter would deny, and never hits the limiter", async () => {
-    const { secret } = generateFeedSecret();
-    const unowned = setup({ resolve: "none", rate: "deny-ip" });
-    expect(await tryHandleFeedRequest(req(), secret, deps(unowned))).toBeNull();
-    expect(unowned.rpcCalls.map((c) => c.fn)).toEqual(["calendar_feed_resolve"]);
-    const limiterDown = setup({ resolve: "none", rate: "error" });
-    expect(await tryHandleFeedRequest(req(), secret, deps(limiterDown))).toBeNull();
-  });
-
-  it("normal mode still limits before resolving", async () => {
-    const { secret } = generateFeedSecret();
-    const admin = setup({ resolve: "none", rate: "deny-ip" });
-    const res = await handleFeedRequest(req(), secret, deps(admin));
-    expect(res.status).toBe(429);
-    expect(admin.rpcCalls.map((c) => c.fn)).not.toContain("calendar_feed_resolve");
   });
 });

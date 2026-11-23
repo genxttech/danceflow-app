@@ -44,6 +44,7 @@ function world(extra: Record<string, any[]> = {}) {
       { id: S2, name: "Studio Two", public_name: null },
     ],
     instructors: [{ id: I1, studio_id: S1, user_id: U_STAFF, active: true, first_name: "Sam" }],
+    user_studio_roles: [{ studio_id: S1, user_id: U_STAFF, active: true, role: "instructor" }],
     clients: [
       { id: C_ADULT, studio_id: S1, first_name: "Alex", last_name: "Rivera", date_of_birth: "1990-05-05" },
       { id: C_MINOR, studio_id: S1, first_name: "Mia", last_name: "Kent", date_of_birth: "2015-03-03" },
@@ -51,9 +52,9 @@ function world(extra: Record<string, any[]> = {}) {
     ],
     rooms: [{ id: "r1", studio_id: S1, name: "Studio A" }],
     client_account_links: [
-      { studio_id: S1, user_id: U_DANCER, client_id: C_ADULT, status: "linked", can_view_schedule: true },
-      { studio_id: S1, user_id: U_DANCER, client_id: C_MINOR, status: "linked", can_view_schedule: true },
-      { studio_id: S1, user_id: U_DANCER, client_id: C_OTHER, status: "linked", can_view_schedule: false },
+      { studio_id: S1, user_id: U_DANCER, client_id: C_ADULT, status: "linked", can_view_schedule: true, relationship_type: "self" },
+      { studio_id: S1, user_id: U_DANCER, client_id: C_MINOR, status: "linked", can_view_schedule: true, relationship_type: "guardian" },
+      { studio_id: S1, user_id: U_DANCER, client_id: C_OTHER, status: "linked", can_view_schedule: false, relationship_type: "self" },
     ],
     appointment_attendees: [],
     appointments: [],
@@ -154,7 +155,7 @@ describe("loadFeedEvents: visibility and isolation", () => {
   });
 
   it("every query is filtered by the token's studio (isolation guard)", async () => {
-    const admin = world({ appointments: [appt({ id: "p1" })], appointment_attendees: [{ studio_id: S1, appointment_id: "p1", client_id: C_ADULT, status: "booked", updated_at: "2026-11-25T10:00:00Z" }] });
+    const admin = world({ appointments: [appt({ id: "p1" })], appointment_attendees: [{ studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "p1", client_id: C_ADULT, status: "booked", updated_at: "2026-11-25T10:00:00Z" }] });
     await loadFeedEvents(admin, dancer("standard"), NOW);
     await loadFeedEvents(admin, staff("standard"), NOW);
     expect(admin.queries.length).toBeGreaterThan(5);
@@ -181,7 +182,8 @@ describe("loadFeedEvents: lifecycle", () => {
     const byUid = Object.fromEntries(events.map((e) => [e.uid, e]));
     expect(byUid["x1@danceflow"].status).toBe("CONFIRMED");
     expect(byUid["x2@danceflow"].status).toBe("CANCELLED");
-    expect(byUid["x2@danceflow"].sequence).toBeGreaterThan(0);
+    expect(byUid["x2@danceflow"].sequence % 2).toBe(1); // cancelled sequences are odd (2 x base + 1)
+    expect(byUid["x1@danceflow"].sequence % 2).toBe(0);
     expect(byUid["x3@danceflow"]).toBeUndefined();
   });
 
@@ -200,8 +202,8 @@ describe("loadFeedEvents: lifecycle", () => {
     const admin = world({
       appointments: [klass],
       appointment_attendees: [
-        { studio_id: S1, appointment_id: "g1", client_id: C_ADULT, status: "cancelled", cancelled_at: "2026-11-29T09:00:00Z", updated_at: "2026-11-29T09:00:00Z" },
-        { studio_id: S1, appointment_id: "g1", client_id: C_OTHER, status: "booked", updated_at: "2026-11-20T09:00:00Z" },
+        { studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "g1", client_id: C_ADULT, status: "cancelled", cancelled_at: "2026-11-29T09:00:00Z", updated_at: "2026-11-29T09:00:00Z" },
+        { studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "g1", client_id: C_OTHER, status: "booked", updated_at: "2026-11-20T09:00:00Z" },
       ],
     });
     const mine = (await loadFeedEvents(admin, dancer("minimal", [C_ADULT]), NOW)).events;
@@ -213,7 +215,7 @@ describe("loadFeedEvents: lifecycle", () => {
 
   it("group-class bookings via attendees appear for the dancer", async () => {
     const klass = appt({ id: "g2", appointment_type: "group_class", title: "Tango", client_id: null });
-    const admin = world({ appointments: [klass], appointment_attendees: [{ studio_id: S1, appointment_id: "g2", client_id: C_ADULT, status: "booked", updated_at: "2026-11-20T09:00:00Z" }] });
+    const admin = world({ appointments: [klass], appointment_attendees: [{ studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "g2", client_id: C_ADULT, status: "booked", updated_at: "2026-11-20T09:00:00Z" }] });
     const { events } = await loadFeedEvents(admin, dancer(), NOW);
     expect(events.map((e) => e.summary)).toEqual(["Tango"]);
   });
@@ -222,5 +224,75 @@ describe("loadFeedEvents: lifecycle", () => {
     const admin = world({ appointments: [appt({ id: "far", starts_at: iso(130) }), appt({ id: "old", starts_at: iso(-10) }), appt({ id: "ok", starts_at: iso(100) })] });
     const { events } = await loadFeedEvents(admin, staff(), NOW);
     expect(events.map((e) => e.uid)).toEqual(["ok@danceflow"]);
+  });
+});
+
+describe("loadFeedEvents: review hardening", () => {
+  it("an empty selection of profiles means nobody (never everybody)", async () => {
+    const admin = world({ appointments: [appt({ id: "mine", client_id: C_ADULT })] });
+    expect((await loadFeedEvents(admin, dancer("minimal", []), NOW)).events).toHaveLength(0);
+  });
+
+  it("a known minor's own (self) account does not get a feed; the guardian link does", async () => {
+    const admin = world({ appointments: [appt({ id: "kid", client_id: C_MINOR })] });
+    admin.tables.client_account_links = admin.tables.client_account_links.map((l) => (l.client_id === C_MINOR ? { ...l, relationship_type: "self" } : l));
+    expect((await loadFeedEvents(admin, dancer(), NOW)).events).toHaveLength(0);
+    admin.tables.client_account_links = admin.tables.client_account_links.map((l) => (l.client_id === C_MINOR ? { ...l, relationship_type: "guardian" } : l));
+    expect((await loadFeedEvents(admin, dancer(), NOW)).events).toHaveLength(1);
+  });
+
+  it("staff without an active studio role get an empty feed even if the instructor row is active", async () => {
+    const admin = world({ appointments: [appt({ id: "p1" })] });
+    admin.tables.user_studio_roles = [{ studio_id: S1, user_id: U_STAFF, active: false, role: "instructor" }];
+    expect((await loadFeedEvents(admin, staff(), NOW)).events).toHaveLength(0);
+  });
+
+  it("dancer feeds show the room only, never staff-entered location text; staff feeds may show it", async () => {
+    const rows = [appt({ id: "p1", location_name: "123 Private Home Rd", room_id: "r1" })];
+    const d = (await loadFeedEvents(world({ appointments: rows }), dancer(), NOW)).events[0];
+    expect(d.location).toBe("Studio A");
+    expect(JSON.stringify(d)).not.toContain("Private Home");
+    const s = (await loadFeedEvents(world({ appointments: rows }), staff(), NOW)).events[0];
+    expect(s.location).toBe("123 Private Home Rd");
+  });
+
+  it("an un-cancel always outranks the earlier cancellation (SEQUENCE)", async () => {
+    const klass = appt({ id: "g9", appointment_type: "group_class", title: "Waltz", client_id: null });
+    const attendee = (status: string, updated: string) => ({ studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "g9", client_id: C_ADULT, status, cancelled_at: status === "cancelled" ? updated : null, updated_at: updated });
+    const cancelled = (await loadFeedEvents(world({ appointments: [klass], appointment_attendees: [attendee("cancelled", "2026-11-29T09:00:00Z")] }), dancer("minimal", [C_ADULT]), NOW)).events[0];
+    const rebooked = (await loadFeedEvents(world({ appointments: [klass], appointment_attendees: [attendee("booked", "2026-11-29T09:00:01Z")] }), dancer("minimal", [C_ADULT]), NOW)).events[0];
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(rebooked.status).toBe("CONFIRMED");
+    expect(rebooked.sequence).toBeGreaterThan(cancelled.sequence);
+  });
+
+  it("a guardian with two dependents sees a class as live while at least one dependent is still booked", async () => {
+    const klass = appt({ id: "g8", appointment_type: "group_class", title: "Waltz", client_id: null });
+    const row = (client: string, status: string, updated: string) => ({ studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "g8", client_id: client, status, cancelled_at: status === "cancelled" ? updated : null, updated_at: updated });
+    const admin = world({ appointments: [klass], appointment_attendees: [row(C_ADULT, "cancelled", "2026-11-29T09:00:00Z"), row(C_MINOR, "booked", "2026-11-28T09:00:00Z")] });
+    const { events } = await loadFeedEvents(admin, dancer(), NOW);
+    expect(events).toHaveLength(1);
+    expect(events[0].status).toBe("CONFIRMED");
+  });
+
+  it("drops zero or negative length appointments and sorts before applying the cap", async () => {
+    const bad = appt({ id: "bad", starts_at: iso(2), ends_at: iso(1) });
+    const admin = world({ appointments: [bad, appt({ id: "b", starts_at: iso(5) }), appt({ id: "a", starts_at: iso(3) })] });
+    const { events } = await loadFeedEvents(admin, staff(), NOW);
+    expect(events.map((e) => e.uid)).toEqual(["a@danceflow", "b@danceflow"]);
+  });
+
+  it("fails closed (throws) instead of silently truncating a huge attendee window", async () => {
+    const attendees = Array.from({ length: 1000 }, (_, i) => ({ studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "x" + i, client_id: C_ADULT, status: "booked", updated_at: "2026-11-20T00:00:00Z" }));
+    const admin = world({ appointment_attendees: attendees });
+    await expect(loadFeedEvents(admin, dancer(), NOW)).rejects.toThrow();
+  });
+
+  it("chunks id lookups (no single query carries more than 100 ids)", async () => {
+    const rows = Array.from({ length: 150 }, (_, i) => appt({ id: "m" + i, client_id: "c-" + i, starts_at: iso(2 + (i % 50)) }));
+    const clients = rows.map((r) => ({ id: r.client_id as string, studio_id: S1, first_name: "N" + r.id, last_name: "L", date_of_birth: "1990-01-01" }));
+    const admin = world({ appointments: rows, clients });
+    await loadFeedEvents(admin, staff("standard"), NOW);
+    for (const q of admin.queries) for (const f of q.filters) if (f.op === "in" && Array.isArray(f.val)) expect(f.val.length).toBeLessThanOrEqual(100);
   });
 });

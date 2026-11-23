@@ -5,12 +5,14 @@ import { loadFeedEvents, type FeedSubject, type SupabaseLike } from "./events";
 import { hashFeedSecret, parseFeedSecret } from "./token";
 
 /**
- * Public ICS feed handler (docs/integrations/Calendar_Feeds_Design.md). Order of operations is deliberate:
- * kill switch -> token shape -> rate limits (fail closed) -> resolve (uniform 404) -> render -> ETag/304.
- * Every failure that is not a rate limit or a server fault is the SAME 404 response; no DB text is ever returned.
+ * Public ICS feed handler (docs/integrations/Calendar_Feeds_Design.md).
+ * Order: kill switch -> token shape -> resolve -> (miss: per-IP enumeration limit, uniform 404) / (hit: per-token limit) -> render -> ETag/304.
+ * The per-IP bucket counts only MISSES: calendar providers fetch subscribed feeds from a small pool of shared IPs, so counting
+ * successful fetches would throttle healthy subscribers. Every failure that is not a rate limit or a server fault is the SAME 404;
+ * no DB text is ever returned. Limiter errors fail closed (503) in normal mode.
  */
 
-export const IP_LIMIT = { limit: 300, windowSeconds: 3600 };
+export const IP_MISS_LIMIT = { limit: 300, windowSeconds: 3600 };
 export const TOKEN_LIMIT = { limit: 60, windowSeconds: 3600 };
 
 export type FeedHandlerDeps = {
@@ -25,14 +27,14 @@ const BASE_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
 };
 
-function notFound(): Response {
+export function notFound(): Response {
   return new Response("Not found", {
     status: 404,
     headers: { ...BASE_HEADERS, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "private, no-store" },
   });
 }
 
-function unavailable(status: 429 | 503, retryAfter: number): Response {
+export function unavailable(status: 429 | 503, retryAfter: number): Response {
   return new Response(status === 429 ? "Too many requests" : "Temporarily unavailable", {
     status,
     headers: {
@@ -44,10 +46,20 @@ function unavailable(status: 429 | 503, retryAfter: number): Response {
   });
 }
 
-function clientIp(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for") ?? "";
-  const first = forwarded.split(",")[0]?.trim();
-  return first || request.headers.get("x-real-ip")?.trim() || "unknown";
+/** Platform-set headers first (not client-appendable); IPv6 addresses are bucketed by /64 so rotating within a prefix does not bypass the limit. */
+export function clientIp(request: Request): string {
+  const raw =
+    request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
+    "unknown";
+  if (raw.includes(":")) {
+    const groups = raw.split(":");
+    if (!raw.includes("::") && groups.length === 8) return groups.slice(0, 4).join(":") + "::/64";
+    const head = raw.split("::")[0];
+    return head.split(":").slice(0, 4).join(":") + "::/64";
+  }
+  return raw;
 }
 
 async function rateCheck(admin: SupabaseLike, key: string, limit: number, windowSeconds: number): Promise<{ allowed: boolean; retryAfter: number } | null> {
@@ -76,8 +88,9 @@ function matchesEtag(header: string | null, etag: string): boolean {
 
 /**
  * Fall-through mode is for legacy routes that must keep serving existing subscribers while the new feeds are dark:
- * any condition that would be a 404 or a server fault returns null so the caller continues with its legacy path.
- * Only a rate-limit refusal (429) is returned. In normal mode nothing is ever null.
+ * any condition that would be a 404 or a server fault returns null so the caller continues with its legacy path, and
+ * misses are NOT counted against the IP bucket (legacy tokens are misses by definition). A token this feature owns is
+ * still rate limited per token. In normal mode nothing is ever null.
  */
 async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fallthrough: boolean): Promise<Response | null> {
   const miss = () => (fallthrough ? null : notFound());
@@ -87,23 +100,6 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
   const secret = parseFeedSecret(rawToken);
   if (!secret) return miss();
   const tokenHash = hashFeedSecret(secret);
-
-  // Normal mode limits BEFORE resolving so unknown tokens cost the attacker and cannot be enumerated at speed (fail closed).
-  // Fall-through mode (legacy routes) resolves first and limits only tokens this feature actually owns: legacy subscribers
-  // (calendar apps share a few fetch IPs) must never be throttled or failed by a feature they have not been moved to.
-  const limit = async (): Promise<Response | null | undefined> => {
-    const ip = await rateCheck(deps.admin, `ip:${shortHash(clientIp(request))}`, IP_LIMIT.limit, IP_LIMIT.windowSeconds);
-    if (!ip) return fault();
-    if (!ip.allowed) return unavailable(429, ip.retryAfter);
-    const tok = await rateCheck(deps.admin, `tok:${tokenHash.slice(0, 24)}`, TOKEN_LIMIT.limit, TOKEN_LIMIT.windowSeconds);
-    if (!tok) return fault();
-    if (!tok.allowed) return unavailable(429, tok.retryAfter);
-    return undefined;
-  };
-  if (!fallthrough) {
-    const refused = await limit();
-    if (refused !== undefined) return refused;
-  }
 
   let subject: FeedSubject | null = null;
   try {
@@ -122,11 +118,19 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
   } catch {
     return fault();
   }
-  if (!subject) return miss();
-  if (fallthrough) {
-    const refused = await limit();
-    if (refused !== undefined) return refused;
+
+  if (!subject) {
+    if (fallthrough) return null;
+    // Enumeration guard: only misses count against the IP bucket.
+    const ip = await rateCheck(deps.admin, `ipmiss:${shortHash(clientIp(request))}`, IP_MISS_LIMIT.limit, IP_MISS_LIMIT.windowSeconds);
+    if (!ip) return unavailable(503, 60);
+    if (!ip.allowed) return unavailable(429, ip.retryAfter);
+    return notFound();
   }
+
+  const tok = await rateCheck(deps.admin, `tok:${tokenHash.slice(0, 24)}`, TOKEN_LIMIT.limit, TOKEN_LIMIT.windowSeconds);
+  if (!tok) return fault();
+  if (!tok.allowed) return unavailable(429, tok.retryAfter);
 
   let body: string;
   try {
