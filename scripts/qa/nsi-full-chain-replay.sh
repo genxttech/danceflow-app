@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# NSI full-chain disposable replay (docs/student-intake/NSI_Full_Chain_Replay_Plan.md). LOCAL DISPOSABLE CONTAINERS ONLY. Hold C:\dfr\heavy.lock.
+#   A  baseline from origin/main + every other post-cutoff main migration + TW-4F chain + NSI M1-M11 at the END (PROD order)
+#   B  baseline built from the NSI branch (NSI inside the history by filename order) + the same chain without NSI files
+# Then: pg_dump comparison of the public and intake_private schemas, the NSI catalog fingerprint, the NSI suites on A, rollbacks M11 -> M9 on A.
+# usage: nsi-full-chain-replay.sh <out-dir>
+set -u
+OUT="${1:?out dir}"; mkdir -p "$OUT"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"; SQLT="$REPO/src/lib/supabase/migrations/sql-tests"; MIG="$REPO/src/lib/supabase/migrations"
+ISO="node $REPO/scripts/qa/iso-qa.mjs"
+TAG=df-isoqa/base:20261205090000; BACKUP=nsi-replay/base-a:20261205090000
+fail=0; say() { echo "$*" | tee -a "$OUT/summary.log"; }; bad() { say "FAIL: $*"; fail=$((fail+1)); }
+cd "$REPO" || exit 2
+docker image inspect "$TAG" >/dev/null 2>&1 && docker tag "$TAG" "$BACKUP" && say "backed up current $TAG ($(docker image inspect $TAG --format '{{.Id}}' | cut -c1-19))"
+dbof() { docker ps --filter "label=df.isoqa=1" --format '{{.Names}}' | grep -- "-$1-db$" | head -1; }
+dump() { docker exec "$1" pg_dump -U postgres -s --no-owner -n public -n intake_private postgres 2>/dev/null; }
+fp() { docker exec -i "$1" psql -U postgres -At -f - < "$SQLT/nsi_i2_catalog_fingerprint_local.sql" 2>&1 | head -1; }
+apfp() { docker exec -i "$1" psql -U postgres -At -c "select md5((select string_agg(tgname || pg_get_triggerdef(oid), '|' order by tgname) from pg_trigger where tgrelid = 'public.appointments'::regclass and not tgisinternal) || (select string_agg(conname || pg_get_constraintdef(oid), '|' order by conname) from pg_constraint where conrelid = 'public.appointments'::regclass) || (select string_agg(indexdef, '|' order by indexname) from pg_indexes where schemaname = 'public' and tablename = 'appointments') || (select coalesce(string_agg(conrelid::regclass::text || conname, '|' order by conname), '') from pg_constraint where confrelid = 'public.appointments'::regclass))" 2>&1 | head -1; }
+
+# ---------------------------------------------------------------- A: NSI at the end (PROD order)
+say "== A: up full-nsi-end (baseline from origin/main)"
+$ISO up full-nsi-end --name nsirA --no-api > "$OUT/up_a.json" 2> "$OUT/up_a.err"; rc=$?
+say "   up exit code $rc"; tail -3 "$OUT/up_a.err" | cut -c1-300 | sed 's/^/   /'
+CA=$(dbof nsirA); [ -n "$CA" ] || { bad "no db container for A"; fail=99; }
+if [ -n "$CA" ] && [ $rc -eq 0 ]; then
+  FPA=$(fp "$CA"); APA=$(apfp "$CA"); say "   NSI catalog fingerprint A: $FPA   appointments fp A: $APA"
+  [ "$FPA" = "5c8ef043e71dd17b9a4a6d95b2c1bed4|670" ] || [ "$FPA" = "5c8ef043e71dd17b9a4a6d95b2c1bed4	670" ] || bad "A NSI fingerprint is not the M11 value (got $FPA)"
+  docker exec "$CA" psql -U postgres -At -c "select intake_private.assert_catalog(); select 'assert_catalog ok'" 2>&1 | tail -1 | sed 's/^/   /'
+  dump "$CA" > "$OUT/schema_a.sql"; wc -l "$OUT/schema_a.sql" | sed 's/^/   dump lines: /'
+  docker rename "$CA" nsi-i2-replay-a
+  run() { r=$(LINES_OUT=2 "$SQLT/run_i2_m7_m9_local.sh" nsi-i2-replay-a "$1" "$APA" | grep -E "SUITE" | head -1 | cut -c1-1500); say "   $2: ${r:-<no result>}"; echo "$r" | grep -q PASS || bad "$2: $r"; }
+  run test_T_nsi_i2_m11_ensure_request_local.sql "M11 suite on A"
+  run test_T_nsi_i2_m10_ensure_request_local.sql "M10 suite on A"
+  run test_T_nsi_i2_m7_grants_local.sql "M7 suite on A"
+  run test_T_nsi_i2_m9_archiving_local.sql "M9 suite on A"
+  for f in test_T_nsi_i1_foundation test_T_nsi_i2_local; do
+    r=$({ echo "set nsi.test_local = 'on'; set nsi.appointments_fp = '$APA';"; cat "$SQLT/$f.sql"; } | docker exec -i nsi-i2-replay-a psql -U postgres -q 2>&1 | grep -E "SUITE" | head -1 | cut -c1-1500)
+    say "   $f on A: ${r:-<no result>}"; echo "$r" | grep -q PASS || bad "$f on A: $r"
+  done
+  say "== rollbacks on A: M11 -> M10 -> M9"
+  rbk() { docker exec -i nsi-i2-replay-a psql -U postgres -q -v ON_ERROR_STOP=1 < "$MIG/rollback/$1.sql" 2>&1 | grep -iE "^ERROR|FATAL" | head -2; }
+  e=$(rbk 20261118100000_nsi_i2_m11_ensure_request_hardening_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "c6b3d46bfbe354c9b67864ad9bd58bc2" ] && say "   M11 rollback -> M10 fingerprint identical" || bad "M11 rollback: $e"
+  e=$(rbk 20261118099000_nsi_i2_m10_ensure_request_evaluator_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "534c5e93300ef25b5fa8496fb472d48f" ] && say "   M10 rollback -> M9 fingerprint identical" || bad "M10 rollback: $e"
+fi
+docker rm -f nsi-i2-replay-a >/dev/null 2>&1; $ISO down --name nsirA --force >/dev/null 2>&1
+
+# ---------------------------------------------------------------- B: NSI inside the history (baseline from the NSI branch)
+say "== B: baseline from nsi/n0-preserve (NSI inside the history by filename order)"
+$ISO baseline --ref nsi/n0-preserve > "$OUT/baseline_b.out" 2> "$OUT/baseline_b.err"; rc=$?
+say "   baseline exit code $rc"; tail -2 "$OUT/baseline_b.err" | cut -c1-300 | sed 's/^/   /'
+if [ $rc -eq 0 ]; then
+  $ISO up full-nsi-mid --name nsirB --no-api > "$OUT/up_b.json" 2> "$OUT/up_b.err"; rc=$?
+  say "   up exit code $rc"; tail -3 "$OUT/up_b.err" | cut -c1-300 | sed 's/^/   /'
+  CB=$(dbof nsirB)
+  if [ -n "$CB" ] && [ $rc -eq 0 ]; then
+    FPB=$(fp "$CB"); APB=$(apfp "$CB"); say "   NSI catalog fingerprint B: $FPB   appointments fp B: $APB"
+    dump "$CB" > "$OUT/schema_b.sql"
+    if [ -s "$OUT/schema_a.sql" ]; then
+      n=$(diff "$OUT/schema_a.sql" "$OUT/schema_b.sql" | grep -c '^[<>]'); say "   pg_dump diff A vs B (public + intake_private, schema only): $n differing lines"
+      [ "$n" = "0" ] || { diff "$OUT/schema_a.sql" "$OUT/schema_b.sql" | head -60 > "$OUT/schema_diff_head.txt"; bad "schema dumps differ ($n lines), see schema_diff_head.txt"; }
+      [ "$FPA" = "$FPB" ] && say "   NSI fingerprints identical" || bad "NSI fingerprints differ"
+    fi
+  else bad "B up failed"; fi
+  $ISO down --name nsirB --force >/dev/null 2>&1
+else bad "baseline B failed"; fi
+
+# ---------------------------------------------------------------- restore the shared baseline tag
+if docker image inspect "$BACKUP" >/dev/null 2>&1; then docker tag "$BACKUP" "$TAG" && docker rmi "$BACKUP" >/dev/null 2>&1 && say "restored $TAG"; fi
+docker ps -a --format '{{.Names}}' | grep -E "df-isoqa-nsir|nsi-i2" | while read c; do docker rm -f "$c" >/dev/null 2>&1; done
+say "SUMMARY full-chain replay: failures=$fail"
+[ "$fail" = "0" ]
