@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveStudioTimeZone } from "@/lib/staff/instructorToday";
 import {
   deleteGoogleCalendarEvent,
   getValidGoogleCalendarAccessToken,
@@ -33,7 +34,7 @@ type AppointmentSyncRow = {
   rooms: { name: string | null } | { name: string | null }[] | null;
 };
 
-type EventSyncRow = {
+export type EventSyncRow = {
   id: string;
   name: string;
   event_type: string | null;
@@ -108,7 +109,8 @@ function appointmentPayload(row: AppointmentSyncRow): GoogleCalendarEventPayload
     extendedProperties: { private: { danceflowSourceType: "appointment", danceflowSourceId: row.id } },
   };
 }
-function eventPayload(row: EventSyncRow): GoogleCalendarEventPayload {
+/** Studio events carry a wall-clock date/time with no zone of their own: Google needs an explicit IANA timeZone (or an offset) for dateTime. */
+export function eventPayload(row: EventSyncRow, timeZone: string): GoogleCalendarEventPayload {
   const location = [row.venue_name, row.city, row.state].filter(Boolean).join(", ") || undefined;
   const startDateTime = row.start_time ? `${row.start_date}T${row.start_time}` : null;
   const endDate = row.end_date ?? row.start_date;
@@ -117,8 +119,8 @@ function eventPayload(row: EventSyncRow): GoogleCalendarEventPayload {
     summary: row.name,
     description: ["Synced automatically from DanceFlow.", row.event_type ? `Type: ${row.event_type.replaceAll("_", " ")}` : null].filter(Boolean).join("\n"),
     location,
-    start: startDateTime ? { dateTime: startDateTime } : { date: row.start_date },
-    end: endDateTime ? { dateTime: endDateTime } : { date: endDate },
+    start: startDateTime ? { dateTime: startDateTime, timeZone } : { date: row.start_date },
+    end: endDateTime ? { dateTime: endDateTime, timeZone } : { date: endDate },
     extendedProperties: { private: { danceflowSourceType: "event", danceflowSourceId: row.id } },
   };
 }
@@ -170,6 +172,8 @@ export async function syncGoogleCalendarConnection(connection: GoogleCalendarCon
 
   try {
     const accessToken = await getValidGoogleCalendarAccessToken(connection.id);
+    const { data: studioRow } = await admin.from("studios").select("timezone").eq("id", connection.studio_id).maybeSingle<{ timezone: string | null }>();
+    const studioTimeZone = resolveStudioTimeZone(studioRow?.timezone);
     const now = new Date();
     const rangeEnd = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
     const today = now.toISOString().slice(0, 10);
@@ -232,7 +236,7 @@ export async function syncGoogleCalendarConnection(connection: GoogleCalendarCon
       await syncOne("appointment", appointment.id, appointmentPayload(appointment));
     }
     if (connection.connection_scope === "studio" && connection.sync_events) {
-      for (const event of (events ?? []) as EventSyncRow[]) await syncOne("event", event.id, eventPayload(event));
+      for (const event of (events ?? []) as EventSyncRow[]) await syncOne("event", event.id, eventPayload(event, studioTimeZone));
     }
 
     // Appointment mappings that are not in this run's desired set are only deleted when the appointment

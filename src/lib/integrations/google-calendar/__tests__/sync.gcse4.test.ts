@@ -54,6 +54,7 @@ function table(name: string) {
     in: (c: string, v: any[]) => { isIdLookup = true; filters.push((r) => v.includes(r[c])); return builder; },
     not: () => builder,
     order: () => builder,
+    maybeSingle: async () => ({ data: (db[name] ?? []).find((r) => filters.every((f) => f(r))) ?? null, error: null }),
     then: (resolve: any) => {
       const rows = (db[name] ?? []).filter((r) => filters.every((f) => f(r)));
       if (failLookup && isIdLookup && name === "appointments") return resolve({ data: null, error: { message: "lookup down" } });
@@ -349,5 +350,20 @@ describe("S1E-4 moving fetch window never deletes by itself", () => {
     failLookup = false;
     expect(await syncGoogleCalendarConnection(studioConn)).toMatchObject({ deleted: 0, failed: 0 });
     expect(calendar.size).toBe(1);
+  });
+});
+
+describe("S0-c studio events are synced with the studio timezone", () => {
+  const evConn: GoogleCalendarConnectionRow = { ...studioConn, sync_classes: false, sync_events: true };
+  const today = new Date().toISOString().slice(0, 10);
+  it("a timed event carries studios.timezone; an invalid zone falls back to the repo default", async () => {
+    db.studios = [{ id: "s1", timezone: "America/Chicago" }];
+    db.events = [{ id: "ev1", studio_id: "s1", name: "Social", event_type: "social", status: "published", start_date: today, end_date: null, start_time: "19:00:00", end_time: "22:00:00", venue_name: null, city: null, state: null }];
+    await syncGoogleCalendarConnection(evConn);
+    expect(eventFor("ev1")[0].payload.start).toEqual({ dateTime: `${today}T19:00:00`, timeZone: "America/Chicago" });
+    db.studios[0].timezone = "Not/AZone";
+    await syncGoogleCalendarConnection(evConn);
+    expect(eventFor("ev1")[0].payload.start.timeZone).toBe("America/New_York");
+    expect(eventFor("ev1")).toHaveLength(1);
   });
 });
