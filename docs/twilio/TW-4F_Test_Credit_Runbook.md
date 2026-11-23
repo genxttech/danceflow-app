@@ -130,6 +130,25 @@ Separating them in those reports needs a reviewed change to the reconciler and t
 
 The database keeps hashes and references, never the authorization text. Every table here is append-only, the budget counters only grow, and the rollback refuses while any row exists.
 
+### Policies and known limits
+
+* **Texting uses test credit first, and refunds give it back first.** A texting charge is paid from test credit before the business's own money. A usage refund of a test-paid charge gives back test credit, up to what that charge took, before any own money. Nothing is split pro rata. Both orders are conservative for DanceFlow: test credit is used up first and never turns into the business's own refundable money.
+* **A forfeit is permanent.** If a refund, dispute, negative adjustment or captured fee pushes own money below zero, the free test credit is forfeited (§1). If that debit is later undone (a dispute won, an adjustment corrected), the forfeited test credit is **not** given back, and it still counts against the test budget. Restoring it takes a new budget decision and a new grant, each with its own evidence.
+* **Purchase ceiling, panel vs database.** The credit panel's pack check leaves out only the free test credit. The database's $500 checkout ceiling leaves out all unused test credit, including the part held for texts in flight. The panel can therefore hide a pack that the database would accept, never the reverse. This is cosmetic and safe.
+* **Verifier coverage.** `tw4_credit_test_status` checks:
+  * that the counters match the movement sums;
+  * that the test kinds match the ledger;
+  * the credit account's own verification;
+  * the own-money rule.
+
+  It does **not** check that each `consume` and `restore` movement matches the ledger row it names. Follow-up F-2: optional hardening that joins each movement to its ledger entry and compares amounts.
+* **Deferred check after a release.** The check that forfeits test credit freed by a released texting hold runs at COMMIT, as a deferred constraint trigger. A session that runs `SET CONSTRAINTS ALL IMMEDIATE`, or names that trigger, after a release has the check run at once, before the text's charge in the same transaction. That can forfeit test credit that the charge would have used. Application code does not do this; operators must not either.
+* **Replication and restores.** The test-credit triggers are ENABLE ALWAYS:
+  * Logical replication applies the rows and fires the triggers again (a direct test-kind insert is refused).
+  * `pg_restore` / data-only restores without `--disable-triggers` refuse test-credit rows.
+
+  Restore these tables only through an owner-level procedure that disables the triggers for the restore and then runs `tw4_credit_test_status` and `tw4_credit_verify`.
+
 ## 7. Rollback
 
 * Operational: switch OFF (§3.5) and reverse the unused balance (§5).
