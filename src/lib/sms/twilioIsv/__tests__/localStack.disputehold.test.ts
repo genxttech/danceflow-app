@@ -277,7 +277,7 @@ commit;`);
       expect(release(w, h.id, "a different note on the replay")).toMatchObject({ replayed: true });
       expect(holds(w)[0].release_note).toBe("Reviewed with the owner; dispute closed, account cleared.");
       expect(audits(w, `dispute_hold_released;hold=${h.id};account_hold_cleared=true;%`)).toBe(1);
-      expect(acct(other).hold).toBe(false);
+      expect(count(`select 1 from public.studio_sms_credit_accounts where legal_entity_id = '${other.entity}' and hold`)).toBe(0);   // the other business has no account row at all, never a hold
       canSpend(w, 100);                                                                // spending works again
       // a released hold is final
       expect(psqlError(`update public.studio_sms_credit_dispute_holds set hold_state = 'held' where id = '${h.id}';`)).toMatch(/held to released, once/);
