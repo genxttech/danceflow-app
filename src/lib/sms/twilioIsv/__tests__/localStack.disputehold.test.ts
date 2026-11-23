@@ -109,7 +109,12 @@ const alertsOf = (w: World, kind?: string) =>
 const ledgerFor = (w: World) =>
   JSON.parse(psql(`select coalesce(json_agg(json_build_object('kind', kind, 'delta', balance_delta_cents, 'key', idempotency_key) order by seq), '[]'::json)::text from public.studio_sms_credit_ledger where legal_entity_id = '${w.entity}'`)) as Array<{ kind: string; delta: number; key: string }>;
 const audits = (w: World, like: string) => count(`select 1 from public.studio_sms_onboarding_audit where studio_id in ('${w.studios[0]}', '${w.studios[1]}') and action = 'credit_hold' and note like '${like}'`);
-const switchSet = (on: boolean) => call("tw4_dispute_hold_switch_set", on, ADMIN, on ? "fixture: automatic dispute hold on" : "fixture: automatic dispute hold off");
+const recordSet = (on: boolean) => call("tw4_dispute_record_switch_set", on, ADMIN, on ? "fixture: dispute record on" : "fixture: dispute record off");
+/** the automatic hold needs the record switch ON (enforced by the database), so turning the hold on turns the record on first */
+const switchSet = (on: boolean) => {
+  if (on) recordSet(true);
+  return call("tw4_dispute_hold_switch_set", on, ADMIN, on ? "fixture: automatic dispute hold on" : "fixture: automatic dispute hold off");
+};
 const release = (w: World, holdId: string, note = "Reviewed with the owner; dispute closed, account cleared.", actor = ADMIN) =>
   call<{ state: string; replayed: boolean; account_hold_cleared?: boolean; account_on_hold: boolean }>("tw4_credit_dispute_hold_release", w.entity, holdId, actor, note);
 const verify = (w: World) => call<{ ok: boolean }>("tw4_credit_verify", w.entity).ok;
@@ -132,8 +137,56 @@ commit;`);
   });
 
   // ---------------------------------------------------------------------------------------------------------------------------------------------
-  describe("dark by default: no hold while the switch is off, but the alert and the DanceFlow-borne fee record", () => {
-    it("a studio that buys $100, spends it and disputes: balance goes negative, NO hold, one not_held row with the $15 fee as DanceFlow-borne, one dispute alert, one negative alert", () => {
+  describe("dark by default: with both switches off a dispute and a negative balance behave exactly as before this migration", () => {
+    it("a studio that buys $100, spends it and disputes: balance goes negative, NO hold, NO row, NO audit, NO alert of either new kind", () => {
+      expect(psql("select public._tw4dh_record_on() || ':' || public._tw4dh_auto_hold_on()")).toBe("false:false");
+      const w = world();
+      const { pi } = pay(w, 10000);
+      spend(w, 9000);
+      const before = ledgerFor(w).length;
+      expect(dispute(pi, `dp_${hex(6)}`, 10000, "withdrawn").replayed).toBe(false);
+      expect(acct(w)).toMatchObject({ balance: -9000, hold: false, reason: null });
+      const ledger = ledgerFor(w);
+      expect(ledger.length).toBe(before + 1);
+      expect(ledger[ledger.length - 1]).toMatchObject({ kind: "topup_reversed", delta: -10000 });
+      expect(verify(w)).toBe(true);
+      expect(holds(w)).toHaveLength(0);
+      expect(audits(w, "dispute_hold;%")).toBe(0);
+      expect(alertsOf(w, "credit_dispute")).toHaveLength(0);
+      expect(alertsOf(w, "credit_negative")).toHaveLength(0);
+      expect(alertsOf(w)).toHaveLength(0);
+      // a won dispute is quiet too, and a replay changes nothing
+      const id = psql(`select dispute_id from public.studio_sms_credit_disputes where legal_entity_id = '${w.entity}'`);
+      dispute(pi, id, 10000, "reinstated");
+      expect(alertsOf(w)).toHaveLength(0);
+      expect(holds(w)).toHaveLength(0);
+    });
+
+    it("the switches are platform-admin only, need a written reason, the hold needs the record, and the log is append-only", () => {
+      for (const fn of ["tw4_dispute_hold_switch_set", "tw4_dispute_record_switch_set"]) {
+        expect(callError(fn, true, NOT_ADMIN, "not an administrator trying")).toMatch(/42501/);
+        expect(callError(fn, true, ADMIN, "short")).toMatch(/22023/);
+      }
+      expect(psql("select public._tw4dh_record_on() || ':' || public._tw4dh_auto_hold_on()")).toBe("false:false");
+      expect(callError("tw4_dispute_hold_switch_set", true, ADMIN, "hold before the record is on")).toMatch(/55000/);   // an automatic hold is always recorded
+      expect(psql("select public._tw4dh_auto_hold_on()")).toBe("f");
+      recordSet(true);
+      expect(psql("select public._tw4dh_record_on() || ':' || public._tw4dh_auto_hold_on()")).toBe("true:false");
+      call("tw4_dispute_hold_switch_set", true, ADMIN, "fixture: hold on after record on");
+      expect(psql("select public._tw4dh_auto_hold_on()")).toBe("t");
+      expect(callError("tw4_dispute_record_switch_set", false, ADMIN, "record off while the hold is on")).toMatch(/55000/);
+      call("tw4_dispute_hold_switch_set", false, ADMIN, "fixture: hold off again");
+      expect(psql("select public._tw4dh_record_on() || ':' || public._tw4dh_auto_hold_on()")).toBe("true:false");
+      expect(psqlError("update public.studio_sms_dispute_hold_switch_log set enabled = false;")).toMatch(/append-only/);
+      expect(psqlError("delete from public.studio_sms_dispute_hold_switch_log;")).toMatch(/append-only/);
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------------------------------------
+  describe("record ON, hold OFF: the alert and the DanceFlow-borne fee record, still no hold", () => {
+    beforeAll(() => recordSet(true));
+
+    it("record ON, hold OFF: a studio that buys $100, spends it and disputes: balance goes negative, NO hold, one not_held row with the $15 fee as DanceFlow-borne, one dispute alert, one negative alert", () => {
       expect(psql("select public._tw4dh_auto_hold_on()")).toBe("f");
       const w = world();
       const { pi } = pay(w, 10000);
@@ -162,14 +215,20 @@ commit;`);
       expect(callError("tw4_credit_dispute_hold_release", w.entity, rows[0].id, ADMIN, "nothing to release here at all")).toMatch(/22023/);
     });
 
-    it("the switch is platform-admin only, needs a written reason, and its log is append-only", () => {
-      expect(callError("tw4_dispute_hold_switch_set", true, NOT_ADMIN, "not an administrator trying")).toMatch(/42501/);
-      expect(callError("tw4_dispute_hold_switch_set", true, ADMIN, "short")).toMatch(/22023/);
-      expect(psql("select public._tw4dh_auto_hold_on()")).toBe("f");
-      switchSet(true);
-      expect(psql("select public._tw4dh_auto_hold_on()")).toBe("t");
-      expect(psqlError("update public.studio_sms_dispute_hold_switch_log set enabled = false;")).toMatch(/append-only/);
-      expect(psqlError("delete from public.studio_sms_dispute_hold_switch_log;")).toMatch(/append-only/);
+    it("the negative-credit trigger can NEVER fail the statement that moved the balance (a failing alert write is only a warning)", () => {
+      const w = world();
+      call("tw4_credit_adjust", w.entity, 500, `fund-${hex(4)}`, "fixture funding for trigger safety", ADMIN);
+      expect(psql("select pg_get_functiondef('public._tw4dh_negative_alert()'::regprocedure) ~* 'exception\s+when others'")).toBe("t");
+      psql("alter table public.studio_sms_provider_alerts add constraint tmp_dh_fail check (kind <> 'credit_negative') not valid;");
+      try {
+        // the alert insert is now impossible; the debit that crosses zero (the shape of an inbound STOP/HELP absorbed debit) must still succeed
+        psql(`select public._tw4c_post('${w.entity}', '${w.studios[0]}', 'usage_charge', -800, 0, 'usage:dh-${hex(6)}', null, 'fixture inbound debit', null, null)::text;`);
+      } finally {
+        psql("alter table public.studio_sms_provider_alerts drop constraint tmp_dh_fail;");
+      }
+      expect(acct(w).balance).toBe(-300);
+      expect(alertsOf(w, "credit_negative")).toHaveLength(0);
+      expect(verify(w)).toBe(true);
     });
   });
 
@@ -416,11 +475,11 @@ commit;`);
     it("service role only for the entry points; helpers callable by no API role; tables have RLS and no API grants", () => {
       const can = (role: string, fn: string) => psql(`select has_function_privilege('${role}', '${fn}', 'execute')`);
       for (const fn of ["public.tw4_credit_dispute_hold_release(uuid, uuid, uuid, text)", "public.tw4_dispute_hold_switch_set(boolean, uuid, text)", "public.tw4_credit_dispute_holds_list(uuid, uuid)",
-        "public.tw4_credit_apply_dispute(text, text, int, text, text)", "public.tw4_credit_set_hold(uuid, boolean, text, uuid)"]) {
+        "public.tw4_credit_apply_dispute(text, text, int, text, text)", "public.tw4_credit_set_hold(uuid, boolean, text, uuid)", "public.tw4_dispute_record_switch_set(boolean, uuid, text)"]) {
         expect(can("service_role", fn)).toBe("t");
         for (const role of ["anon", "authenticated"]) expect(can(role, fn)).toBe("f");
       }
-      for (const fn of ["public._tw4dh_on_withdrawn(uuid)", "public._tw4dh_on_reinstated(uuid)", "public._tw4dh_auto_hold_on()", "public._tw4dh_dispute_fee_cents()", "public._tw4dh_negative_alert()"]) {
+      for (const fn of ["public._tw4dh_on_withdrawn(uuid)", "public._tw4dh_on_reinstated(uuid)", "public._tw4dh_auto_hold_on()", "public._tw4dh_record_on()", "public._tw4dh_switch_on(text)", "public._tw4dh_dispute_fee_cents()", "public._tw4dh_negative_alert()"]) {
         for (const role of ["anon", "authenticated", "service_role"]) expect(can(role, fn)).toBe("f");
       }
       for (const t of ["studio_sms_credit_dispute_holds", "studio_sms_dispute_hold_switch_log"]) {
@@ -429,7 +488,7 @@ commit;`);
           expect(psql(`select has_table_privilege('${role}', 'public.${t}', 'select') or has_table_privilege('${role}', 'public.${t}', 'insert') or has_table_privilege('${role}', 'public.${t}', 'update')`)).toBe("f");
         }
       }
-      for (const fn of ["_tw4dh_on_withdrawn", "_tw4dh_on_reinstated", "_tw4dh_auto_hold_on", "_tw4dh_negative_alert", "tw4_credit_dispute_hold_release", "tw4_dispute_hold_switch_set", "tw4_credit_dispute_holds_list", "tw4_credit_apply_dispute", "tw4_credit_set_hold"]) {
+      for (const fn of ["_tw4dh_on_withdrawn", "_tw4dh_on_reinstated", "_tw4dh_auto_hold_on", "_tw4dh_record_on", "_tw4dh_switch_on", "_tw4dh_negative_alert", "tw4_dispute_record_switch_set", "tw4_credit_dispute_hold_release", "tw4_dispute_hold_switch_set", "tw4_credit_dispute_holds_list", "tw4_credit_apply_dispute", "tw4_credit_set_hold"]) {
         expect(psql(`select prosecdef and array_to_string(proconfig, ',') like '%search_path=pg_catalog, public, pg_temp%' from pg_proc where proname = '${fn}' and pronamespace = 'public'::regnamespace`)).toBe("t");
       }
     });
@@ -475,6 +534,7 @@ commit;`);
       replica(`update public.studio_sms_credit_accounts set hold = false, hold_reason = null where legal_entity_id = '${WORLDS[0].entity}';`);
       psql(readFileSync(join(MIG, MIGRATION), "utf8"));                                // and the migration re-applies cleanly
       expect(psql("select public._tw4dh_dispute_fee_cents() || ':' || public._tw4dh_auto_hold_on()")).toBe("1500:false");
+      expect(psql("select public._tw4dh_record_on()")).toBe("f");
     });
   });
 });

@@ -11,12 +11,17 @@
 --     The row records Stripe's dispute fee as DanceFlow-BORNE (df_borne_fee_cents, an estimate of Stripe's standard fee: _tw4dh_dispute_fee_cents()). That fee is
 --     NEVER posted to the ledger, never charged to the studio, never a price and never shown to a studio. Replays and redeliveries (same dispute id, any event id)
 --     add nothing: the existing function returns 'replayed' before this code runs, and the row and the alert are unique per dispute row besides.
---  2. DARK: the automatic HOLD is placed only while the database switch is ON (tw4_dispute_hold_switch_set; default OFF, no row = OFF). With the switch off the row is
+--  0. DARK: TWO database switches, both default OFF (no row = OFF), platform administrator only with a written reason, append-only log:
+--     tw4_dispute_record_switch_set ('record') gates EVERYTHING this file adds that runs on its own: the dispute-hold row / audit / alert (1) and the negative-credit trigger (5).
+--     With it OFF a dispute and a negative balance behave exactly as before this file, and nothing is written, so the rollback stays possible.
+--     tw4_dispute_hold_switch_set ('hold') gates the account hold (2) and needs 'record' ON. Once 'record' has been ON and has produced a row or an alert, this migration is
+--     FORWARD-ONLY (the rollback refuses to delete that evidence).
+--  2. The automatic HOLD is placed only while the 'hold' switch is ON. With 'record' ON and 'hold' OFF the row is
 --     recorded as 'not_held' and the alert says no hold was placed: the money paths behave exactly as before. With the switch on the business's credit account is
 --     put on hold (the EXISTING hold: studio_sms_credit_accounts.hold, reason 'dispute'), so it blocks exactly what the existing hold blocks (every fee-bearing
 --     reservation, checkout and top-up, recurring charges, and chargeable outbound texts through _tw4c_require_funds) and nothing else: STOP/START/HELP handling,
 --     inbound recording (tw4_inbound_record), compliance and error replies (tw4_inbound_reply_allowed) never read the hold and are untouched by this file.
---     A hold that already existed (a manual one) is left as it is; its reason is not overwritten.
+--     A hold that already existed (a manual one) is left as it is; its reason is not overwritten, and the alert says the account was already on hold.
 --  3. A dispute decided in the studio's favour (action 'reinstated') raises ONE informational 'credit_dispute' alert when its hold is still in place. The hold is NOT
 --     released automatically: an administrator releases it (step 4) after review.
 --  4. tw4_credit_dispute_hold_release: platform administrator, written note (10-500 characters), the business must match the hold (a wrong business is refused),
@@ -25,11 +30,14 @@
 --     (release each one with its note instead) and reserves the reason 'dispute' for the automatic hold; otherwise it is unchanged.
 --  5. Any transition of a business's AVAILABLE credit (settled balance minus open reservations) from zero or more to below zero raises ONE administrator alert
 --     (kind 'credit_negative'), whatever caused it, deduped per transition (the ledger sequence that caused it); recovering and dipping again alerts again. It is a
---     notification only: it places no hold (a negative balance already blocks new spending through _tw4c_require_funds and the setup / recurring checks).
+--     notification only: it places NO hold (a negative balance already blocks new spending through _tw4c_require_funds and the setup / recurring checks). Only while 'record' is ON.
+--     The trigger can never fail the statement that moved the balance (an inbound STOP/START/HELP debit included): its work runs in a sub-transaction that turns any error into a warning.
 -- Alerts use the existing outbox (studio_sms_provider_alerts via _tw4rfl_alert), the existing delivery runner, its kill switch and its escalation. Summaries carry no amounts.
 -- No Stripe call, no Twilio call, no new studio fee, no price change. Service role only; tables RLS on with no API-role grants.
 -- Requires 20261125090000 (dispute state), 20261211090000 (alert outbox kinds) and 20261231140000 (the current alert-kind list).
--- Rollback: rollback/20270221090100_twilio_dispute_negative_balance_holds_rollback.sql (refuses once any dispute-hold row, switch change or alert of the new kinds exists).
+-- Precondition: no account is on a manual hold whose reason is 'dispute' (that reason becomes reserved).
+-- Rollback: rollback/20270221090100_twilio_dispute_negative_balance_holds_rollback.sql (refuses once any dispute-hold row, switch change or alert of the new kinds exists, or if
+-- tw4_credit_apply_dispute / tw4_credit_set_hold is no longer the version this file installs).
 -- NOT APPLIED to any shared environment by this file's authoring.
 
 begin;
@@ -74,13 +82,14 @@ end $$;
 -- ---------------------------------------------------------------------------------------------------------------
 create table public.studio_sms_dispute_hold_switch_log (
   id uuid primary key default gen_random_uuid(),
+  scope text not null check (scope in ('record', 'hold')),
   enabled boolean not null,
   changed_by uuid not null,
   reason text not null check (char_length(btrim(reason)) between 10 and 300),
   changed_at timestamptz not null default clock_timestamp(),
   seq bigserial not null
 );
-create index studio_sms_dispute_hold_switch_log_latest on public.studio_sms_dispute_hold_switch_log (changed_at desc, seq desc);
+create index studio_sms_dispute_hold_switch_log_latest on public.studio_sms_dispute_hold_switch_log (scope, changed_at desc, seq desc);
 
 -- one row per recorded dispute withdrawal: the hold decision, the DanceFlow-borne dispute fee and the release
 create table public.studio_sms_credit_dispute_holds (
@@ -145,10 +154,23 @@ returns int language sql immutable
 set search_path = pg_catalog, pg_temp
 as $$ select 1500 $$;
 
+-- two switches, both OFF until an administrator turns them on (each: latest row of its scope wins; no row = OFF):
+--   'record' : the dispute-hold record, its admin alert and the negative-available-credit alert (trigger). OFF = a dispute and a negative balance behave exactly as before this file.
+--   'hold'   : the automatic account hold. It needs 'record' ON (a hold is always recorded and alerted).
+create function public._tw4dh_switch_on(p_scope text)
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$ select coalesce((select l.enabled from public.studio_sms_dispute_hold_switch_log l where l.scope = p_scope order by l.changed_at desc, l.seq desc limit 1), false) $$;
+
 create function public._tw4dh_auto_hold_on()
 returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $$ select coalesce((select l.enabled from public.studio_sms_dispute_hold_switch_log l order by l.changed_at desc, l.seq desc limit 1), false) $$;
+as $$ select public._tw4dh_switch_on('hold') $$;
+
+create function public._tw4dh_record_on()
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $$ select public._tw4dh_switch_on('record') $$;
 
 create function public.tw4_dispute_hold_switch_set(p_enabled boolean, p_actor uuid, p_reason text)
 returns jsonb language plpgsql security definer
@@ -160,8 +182,28 @@ begin
     raise exception 'the dispute-hold switch needs on/off and a written reason (10-300 characters)' using errcode = '22023';
   end if;
   perform pg_advisory_xact_lock(hashtext('tw4_dispute_hold_switch'));
-  insert into public.studio_sms_dispute_hold_switch_log (enabled, changed_by, reason) values (p_enabled, p_actor, btrim(p_reason));
-  return jsonb_build_object('enabled', p_enabled);
+  if p_enabled and not public._tw4dh_record_on() then
+    raise exception 'turn the dispute record switch on first: an automatic hold is always recorded and alerted' using errcode = '55000';
+  end if;
+  insert into public.studio_sms_dispute_hold_switch_log (scope, enabled, changed_by, reason) values ('hold', p_enabled, p_actor, btrim(p_reason));
+  return jsonb_build_object('scope', 'hold', 'enabled', p_enabled);
+end $$;
+
+create function public.tw4_dispute_record_switch_set(p_enabled boolean, p_actor uuid, p_reason text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+begin
+  perform public._tw4c_admin(p_actor);
+  if p_enabled is null or p_reason is null or char_length(btrim(p_reason)) not between 10 and 300 then
+    raise exception 'the dispute record switch needs on/off and a written reason (10-300 characters)' using errcode = '22023';
+  end if;
+  perform pg_advisory_xact_lock(hashtext('tw4_dispute_hold_switch'));
+  if not p_enabled and public._tw4dh_auto_hold_on() then
+    raise exception 'turn the automatic dispute hold off first' using errcode = '55000';
+  end if;
+  insert into public.studio_sms_dispute_hold_switch_log (scope, enabled, changed_by, reason) values ('record', p_enabled, p_actor, btrim(p_reason));
+  return jsonb_build_object('scope', 'record', 'enabled', p_enabled);
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
@@ -178,6 +220,9 @@ declare
   v_on boolean := public._tw4dh_auto_hold_on();
   v_fee int := public._tw4dh_dispute_fee_cents();
 begin
+  if not public._tw4dh_record_on() then
+    return;   -- dark: with the record switch off a dispute behaves exactly as it did before this file (no row, no audit, no alert, no hold)
+  end if;
   select * into d from public.studio_sms_credit_disputes x where x.id = p_dispute_row;
   if d.id is null then
     raise exception 'unknown dispute row' using errcode = '22023';
@@ -385,9 +430,18 @@ set search_path = pg_catalog, public, pg_temp
 as $$
 declare v_seq bigint;
 begin
-  select coalesce(max(l.seq), 0) into v_seq from public.studio_sms_credit_ledger l where l.legal_entity_id = new.legal_entity_id;
-  perform public._tw4rfl_alert(new.legal_entity_id, null, null, 'credit_negative', 'neg:' || new.legal_entity_id || ':' || v_seq, 'admin', 'critical',
-    'Available prepaid texting credit for a business fell below zero. New fee-bearing operations and chargeable texts are already refused; STOP, START and HELP are unaffected. Review the account.');
+  -- A notification must NEVER fail the statement that moved the balance (an inbound STOP/START/HELP debit included): dark while the record switch is off, and any
+  -- error while reading the switch or writing the alert is reduced to a warning in its own sub-transaction.
+  begin
+    if not public._tw4dh_record_on() then
+      return null;
+    end if;
+    select coalesce(max(l.seq), 0) into v_seq from public.studio_sms_credit_ledger l where l.legal_entity_id = new.legal_entity_id;
+    perform public._tw4rfl_alert(new.legal_entity_id, null, null, 'credit_negative', 'neg:' || new.legal_entity_id || ':' || v_seq, 'admin', 'critical',
+      'Available prepaid texting credit for a business fell below zero. New fee-bearing operations and chargeable texts are already refused; STOP, START and HELP are unaffected. Review the account.');
+  exception when others then
+    raise warning 'credit_negative alert not written (%): %', sqlstate, sqlerrm;
+  end;
   return null;
 end $$;
 create trigger studio_sms_credit_accounts_negative_alert after update of balance_cents, reserved_cents on public.studio_sms_credit_accounts for each row
@@ -396,12 +450,12 @@ create trigger studio_sms_credit_accounts_negative_alert after update of balance
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4dh_guard(), public._tw4dh_dispute_fee_cents(), public._tw4dh_auto_hold_on(), public._tw4dh_on_withdrawn(uuid), public._tw4dh_on_reinstated(uuid),
+revoke all on function public._tw4dh_guard(), public._tw4dh_dispute_fee_cents(), public._tw4dh_switch_on(text), public._tw4dh_record_on(), public._tw4dh_auto_hold_on(), public._tw4dh_on_withdrawn(uuid), public._tw4dh_on_reinstated(uuid),
   public._tw4dh_negative_alert() from public, anon, authenticated, service_role;
-revoke all on function public.tw4_dispute_hold_switch_set(boolean, uuid, text), public.tw4_credit_dispute_hold_release(uuid, uuid, uuid, text),
+revoke all on function public.tw4_dispute_hold_switch_set(boolean, uuid, text), public.tw4_dispute_record_switch_set(boolean, uuid, text), public.tw4_credit_dispute_hold_release(uuid, uuid, uuid, text),
   public.tw4_credit_dispute_holds_list(uuid, uuid), public.tw4_credit_apply_dispute(text, text, int, text, text), public.tw4_credit_set_hold(uuid, boolean, text, uuid)
   from public, anon, authenticated;
-grant execute on function public.tw4_dispute_hold_switch_set(boolean, uuid, text), public.tw4_credit_dispute_hold_release(uuid, uuid, uuid, text),
+grant execute on function public.tw4_dispute_hold_switch_set(boolean, uuid, text), public.tw4_dispute_record_switch_set(boolean, uuid, text), public.tw4_credit_dispute_hold_release(uuid, uuid, uuid, text),
   public.tw4_credit_dispute_holds_list(uuid, uuid), public.tw4_credit_apply_dispute(text, text, int, text, text), public.tw4_credit_set_hold(uuid, boolean, text, uuid)
   to service_role;
 
