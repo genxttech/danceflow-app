@@ -88,13 +88,22 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
   if (!secret) return miss();
   const tokenHash = hashFeedSecret(secret);
 
-  // Rate limits first so unknown tokens cost the attacker and cannot be enumerated at speed. Fail closed on limiter errors.
-  const ip = await rateCheck(deps.admin, `ip:${shortHash(clientIp(request))}`, IP_LIMIT.limit, IP_LIMIT.windowSeconds);
-  if (!ip) return fault();
-  if (!ip.allowed) return unavailable(429, ip.retryAfter);
-  const tok = await rateCheck(deps.admin, `tok:${tokenHash.slice(0, 24)}`, TOKEN_LIMIT.limit, TOKEN_LIMIT.windowSeconds);
-  if (!tok) return fault();
-  if (!tok.allowed) return unavailable(429, tok.retryAfter);
+  // Normal mode limits BEFORE resolving so unknown tokens cost the attacker and cannot be enumerated at speed (fail closed).
+  // Fall-through mode (legacy routes) resolves first and limits only tokens this feature actually owns: legacy subscribers
+  // (calendar apps share a few fetch IPs) must never be throttled or failed by a feature they have not been moved to.
+  const limit = async (): Promise<Response | null | undefined> => {
+    const ip = await rateCheck(deps.admin, `ip:${shortHash(clientIp(request))}`, IP_LIMIT.limit, IP_LIMIT.windowSeconds);
+    if (!ip) return fault();
+    if (!ip.allowed) return unavailable(429, ip.retryAfter);
+    const tok = await rateCheck(deps.admin, `tok:${tokenHash.slice(0, 24)}`, TOKEN_LIMIT.limit, TOKEN_LIMIT.windowSeconds);
+    if (!tok) return fault();
+    if (!tok.allowed) return unavailable(429, tok.retryAfter);
+    return undefined;
+  };
+  if (!fallthrough) {
+    const refused = await limit();
+    if (refused !== undefined) return refused;
+  }
 
   let subject: FeedSubject | null = null;
   try {
@@ -114,6 +123,10 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
     return fault();
   }
   if (!subject) return miss();
+  if (fallthrough) {
+    const refused = await limit();
+    if (refused !== undefined) return refused;
+  }
 
   let body: string;
   try {

@@ -158,12 +158,31 @@ describe("fall-through mode (legacy routes)", () => {
     expect(await tryHandleFeedRequest(req(), secret, deps(broken))).toBeNull();
   });
 
-  it("serves migrated tokens through the new renderer and still enforces rate limits", async () => {
+  it("serves migrated tokens through the new renderer and enforces rate limits only for tokens it owns", async () => {
     const { secret } = generateFeedSecret();
     const ok = await tryHandleFeedRequest(req(), secret, deps(setup({ hash: hashFeedSecret(secret) })));
     expect(ok?.status).toBe(200);
     expect(await ok!.text()).toContain("BEGIN:VCALENDAR");
     const limited = await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "deny-ip" })));
     expect(limited?.status).toBe(429);
+  });
+});
+
+describe("fall-through: legacy subscribers are never throttled", () => {
+  it("a well-shaped token this feature does not own returns null even when the limiter would deny, and never hits the limiter", async () => {
+    const { secret } = generateFeedSecret();
+    const unowned = setup({ resolve: "none", rate: "deny-ip" });
+    expect(await tryHandleFeedRequest(req(), secret, deps(unowned))).toBeNull();
+    expect(unowned.rpcCalls.map((c) => c.fn)).toEqual(["calendar_feed_resolve"]);
+    const limiterDown = setup({ resolve: "none", rate: "error" });
+    expect(await tryHandleFeedRequest(req(), secret, deps(limiterDown))).toBeNull();
+  });
+
+  it("normal mode still limits before resolving", async () => {
+    const { secret } = generateFeedSecret();
+    const admin = setup({ resolve: "none", rate: "deny-ip" });
+    const res = await handleFeedRequest(req(), secret, deps(admin));
+    expect(res.status).toBe(429);
+    expect(admin.rpcCalls.map((c) => c.fn)).not.toContain("calendar_feed_resolve");
   });
 });
