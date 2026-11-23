@@ -65,6 +65,27 @@ export async function inboundReplyAllowed(
   }
 }
 
+/**
+ * TW-4F absorbed inbound cost controls (migration 20270222190000): may DanceFlow send this NON-COMPLIANCE automatic reply (an error reply) for a text received by
+ * this subaccount? The database answers false only while its reply-cap switch is on and the receiving business reached its daily cap today (business-local day,
+ * not cleared by a platform administrator). STOP / START / HELP never reach this check (the caller asks only for error kinds) and the parent account is never
+ * suppressed. FAILS OPEN: an error, a missing function (migration not applied) or any answer other than exactly false sends the reply exactly as before; the
+ * per-sender error counter (inboundReplyAllowed, fail closed) still applies afterwards.
+ */
+export async function inboundAutoReplyAllowed(
+  admin: Client | null,
+  input: { accountSid: string | null; kind: Exclude<InboundReplyKind, "help" | "start"> },
+): Promise<boolean> {
+  if (!admin || !input.accountSid) return true;
+  try {
+    const { data, error } = await admin.rpc("tw4_inbound_auto_reply_allowed", { p_account_sid: input.accountSid, p_kind: input.kind });
+    if (error) return true;
+    return data !== false;
+  } catch {
+    return true;
+  }
+}
+
 export type InboundRecordOutcome =
   | { recorded: true; replayed: boolean; chargedCents: number; uncollectedCents: number }
   | { recorded: false; reason: "legacy" | "disabled" | "failed"; code?: string };

@@ -153,7 +153,24 @@ export class ProviderFeeLifecycleStore {
    */
   async inboundAllowanceCheck(): Promise<number> {
     const row = await this.call<{ allowance_warnings?: number; allowance_critical?: number; volume?: number } | null>("tw4_rfl_inbound_allowance_check", {});
-    return Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
+    const pilot = Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
+    return pilot + (await this.inboundCostControlsCheck());
+  }
+
+  /**
+   * Absorbed inbound cost controls for EVERY business (migration 20270222190000): volume, absorbed-cost, anomaly and daily-cap alerts, and (only with its database
+   * switch on) the suppression of non-compliance automatic replies at the cap. Never refuses a text and never touches STOP/START/HELP. Returns NEW alerts raised.
+   * A database without the migration (function not installed) counts as 0, so the app can ship before the SQL; any other error is raised (visible in the run).
+   */
+  async inboundCostControlsCheck(): Promise<number> {
+    const { data, error } = (await this.admin.rpc("tw4_inbound_cost_controls_check", {})) as { data: unknown; error: { code?: string } | null };
+    if (error) {
+      if (error.code === "PGRST202" || error.code === "42883") return 0;
+      throw new ProviderFeeError(String(error.code ?? "unknown"));
+    }
+    const row = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+    const n = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0);
+    return n(row.volume_alerts) + n(row.absorbed_alerts) + n(row.anomaly_alerts) + n(row.cap_alerts);
   }
 
   async inventoryGaps(): Promise<number> {

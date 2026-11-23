@@ -11,6 +11,8 @@ export const RFL_ALERT_KINDS = [
   "authorization_expiring", "owner_notice_second", "next_period_uncovered", "pilot_approval_needed", "funding_low", "negative_balance", "account_on_hold", "exposure_open",
   "provider_variance", "inventory_gap", "cancel_unknown", "cancelled_authorization_active", "charged_after_cancellation", "released_resource_active", "owner_unresponsive",
   "alert_delivery_exhausted", "inbound_absorbed_allowance", "inbound_volume_high",
+  // 20270222190000: absorbed inbound cost controls for every business (administrator audience)
+  "sms_in_volume_high", "sms_in_absorbed_high", "sms_in_anomaly", "sms_in_daily_cap",
 ] as const;
 export type RflAlertKind = (typeof RFL_ALERT_KINDS)[number];
 
@@ -49,6 +51,10 @@ const COPY: Record<RflAlertKind, Copy> = {
   owner_unresponsive: { subject: "A studio owner has not renewed", heading: "Owner has not responded", generic: "A studio owner has not renewed an expiring recurring authorization after repeated notices." },
   inbound_absorbed_allowance: { subject: "Pilot inbound text cost is near its allowance", heading: "Absorbed inbound cost near allowance", generic: "Absorbed inbound text cost for the pilot business is at or near its allowance. Nothing has been blocked; review inbound traffic." },
   inbound_volume_high: { subject: "Inbound text volume is unusually high", heading: "Inbound volume exception", generic: "Inbound text volume for a business passed the daily threshold. Nothing has been blocked; review inbound traffic." },
+  sms_in_volume_high: { subject: "Inbound text volume is high for a business", heading: "Inbound volume threshold", generic: "Inbound text volume for a business passed its daily threshold. Nothing has been blocked; review inbound traffic." },
+  sms_in_absorbed_high: { subject: "Absorbed inbound text cost is high for a business", heading: "Absorbed inbound cost threshold", generic: "Inbound text cost absorbed by DanceFlow for a business passed its threshold. Nothing has been blocked; review inbound traffic." },
+  sms_in_anomaly: { subject: "Unusual inbound text traffic for a business", heading: "Inbound traffic anomaly", generic: "Inbound text traffic for a business is far above its recent daily average. Nothing has been blocked; review inbound traffic." },
+  sms_in_daily_cap: { subject: "A business reached its daily inbound cap", heading: "Daily inbound cap reached", generic: "Inbound texts for a business reached the daily cap. No text is refused and STOP, START and HELP are unaffected; review inbound traffic." },
   alert_delivery_exhausted: { subject: "An alert could not be delivered", heading: "Alert delivery exhausted", generic: "An alert could not be delivered after repeated attempts and needs manual follow-up." },
 };
 const FALLBACK: Copy = { subject: "Texting provider fee notice", heading: "Texting provider fee notice", generic: "A texting provider fee notice needs your attention." };
