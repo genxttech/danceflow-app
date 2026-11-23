@@ -9,7 +9,7 @@ export const maxDuration = 60;
 
 /**
  * TW-4F scheduled SMS usage reconciliation: stale-reservation release, evidence settlement, escalation and inbound recovery (usageReconciler.ts).
- * NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds it deliberately (suggested "*\/5 * * * *"). Answered 404 unless
+ * Registered in vercel.json every 15 minutes (dark until SMS_USAGE_RECONCILER=on is set by a release owner). Answered 404 unless
  * SMS_USAGE_RECONCILER=on; then CRON_SECRET is required (Bearer or x-cron-secret). It takes the database's single run lease, so overlapping invocations are
  * harmless ("busy"), and it returns counts only (no business, message, number or SID). Evidence is read only where SMS_USAGE_EVIDENCE_READS allows it
  * (production) or in local fake mode; without it the run still releases never-sent reservations and escalates, and reads nothing.

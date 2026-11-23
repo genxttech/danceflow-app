@@ -10,7 +10,7 @@ export const maxDuration = 60;
 /**
  * TW-4F / D4-2 monitor watchdog (runPriceWatchdog): alerts when no monitor run was recorded within PRICE_MONITOR_MAX_AGE_MINUTES (default 45), when the evidence chain is broken
  * or when alerts stay undelivered. Schedule it SEPARATELY from the monitor (suggested hourly); the external dead-man heartbeat is the independent backstop.
- * NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds it deliberately. Answered 404 unless SMS_PRICE_MONITOR=on; then CRON_SECRET is required
+ * Registered in vercel.json (answered 404 unless SMS_PRICE_MONITOR=on). Answered 404 unless SMS_PRICE_MONITOR=on; then CRON_SECRET is required
  * (Bearer or x-cron-secret). It only DETECTS and ALERTS: it never publishes, repairs, rolls back or overwrites a price. Alert destinations come from PRICE_MONITOR_* environment
  * values only (src/lib/sms/pricing/transport.ts). Answers 500 whenever anything is wrong (a finding, an undelivered alert, a missing destination) so the scheduler also flags it;
  * the body carries codes and counts only.
