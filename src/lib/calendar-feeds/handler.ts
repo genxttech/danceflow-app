@@ -74,25 +74,32 @@ function matchesEtag(header: string | null, etag: string): boolean {
   });
 }
 
-export async function handleFeedRequest(request: Request, rawToken: string, deps: FeedHandlerDeps): Promise<Response> {
-  if (!deps.enabled) return notFound();
+/**
+ * Fall-through mode is for legacy routes that must keep serving existing subscribers while the new feeds are dark:
+ * any condition that would be a 404 or a server fault returns null so the caller continues with its legacy path.
+ * Only a rate-limit refusal (429) is returned. In normal mode nothing is ever null.
+ */
+async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fallthrough: boolean): Promise<Response | null> {
+  const miss = () => (fallthrough ? null : notFound());
+  const fault = () => (fallthrough ? null : unavailable(503, 60));
+  if (!deps.enabled) return miss();
 
   const secret = parseFeedSecret(rawToken);
-  if (!secret) return notFound();
+  if (!secret) return miss();
   const tokenHash = hashFeedSecret(secret);
 
   // Rate limits first so unknown tokens cost the attacker and cannot be enumerated at speed. Fail closed on limiter errors.
   const ip = await rateCheck(deps.admin, `ip:${shortHash(clientIp(request))}`, IP_LIMIT.limit, IP_LIMIT.windowSeconds);
-  if (!ip) return unavailable(503, 60);
+  if (!ip) return fault();
   if (!ip.allowed) return unavailable(429, ip.retryAfter);
   const tok = await rateCheck(deps.admin, `tok:${tokenHash.slice(0, 24)}`, TOKEN_LIMIT.limit, TOKEN_LIMIT.windowSeconds);
-  if (!tok) return unavailable(503, 60);
+  if (!tok) return fault();
   if (!tok.allowed) return unavailable(429, tok.retryAfter);
 
   let subject: FeedSubject | null = null;
   try {
     const { data, error } = await (deps.admin as any).rpc("calendar_feed_resolve", { p_token_hash: tokenHash });
-    if (error) return unavailable(503, 60);
+    if (error) return fault();
     const row = Array.isArray(data) ? data[0] : data;
     if (row) {
       subject = {
@@ -104,16 +111,16 @@ export async function handleFeedRequest(request: Request, rawToken: string, deps
       };
     }
   } catch {
-    return unavailable(503, 60);
+    return fault();
   }
-  if (!subject) return notFound();
+  if (!subject) return miss();
 
   let body: string;
   try {
     const { calendarName, events } = await loadFeedEvents(deps.admin, subject, deps.now());
     body = renderCalendar({ calendarName, events });
   } catch {
-    return unavailable(503, 60);
+    return fault();
   }
 
   const etag = etagFor(body);
@@ -133,4 +140,12 @@ export async function handleFeedRequest(request: Request, rawToken: string, deps
       "Content-Disposition": 'inline; filename="danceflow.ics"',
     },
   });
+}
+
+export async function handleFeedRequest(request: Request, rawToken: string, deps: FeedHandlerDeps): Promise<Response> {
+  return (await run(request, rawToken, deps, false)) ?? notFound();
+}
+
+export function tryHandleFeedRequest(request: Request, rawToken: string, deps: FeedHandlerDeps): Promise<Response | null> {
+  return run(request, rawToken, deps, true);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { handleFeedRequest, IP_LIMIT, TOKEN_LIMIT } from "../handler";
+import { handleFeedRequest, IP_LIMIT, TOKEN_LIMIT, tryHandleFeedRequest } from "../handler";
 import { generateFeedSecret, hashFeedSecret } from "../token";
 import { FakeAdmin } from "./fakeAdmin";
 
@@ -140,5 +140,30 @@ describe("feed handler", () => {
       expect(String(c.args.p_key)).not.toContain("203.0.113.9");
       expect(String(c.args.p_key).length).toBeLessThanOrEqual(128);
     }
+  });
+});
+
+describe("fall-through mode (legacy routes)", () => {
+  it("returns null for every condition that would otherwise be a 404 or a fault, so the legacy response continues", async () => {
+    const { secret } = generateFeedSecret();
+    expect(await tryHandleFeedRequest(req(), secret, deps(setup(), false))).toBeNull();
+    expect(await tryHandleFeedRequest(req(), "not-a-feed-token", deps(setup()))).toBeNull();
+    expect(await tryHandleFeedRequest(req(), secret, deps(setup({ resolve: "none" })))).toBeNull();
+    expect(await tryHandleFeedRequest(req(), secret, deps(setup({ resolve: "error" })))).toBeNull();
+    expect(await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "error" })))).toBeNull();
+    const broken = setup({ hash: hashFeedSecret(secret) });
+    broken.from = () => {
+      throw new Error("boom");
+    };
+    expect(await tryHandleFeedRequest(req(), secret, deps(broken))).toBeNull();
+  });
+
+  it("serves migrated tokens through the new renderer and still enforces rate limits", async () => {
+    const { secret } = generateFeedSecret();
+    const ok = await tryHandleFeedRequest(req(), secret, deps(setup({ hash: hashFeedSecret(secret) })));
+    expect(ok?.status).toBe(200);
+    expect(await ok!.text()).toContain("BEGIN:VCALENDAR");
+    const limited = await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "deny-ip" })));
+    expect(limited?.status).toBe(429);
   });
 });

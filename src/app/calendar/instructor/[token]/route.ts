@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { tryHandleFeedRequest } from "@/lib/calendar-feeds/handler";
 
 export const dynamic = "force-dynamic";
 
@@ -135,7 +136,7 @@ function uniqueNonEmpty(values: Array<string | null | undefined>) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token: rawToken } = await params;
@@ -143,6 +144,18 @@ export async function GET(
 
   if (!token) {
     return new NextResponse("Missing calendar token.", { status: 400 });
+  }
+
+  // Dark migration path: once CALENDAR_FEEDS_ENABLED is on and this studio is enabled, tokens that were migrated into the
+  // hash-only table are served by the new renderer (minimal detail, stable UID, SEQUENCE, cancellations). Everything else,
+  // including any fault, falls through to the legacy response below so existing subscribers never lose their calendar.
+  if (process.env.CALENDAR_FEEDS_ENABLED === "true") {
+    try {
+      const migrated = await tryHandleFeedRequest(request, token, { admin: getAdminClient(), now: () => new Date(), enabled: true });
+      if (migrated) return migrated;
+    } catch {
+      // fall through to the legacy response
+    }
   }
 
   const supabase = getAdminClient();
