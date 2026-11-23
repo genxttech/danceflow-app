@@ -26,7 +26,7 @@ param(
   [Parameter(Mandatory)][ValidateSet("student", "business")][string]$App,
   [string]$Commit = "",
   [string]$EnvFile = "",
-  [Parameter(Mandatory)][string]$ExpectedFile,
+  [string]$ExpectedFile = "",    # required for a build or -CheckOnly; not used by -SetupCheck
   [string]$GoogleServices = "",   # Student only: path of the Firebase google-services.json (never copied into the repo)
   # Business only: EXPO_PUBLIC_STAFF_FEATURES for this build (comma list). Empty = the app defaults (clients, attendance), unless -EnvFile carries one.
   # "pulse" / "studioSchedule" are refused unless the production smoke summary (Invoke-StaffApiSmoke.ps1) shows those routes PASS.
@@ -78,7 +78,10 @@ $WriteEvidence = Resolve-CallerPath $WriteEvidence
 $RepoRoot = Resolve-CallerPath $RepoRoot
 $Jdk = Resolve-CallerPath $Jdk
 $Sdk = Resolve-CallerPath $Sdk
-if (-not (Test-Path -LiteralPath $ExpectedFile)) { throw "Missing file: $ExpectedFile" }
+if (-not $SetupCheck) {
+  if (-not $ExpectedFile) { throw "-ExpectedFile is required (the expected baked-config JSON); only -SetupCheck can omit it." }
+  if (-not (Test-Path -LiteralPath $ExpectedFile)) { throw "Missing file: $ExpectedFile" }
+}
 
 if ($CheckOnly) {
   # --- dry mode: signer pin + baked config on an existing AAB; nothing is built, no keystore or password is needed
