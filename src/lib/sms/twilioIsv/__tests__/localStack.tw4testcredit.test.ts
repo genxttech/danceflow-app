@@ -497,6 +497,11 @@ commit;`);
       grant(EP, 1000);
       const ov = JSON.parse(asOwner(`select public.sms_credit_overview('${SP}')::text;`)) as Record<string, number>;
       expect([ov.balance_cents, ov.available_cents, ov.texting_available_cents, ov.test_credit_cents, ov.fee_available_cents]).toEqual([48_000, 48_000, 48_000, 1000, 47_000]);
+      // a text in flight holds $3 of the test credit: the view shows only the free $7 inside available, and fees may use 47,000
+      const hold = holdText(EP, SP, 300);
+      const ov2 = JSON.parse(asOwner(`select public.sms_credit_overview('${SP}')::text;`)) as Record<string, number>;
+      expect([ov2.available_cents, ov2.test_credit_cents, ov2.fee_available_cents]).toEqual([47_700, 700, 47_000]);
+      psql(textSql(EP, SP, hold, null));
       // own 47,000 + 2,500 fits; + 5,000 does not (before this migration the test credit would have blocked the $25 pack too: 48,000 + 2,500 > 50,000)
       const pack = `cs_tc_${hex(6)}`;
       call("tw4_credit_topup_pending", EP, SP, pack, 2500, null);

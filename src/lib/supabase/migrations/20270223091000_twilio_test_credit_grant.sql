@@ -741,7 +741,8 @@ end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- 7. the studio-facing view and the purchase ceiling see test credit for what it is
---    * sms_credit_overview (authenticated, owner/admin of the location; body of 20261123 plus three fields): test_credit_cents (unused test credit, texting only),
+--    * sms_credit_overview (authenticated, owner/admin of the location; body of 20261123 plus three fields): test_credit_cents (the free unused test credit
+--      inside available_cents, texting only; test credit held for texts in flight is inside reserved_cents),
 --      fee_available_cents (what setup and monthly fees may use) and texting_available_cents (= available_cents, kept unchanged for existing readers).
 --    * tw4_credit_topup_pending (body of 20261125): the $500 balance ceiling counts the business's OWN credit only; DanceFlow's test credit never blocks a purchase.
 --    Both predecessor bodies are md5-pinned above the change; the rollback restores them byte-exactly.
@@ -782,7 +783,8 @@ begin
       'test_credit_cents', 0, 'fee_available_cents', 0, 'texting_available_cents', 0);
   end if;
   select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = v_entity;
-  v_test := greatest(public._tw4tc_unused(v_entity), 0);
+  -- the FREE test credit inside the available amount: not the part already held for texts in flight (that is inside reserved), never more than available
+  v_test := least(greatest(public._tw4tc_unused(v_entity) - public._tw4tc_open_sms(v_entity), 0), greatest(coalesce(a.balance_cents, 0) - coalesce(a.reserved_cents, 0), 0));
   return jsonb_build_object(
     'legal_business', true,
     'balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0),
@@ -790,7 +792,7 @@ begin
     'texting_available_cents', greatest(coalesce(a.balance_cents, 0) - coalesce(a.reserved_cents, 0), 0),
     -- DanceFlow test credit (texting only; never purchasable or refundable) and what setup and monthly fees may use
     'test_credit_cents', v_test,
-    'fee_available_cents', greatest(coalesce(a.balance_cents, 0) - coalesce(a.reserved_cents, 0) - greatest(v_test - public._tw4tc_open_sms(v_entity), 0), 0),
+    'fee_available_cents', greatest(coalesce(a.balance_cents, 0) - coalesce(a.reserved_cents, 0) - v_test, 0),
     'on_hold', coalesce(a.hold, false), 'low_balance', a.low_balance_flagged_at is not null, 'low_balance_threshold_cents', coalesce(a.low_balance_threshold_cents, 1000),
     'pending_topups_cents', coalesce((select sum(t.amount_cents) from public.studio_sms_credit_topups t where t.legal_entity_id = v_entity and t.status = 'pending' and (t.expires_at is null or t.expires_at > now())), 0),
     'this_location_net_charges_cents', coalesce((select -sum(l.balance_delta_cents) from public.studio_sms_credit_ledger l

@@ -11,7 +11,7 @@ export type CreditOverview = {
   balanceCents: number;
   reservedCents: number;
   availableCents: number;
-  /** DanceFlow test credit not yet used (texting only; never purchasable, refundable or usable for fees). 0 for every business without a test grant. */
+  /** DanceFlow test credit inside availableCents (texting only; never purchasable, refundable or usable for fees); excludes test credit already held for texts in flight. 0 without a test grant. */
   testCreditCents: number;
   /** What setup and monthly fees may use: available credit minus unused test credit that is not already held for a text in flight. */
   feeAvailableCents: number;
