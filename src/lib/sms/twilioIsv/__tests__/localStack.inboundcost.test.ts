@@ -313,7 +313,12 @@ commit;`);
   // ---------------------------------------------------------------------------------------------------------------------------------------------
   describe("anomaly detection against the trailing average and an absolute floor", () => {
     const history = (w: World, perDay: number, est: number | null = null) => {
-      for (let i = 1; i <= 7; i++) inbound(w, { seg: perDay, est, at: `((((now() at time zone '${w.tz}')::date - ${i})::timestamp + interval '12 hours') at time zone '${w.tz}')` });
+      // a stored text has at most 20 segments: a day's volume is split into texts of up to 20 (the estimate goes on the first one only)
+      for (let i = 1; i <= 7; i++) {
+        for (let left = perDay, first = true; left > 0; left -= 20, first = false) {
+          inbound(w, { seg: Math.min(20, left), est: first ? est : null, at: `((((now() at time zone '${w.tz}')::date - ${i})::timestamp + interval '12 hours') at time zone '${w.tz}')` });
+        }
+      }
     };
     const today = (w: World, seg: number, est: number | null = null) => inbound(w, { seg: Math.min(seg, 20), est, at: `((((now() at time zone '${w.tz}')::date)::timestamp + interval '1 minute') at time zone '${w.tz}')` });
     const todayN = (w: World, seg: number, est: number | null = null) => { for (let left = seg; left > 0; left -= 20) today(w, Math.min(20, left), est); };
