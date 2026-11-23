@@ -3,12 +3,14 @@ name: Competition Stripe TEST canary
 # The smallest owner-approved Stripe step: the Stripe guard ONLY (scripts/qa/cf1-stripe-guard.ts from the pinned commit), no database, no app, no suite.
 #   - identity: the key is a TEST key on the pinned sandbox platform;
 #   - the connected account's state is recorded (restricted, capabilities, outstanding requirement count);
+#   - canary C: one direct $1 TEST PaymentIntent with an application fee on the connected account (the fee is verified through documented API reads);
 #   - canary A: create and expire one $1 Checkout Session with an application fee (proves session creation only);
-#   - canary B: pay one $1 session on the Stripe-hosted Checkout page, in the runner's installed Chrome, with the documented TEST card, and verify the paid session,
-#     the PaymentIntent and the application fee through documented API reads (the browser only reaches Stripe hosts and has no access to the key).
+#   - canary D1: create one open competition-shaped Checkout Session, feed its REAL retrieve response and a forged "paid" event to the settlement verifier (it must refuse), expire it, and refuse again;
+#   - canary D2: check the verifier's PaymentIntent semantics against canary C's real succeeded PaymentIntent (synthetic session wrapper; proves PaymentIntent fields only).
+#   - Hosted-Checkout payment completion is NOT attempted (Path A, owner decision 2026-11-22): no browser is opened and every report says it is NOT PROVEN.
 # It answers "can this sandbox connected account take a TEST card payment as it is?" before any onboarding is requested. A capability-class Stripe
 # error stops the run (exit 2) and is quoted exactly in the job summary; nothing is onboarded, created or enabled by this workflow.
-# Cost: about 12 TEST API requests, $0 (TEST mode, no real money), one $1 TEST charge left on the sandbox account.
+# Cost: 9 to 10 TEST API requests, $0 (TEST mode, no real money); one TEST PaymentIntent and two created-then-expired sessions are left on the sandbox account.
 # Output: the job summary shows step names, the connected-account state and Stripe's error fields; never the key.
 #
 # PIN: the code under test is the workflow_dispatch input `pin`, validated by the validate-pin job (scripts/qa/cf1-stripe-workflow/validatePin.mjs, run from main, no
@@ -98,7 +100,6 @@ jobs:
       CF1_RELEASE_BRANCH: "release/website-embeds"
       CF1_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
       E2E_STRIPE_TEST_CONNECTED_ACCOUNT: "acct_1UZibNRCFiaIzL1V"
-      CF1_CHROME_PATH: "/usr/bin/google-chrome"
     steps:
       - name: Commit under approval
         env:
@@ -158,18 +159,13 @@ jobs:
           RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
           (cd "$RUNNER_TEMP/src" && "${RUN[@]}" "$NODE" "$NPM_CLI" ci --ignore-scripts --no-audit --no-fund)
 
-      - name: Check the runner's installed Chrome (nothing is downloaded)
-        run: |
-          [ -x "$CF1_CHROME_PATH" ] || { echo "FAIL: $CF1_CHROME_PATH is not installed on this runner image"; exit 1; }
-          "$CF1_CHROME_PATH" --version
-
-      - name: Stripe guard (canary A - create and expire a session; canary B - pay a $1 session and verify the application fee)
+      - name: Stripe guard (canaries C, A, D1, D2 - no browser, no hosted payment)
         env:
           E2E_STRIPE_TEST_SECRET_KEY: ${{ secrets.CF1_STRIPE_TEST_SECRET_KEY }}
         run: |
           NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
           RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
-          IN=(E2E_STRIPE_TEST_SECRET_KEY="$E2E_STRIPE_TEST_SECRET_KEY" CF1_EXPECT_PLATFORM_ACCT="$CF1_EXPECT_PLATFORM_ACCT" E2E_STRIPE_TEST_CONNECTED_ACCOUNT="$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" CF1_CHROME_PATH="$CF1_CHROME_PATH")
+          IN=(E2E_STRIPE_TEST_SECRET_KEY="$E2E_STRIPE_TEST_SECRET_KEY" CF1_EXPECT_PLATFORM_ACCT="$CF1_EXPECT_PLATFORM_ACCT" E2E_STRIPE_TEST_CONNECTED_ACCOUNT="$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY")
           rc=0
           (cd "$RUNNER_TEMP/src" && "${RUN[@]}" "${IN[@]}" "$NODE" node_modules/tsx/dist/cli.mjs scripts/qa/cf1-stripe-guard.ts) || rc=$?
           if [ "$rc" = "2" ]; then echo "STOP: connected-account capability error. The exact Stripe error is in the job summary. Report it to the owner; do NOT request sandbox onboarding."; fi
