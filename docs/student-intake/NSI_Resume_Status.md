@@ -159,3 +159,5 @@ M12 passed two independent reviews (delta review of round 2: GO, no P0/P1). The 
 | H5 | Operations | Run the purge one call at a time; the cron ships with I4 |
 
 **Still gating I3-4 / any UI, outbox or email wiring:** P1-A (a link session is never student-authenticated evidence; assurance stays `declared_unverified`; I3-4 save and submit carry session and invitation provenance; the guardian path needs the L2 email code on top of the link) and the P1-B-adjacent items (TS rate-limit keys are HMAC, signing secret is 32 random bytes; `INTAKE_ROOT_SECRET` is not provisioned anywhere). Next design-only work: I3-2 (guardian email challenge, attestation, role matrix) and I3-3 (minor determination service path, guardian decline). The I1-local fixture port follows.
+
+**Update (M13 written):** items H1-H5 are implemented in M13 (`NSI_I3_1_M13_Notes.md`), validated locally, pending an independent delta review, a full-chain replay on the M13 bytes and the DEV apply. Nothing about P1-A/P1-B or the M-0 gate changed.

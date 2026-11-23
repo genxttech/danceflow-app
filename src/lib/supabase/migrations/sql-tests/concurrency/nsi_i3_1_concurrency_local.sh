@@ -49,7 +49,7 @@ exch() { # hash-seed session-seed -> psql output
 tmp=$(mktemp -d); fail=0; dead=0
 
 RUNID="${RUNID:-0}"
-if [ "${ONLY:-}" != "C5" ]; then
+if [ "${ONLY:-}" = "" ]; then
 # ---- C1
 R1=$(mkreq 1)
 for i in $(seq 1 "$N"); do
@@ -103,6 +103,7 @@ echo "C4 parallel rate-limit hits: attempts=$K allowed=$allowed (limit 10)"
 
 
 fi
+if [ "${ONLY:-}" = "" ] || [ "${ONLY:-}" = "C5" ]; then
 # ---- C5 (deterministic: held locks, no timing luck)
 RB=$(mkreq $((300 + RUNID))); IB=$(printf 'a5600000-0000-0000-0007-%012d' $((RUNID + 300)))
 issue "$RB" "$IB" "c5-token-$RUNID" >/dev/null
@@ -154,7 +155,24 @@ case "$nowait" in *"$ID1"*) nw=1;; *) nw=0;; esac
 gen2=$(q "select count(*) from public.intake_invitations where id = '$ID2';")
 if [ "$gen2" = "1" ] && [ "$nw" = "1" ] && [ $((t1 - t0)) -ge 4 ]; then echo "C5c issue waited for the client lock ($((t1 - t0)) s) without holding the invitation lock, then issued generation 2"; else fail=$((fail+1)); echo "C5c issued=$gen2 lockable=$nw waited=$((t1 - t0))s out=[$(tr '\n' ' ' < "$tmp/c5_issue" | cut -c1-160)]"; fi
 
-if [ "${ONLY:-}" != "C5" ]; then
+# C5d: staff revoke waits for the client lock without holding the invitation row
+RE=$(mkreq $((303 + RUNID))); IE=$(printf 'a5600000-0000-0000-000d-%012d' $((RUNID + 303)))
+issue "$RE" "$IE" "c5d-token-$RUNID" >/dev/null
+CE=$(printf 'a5600000-0000-0000-0001-%012d' $((303 + RUNID)))
+docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select intake_private.lock_client('$S', '$CE'); select pg_sleep(9); commit;" >/dev/null 2>&1 &
+sleep 2
+t0=$(date +%s)
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role authenticated; set request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; select public.intake_revoke_invitations('$S', '$RE');" > "$tmp/c5_revoke" 2>&1; date +%s > "$tmp/c5_end_d" ) &
+sleep 3
+nowait=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_invitations where id = '$IE' for update nowait; commit;" 2>&1 | tr '\n' ' ')
+wait
+t1=$(cat "$tmp/c5_end_d" 2>/dev/null || date +%s)
+case "$nowait" in *"$IE"*) nw=1;; *) nw=0;; esac
+rev=$(q "select count(*) from public.intake_invitations where id = '$IE' and revoked_at is not null;")
+if [ "$rev" = "1" ] && [ "$nw" = "1" ] && [ $((t1 - t0)) -ge 4 ]; then echo "C5d staff revoke waited for the client lock ($((t1 - t0)) s) without holding the invitation lock, then revoked"; else fail=$((fail+1)); echo "C5d revoked=$rev lockable=$nw waited=$((t1 - t0))s out=[$(tr '\n' ' ' < "$tmp/c5_revoke" | cut -c1-160)]"; fi
+
+fi
+if [ "${ONLY:-}" = "" ]; then
 # ---- C6 races: erase vs exchange, revoke vs exchange, erase vs issue (no deadlock, consistent end state)
 PADMIN=a5600000-0000-0000-0000-000000000401
 erase() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role authenticated; set request.jwt.claims = '{\"sub\":\"$PADMIN\",\"role\":\"authenticated\"}'; select public.intake_erase_client('$S', '$1', 'data_subject_request')::text;" 2>&1; }
@@ -188,6 +206,24 @@ for r in $(seq 1 6); do
 done
 fail=$((fail+c6))
 echo "C6 erase vs exchange, revoke vs exchange, erase vs issue: rounds=6 failures=$c6"
+fi
+
+# ---- C7 (M13): the purge never waits for a client lock and skips that client; it clears it on the next call
+if [ "${ONLY:-}" = "" ] || [ "${ONLY:-}" = "C7" ]; then
+RP=$(mkreq $((500 + RUNID))); IP=$(printf 'a5600000-0000-0000-000e-%012d' $((RUNID + 500))); CP=$(printf 'a5600000-0000-0000-0001-%012d' $((500 + RUNID)))
+issue "$RP" "$IP" "c7-token-$RUNID" >/dev/null
+exch "c7-token-$RUNID" "c7-sess-$RUNID" >/dev/null
+docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local session_replication_role = replica; update public.intake_sessions set absolute_expires_at = now() - interval '2 days', idle_expires_at = now() - interval '2 days', created_at = now() - interval '3 days' where request_id = '$RP'; commit;" >/dev/null 2>&1
+docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select intake_private.lock_client('$S', '$CP'); select pg_sleep(9); commit;" >/dev/null 2>&1 &
+sleep 2
+t0=$(date +%s)
+purge1=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_purge_expired(500)::text;" 2>&1 | tail -1)
+t1=$(date +%s)
+held=$(q "select count(*) from public.intake_sessions where request_id = '$RP';")
+wait
+purge2=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_purge_expired(500)::text;" 2>&1 | tail -1)
+gone=$(q "select count(*) from public.intake_sessions where request_id = '$RP';")
+if [ "$held" = "1" ] && [ $((t1 - t0)) -le 3 ] && [ "$gone" = "0" ]; then echo "C7 purge skipped the client whose lock was held ($((t1 - t0)) s, nothing deleted), then cleared it on the next call"; else fail=$((fail+1)); echo "C7 held_rows=$held purge_took=$((t1 - t0))s after_release_rows=$gone purge1=[$purge1] purge2=[$purge2]"; fi
 fi
 
 printf '%s\n' "$ORIG" | docker exec -i "$DB" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 >/dev/null 2>&1; ORIG=""
