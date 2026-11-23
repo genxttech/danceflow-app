@@ -64,8 +64,8 @@ end $f$;
 
 -- ===== M15 helpers ====================================================================================================
 create or replace function pg_temp.today_a() returns date language sql as $$ select intake_private.studio_local_date(pg_temp.u('sa')) $$;
-create or replace function pg_temp.set_bd(p_client text, p_bd date) returns void language sql as $ update public.clients set birthday = p_bd where id = p_client::uuid $;
-create or replace function pg_temp.set_bd(p_client text, p_bd timestamp) returns void language sql as $ update public.clients set birthday = p_bd::date where id = p_client::uuid $;
+create or replace function pg_temp.set_bd(p_client text, p_bd date) returns void language sql as $$ update public.clients set birthday = p_bd where id = p_client::uuid $$;
+create or replace function pg_temp.set_bd(p_client text, p_bd timestamp) returns void language sql as $$ update public.clients set birthday = p_bd::date where id = p_client::uuid $$;
 create or replace function pg_temp.det(p_req text) returns text language sql as $$
   select coalesce(pg_temp.val_as('service_role', null, format('select public.intake_determine_minor_from_birthday(%L, %L)', pg_temp.kv('sa'), p_req)), 'NULL') $$;
 create or replace function pg_temp.decl(p_sess text, p_class text) returns text language sql as $$
