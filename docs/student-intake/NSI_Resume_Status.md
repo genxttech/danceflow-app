@@ -112,3 +112,17 @@ None of these blocks the work in flight (DEV-safe SQL, local design). Each is ne
 | O10 | Release sequence: unfreeze marketing (M-0 close-out) before any intake email | I4 | Keep the rule: no intake email anywhere until M-0 closes and its rollback window expires; T4 follows |
 
 Engineering tasks that are NOT owner decisions: provisioning `INTAKE_ROOT_SECRET`, confirming the trusted client-IP source on Vercel, Resend tracking-off check, mail-client fragment test (needs authorized test sends before any invitation email).
+
+## 9. Open list carried forward (M11 delta review, 2026-11-23; fold into M12/M13 and the I4 design; the applied M11 file is not edited)
+
+| # | Item | Plan |
+|---|---|---|
+| C1 | **Stale anchor cannot be refreshed** under the contract "the reconciler and preview skip linked appointments": the anchor is recomputed only on an attach | I4 gets an explicit per-open-request anchor-refresh step (small RPC, called for open requests whose anchor appointment is no longer live). `NSI_I2_M11_Notes.md` and `NSI_I3_PartA_Design.md` corrected |
+| C2 | **Partner arm mismatch**: the M11 anchor query accepts `client_id` or `partner_client_id`, while `appointment_snapshot` (the attach validator) is client-only | Align in the next migration: drop the partner arm from the anchor query, or extend the snapshot. Recommendation: drop the partner arm (a partner is not the subject of the request) |
+| C3 | **Preview link exclusion is not scoped**: any link on any request hides the appointment (closed-request detached links, other-template links, reassigned appointments) | Scope the exclusion to links of an OPEN request of the same client and template, or record it as an explicit I4 rule, before any detach writer exists (none exists today, so no live effect) |
+| C4 | Lifecycle logs were git-ignored (`*.log`) | Renamed to `.txt` and committed; the full-chain replay on the **final** M11 bytes is recorded in `NSI_Full_Chain_Replay_Plan.md` when it completes |
+| N1 | `20261118100000_…hardening.sql` line 15 still says "NOT APPLIED to any shared environment"; it is applied to DEV (D7 report) | Header comment only; not edited (hash pinned) |
+| N2 | `rehearsal/d6_dev_m10/d6_postflight_state.sql` and `d7_dev_m11/state.sql` report the ensure_request marker as `m10`, `m8` or `other`; `other` means m11 | Reading aid only; the fingerprint is the authority |
+| N3 | The rollback file's second and third header lines are garbled ("Refused while a detached link exists would not matter…") | Rollback not applied anywhere; editing it changes only its own hash (`NSI_I2_M11_Notes.md` records the current one). Fix when M12 touches the rollback set, not before |
+| N4 | H01c lacked a positive control | Added to `test_T_nsi_i2_m11_ensure_request_local.sql` (an unlinked appointment of the same kind is listed) |
+| N5 | Consider an index on `intake_request_appointments (studio_id, appointment_id)` for the preview's link exclusion and the anchor query | Add in M12/M13 with the C3 change; measure with the simulation on a large studio (P1-2) |

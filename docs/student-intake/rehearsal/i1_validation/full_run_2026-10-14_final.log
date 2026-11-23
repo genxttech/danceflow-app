@@ -1,0 +1,74 @@
+### 2026-10-14T13:07:41Z recreate stack
+PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit
+intake objects before restore: 0
+restore errors: 1 (ERROR:  schema "public" already exists )
+public tables: 321
+pre-migration appointments fp: 76103dd728657c76a6391f1307e18d73
+### apply M1..M5
+done
+### DEV-safe suite
+psql:<stdin>:177: ERROR:  NSI I1 DEV-SAFE SUITE PASS (93 checks)
+### DEV-safe suite without the fingerprint (must FAIL on F14 only)
+psql:<stdin>:177: ERROR:  NSI I1 DEV-SAFE SUITE FAIL: F14 appointments fingerprint (triggers, constraints, indexes, inbound FKs) equals the mandatory D-0 baseline
+### local functional suite
+psql:<stdin>:941: ERROR:  NSI I1 SUITE PASS (280 checks)
+### local suite refuses without nsi.test_local
+psql:<stdin>:24: ERROR:  NSI I1 local suite refused: set nsi.test_local = 'on' only on a disposable local stack (never shared DEV/PROD)
+### mutation probes (each prepends one reverted fix to the local suite; run before any harness writes permanent rows)
+-- probe h
+psql:<stdin>:977: ERROR:  NSI I1 SUITE FAIL: G13c dark erasure with no intake records returns outcome no_records and writes nothing
+ | G13d dark barrier release without a barrier is refused and writes nothing
+ | G13e after the dark erasure attempts the rollback is still eligible (same predicate as the rollback guard)
+ | L17 audited barrier release appends an event; original record unchanged
+-- probe h2
+psql:<stdin>:977: ERROR:  NSI I1 SUITE FAIL: G13a erasure of an unknown client refused
+-- probe i
+psql:<stdin>:1057: ERROR:  NSI I1 SUITE FAIL: P2A-a guardian decline is refused (only acknowledged consent completes a guardian response)
+ | P2A-b withdrawn consent is refused too
+ | P2A-c after the decline nothing is stuck: guardian response is still a draft, no evidence, consent still outstanding
+ | O14a guardian submit with consent evidence (after the decline) completes fulfillment
+ | O14c identity retention equals the approved period and not beyond the core
+ | O14d raising the studio minimum later does not reopen accepted consent (N5)
+-- probe j
+psql:<stdin>:1011: ERROR:  NSI I1 SUITE FAIL: O13a valid completion is reused: ensure_request returns the completed request, no new obligation
+ | O13e outstanding consent is an existing obligation (no new request)
+ | L09 lawful erasure of existing records still works (completions first, all live rows removed, outcome erased)
+-- probe k
+psql:<stdin>:1310: ERROR:  NSI I1 SUITE FAIL: D19 collection-gate trigger re-created with another argument (Gate B skipped) detected
+ | D20 collection-gate trigger re-created with another event (UPDATE instead of INSERT) detected
+ | D21 collection-gate trigger re-created with a WHEN condition detected
+ | D22 delete guard re-created with another timing (AFTER instead of BEFORE) detected
+-- probe fp: pre-fix fingerprint formula on a table with no triggers/indexes/inbound FKs (empty = would have matched)
+old formula result=[]
+### boundary harness
+PASS B1 rollback M5..M1 leaves no intake object, schema or role
+PASS B0 fingerprint fails closed when a component is missing (MISSING:triggers,constraints,indexes,inbound_fks)
+info appointments fp=76103dd728657c76a6391f1307e18d73 other fp=ba16e592ab0ee32af384e6d7ef419cfb
+PASS B2 pre-apply appointments fingerprint complete
+PASS B3 boundary M1..M1 applies, self-checks and rolls back cleanly
+PASS B3 boundary M1..M2 applies, self-checks and rolls back cleanly
+PASS B3 boundary M1..M3 applies, self-checks and rolls back cleanly
+PASS B3 boundary M1..M4 applies, self-checks and rolls back cleanly
+PASS B3 boundary M1..M5 applies, self-checks and rolls back cleanly
+PASS B4 re-applying M1..M5 is idempotent (NSI catalog fp f5e061497632561740ebb1c1fdfe39a5)
+PASS B5a appointments triggers/constraints/indexes/inbound FKs unchanged
+PASS B5b non-intake public relations and ACLs unchanged
+PASS B9 re-applying 20261118090000_nsi_i1_m1_config_helpers alone after M5 leaves the catalog unchanged
+PASS B9 re-applying 20261118091000_nsi_i1_m2_governance alone after M5 leaves the catalog unchanged
+PASS B9 re-applying 20261118092000_nsi_i1_m3_live_personal alone after M5 leaves the catalog unchanged
+PASS B9 re-applying 20261118093000_nsi_i1_m4_retained_evidence alone after M5 leaves the catalog unchanged
+PASS B9 re-applying 20261118094000_nsi_i1_m5_functions alone after M5 leaves the catalog unchanged
+PASS B10 reference-free operational audit event keeps the rollback eligible
+PASS B6a rollback refused while configuration rows exist without acknowledgment
+PASS B6b rollback allowed with an exported-config acknowledgment
+PASS B7 rollback aborts cleanly on lock timeout
+PASS B7b nothing was dropped by the aborted rollback
+PASS B11 a client-referencing security event blocks the rollback
+PASS B8 rollback refused permanently once the first-use marker exists
+SUMMARY boundary: 23 passed, 0 failed
+### concurrency harness
+C1 concurrent ensure_request: 10 rounds, failures=0, deadlocks=0
+C2 concurrent student/guardian submit: 10 rounds, failures=0, deadlocks=0
+after M1 re-apply: gate_open=f catalog=[ok] service_role_submit=t
+SUMMARY concurrency: C1 failures=0, C2 failures=0
+### 2026-10-14T13:10:14Z done

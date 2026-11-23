@@ -1,0 +1,32 @@
+== forward M1-M10
+   fingerprint M10: c6b3d46bfbe354c9b67864ad9bd58bc2|670
+   M10 suite on M10: ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+== M11 is refused on an M9 database (precondition)
+   refused: ERROR:  nsi M11 requires M10 (intake_ensure_request is not at the M10/M11 level)
+== apply M11
+   fingerprint M11: 5c8ef043e71dd17b9a4a6d95b2c1bed4|670
+   catalog parts that differ M10 -> M11: 3 (expected 3: assert_catalog, evaluate_appointment_eligibility, intake_ensure_request)
+   changed: intake_private.assert_catalog
+   changed: intake_private.evaluate_appointment_eligibility
+   changed: public.intake_ensure_request
+   M11 boundary suite on M11: ERROR:  NSI I2 M11 SUITE PASS (9 checks)
+   M10 suite on M11: ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+   M7 suite on M11: ERROR:  NSI I2 M7 SUITE PASS (36 checks)
+   M9 suite on M11: ERROR:  NSI I2 M9 SUITE PASS (17 checks)
+   M11 test_T_nsi_i1_foundation: ERROR:  NSI I1 DEV-SAFE SUITE PASS (97 checks)
+   M11 test_T_nsi_i2_local: ERROR:  NSI I2 SUITE PASS (92 checks)
+== rollback restores M10 exactly
+   rollback M11 -> M10 fingerprint identical
+   M10 suite after rollback (back on M10): ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+   second rollback refused on an M10 database
+== forward again reproduces M11; replays
+   re-applied M11 fingerprint identical
+   replay M11 ok
+   fingerprint unchanged by the M11 replay
+   replay M10 fails closed: ERROR:  nsi catalog self-check failed: function intake_private.evaluate_appointment_eligibility does not carry
+== concurrency harness K1-K3 on the M11 container
+   K2 gate-closed parallel ensure_request: sessions=8 failures=0 rows_before=0 rows_after=0
+   K3 gate-open parallel ensure_request + preview: rounds=8 failures=0 deadlocks=0
+   after restore: gate_open=f catalog=[ok]
+   SUMMARY concurrency: K1 failures=0, K2 failures=0, K3 failures=0
+SUMMARY m11 lifecycle: failures=0

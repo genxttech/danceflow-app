@@ -2,7 +2,7 @@
 
 Status: validated on fresh local disposable stacks (and the full-chain replay for the pre-amendment bytes). Applied to DEV only after the amendments below (see `rehearsal/d7_dev_m11/` once applied). **Never PROD without owner approval.**
 
-Files: `src/lib/supabase/migrations/20261118100000_nsi_i2_m11_ensure_request_hardening.sql` (sha256 `e34649e1bfbdefc8b1aa9759ba5cd74b8cfb447f46597db12c9665b4160f8191`), rollback `rollback/20261118100000_nsi_i2_m11_ensure_request_hardening_rollback.sql` (sha256 `b5b98d0c9cc073b2a8216cc7a4a06eaa33c04ee75d1715b637161507777f0309`), `sql-tests/test_T_nsi_i2_m11_ensure_request_local.sql` (18 checks), `sql-tests/nsi_i2_m11_lifecycle_local.sh`. Evidence: `rehearsal/m11_local/lifecycle_run_amended_2026-11-23.log` (first, pre-amendment run kept as `lifecycle_run_first_2026-11-23.log`).
+Files: `src/lib/supabase/migrations/20261118100000_nsi_i2_m11_ensure_request_hardening.sql` (sha256 `e34649e1bfbdefc8b1aa9759ba5cd74b8cfb447f46597db12c9665b4160f8191`), rollback `rollback/20261118100000_nsi_i2_m11_ensure_request_hardening_rollback.sql` (sha256 `b5b98d0c9cc073b2a8216cc7a4a06eaa33c04ee75d1715b637161507777f0309`), `sql-tests/test_T_nsi_i2_m11_ensure_request_local.sql` (18 checks), `sql-tests/nsi_i2_m11_lifecycle_local.sh`. Evidence: `rehearsal/m11_local/lifecycle_run_amended_2026-11-23.txt` (first, pre-amendment run kept as `lifecycle_run_first_2026-11-23.txt`).
 
 ## What M11 changes
 | Item | Change |
@@ -13,7 +13,7 @@ Files: `src/lib/supabase/migrations/20261118100000_nsi_i2_m11_ensure_request_har
 | P2-5 comment | The client lock does not serialize appointment changes (appointments are intentionally not locked); the I4 caller must use READ COMMITTED per call. |
 | Precondition | A DO block refuses M11 unless `intake_ensure_request` is at the M10/M11 level and `intake_archive_template` (M9) exists. |
 
-Not covered: re-anchoring happens only when a call attaches or re-evaluates for that request; a cancelled anchor is corrected on the next reconciler pass that touches the request (I4).
+Not covered, and a correction to the earlier wording: the anchor is recomputed only when a call attaches an appointment to that request. Because the preview (and the I4 reconciler contract) skip appointments that already have a link, nothing re-evaluates an already-linked appointment, so a cancelled or ended anchor is **not** refreshed by a later reconciler pass. I4 needs an explicit per-open-request anchor-refresh step (for example a small RPC that recomputes the anchor for one open request, called for open requests whose anchor appointment is no longer live). Until then a stale anchor is corrected only when another appointment attaches.
 
 ## Tests (M11 suite 18 checks)
 H01 detached (evaluator, write path, preview), H02 anchor moves earlier, H03 partner-only history, H04 cancelled vs no_show history, H05 exact 10-minute and enabled_at edges, H06 re-intake before/after floor, H07 catalog and ACLs, H08 anchor leaves a cancelled, no-show or attended anchor, H09 tie on starts_at (lower id), H10 manual path recompute, H11 reassigned-client appointment, H12 ended-unmarked does not anchor / ongoing does, H13 no write when unchanged (same tuple), H14 draft retention. Concurrency: existing K1-K3 harness (8 sessions) on M11.

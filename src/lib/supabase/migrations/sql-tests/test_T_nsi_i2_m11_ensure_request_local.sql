@@ -34,8 +34,11 @@ select pg_temp.chk('H01a a detached appointment is reported as detached_from_req
   pg_temp.is_uuid(pg_temp.kv('dr')) and pg_temp.kv('h1_ev') = 'detached_from_request' and pg_temp.kv('h1_a') = 'NULL' and pg_temp.kv('h1_b') = 'NULL'
   and (select count(*) = 1 and bool_and(detached_at is not null) from public.intake_request_appointments where request_id = pg_temp.kv('dr')::uuid)
   and pg_temp.reqs(pg_temp.u('dc')) = 1, pg_temp.kv('h1_ev'));
-select pg_temp.chk('H01c the reconcile preview no longer lists an appointment that has a detached link',
-  not exists (select 1 from public.intake_reconcile_preview(pg_temp.kv('sa')::uuid, 200) p where p.appointment_id = pg_temp.u('da1')));
+select pg_temp.setkv('pos_c', pg_temp.mk_client('sa')::text);
+select pg_temp.setkv('pos_a', pg_temp.mk_appt('sa', pg_temp.u('pos_c'), 'private_lesson', 'scheduled', interval '9 days', interval '-1 hour')::text);
+select pg_temp.chk('H01c the reconcile preview no longer lists an appointment that has a detached link (positive control: an unlinked appointment of the same kind IS listed)',
+  not exists (select 1 from public.intake_reconcile_preview(pg_temp.kv('sa')::uuid, 200) p where p.appointment_id = pg_temp.u('da1'))
+  and exists (select 1 from public.intake_reconcile_preview(pg_temp.kv('sa')::uuid, 200) p where p.appointment_id = pg_temp.u('pos_a')));
 select pg_temp.setkv('da2', pg_temp.mk_appt('sa', pg_temp.u('dc'), 'private_lesson', 'scheduled', interval '12 days', interval '-1 hour')::text);
 select pg_temp.setkv('h1_c', pg_temp.ens('sa', pg_temp.u('dc'), pg_temp.u('da2')));
 select pg_temp.chk('H01b a different appointment of the same client still joins the open request',
