@@ -333,6 +333,19 @@ commit;`);
       expect(call<{ ok: boolean }>("tw4_credit_verify", EP).ok).toBe(true);
     });
 
+    it("test credit held by an open text is not counted twice: $10 own, $5 test, $3 texting hold -> a $10 fee passes, $10.01 does not", () => {
+      resetPilot(1000);
+      setBudget(EP, status(EP).granted_cents + 500);
+      grant(EP, 500);
+      psql(reserveSql(EP, SP, "sms_usage", 300));
+      const s = status(EP);
+      expect([s.balance_cents, s.reserved_cents, s.unused_cents, s.non_test_available_cents, s.ok]).toEqual([1500, 300, 500, 1000, true]);
+      expect(hasCode(psqlError(reserveSql(EP, SP, "number", 1001)), "TW007")).toBe(true);
+      psql(reserveSql(EP, SP, "number", 1000));
+      expect(status(EP).non_test_available_cents).toBe(0);
+      releaseAll(EP);
+    });
+
     it("a texting charge is never refused by this migration, even beyond the balance (inbound and STOP-adjacent paths keep working)", () => {
       resetPilot(0);
       setBudget(EP, status(EP).granted_cents + 100);
@@ -579,7 +592,7 @@ commit;`);
     it("texting only: the fee guard in the ledger trigger (TW007)", () => {
       const s0 = status(EP);
       expect(s0.unused_cents, "the suite leaves unused test credit for this check").toBeGreaterThan(0);
-      proves("TW007", mutate("_tw4tc_on_ledger", "if a.balance_cents - a.reserved_cents - n.reserved_delta_cents - v_unused < 0 then", "if false then"),
+      proves("TW007", mutate("_tw4tc_on_ledger", "if a.balance_cents - a.reserved_cents - n.reserved_delta_cents - greatest(v_unused - v_open_sms, 0) < 0 then", "if false then"),
         reserveSql(EP, SP, "number", s0.non_test_available_cents + 1).replace(/^begin;|commit;$/gm, ""));
     });
     it("test kinds only from the grant / reverse functions (42501)", () => {

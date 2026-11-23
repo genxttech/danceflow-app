@@ -27,7 +27,7 @@
 --   * Ledger kinds 'test_grant' (+) and 'test_grant_reversed' (-) are DISTINCT from every purchased or adjusted kind and can be posted only by these functions (a ledger
 --     trigger refuses them otherwise, also in replica mode). There is no top-up, refund, dispute or Stripe path for them: not purchasable, not refundable.
 --   * Texting only: a ledger trigger (ENABLE ALWAYS) refuses any NON-texting reservation (setup fees, recurring fees, recurring set-asides; anything whose reservation is
---     not kind 'sms_usage') that would need the unused test credit: such a reservation must fit in balance - reserved - unused test credit (TW007). Texting charges
+--     not kind 'sms_usage') that would need the unused test credit: such a reservation must fit in balance - reserved - (unused test credit not already held for a text in flight) (TW007). Texting charges
 --     (usage_charge, inbound included, and a captured sms_usage reservation) consume test credit FIRST; a usage refund of a charge that consumed test credit gives it
 --     back as test credit (never as purchased credit). STOP / START / HELP are never charged and never touch this code; nothing here can block them.
 --   * Never absorbs a non-texting debit: when a refund or dispute of a purchase, a negative adjustment or a captured fee takes the business's own money
@@ -316,7 +316,7 @@ begin
     if v_unused > 0 and v_rkind is distinct from 'sms_usage' then
       select * into a from public.studio_sms_credit_accounts x where x.legal_entity_id = n.legal_entity_id;
       v_open_sms := public._tw4tc_open_sms(n.legal_entity_id);
-      if a.balance_cents - a.reserved_cents - n.reserved_delta_cents - v_unused < 0 then
+      if a.balance_cents - a.reserved_cents - n.reserved_delta_cents - greatest(v_unused - v_open_sms, 0) < 0 then
         raise exception 'test credit pays for texting only: this charge needs purchased credit' using errcode = 'TW007';
       end if;
     end if;
@@ -664,7 +664,9 @@ begin
     'budget_cents', coalesce(b.budget_cents, 0), 'granted_cents', coalesce(b.granted_cents, 0), 'budget_left_cents', coalesce(b.budget_cents - b.granted_cents, 0),
     'consumed_cents', coalesce(b.consumed_cents, 0), 'restored_cents', coalesce(b.restored_cents, 0), 'reversed_cents', coalesce(b.reversed_cents, 0), 'forfeited_cents', coalesce(b.forfeited_cents, 0), 'unused_cents', v_unused,
     'balance_cents', coalesce(a.balance_cents, 0), 'reserved_cents', coalesce(a.reserved_cents, 0),
-    'non_test_available_cents', coalesce(a.balance_cents - a.reserved_cents, 0) - v_unused,
+    -- what fees may still use: the account's available credit minus the unused test credit that is NOT already held for a text in flight
+    'non_test_available_cents', coalesce(a.balance_cents - a.reserved_cents, 0) - greatest(v_unused - public._tw4tc_open_sms(p_entity_id), 0),
+    'open_texting_holds_cents', public._tw4tc_open_sms(p_entity_id),
     'grants', (select count(*) from public.studio_sms_test_credit_grants g where g.legal_entity_id = p_entity_id),
     'ok', (v_m ->> 'grant')::bigint = coalesce(b.granted_cents, 0) and (v_m ->> 'consume')::bigint = coalesce(b.consumed_cents, 0)
           and (v_m ->> 'restore')::bigint = coalesce(b.restored_cents, 0) and (v_m ->> 'reverse')::bigint = coalesce(b.reversed_cents, 0)
