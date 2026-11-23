@@ -7,9 +7,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * TW-4F recurring provider-fee lifecycle scan (providerFeeLifecycle.ts): exposure and upcoming-charge alerts, inventory gaps, escalation of exhausted alert
- * deliveries, and (optionally) delivery of alerts as operational email. NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds
- * it deliberately (suggested daily). Answered 404 unless SMS_FEE_LIFECYCLE_SCAN=on; then CRON_SECRET is required (Bearer or x-cron-secret). The database scan
+ * TW-4F recurring provider-fee lifecycle scan (providerFeeLifecycle.ts): exposure and upcoming-charge alerts, inventory gaps, absorbed-inbound and
+ * funding-exposure alerts (20270223090000: unfunded / unauthorized resources, graces about to end, exposure thresholds; administrator audience), escalation of
+ * exhausted alert deliveries, and (optionally) delivery of alerts as operational email. Registered hourly in vercel.json; dark until a release owner turns it
+ * on. Answered 404 unless SMS_FEE_LIFECYCLE_SCAN=on; then CRON_SECRET is required (Bearer or x-cron-secret). The database scan
  * switch and heartbeat additionally decide whether a pass runs at all (fail closed). Alert delivery needs BOTH the env flag SMS_FEE_LIFECYCLE_DELIVERY being
  * exactly `on` AND the database `delivery` switch being on; otherwise no sink is built and alerts stay pending. It returns counts only (no business, number,
  * SID, address or amount). Nothing in this route calls Twilio or changes an authorization.

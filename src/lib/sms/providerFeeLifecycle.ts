@@ -11,7 +11,7 @@ import type { PilotEvidence } from "./pilotApprovalEvidence";
  *    never the database message text. NOTHING here talks to Twilio, buys, cancels, releases, charges or extends an authorization: a cancellation is
  *    authorized and evidenced here, and the console step is a human's.
  *  - runProviderFeeLifecycleScan: one scheduled pass (heartbeat begin/finish, kill-switch aware; per legal business, under that business's account lock): exposure and upcoming-charge
- *    alerts, inventory gaps, then delivery of the alert outbox through an injected sink. Without a sink nothing is claimed (alerts stay pending and visible in the
+ *    alerts, inventory gaps, absorbed-inbound and funding-exposure alerts (20270223090000), then delivery of the alert outbox through an injected sink. Without a sink nothing is claimed (alerts stay pending and visible in the
  *    administrator overview). It returns counts only: no business, number, SID or amount.
  */
 
@@ -156,6 +156,18 @@ export class ProviderFeeLifecycleStore {
     return Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
   }
 
+  /**
+   * Raises the funding-exposure alerts (migration 20270223090000, audit F-11): what tw4_act_exposure lists, recurring charges recorded unfunded while the
+   * resource is live, open exposures (texting suspended, the provider still billing), graces about to end and the exposure thresholds. Administrator audience
+   * only; notification only (it blocks, holds, charges and releases nothing). Returns how many NEW alerts were raised, and how many listed locations have no
+   * legal business to attach an alert to (counts only).
+   */
+  async fundingExposureCheck(): Promise<{ alerts: number; unattributed: number }> {
+    const row = await this.call<{ unfunded?: number; unauthorized?: number; grace_ending?: number; threshold?: number; unattributed?: number } | null>("tw4_rfl_funding_exposure_check", {});
+    const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+    return { alerts: n(row?.unfunded) + n(row?.unauthorized) + n(row?.grace_ending) + n(row?.threshold), unattributed: n(row?.unattributed) };
+  }
+
   async inventoryGaps(): Promise<number> {
     const row = await this.call<{ gaps?: number }>("tw4_rfl_inventory_gaps", {});
     return Number(row.gaps ?? 0);
@@ -205,6 +217,10 @@ export type ScanSummary = {
   inventoryGaps: number;
   /** new absorbed-inbound allowance / daily-volume alerts raised this pass */
   inboundAlerts: number;
+  /** new funding-exposure alerts raised this pass (unfunded, unauthorized, grace ending, threshold; administrator audience) */
+  exposureAlerts: number;
+  /** funding-exposure rows for a location with no legal business (cannot be addressed as an alert; non-zero needs an administrator's look) */
+  exposureUnattributed: number;
   /** alerts newly raised for alert deliveries that exhausted their attempts (administrator audience) */
   escalated: number;
   delivered: number;
@@ -234,7 +250,7 @@ export const SCAN_RUNNER_NAME = "sms-provider-fee-lifecycle";
 type RunOps = Pick<ProviderFeeOpsRpc, "scanBegin" | "scanFinish" | "escalateDelivery" | "releaseAlert">;
 
 /**
- * One scheduled pass, in contract order: heartbeat begin (stop when refused) -> business scans -> inventory gaps -> escalation of exhausted deliveries ->
+ * One scheduled pass, in contract order: heartbeat begin (stop when refused) -> business scans -> inventory gaps -> inbound and funding-exposure alerts -> escalation of exhausted deliveries ->
  * alert delivery (ONLY when a sink is supplied; the route supplies one only with the strict env flag AND the database delivery switch) -> heartbeat finish
  * (always once a run began; `failed` on any error; counts only).
  */
@@ -242,7 +258,7 @@ export async function runProviderFeeLifecycleScan(store: ProviderFeeLifecycleSto
   const now = options.now ?? Date.now;
   const startedAt = now();
   const summary: ScanSummary = {
-    ran: false, ranReason: null, entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, inboundAlerts: 0, escalated: 0, delivered: 0, failed: 0, errors: 0,
+    ran: false, ranReason: null, entities: 0, opened: 0, closed: 0, alertsCreated: 0, inventoryGaps: 0, inboundAlerts: 0, exposureAlerts: 0, exposureUnattributed: 0, escalated: 0, delivered: 0, failed: 0, errors: 0,
     deliveryEnabled: sink !== null, truncated: 0, deferred: 0, deliverySkipped: 0,
   };
   let runId: string | null = null;
@@ -311,6 +327,13 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
   }
   try {
     summary.inboundAlerts = await store.inboundAllowanceCheck();   // before escalation and delivery, so a new alert can be delivered in this same pass
+  } catch {
+    summary.errors += 1;
+  }
+  try {
+    const exposure = await store.fundingExposureCheck();   // after the business scans (which open exposures) and before delivery, so a new alert goes out this pass
+    summary.exposureAlerts = exposure.alerts;
+    summary.exposureUnattributed = exposure.unattributed;
   } catch {
     summary.errors += 1;
   }
