@@ -1,0 +1,29 @@
+{
+  "id": "OD09-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, advancement (recall) decisions",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.1 (p.27)",
+    "quote_free_summary": "The Chairman of Adjudicators is responsible for determining how many couples are recalled; the organizer is only consulted (IV.C.1.d)."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Before an NDCA scoring profile is enabled, the callback count must be set or explicitly authorized by the NDCA Chairman of Adjudicators through a verified event-level role, and the decision-maker, callback target, rule version, exceptions and audit history recorded per round.",
+  "implementation": [],
+  "enforcement_point": "Not built. NDCA advancement support is NOT IMPLEMENTED and a BLOCKER to NDCA scoring-profile activation (OD-09). Docs-only record: nothing implemented, no test, no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Today the event manager sets the callback target (start_competition_round, A4a guard) and no Chairman role exists. Role mapping is shared with OD-05/OD-06 (PR 834). Do not equate a DanceFlow owner/manager with the Chairman. The consult-the-organizer duty is IV.C.1.d (recommended, see OD09-NDCA-0005).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-09 (owner decision 2026-11-23, Option C now / Option A required for a future NDCA scoring profile; retrospective audit PR #795)",
+    "docs/competition/governance/audit/ADVANCEMENT-GAPS-OD09.md"
+  ],
+  "last_reviewed": "2026-11-23"
+}

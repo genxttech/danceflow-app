@@ -1,0 +1,29 @@
+{
+  "id": "OD09-NDCA-0004",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, Final round size",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.1.b, IV.C.1.f, IV.C.1.g, IV.C.2 (p.27); III.D.34 (Pro/Am multiple competitions)",
+    "quote_free_summary": "Final size is capped at eight (IV.C.1.b, IV.C.2), yet IV.C.1.f says only the selected number dances except in the case of a tie; IV.C.1.g gives Amateur Cabaret/Formation exceptions; III.D.34 limits couples judged at once in multi-competition Pro/Am floors and (III.D.34.c) allows up to ten on the floor after a late registration or entry change when at least two entries are uncontested."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Enforce an eight-couple Final cap ONLY AFTER the IV.C.1.f / IV.C.2 / IV.C.1.b conflict is reconciled by the owner, including tie and event-format exceptions (IV.C.1.g, III.D.34).",
+  "implementation": [],
+  "enforcement_point": "Not built. NDCA advancement support is NOT IMPLEMENTED and a BLOCKER to NDCA scoring-profile activation (OD-09). Docs-only record: nothing implemented, no test, no compliance claimed.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "SOURCE CONFLICT (registry rule 3; recorded in governing-body-source-registry.md): IV.C.2 and IV.C.1.b read as an absolute cap while IV.C.1.f lets a tie exceed the selected number. Fails closed: no cap behavior is claimed and none is chosen here. Tie handling also depends on the undefined NDCA Skating System algorithm (OD-24). III.D.34 is a floor-capacity rule for Pro/Am multi-competition heats, not a Final cap; its relation to Final size is an interpretation question for the owner.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-09 (owner decision 2026-11-23, Option C now / Option A required for a future NDCA scoring profile; retrospective audit PR #795)",
+    "docs/competition/governance/audit/ADVANCEMENT-GAPS-OD09.md"
+  ],
+  "last_reviewed": "2026-11-23"
+}

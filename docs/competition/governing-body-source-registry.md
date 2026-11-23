@@ -41,6 +41,14 @@ A profile version is immutable once a program references it; a correction is pub
 - **Undefined algorithms.** The NDCA rule book requires the Skating System but does not define the algorithm, and the WSDC rules refer to their website for Relative Placement. Scoring engines (10F) need authoritative specifications for both.
 - **No NASDE source.** None was supplied, so WCS Classic / Showcase routine divisions have no source-grounded metadata.
 
+## Source conflicts
+
+Recorded per rule 3 below. Each one that affects eligibility or integrity fails closed until the owner resolves it.
+
+| Body | Sections in conflict | Subject | Effect until resolved | Register entries |
+|---|---|---|---|---|
+| NDCA | Rule Book IV.C.1.b and IV.C.2 (p.27) versus IV.C.1.f (p.27) | Final size: an absolute cap of eight versus "only that number shall dance, except in the case of a tie"; IV.C.1.g (Amateur Cabaret/Formation) and III.D.34 (Pro/Am multi-competition floors) add format exceptions | No Final-size cap is enforced or claimed; blocks NDCA scoring-profile activation (OD-09) | `OD09-NDCA-0004` |
+
 ## Rules for using a source
 
 1. Read the rule in the document itself. A summary or extraction can point to a section, but the citation is only valid once the section text has been read.

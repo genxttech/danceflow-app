@@ -1,0 +1,29 @@
+{
+  "id": "OD09-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA professional and championship adult amateur events: round structure",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.1.c (p.27)",
+    "quote_free_summary": "For professional and championship adult amateur competitions a semi-final is required with eight or more pre-registered couples and a quarter-final with fifteen or more; recommended but not mandatory for multi-dance Pro/Am."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Support quarterfinal and semifinal rounds and require them per the pre-registered count for the applicable divisions; treat the Pro/Am recommendation as recommended only.",
+  "implementation": [],
+  "enforcement_point": "Not built. NDCA advancement support is NOT IMPLEMENTED and a BLOCKER to NDCA scoring-profile activation (OD-09). Docs-only record: nothing implemented, no test, no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Today: one callback round then a Final (audit row S-22). The rulebook's own phrase championship adult amateur must be mapped to a DanceFlow division only after the division inventory is reconciled. The Pro/Am recommendation is not mandatory and must not be enforced as such.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-09 (owner decision 2026-11-23, Option C now / Option A required for a future NDCA scoring profile; retrospective audit PR #795)",
+    "docs/competition/governance/audit/ADVANCEMENT-GAPS-OD09.md"
+  ],
+  "last_reviewed": "2026-11-23"
+}
