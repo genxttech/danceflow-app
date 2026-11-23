@@ -1,5 +1,5 @@
 -- 20270221090100_twilio_dispute_negative_balance_holds.sql
--- TW-4F financial safety (slice B): Stripe dispute hold, dispute alert, DanceFlow-borne dispute fee record, and the negative-available-credit alert.
+-- TW-4F financial safety (slice B): Stripe dispute hold, dispute alert, an UNALLOCATED estimated-provider-dispute-fee record, and the negative-available-credit alert.
 -- (Reserved slot 20270221090000; that exact version is already taken on main by 20270221090000_event_registration_claim_function.sql, so this file uses 090100.)
 --
 -- PROBLEM. tw4_credit_apply_dispute (20261125090000) takes disputed credit back and may push the balance negative with no hold, no administrator alert and no record
@@ -8,8 +8,9 @@
 -- WHAT THIS FILE DOES
 --  1. Every NEW dispute withdrawal (tw4_credit_apply_dispute, action 'withdrawn', including one capped to nothing left because the payment was already refunded)
 --     writes ONE row in studio_sms_credit_dispute_holds, one 'credit_hold' audit row, and ONE administrator alert (kind 'credit_dispute', deduped per dispute row).
---     The row records Stripe's dispute fee as DanceFlow-BORNE (df_borne_fee_cents, an estimate of Stripe's standard fee: _tw4dh_dispute_fee_cents()). That fee is
---     NEVER posted to the ledger, never charged to the studio, never a price and never shown to a studio. Replays and redeliveries (same dispute id, any event id)
+--     The row records Stripe's dispute fee as an ESTIMATED PROVIDER FEE with allocation 'unallocated' (est_provider_fee_cents, an estimate of Stripe's standard fee:
+--     _tw4dh_est_provider_fee_cents(); fee_allocation = 'unallocated'). WHO BEARS IT IS NOT DECIDED (an owner decision); nothing here allocates it. That fee is
+--     NEVER posted to the ledger, never debited from a studio balance, never an adjustment, never charged to the studio, never a price and never shown to a studio. Replays and redeliveries (same dispute id, any event id)
 --     add nothing: the existing function returns 'replayed' before this code runs, and the row and the alert are unique per dispute row besides.
 --  0. DARK: TWO database switches, both default OFF (no row = OFF), platform administrator only with a written reason, append-only log:
 --     tw4_dispute_record_switch_set ('record') gates EVERYTHING this file adds that runs on its own: the dispute-hold row / audit / alert (1) and the negative-credit trigger (5).
@@ -101,7 +102,7 @@ create table public.studio_sms_dispute_hold_switch_log (
 );
 create index studio_sms_dispute_hold_switch_log_latest on public.studio_sms_dispute_hold_switch_log (scope, seq desc);
 
--- one row per recorded dispute withdrawal: the hold decision, the DanceFlow-borne dispute fee and the release
+-- one row per recorded dispute withdrawal: the hold decision, the estimated, unallocated provider dispute fee and the release
 create table public.studio_sms_credit_dispute_holds (
   id uuid primary key default gen_random_uuid(),
   dispute_row_id uuid not null references public.studio_sms_credit_disputes(id) on delete restrict,
@@ -109,8 +110,9 @@ create table public.studio_sms_credit_dispute_holds (
   legal_entity_id uuid not null references public.studio_sms_legal_entities(id) on delete restrict,
   claim_cents int not null check (claim_cents > 0),
   withdrawn_cents int not null check (withdrawn_cents >= 0),
-  df_borne_fee_cents int not null check (df_borne_fee_cents >= 0),   -- Stripe's dispute fee, borne by DanceFlow: never charged to the studio, never in the ledger
+  est_provider_fee_cents int not null check (est_provider_fee_cents >= 0),   -- an ESTIMATE of Stripe's dispute fee; who bears it is undecided; never charged to the studio, never in the ledger
   fee_basis text not null check (fee_basis in ('stripe_standard_fee_estimate')),
+  fee_allocation text not null default 'unallocated' check (fee_allocation in ('unallocated')),   -- allocation is an owner decision; this migration never makes it
   hold_state text not null check (hold_state in ('held', 'not_held', 'released')),
   not_held_reason text null check (not_held_reason is null or not_held_reason in ('auto_hold_switch_off')),
   account_already_held boolean not null,
@@ -144,7 +146,7 @@ begin
   end if;
   if new.id is distinct from old.id or new.dispute_row_id is distinct from old.dispute_row_id or new.topup_id is distinct from old.topup_id
      or new.legal_entity_id is distinct from old.legal_entity_id or new.claim_cents is distinct from old.claim_cents or new.withdrawn_cents is distinct from old.withdrawn_cents
-     or new.df_borne_fee_cents is distinct from old.df_borne_fee_cents or new.fee_basis is distinct from old.fee_basis or new.not_held_reason is distinct from old.not_held_reason
+     or new.est_provider_fee_cents is distinct from old.est_provider_fee_cents or new.fee_basis is distinct from old.fee_basis or new.fee_allocation is distinct from old.fee_allocation or new.not_held_reason is distinct from old.not_held_reason
      or new.account_already_held is distinct from old.account_already_held or new.created_at is distinct from old.created_at
      or old.hold_state <> 'held' or new.hold_state <> 'released' then
     raise exception 'a dispute hold only moves from held to released, once' using errcode = '42501';
@@ -157,9 +159,9 @@ create trigger studio_sms_credit_dispute_holds_truncate before truncate on publi
 -- ---------------------------------------------------------------------------------------------------------------
 -- constants and the switch
 -- ---------------------------------------------------------------------------------------------------------------
--- Stripe's standard dispute fee (US cards), recorded as an ESTIMATE of what DanceFlow bears per dispute. The actual fee is on Stripe's balance transaction
+-- Stripe's standard dispute RECEIVED fee (US cards), recorded as an ESTIMATE only (allocation: undecided). A separate dispute COUNTERED fee may also apply and is NOT modelled. The actual fee is on Stripe's balance transaction
 -- (reconciled by hand, see docs/twilio/TW-4F_Dispute_And_Negative_Balance_Runbook.md). Never charged to anyone by this code.
-create function public._tw4dh_dispute_fee_cents()
+create function public._tw4dh_est_provider_fee_cents()
 returns int language sql immutable
 set search_path = pg_catalog, pg_temp
 as $$ select 1500 $$;
@@ -228,7 +230,7 @@ declare
   a public.studio_sms_credit_accounts;
   h public.studio_sms_credit_dispute_holds;
   v_on boolean := public._tw4dh_auto_hold_on();
-  v_fee int := public._tw4dh_dispute_fee_cents();
+  v_fee int := public._tw4dh_est_provider_fee_cents();
 begin
   if not public._tw4dh_record_on() then
     return;   -- dark: with the record switch off a dispute behaves exactly as it did before this file (no row, no audit, no alert, no hold)
@@ -244,24 +246,24 @@ begin
   if v_on and not a.hold then
     update public.studio_sms_credit_accounts set hold = true, hold_reason = 'dispute' where legal_entity_id = d.legal_entity_id;
   end if;
-  insert into public.studio_sms_credit_dispute_holds (dispute_row_id, topup_id, legal_entity_id, claim_cents, withdrawn_cents, df_borne_fee_cents, fee_basis, hold_state, not_held_reason, account_already_held)
+  insert into public.studio_sms_credit_dispute_holds (dispute_row_id, topup_id, legal_entity_id, claim_cents, withdrawn_cents, est_provider_fee_cents, fee_basis, hold_state, not_held_reason, account_already_held)
   values (d.id, d.topup_id, d.legal_entity_id, d.claim_cents, d.withdrawn_cents, v_fee, 'stripe_standard_fee_estimate',
           case when v_on then 'held' else 'not_held' end, case when v_on then null else 'auto_hold_switch_off' end, a.hold)
   returning * into h;
   insert into public.studio_sms_onboarding_audit (studio_id, onboarding_id, actor_type, actor_user_id, action, note)
   values (public._tw4c_any_location(d.legal_entity_id), null, 'system', null, 'credit_hold',
-          left('dispute_hold;state=' || h.hold_state || ';hold=' || h.id || ';withdrawn_cents=' || d.withdrawn_cents || ';df_borne_dispute_fee_cents=' || v_fee
-               || ';fee_basis=stripe_standard_fee_estimate;studio_charged=0', 300));
+          left('dispute_hold;state=' || h.hold_state || ';hold=' || h.id || ';withdrawn_cents=' || d.withdrawn_cents || ';est_provider_dispute_fee_cents=' || v_fee
+               || ';fee_basis=stripe_standard_fee_estimate;fee_allocation=unallocated;studio_charged=0', 300));
   if v_on and a.hold then
     -- the account was already on hold (a manual hold, or another dispute's hold): nothing changed on the account and its reason was left as it is
     perform public._tw4rfl_alert(d.legal_entity_id, null, null, 'credit_dispute', 'dispute:' || d.id, 'admin', 'critical',
-      'A Stripe dispute was opened on a prepaid texting credit purchase. The credit account was already on hold, so no new hold was placed and its reason was left as it is. The dispute is recorded as held and DanceFlow bears the dispute fee. Review it and release the dispute hold with a written note.');
+      'A Stripe dispute was opened on a prepaid texting credit purchase. The credit account was already on hold, so no new hold was placed and its reason was left as it is. The dispute is recorded as held. Who bears Stripe''s dispute fee has not been decided. Review it and release the dispute hold with a written note.');
   elsif v_on then
     perform public._tw4rfl_alert(d.legal_entity_id, null, null, 'credit_dispute', 'dispute:' || d.id, 'admin', 'critical',
-      'A Stripe dispute was opened on a prepaid texting credit purchase. The credit account was placed on hold and DanceFlow bears the dispute fee. Review it and release the hold with a written note.');
+      'A Stripe dispute was opened on a prepaid texting credit purchase. The credit account was placed on hold. Who bears Stripe''s dispute fee has not been decided. Review it and release the hold with a written note.');
   else
     perform public._tw4rfl_alert(d.legal_entity_id, null, null, 'credit_dispute', 'dispute:' || d.id, 'admin', 'critical',
-      'A Stripe dispute was opened on a prepaid texting credit purchase. The automatic dispute hold is switched off, so no hold was placed. DanceFlow bears the dispute fee. Review the account.');
+      'A Stripe dispute was opened on a prepaid texting credit purchase. The automatic dispute hold is switched off, so no hold was placed. Who bears Stripe''s dispute fee has not been decided. Review the account.');
   end if;
 end $$;
 
@@ -318,7 +320,7 @@ begin
     insert into public.studio_sms_credit_disputes (topup_id, legal_entity_id, dispute_id, claim_cents, withdrawn_cents)
     values (t.id, t.legal_entity_id, p_dispute_id, p_amount_cents, v_amount) returning id into v_row;
     if v_amount = 0 then
-      perform public._tw4dh_on_withdrawn(v_row);   -- 20270221090100: a dispute of an already-refunded payment still costs DanceFlow (hold, alert, fee record)
+      perform public._tw4dh_on_withdrawn(v_row);   -- 20270221090100: a dispute of an already-refunded payment still carries a Stripe dispute fee (hold, alert, fee record)
       return jsonb_build_object('replayed', false, 'capped_to_zero', true);
     end if;
     r := public._tw4c_post(t.legal_entity_id, t.paid_by_studio_id, 'topup_reversed', -v_amount, 0, 'dispute_w:' || t.id || ':' || p_dispute_id, null, t.provider_ref, null,
@@ -405,7 +407,7 @@ as $$
 begin
   perform public._tw4c_admin(p_actor);
   return coalesce((select jsonb_agg(jsonb_build_object('hold_id', h.id, 'legal_entity_id', h.legal_entity_id, 'dispute_id', d.dispute_id, 'dispute_state', d.state,
-      'hold_state', h.hold_state, 'claim_cents', h.claim_cents, 'withdrawn_cents', h.withdrawn_cents, 'df_borne_fee_cents', h.df_borne_fee_cents, 'fee_basis', h.fee_basis,
+      'hold_state', h.hold_state, 'claim_cents', h.claim_cents, 'withdrawn_cents', h.withdrawn_cents, 'est_provider_fee_cents', h.est_provider_fee_cents, 'fee_basis', h.fee_basis, 'fee_allocation', h.fee_allocation,
       'account_already_held', h.account_already_held, 'created_at', h.created_at, 'released_at', h.released_at) order by h.created_at desc, h.id)
     from public.studio_sms_credit_dispute_holds h join public.studio_sms_credit_disputes d on d.id = h.dispute_row_id
    where p_entity_id is null or h.legal_entity_id = p_entity_id), '[]'::jsonb);
@@ -463,7 +465,7 @@ create trigger studio_sms_credit_accounts_negative_alert after update of balance
 -- ---------------------------------------------------------------------------------------------------------------
 -- privileges
 -- ---------------------------------------------------------------------------------------------------------------
-revoke all on function public._tw4dh_guard(), public._tw4dh_dispute_fee_cents(), public._tw4dh_switch_on(text), public._tw4dh_record_on(), public._tw4dh_auto_hold_on(), public._tw4dh_on_withdrawn(uuid), public._tw4dh_on_reinstated(uuid),
+revoke all on function public._tw4dh_guard(), public._tw4dh_est_provider_fee_cents(), public._tw4dh_switch_on(text), public._tw4dh_record_on(), public._tw4dh_auto_hold_on(), public._tw4dh_on_withdrawn(uuid), public._tw4dh_on_reinstated(uuid),
   public._tw4dh_negative_alert() from public, anon, authenticated, service_role;
 revoke all on function public.tw4_dispute_hold_switch_set(boolean, uuid, text), public.tw4_dispute_record_switch_set(boolean, uuid, text), public.tw4_credit_dispute_hold_release(uuid, uuid, uuid, text),
   public.tw4_credit_dispute_holds_list(uuid, uuid), public.tw4_credit_apply_dispute(text, text, int, text, text), public.tw4_credit_set_hold(uuid, boolean, text, uuid)

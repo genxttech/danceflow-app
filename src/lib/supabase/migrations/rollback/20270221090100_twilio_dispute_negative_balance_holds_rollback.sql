@@ -1,7 +1,7 @@
 -- Rollback of 20270221090100_twilio_dispute_negative_balance_holds.sql. Re-runnable (a second run finds nothing to drop and changes nothing).
 -- Restores tw4_credit_apply_dispute (the 20261125090000 body) and tw4_credit_set_hold (the 20261122090000 body), drops the negative-credit trigger, the dispute-hold
 -- functions and tables, and removes the two alert kinds this migration added.
--- REFUSES (55000) while ANY evidence exists that would be lost: a dispute-hold row (it carries the DanceFlow-borne fee record and the release notes), a switch change,
+-- REFUSES (55000) while ANY evidence exists that would be lost: a dispute-hold row (it carries the estimated, unallocated provider dispute fee record and the release notes), a switch change,
 -- or an alert of kind credit_dispute / credit_negative (also refused: either function changed since this migration) (history is never deleted or rewritten). An account still on hold with the reason 'dispute' is refused too:
 -- after the rollback nothing would know it is a dispute hold. No application rollback is needed first: the application calls no function this file adds.
 begin;

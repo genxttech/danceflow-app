@@ -1,7 +1,7 @@
 /**
- * Stripe dispute hold, dispute alert, DanceFlow-borne dispute fee record and the negative-available-credit alert (20270221090100) against a REAL schema.
+ * Stripe dispute hold, dispute alert, unallocated estimated provider dispute fee record and the negative-available-credit alert (20270221090100) against a REAL schema.
  * Covers: dark default (no hold while the switch is off), the automatic hold reusing the EXISTING account hold, one alert per dispute (replays and redeliveries
- * add nothing), the fee recorded as DanceFlow-borne without any studio charge or ledger entry, won / lost outcomes, the administrator release (note, idempotent,
+ * add nothing), the fee recorded as an UNALLOCATED estimate without any studio charge, ledger entry or adjustment, won / lost outcomes, the administrator release (note, idempotent,
  * audited, wrong business refused), concurrent disputes, the manual-hold interplay, the negative-credit alert per transition, what the hold blocks (fee-bearing
  * spending, checkout, top-up) and what it never blocks (STOP/START/HELP inbound recording, compliance replies), privileges from the catalog, and the rollback.
  * Synthetic fixtures; no Stripe, no Twilio, no email. Needs only the database container (it does not use TW4A_LOCAL_URL / the API).
@@ -99,7 +99,7 @@ const acct = (w: World) =>
   JSON.parse(psql(`select json_build_object('balance', balance_cents, 'reserved', reserved_cents, 'hold', hold, 'reason', hold_reason)::text from public.studio_sms_credit_accounts where legal_entity_id = '${w.entity}'`)) as {
     balance: number; reserved: number; hold: boolean; reason: string | null;
   };
-type HoldRow = { id: string; hold_state: string; claim_cents: number; withdrawn_cents: number; df_borne_fee_cents: number; fee_basis: string; account_already_held: boolean; not_held_reason: string | null; release_note: string | null };
+type HoldRow = { id: string; hold_state: string; claim_cents: number; withdrawn_cents: number; est_provider_fee_cents: number; fee_basis: string; fee_allocation: string; account_already_held: boolean; not_held_reason: string | null; release_note: string | null };
 const holds = (w: World) =>
   JSON.parse(psql(`select coalesce(json_agg(to_jsonb(h) order by h.created_at, h.id), '[]'::json)::text from public.studio_sms_credit_dispute_holds h where h.legal_entity_id = '${w.entity}'`)) as HoldRow[];
 type AlertRow = { id: string; kind: string; dedupe_key: string; audience: string; severity: string; studio_id: string | null; summary: string };
@@ -183,10 +183,10 @@ commit;`);
   });
 
   // ---------------------------------------------------------------------------------------------------------------------------------------------
-  describe("record ON, hold OFF: the alert and the DanceFlow-borne fee record, still no hold", () => {
+  describe("record ON, hold OFF: the alert and the unallocated estimated fee record, still no hold", () => {
     beforeAll(() => recordSet(true));
 
-    it("record ON, hold OFF: a studio that buys $100, spends it and disputes: balance goes negative, NO hold, one not_held row with the $15 fee as DanceFlow-borne, one dispute alert, one negative alert", () => {
+    it("record ON, hold OFF: a studio that buys $100, spends it and disputes: balance goes negative, NO hold, one not_held row with the $15 estimated provider fee, unallocated, one dispute alert, one negative alert", () => {
       expect(psql("select public._tw4dh_auto_hold_on()")).toBe("f");
       const w = world();
       const { pi } = pay(w, 10000);
@@ -203,8 +203,8 @@ commit;`);
       expect(verify(w)).toBe(true);
       const rows = holds(w);
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ hold_state: "not_held", not_held_reason: "auto_hold_switch_off", claim_cents: 10000, withdrawn_cents: 10000, df_borne_fee_cents: 1500, fee_basis: "stripe_standard_fee_estimate", account_already_held: false });
-      expect(audits(w, `dispute_hold;state=not_held;hold=${rows[0].id};%df_borne_dispute_fee_cents=1500;%studio_charged=0`)).toBe(1);
+      expect(rows[0]).toMatchObject({ hold_state: "not_held", not_held_reason: "auto_hold_switch_off", claim_cents: 10000, withdrawn_cents: 10000, est_provider_fee_cents: 1500, fee_basis: "stripe_standard_fee_estimate", fee_allocation: "unallocated", account_already_held: false });
+      expect(audits(w, `dispute_hold;state=not_held;hold=${rows[0].id};%est_provider_dispute_fee_cents=1500;%fee_allocation=unallocated;%studio_charged=0`)).toBe(1);
       const da = alertsOf(w, "credit_dispute");
       expect(da).toHaveLength(1);
       expect(da[0]).toMatchObject({ audience: "admin", severity: "critical", studio_id: null });
@@ -251,11 +251,11 @@ commit;`);
       expect(acct(w)).toMatchObject({ balance: 10000, hold: true, reason: "dispute" });
       const rows = holds(w);
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ hold_state: "held", withdrawn_cents: 5000, df_borne_fee_cents: 1500, account_already_held: false });
+      expect(rows[0]).toMatchObject({ hold_state: "held", withdrawn_cents: 5000, est_provider_fee_cents: 1500, account_already_held: false });
       const da = alertsOf(w, "credit_dispute");
       expect(da).toHaveLength(1);
       expect(da[0]).toMatchObject({ dedupe_key: expect.stringMatching(/^dispute:[0-9a-f-]{36}$/), audience: "admin", severity: "critical" });
-      expect(da[0].summary).toMatch(/placed on hold and DanceFlow bears the dispute fee/);
+      expect(da[0].summary).toMatch(/placed on hold\. Who bears Stripe's dispute fee has not been decided/);
       expect(alertsOf(w, "credit_negative")).toHaveLength(0);   // available credit stayed positive
       expect(audits(w, "dispute_hold;state=held;%")).toBe(1);
     });
@@ -366,7 +366,7 @@ commit;`);
       const { pi } = pay(w, 2500);
       call("tw4_credit_apply_refund", pi, 2500, `evt_${hex(6)}`, "fixture refund");
       expect(dispute(pi, `dp_${hex(6)}`, 2500, "withdrawn")).toMatchObject({ capped_to_zero: true });
-      expect(holds(w)[0]).toMatchObject({ hold_state: "held", withdrawn_cents: 0, claim_cents: 2500, df_borne_fee_cents: 1500 });
+      expect(holds(w)[0]).toMatchObject({ hold_state: "held", withdrawn_cents: 0, claim_cents: 2500, est_provider_fee_cents: 1500 });
       expect(acct(w).hold).toBe(true);
       expect(alertsOf(w, "credit_dispute")).toHaveLength(1);
     });
@@ -496,7 +496,7 @@ commit;`);
         expect(can("service_role", fn)).toBe("t");
         for (const role of ["anon", "authenticated"]) expect(can(role, fn)).toBe("f");
       }
-      for (const fn of ["public._tw4dh_on_withdrawn(uuid)", "public._tw4dh_on_reinstated(uuid)", "public._tw4dh_auto_hold_on()", "public._tw4dh_record_on()", "public._tw4dh_switch_on(text)", "public._tw4dh_dispute_fee_cents()", "public._tw4dh_negative_alert()"]) {
+      for (const fn of ["public._tw4dh_on_withdrawn(uuid)", "public._tw4dh_on_reinstated(uuid)", "public._tw4dh_auto_hold_on()", "public._tw4dh_record_on()", "public._tw4dh_switch_on(text)", "public._tw4dh_est_provider_fee_cents()", "public._tw4dh_negative_alert()"]) {
         for (const role of ["anon", "authenticated", "service_role"]) expect(can(role, fn)).toBe("f");
       }
       for (const t of ["studio_sms_credit_dispute_holds", "studio_sms_dispute_hold_switch_log"]) {
@@ -510,11 +510,56 @@ commit;`);
       }
     });
 
-    it("the administrator list shows the cases (admin only) with the DanceFlow-borne fee", () => {
+    it("no alert or audit text ever says who bears the dispute fee; every row is unallocated; studio_charged=0", () => {
+      const texts = psql("select coalesce(string_agg(summary, ' | '), '') from public.studio_sms_provider_alerts where kind = 'credit_dispute'")
+        + " | " + psql("select coalesce(string_agg(note, ' | '), '') from public.studio_sms_onboarding_audit where action = 'credit_hold'");
+      expect(texts.length).toBeGreaterThan(100);
+      expect(texts).not.toMatch(/DanceFlow bears|DanceFlow-borne|borne by DanceFlow|DanceFlow absorbs/i);
+      expect(texts).toMatch(/has not been decided/);
+      expect(count("select 1 from public.studio_sms_credit_dispute_holds where fee_allocation <> 'unallocated' or est_provider_fee_cents <> 1500")).toBe(0);
+      expect(count("select 1 from public.studio_sms_onboarding_audit where action = 'credit_hold' and note like 'dispute_hold;%' and note not like '%fee_allocation=unallocated;studio_charged=0'")).toBe(0);
+      expect(psqlError("update public.studio_sms_credit_dispute_holds set fee_allocation = 'unallocated', est_provider_fee_cents = 1 where id = (select id from public.studio_sms_credit_dispute_holds limit 1);")).toMatch(/held to released, once/);
+    });
+
+    it("NO ledger debit, adjustment or studio charge is ever created for the dispute fee (runtime, source and privilege checks)", () => {
+      // runtime: a dispute of a payment that is NOT yet withdrawn-capped writes exactly the withdrawal entry; a capped-to-zero dispute writes none; nothing fee-shaped, ever
+      const w = world();
+      const { pi } = pay(w, 5000);
+      const before = JSON.stringify(ledgerFor(w));
+      const balBefore = acct(w).balance;
+      dispute(pi, `dp_${hex(6)}`, 5000, "withdrawn");
+      const after = ledgerFor(w);
+      expect(after.length).toBe(JSON.parse(before).length + 1);
+      expect(after[after.length - 1]).toMatchObject({ kind: "topup_reversed", delta: -5000 });
+      expect(acct(w).balance).toBe(balBefore - 5000);                                   // only the disputed credit moved: not the 1500 estimate
+      const w2 = world();
+      const p2 = pay(w2, 2500).pi;
+      call("tw4_credit_apply_refund", p2, 2500, `evt_${hex(6)}`, "fixture refund");
+      const l2 = JSON.stringify(ledgerFor(w2));
+      dispute(p2, `dp_${hex(6)}`, 2500, "withdrawn");                                  // capped to zero: the hold row is written, the ledger is not
+      expect(JSON.stringify(ledgerFor(w2))).toBe(l2);
+      for (const e of [w, w2]) {
+        expect(count(`select 1 from public.studio_sms_credit_ledger where legal_entity_id = '${e.entity}' and (balance_delta_cents = -1500 or kind in ('adjustment', 'usage_charge') or idempotency_key ~* 'fee|dispute_fee')`)).toBe(0);
+        expect(verify(e)).toBe(true);
+      }
+      // source: no function this migration adds touches the ledger, the balance, an adjustment or a charge; the account update only sets the hold
+      expect(psql(`select coalesce(bool_or(p.prosrc ~* '_tw4c_post|studio_sms_credit_ledger|balance_cents|reserved_cents|tw4_credit_adjust|tw4_credit_debit|usage_charge|studio_sms_credit_topups'), false)
+        from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('_tw4dh_on_withdrawn', '_tw4dh_on_reinstated', '_tw4dh_est_provider_fee_cents', '_tw4dh_auto_hold_on', '_tw4dh_record_on', '_tw4dh_switch_on', 'tw4_credit_dispute_hold_release', 'tw4_credit_dispute_holds_list', 'tw4_dispute_hold_switch_set', 'tw4_dispute_record_switch_set', '_tw4dh_guard')`)).toBe("f");
+      expect(psql("select prosrc ~ 'update public.studio_sms_credit_accounts set hold = true, hold_reason = ''dispute'' where' from pg_proc where proname = '_tw4dh_on_withdrawn' and pronamespace = 'public'::regnamespace")).toBe("t");
+      // privileges: no API role can write the fee record or call a hook directly
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        expect(psql(`select has_table_privilege('${role}', 'public.studio_sms_credit_dispute_holds', 'insert') or has_table_privilege('${role}', 'public.studio_sms_credit_dispute_holds', 'update')`)).toBe("f");
+        expect(psql(`select has_function_privilege('${role}', 'public._tw4dh_on_withdrawn(uuid)', 'execute')`)).toBe("f");
+      }
+      // the negative-credit trigger is a notification only: it writes an alert, never a ledger row
+      expect(psql("select prosrc ~* '_tw4c_post|insert into|update public|delete from' from pg_proc where proname = '_tw4dh_negative_alert' and pronamespace = 'public'::regnamespace")).toBe("f");
+    });
+
+    it("the administrator list shows the cases (admin only) with the unallocated estimated fee", () => {
       expect(callError("tw4_credit_dispute_holds_list", NOT_ADMIN, null)).toMatch(/42501/);
-      const list = call<Array<{ df_borne_fee_cents: number; hold_state: string }>>("tw4_credit_dispute_holds_list", ADMIN, null);
+      const list = call<Array<{ est_provider_fee_cents: number; hold_state: string }>>("tw4_credit_dispute_holds_list", ADMIN, null);
       expect(list.length).toBeGreaterThanOrEqual(6);
-      expect(list.every((r) => r.df_borne_fee_cents === 1500)).toBe(true);
+      expect(list.every((r) => r.est_provider_fee_cents === 1500)).toBe(true);
     });
 
     it("the migration file is LF-only and the fee constant is defined once", () => {
@@ -587,7 +632,7 @@ commit;`);
         }
       }
       psql(readFileSync(join(MIG, MIGRATION), "utf8"));                                // and the migration re-applies cleanly
-      expect(psql("select public._tw4dh_dispute_fee_cents() || ':' || public._tw4dh_auto_hold_on()")).toBe("1500:false");
+      expect(psql("select public._tw4dh_est_provider_fee_cents() || ':' || public._tw4dh_auto_hold_on()")).toBe("1500:false");
       expect(psql("select public._tw4dh_record_on()")).toBe("f");
     });
   });
