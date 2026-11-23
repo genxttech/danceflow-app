@@ -62,7 +62,7 @@ begin
   -- This file replaces two function bodies wholesale. It applies only over the exact versions it was written against (20261125090000 / 20261122090000; the 20270221090100
   -- bodies are accepted for a re-run), so a later change to either is never silently overwritten. md5 of prosrc with CR removed.
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_apply_dispute(text,text,integer,text,text)'::regprocedure)
-       not in ('e3541ee9ce86e59e3db30503c72da4da', 'df3dcf4a24e3d1b2e50b124c6fcf6c40') then
+       not in ('e3541ee9ce86e59e3db30503c72da4da', '251d17d60a30b9ad1800fdbc71fee461') then
     raise exception 'dispute hold precondition failed: tw4_credit_apply_dispute is not the 20261125090000 version this file replaces' using errcode = '55000';
   end if;
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_set_hold(uuid,boolean,text,uuid)'::regprocedure)

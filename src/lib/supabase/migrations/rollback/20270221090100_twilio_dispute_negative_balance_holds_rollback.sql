@@ -17,7 +17,7 @@ begin
   -- This file restores two function bodies blind, so it refuses unless each is EXACTLY what 20270221090100 installed (or what this file already restored: it is re-runnable).
   -- Anything else means a later migration changed it; restoring the old body would silently undo that change. CR is ignored (md5 of prosrc with chr(13) removed).
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_apply_dispute(text,text,integer,text,text)'::regprocedure)
-       not in ('df3dcf4a24e3d1b2e50b124c6fcf6c40', 'e3541ee9ce86e59e3db30503c72da4da') then
+       not in ('251d17d60a30b9ad1800fdbc71fee461', 'e3541ee9ce86e59e3db30503c72da4da') then
     raise exception 'dispute hold rollback refused: tw4_credit_apply_dispute is no longer the version 20270221090100 installed; review the later change first' using errcode = '55000';
   end if;
   if (select md5(replace(p.prosrc, chr(13), '')) from pg_proc p where p.oid = 'public.tw4_credit_set_hold(uuid,boolean,text,uuid)'::regprocedure)
