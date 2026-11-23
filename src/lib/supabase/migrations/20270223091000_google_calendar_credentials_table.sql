@@ -1,4 +1,4 @@
--- 20270223090000_google_calendar_credentials_table.sql
+-- 20270223091000_google_calendar_credentials_table.sql
 -- Integrations Slice 0 / S0-a (expand phase). Moves Google Calendar OAuth token ciphertext out of the
 -- studio_google_calendar_connections row (readable by studio admins and the linked instructor under RLS)
 -- into a dedicated credentials table with RLS enabled and NO policy, the same pattern as studio_wave_credentials.
