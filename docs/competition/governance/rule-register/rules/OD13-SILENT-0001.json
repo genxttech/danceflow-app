@@ -1,0 +1,23 @@
+{
+  "id": "OD13-SILENT-0001",
+  "governing_body": "silent",
+  "format": "NDCA Skating System scrutineering",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: the NDCA rule book requires the Skating System but does not define the algorithm. No NDCA scoring is implemented or claimed.",
+  "implementation": [],
+  "enforcement_point": "Nothing to enforce: the algorithm is not in the provided source. No Studio rule may be presented as this body's algorithm.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Open source gap tracked under OD-24. Studio ordinal majority resembles steps of the Skating System only in appearance; DanceFlow makes no Skating System claim.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-13 (owner decision 2026-11-23, Option A: preserve DanceFlow Studio scoring; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "OD-01 (PR 832)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}

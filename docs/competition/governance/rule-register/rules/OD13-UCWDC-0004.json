@@ -1,0 +1,31 @@
+{
+  "id": "OD13-UCWDC-0004",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Finals, head-to-head, shared placements and carry-forward",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Rule #8, parts 1-6 (pp.4-5)",
+    "quote_free_summary": "Remaining ties are decided by win/loss/tie records from individual judges' marks with re-visitation; a final tie shares the placements actually tied (announced as the higher one); tied contestants carry forward the average of the shared placements."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A UCWDC engine must implement head-to-head with re-visitation, shared-placement announcement and the carry-forward average (Rule #8.4-#8.6).",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A blocker to activating any future UCWDC scoring profile (OD-13). A future UCWDC engine must be independently verified, separately versioned (never by editing ordinal_rank@1 or studio_ordinal_majority@1) and evaluated under OD-24. Docs-only record: no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Studio shares placements and skips numbering (2, 2, 4), which resembles Rule #8.4 only for entries still tied after Studio's shorter chain. Carry-forward averaging is not implemented for Studio.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-13 (owner decision 2026-11-23, Option A: preserve DanceFlow Studio scoring; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "OD-01 (PR 832)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}

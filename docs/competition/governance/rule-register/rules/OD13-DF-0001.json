@@ -1,0 +1,37 @@
+{
+  "id": "OD13-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: ordinal_rank@1 ballots and studio_ordinal_majority@1 placement with tie chain",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not any governing body's rule): each judge ranks every entry once (ordinal_rank@1); placement by strict-majority cutoff (OM-A); ties ordered by (1) more judges at or below the cutoff, (2) lower sum of those ordinals, (3) share the placement with numbering that skips (2, 2, 4). Owner decisions D-OM-1..3 (2026-10-24), adopted as DanceFlow Studio rules with no compliance claim. Preserved unchanged by OD-13 Option A.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/engines/studioOrdinalMajority.ts",
+      "symbol_or_migration": "runStudioOrdinalMajority"
+    },
+    {
+      "path": "src/lib/competition/ballots/formats.ts",
+      "symbol_or_migration": "ordinal_rank v1 format entry"
+    }
+  ],
+  "enforcement_point": "Results engine (studio_ordinal_majority@1) and ballot format ordinal_rank@1; specification docs/competition/engine-spec-ordinal-majority.md.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/engines/__tests__/studioOrdinalMajority.f1.test.ts",
+      "name": "F-OM-09 shared placement skips the number"
+    }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Behavior is approved and unit-tested as written, but the scoring-disclosure labels required by OD-13 do not exist yet (see the disclosure spec), and per the audit README a policy row is only verified_compliant once label, approval and test are all in place. Must never be described as UCWDC, NDCA or WSDC scoring. OD-01 (PR 832) keeps unverified body-compliant results from being published for body-declared events.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-13 (owner decision 2026-11-23, Option A: preserve DanceFlow Studio scoring; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "OD-01 (PR 832)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}
