@@ -161,3 +161,18 @@ M12 passed two independent reviews (delta review of round 2: GO, no P0/P1). The 
 **Still gating I3-4 / any UI, outbox or email wiring:** P1-A (a link session is never student-authenticated evidence; assurance stays `declared_unverified`; I3-4 save and submit carry session and invitation provenance; the guardian path needs the L2 email code on top of the link) and the P1-B-adjacent items (TS rate-limit keys are HMAC, signing secret is 32 random bytes; `INTAKE_ROOT_SECRET` is not provisioned anywhere). Next design-only work: I3-2 (guardian email challenge, attestation, role matrix) and I3-3 (minor determination service path, guardian decline). The I1-local fixture port follows.
 
 **Update (M13 written):** items H1-H5 are implemented in M13 (`NSI_I3_1_M13_Notes.md`), validated locally, pending an independent delta review, a full-chain replay on the M13 bytes and the DEV apply. Nothing about P1-A/P1-B or the M-0 gate changed.
+
+## 12. M13 delta review (conditional GO, no P0/P1): blockers recorded, M13 is not amended again
+
+**P2-A..D are BLOCKERS for any purge cron, I4 wiring and Gate A** (specification: `NSI_M14_Hold_Semantics_Spec.md`; migration M14 "hold-semantics + purge liveness"):
+
+| # | Finding | Fix (M14) |
+|---|---|---|
+| P2-A | The hold check compares `effective_at` (hold transaction start) with `now()` (checking transaction start): a hold committed after an erase or purge transaction began can be missed. **Same root cause in `intake_erase_client` / `erase_client_impl` (pre-existing, more serious: a held client's whole record could be erased)** | Destructive paths ignore `effective_at`; a committed, unreleased hold protects immediately |
+| P2-B | The destructive paths assume READ COMMITTED | Refuse (55000) unless READ COMMITTED in purge and erase |
+| P2-C | Held clients can starve the purge's 50-client window | Pre-filter holds in the candidate statement, order by oldest expiry |
+| P2-D | Tests are not discriminating enough | Two-session hold-commit test, erase-regression test, C7 asserts success and `clients_locked < clients_candidate`, P04 probe with a different non-null actor, three more probes |
+
+Nits: `client_ref` on `session_revoked`; dead m13 precondition branch (comment only); harness summary label. **None of this is on PROD** (PROD has no NSI objects) and shared DEV has Gate A closed and no data, so there is no live exposure.
+
+**Renumbering:** M14 = hold semantics and purge liveness (safety item, before any I3-3 implementation); the minor-determination migration is now **M15**; I3-2 becomes M16. Sequence: M13 DEV apply (after the clean replay on its bytes) -> M14 spec, implementation, review -> I3-3/M15 -> I3-2/M16 -> I1-local fixture port.

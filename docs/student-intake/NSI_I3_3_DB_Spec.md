@@ -1,6 +1,6 @@
-# NSI I3-3 (M14) database specification: minor determination service path (revision 1, for review before any migration)
+# NSI I3-3 (M15) database specification: minor determination service path (revision 1, for review before any migration)
 
-Status: **specification only.** No SQL, code, flag, env or email is authorized by this document. Gate A stays closed; no billing gating (pilot grants, staff roles and Gate A only). It follows `NSI_I3_2_I3_3_Design.md` §2 and builds on M12/M13 (invitations, sessions, purge hardening).
+Status: **specification only. Renumbered from M14 to M15: the new M14 is the hold-semantics and purge-liveness fix (`NSI_M14_Hold_Semantics_Spec.md`), a safety item scheduled before this slice.** No SQL, code, flag, env or email is authorized by this document. Gate A stays closed; no billing gating (pilot grants, staff roles and Gate A only). It follows `NSI_I3_2_I3_3_Design.md` §2 and builds on M12/M13 (invitations, sessions, purge hardening).
 
 **Owner-decision labels.** Everything marked **[recommended, pending owner decision]** uses my recommendation as a DRAFT default (O4 decline, O5 minor threshold and wording). The behavior is kept **flag-free and changeable**: the threshold lives in `intake_settings.minor_age_threshold` (already a studio setting), the age rule is isolated in one helper function, and nothing here is activated. The owner's silence is not approval.
 

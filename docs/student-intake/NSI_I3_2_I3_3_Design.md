@@ -13,7 +13,7 @@ Status: **design only.** No SQL, code, flag, env or email is authorized by this 
 
 Today (M5) an owner or admin records a minor determination by hand, and `fulfillment_state` treats "no determination" as an adult only after a P2-4 guard refuses student submission without one. A3 and A5 replace that with a service path.
 
-**I3-3 scope (one migration, M14):**
+**I3-3 scope (one migration, now M15; M14 is the hold-semantics fix, see `NSI_M14_Hold_Semantics_Spec.md`; decline moved to I3-2, see `NSI_I3_3_DB_Spec.md`):**
 - **Determination service path (A5).** `intake_record_minor_determination_service(request, basis, ...)` for `service_role` (called by the app after it reads the client's birthday through an existing server path) and the staff path stays for corrections. Bases: `birthday`, `declared`, `staff`. A determination is append-only; the latest wins; the student session cannot submit before one exists (already enforced).
 - **Minor threshold.** The studio setting (default 18) is read inside the function; the "pending legal review" note stays attached in the staff UI until cleared (owner decision O5).
 - **Guardian decline (A6).** New terminal request state `declined`, reachable only from `invited` or `in_progress` through a guardian-session RPC after L2/L3 verification; excluded from completion reuse and from the evaluator's `already_completed`; the decline evidence (who, how verified, when, text version) is recorded without completing anything; a new invitation means a new request (owner decision O4, recommendation terminal).
@@ -40,9 +40,10 @@ Today (M5) an owner or admin records a minor determination by hand, and `fulfill
 | Order | Slice | Needs | Blocks |
 |---|---|---|---|
 | 1 | M13 purge hardening (carry-forward H1-H5) | M12 on DEV | any purge cron, I4 |
-| 2 | I3-3 (M14) minor determination service path, decline, N1 | O4, O5 | I3-2 guardian path, I3-4 minor flow |
-| 3 | I3-2 (M15) challenges, attestation, respondent guard, role matrix | O2, I3-3, M12 | I3-4 guardian UI, I4 email codes |
-| 4 | I3-4 app: session-hash forms of draft save and submit (revoking the old signatures), provenance in evidence, the `/intake` pages | P1-A rule, M12 to M15 | I4 |
+| 2 | M14 hold semantics and purge liveness (safety item, P2-A..D) | M13 on DEV | purge cron, I4, Gate A, I3-3 implementation |
+| 3 | I3-3 (M15) minor determination service path (decline and N1 moved to I3-2) | O5 | I3-2 guardian path, I3-4 minor flow |
+| 4 | I3-2 (M16) challenges, attestation, decline, respondent guard, role matrix | O2, O4, I3-3, M12 | I3-4 guardian UI, I4 email codes |
+| 5 | I3-4 app: session-hash forms of draft save and submit (revoking the old signatures), provenance in evidence, the `/intake` pages | P1-A rule, M12 to M15 | I4 |
 Each SQL slice follows the M10 to M12 pattern: generator-built migration and exact-fingerprint rollback, local lifecycle with mutation probes, independent review, DEV apply by `sb.sh` with the standing conditions, then the full-chain replay.
 
 ## 5. Not decided here
