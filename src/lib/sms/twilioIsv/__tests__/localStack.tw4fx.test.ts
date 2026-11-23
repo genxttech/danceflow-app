@@ -470,7 +470,6 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
     it("month boundaries follow the business's timezone, not UTC (keys, month starts, the grace start and which periods may be charged)", () => {
       const la = world({ tz: "America/Los_Angeles" });
       const utc = world();
-      call("_tw4ml_ensure_tz", la.entity);
       const key = (w: World, ts: string) => psql(`select public._tw4ml_month_key('${w.entity}', '${ts}'::timestamptz)`);
       expect(key(la, "2027-01-01 07:59:59+00")).toBe("2026-12");
       expect(key(la, "2027-01-01 08:00:00+00")).toBe("2027-01");
