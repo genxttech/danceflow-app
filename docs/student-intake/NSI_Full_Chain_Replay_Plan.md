@@ -56,3 +56,13 @@ Same runner from an isolated detached worktree pinned to that commit (`NSI_REF`)
 - pg_dump A vs B: the same 6 noise lines as the first run (4 random `\restrict` tokens, 2 `applied_at` timestamps in one TW function comment); no NSI or schema difference.
 - The summary shows two `FAIL` lines. Both were runner bookkeeping, not product failures: the runner still expected the pre-amendment fingerprint (`5c8ef043…`) and did not normalize the dump noise. Fixed in the runner afterwards (`NSI_EXPECT_FP`, noise filtering); the substantive results above stand.
 - Caveats unchanged (baseline image is not PROD: `appointments` fingerprint `ff651a6c…` vs PROD `e0c4db1b…`; M8/M7 rollbacks not repeated).
+
+## Result of the third run: FINAL M12 bytes (M1-M12, branch commit 021799fcc, 2026-11-23)
+
+Same isolated-worktree runner (pinned `NSI_REF`), scenarios `full-nsi-end` (M1-M12 last, PROD order) and `full-nsi-mid` (NSI inside the history). Evidence: `rehearsal/full_chain/summary_m12_final_bytes.txt`.
+
+- A and B reach the same NSI fingerprint `3353ac988bc16927f7416e4ec7015cf1|768`; pg_dump (public + intake_private, schema only, noise normalized by the runner) differs by **0 lines**.
+- Suites on A: M12 26/26, M11 18/18, M10 17/17, M7 36/36, M9 17/17, I1 foundation 109/109, I2-local 92/92.
+- Rollbacks on A: M12 to M11 (`9c575d50…`), M11 to M10, M10 to M9, each exact. Summary line: `failures=0`.
+- Caveats unchanged: the baseline image is not PROD (`appointments` fingerprint `ff651a6c…` vs PROD `e0c4db1b…`); M8 and M7 rollbacks were not repeated on A.
+- An earlier partial run on the pre-round-2 bytes (A phase only, killed to amend) is kept as `summary_m12_pre_final_partial.txt`.
