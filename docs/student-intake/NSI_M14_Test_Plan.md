@@ -31,3 +31,10 @@ Status: **test plan only; no migration bytes exist.** Companion to `NSI_M14_Hold
 
 ## 5. What the skeleton does today
 `nsi_m14_race_local.sh <container> [EXPECT=bug|fixed]` seeds committed fixtures in a disposable container (same method as the M12 concurrency harness), implements R1 and R2 as runnable scenarios with the expected outcome selected by `EXPECT`, and has clearly marked stubs for R3 to R6 until the migration exists. It refuses any container that is not `nsi-i2-*`. It has **not been run yet** (the heavy lock is in use by the M13 replay); the first run is on a fresh M13 container to confirm the defects reproduce.
+
+## 6. First run (2026-11-23): both defects reproduce on an M13 database (`EXPECT=bug`, throwaway container, fingerprint `97e13781…|768`)
+Evidence: `rehearsal/m14_baseline/race_harness_on_m13_bug_2026-11-23.txt`.
+- **R1 (P2-A, erase):** an erase transaction that began before a hold committed **deleted every row of the held client** (`left=0`) although the hold was committed before the erase reached its check. The pre-existing, more serious defect is real, not theoretical.
+- **R2 (purge snapshot):** a purge `DELETE` that started before a hold committed **deleted the held client's expired session** (`sessions left=0`; the purge reported `clients_locked=1`).
+- R3 to R6 are still stubs. Nothing was applied anywhere; the container was discarded; the lock was released by the run.
+- When M14 exists the same two scenarios run with `EXPECT=fixed` and must show the rows intact (R1 refused, R2 skipped or raised without deleting).
