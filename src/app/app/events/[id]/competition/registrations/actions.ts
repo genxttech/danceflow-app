@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { buildEligibilityDetermination, validateEligibilityDecision, type EligibilityReasonCode, type EligibilityStatus } from "@/lib/competition/eligibilityGate";
+import { entryParticipantsAdultVerified } from "@/lib/competition/eligibilityGateServer";
 
 const ELIGIBILITY = ["unverified", "eligible", "needs_review", "ineligible", "waived"];
 
@@ -22,7 +24,7 @@ async function requireEventManager(eventId: string) {
     organizerCanManage = ["organizer_owner", "organizer_admin", "organizer_staff"].includes(organizerUser?.role ?? "");
   }
   if (!context.isPlatformAdmin && !studioCanManage && !organizerCanManage) throw new Error("You do not have permission to manage competition registrations.");
-  return supabase;
+  return { supabase, userId: context.userId };
 }
 
 function refresh(eventId: string) {
@@ -35,9 +37,19 @@ export async function updateCompetitionEntryEligibilityAction(formData: FormData
   const eventId = text(formData, "eventId");
   const entryId = text(formData, "entryId");
   const eligibilityStatus = text(formData, "eligibilityStatus");
+  const reasonCode = text(formData, "reasonCode");
   if (!eventId || !entryId || !ELIGIBILITY.includes(eligibilityStatus)) throw new Error("A valid eligibility decision is required.");
-  const supabase = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_entries").update({ eligibility_status: eligibilityStatus }).eq("id", entryId).eq("event_id", eventId);
+  const { supabase, userId } = await requireEventManager(eventId);
+  // OD-03: an auditable organizer determination (who, when, outcome, reason code; no birthdates) is stored with the entry.
+  // OD-02: eligible/waived is refused unless every competitor's STORED date of birth shows 18 or older (fails closed).
+  const { data: entry, error: entryError } = await (supabase as any).from("event_competition_entries").select("id, division_id, metadata").eq("id", entryId).eq("event_id", eventId).maybeSingle();
+  if (entryError || !entry) throw new Error("Competition entry not found.");
+  const { data: division } = await (supabase as any).from("event_competition_divisions").select("age_label").eq("id", entry.division_id).eq("event_id", eventId).maybeSingle();
+  const participantsAdult = await entryParticipantsAdultVerified(supabase, eventId, entryId);
+  const problem = validateEligibilityDecision({ outcome: eligibilityStatus, reasonCode, ageLabel: division?.age_label, participantsAdult });
+  if (problem) throw new Error(problem);
+  const metadata = { ...(entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {}), eligibility_determination: buildEligibilityDetermination({ by: userId, outcome: eligibilityStatus as EligibilityStatus, reasonCode: reasonCode as EligibilityReasonCode }) };
+  const { error } = await (supabase as any).from("event_competition_entries").update({ eligibility_status: eligibilityStatus, metadata }).eq("id", entryId).eq("event_id", eventId);
   if (error) throw new Error(`Could not update entry eligibility: ${error.message}`);
   refresh(eventId);
 }
@@ -47,7 +59,7 @@ export async function assignCompetitionEntryNumberAction(formData: FormData): Pr
   const entryId = text(formData, "entryId");
   const entryNumber = text(formData, "entryNumber");
   if (!eventId || !entryId) throw new Error("Competition entry is required.");
-  const supabase = await requireEventManager(eventId);
+  const { supabase } = await requireEventManager(eventId);
   const { error } = await (supabase as any).from("event_competition_entries").update({ entry_number: entryNumber || null }).eq("id", entryId).eq("event_id", eventId);
   if (error) throw new Error(`Could not assign entry number: ${error.message}`);
   refresh(eventId);
