@@ -1,0 +1,28 @@
+{
+  "id": "OD15-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events: judges certification program (future)",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "Section 7 (p.24)",
+    "quote_free_summary": "A WSDC judges certification program launches January 1, 2027, with anticipated initial guidelines of 30% to 50%; WSDC will list global-certified judging resources."
+  },
+  "rule_class": "recommended",
+  "requirement": "Tracked only. No requirement, counter or readiness check is built on it until WSDC publishes effective rules confirmed against the then-current registry edition.",
+  "implementation": [],
+  "enforcement_point": "None: tracking only until effective rules are confirmed.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "UNVERIFIED: \"anticipate\" and \"expect\" wording; guidance for 2027, not a requirement for events under this edition. Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-15 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

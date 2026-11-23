@@ -1,13 +1,15 @@
-# Judging-integrity design: OD-05 conflicts and recusal (slices 1-4) and OD-06 WSDC role separation, with OD-15 / OD-16 placeholders
+# Judging-integrity design: OD-05 conflicts and recusal (slices 1-4) and OD-06 WSDC role separation, with OD-15 qualifications design and an OD-16 placeholder
 
 **Status: DESIGN ONLY (PR-A, docs).** No SQL, no code, nothing applied, merged, deployed or activated. Competition OS is dark.
 Governed by [RULEBOOK_GOVERNANCE.md](../../RULEBOOK_GOVERNANCE.md). Owner decision OD-05 (2026-11-23, Option D, BLOCK, with panel-level
 safeguards) is recorded in the audit owner-decision list (PR #795, `OWNER-DECISIONS.md`, branch `claude/comp-audit-owner-decisions`).
 
+**OD-15 was decided on 2026-11-23 (owner): Option B now (organizer attestation), Option A for future body profiles** (section 6B, design only, no credential SQL).
+
 **OD-06 was decided on 2026-11-23 (owner): Option A, enforce WSDC separation of duties** for WSDC-declared events, with explicit event-level
 designations (section 6A). It is designed here in the same coordinated block as OD-05.
 
-**What this document does not do:** it invents no rule, claims no body compliance, and does not decide OD-15 or OD-16.
+**What this document does not do:** it invents no rule, claims no body compliance, and does not decide OD-16.
 Those two are **not yet decided: design placeholder only** wherever they appear below. Where a source is silent or conflicting
 the text says so and the behavior is labelled DanceFlow policy.
 
@@ -213,19 +215,19 @@ One new `BEFORE UPDATE OF status` trigger on `event_competition_rounds` (`compoc
 1. `_compoc_blockers_conflicts`: OD-05 (this design). Unresolved definite findings on seated officials; active declarations covering the round;
    panel relations (once Q4 is resolved); unresolved REVIEW findings if Q1 = block.
 2. `_compoc_blockers_roles`: **OD-06 (decided: Option A)**, WSDC-declared events only. Missing or unverified designations; a designated owner/director/family member or chief judge seated in a restricted function; chair and scorer the same account; see section 6A.
-3. `_compoc_blockers_qualifications`: **OD-15 placeholder, not yet decided.** Body credential / attestation readiness.
+3. `_compoc_blockers_qualifications`: **OD-15 (decided: Option B now, A later; section 6B).** Declared-body events only: lists each mandatory body credential requirement as unverified (attestation never clears it); with a future profile, missing/expired credentials for restricted body roles.
 4. `_compoc_blockers_panel_size`: **OD-16 placeholder, not yet decided.** Per-body minimum panel, chair requirement, non-voting chair.
 
 Validators 2-4 ship as functions returning `[]` until their decisions land, so the guard point, its error (`COMP_PANEL_BLOCKED` with the jsonb list)
 and the readiness UI contract are fixed once and the three later decisions plug in without a second trigger, a second error vocabulary
 or contradictory ordering. E1's `competition_round_panel_status/ready` are read by the UI beside this list and are not modified.
 
-## 6. OD-06 / OD-15 / OD-16 touchpoints (OD-06 decided; OD-15 and OD-16 placeholders only)
+## 6. OD-06 / OD-15 / OD-16 touchpoints (OD-06 and OD-15 decided; OD-16 placeholder only)
 
 | Decision | Status | Touchpoint with OD-05 | Reserved |
 |---|---|---|---|
 | OD-06 role separation | **decided 2026-11-23, Option A**; designed in section 6A | event-level designations replace guessing; the WSDC tier-2 list in OD-05 reads them. | designations table; `_compoc_blockers_roles` |
-| OD-15 qualifications | **not yet decided, design placeholder only** | credential fields would be new columns on `event_competition_officials` plus a validator; UCWDC tiers wait for the Code of Conduct (open gap). No OD-05 table depends on them. | migration slot; `_compoc_blockers_qualifications` |
+| OD-15 qualifications | **decided 2026-11-23** (Option B now, Option A for future profiles); designed in section 6B | attestation table and `qualification_attester` designation reuse the OD-06 tables; no column on `event_competition_officials`; UCWDC judge tiers wait for the Code of Conduct (open gap). | attestation migration slot; `_compoc_blockers_qualifications` |
 | OD-16 panel size / chair | **not yet decided, design placeholder only** | heat-scope recusal (Q3) shrinks a heat's judge count and must satisfy OD-16 minimums; the chief-judge substitution (WSDC 3.4.6.b.iv) belongs here, not in OD-05. | migration slot; `_compoc_blockers_panel_size` |
 | OD-17 appointment / substitution | outside this task | a chair "excuse" (NDCA IV.C.8) would be a resolution kind; the panel freeze (`COMP_PANEL_FROZEN`) interacts with late recusal. Flagged only. | none |
 
@@ -327,10 +329,121 @@ with the OD-01/OD-07 scoring work, not in this block. Raw-score-judge access lim
 - One matcher function serves both: designations carry `user_id`; tier-2 uses the DEFINITE/REVIEW classes of section 3.2.
 - One error vocabulary through the shared aggregator (`COMP_PANEL_BLOCKED`); OD-06 adds codes `COMP_WSDC_DESIGNATIONS_REQUIRED`, `COMP_WSDC_ROLE_SEPARATION`.
 
+`## 6B. OD-15: qualifications of officials (decided 2026-11-23: Option B now, Option A for future body profiles)
+`
+`**Docs and design only.** No credential SQL, no migration file exists. Decision: the organizer (or an explicitly designated authorized administrator)
+`attests to officials' qualifications now (Option B); role-specific credential records with verification status, evidence, expiry and rulebook
+`version are designed for future NDCA/UCWDC/WSDC profiles (Option A). OD-01 (PR #832) body-scoring restrictions and every release gate are unchanged:
+`nothing in this section approves, publishes or enables a body-scored result.
+`
+`### 6B.1 Rule evidence (re-read in the pinned PDFs on 2026-11-23)
+`
+`| Ref | Document / edition | What it says (own words) | Class |
+`|---|---|---|---|
+`| NDCA III.B.4 (p.16) | Rule Book June 2026 | The Chairman of Adjudicators (any sanctioned event) must be a U.S. resident, on the current NDCA roster, with full membership in every category of the event; for a Championship also a Scrutineering Certificate. The Chairman should, if possible, be non-voting. A Scrutineer may not serve as Chairman and may serve only as a substitute adjudicator (III.B.5). | mandatory; non-voting is **recommended** (OD-16) |
+`| NDCA III.B.4.a-b (p.16-17) | same | Chairman levels CH1, CH2, CH3 limit which events they may chair; high-ranking officials may chair special Championships without a Scrutineering Certificate if two Scrutineers are present and the Ballroom Committee approves. | mandatory with exception |
+`| NDCA III.B.1.b (p.14) | same | At least one qualified Chairman must officiate at every sanctioned event. | mandatory |
+`| NDCA III.B.1.e, III.B.1.f (p.14-15), III.B.2 (p.15) | same | At least one NDCA-certified Scrutineer must officiate; a back-up Scrutineer is required when only one is engaged; scrutineer levels S1-S3 are awarded on an NDCA exam, and an S1 may be hired only while an S2 or S3 works simultaneously. | mandatory |
+`| NDCA III.B.3, III.B.3.a (p.16) | same | Organizers select adjudicators from the Current Roster; all must be certified and qualified for the categories they judge; Sanctioned Championships use only adjudicators accepted as Championship Adjudicators. | mandatory |
+`| NDCA IV.A.6 (p.25) | same | Adjudicators must be qualified and certified in the type and style judged and hold an NDCA Adjudicator's License; Associate level or higher may judge all categories except Championships (Full Member or Fellow only). | mandatory |
+`| NDCA III.D.5 (p.20) | same | No organizer, chairman, adjudicator, scrutineer, registrar, MC or music director may officiate unless registered with the NDCA. | mandatory |
+`| NDCA III.B.5 (p.16) | same | Non-resident adjudicators or officials need a current World Dance Council license to officiate at NDCA sanctioned events. | mandatory |
+`| UCWDC-C II.B.1.b, II.B.2 (p.3) | UCWDC Couples 2026 | A current, dues-paid Associate Membership is mandatory for each Contest Coordinator, Judge, Scrutineer and Scoring Director working a UCWDC-sanctioned event; membership expires on the last day of the Dance Season (January 15). | mandatory |
+`| UCWDC-SF preamble (p.1), General Information (p.8) | UCWDC Scoring Format v16.9b | All contest procedures are supervised by a UCWDC "certified" Contest Coordinator, with "verified" Scoring Directors/Scrutineers and an "authorized" scoring system; scoring personnel are trained and tested by a UCWDC Scoring Examiner. How certification or verification is evidenced is not stated in the text read. | mandatory; evidence mechanism **NOT SPECIFIED IN PROVIDED SOURCE** |
+`| UCWDC-C II.N.3 (p.13) | UCWDC Couples 2026 | The UCWDC Judge Certification Code of Conduct (website) is **not provided**: open source gap (also listed in the registry). No UCWDC judge-certification tier is designed until it is supplied. | open source gap |
+`| WSDC Definitions: Chief Judge (p.3) | WSDC v2026.1C | The Chief Judge needs extensive judging experience with a proven record, may not compete, and may be appointed only from people who served as a judge at multiple registry events and showed proficiency. | mandatory; experience is **not machine-verifiable** |
+`| WSDC Trial Event requirements (p.5) | same | A Trial Event must use a "WSDC Certified Chief Judge" (and an approved scoring system). The text read does not define how that certification is evidenced. | mandatory (Trial Events only); evidence mechanism not specified |
+`| WSDC Section 7 (p.24) | same | A WSDC judges certification program launches January 1, 2027; WSDC "anticipates" initial guidelines of 30% to 50%; WSDC will list global-certified judging resources. | **UNVERIFIED until effective rules are confirmed**: anticipated guidance, not a current requirement |
+`
+`NOT SPECIFIED IN PROVIDED SOURCE: NDCA/UCWDC/WSDC text on how an organizer must evidence an official's credentials, other than the NDCA roster supplied to organizers (III.B.1.a, III.B.3). UCWDC-C I.A.4 (certified pool) from the audit was not re-read in this pass and is not relied on here.
+`
+`### 6B.2 Distinct body roles are not DanceFlow roles
+`
+`| Body role | Source | Must not be treated as |
+`|---|---|---|
+`| NDCA Chairman of Adjudicators | III.B.4 | the DanceFlow `chair` official, nor a generic manager |
+`| NDCA Scrutineer (S1-S3; certified) | III.B.1.e, III.B.2 | the DanceFlow `scorer` official; and a Scrutineer cannot be the Chairman |
+`| NDCA Adjudicator | III.B.3, IV.A.6 | a DanceFlow `judge` with an attestation |
+`| UCWDC Contest Coordinator, Judge, Scrutineer, Scoring Director | II.B.1.b; SF preamble | `chair` / `judge` / `scorer`; no generic manager or scorer permission substitutes for the membership or certification |
+`| WSDC Chief Judge (and Secondary) | Definitions p.3 | the DanceFlow `chair`, unless designated as such under OD-06 and attested here |
+`
+`Body roles live in the OD-06 event-level designations table as additional `kind` values added **with a future body profile** (not now). Until a
+`profile and a verified credential exist, a body-role designation is unavailable (`COMP_BODY_ROLE_UNAVAILABLE`): the platform never lets a generic
+``chair` or `scorer` stand in for it.
+`
+`### 6B.3 Option B now: organizer attestation (design)
+`
+`New table `event_competition_official_attestations` (immutable; reuses OD-06 designations and events; placed in the reserved OD-15 migration slot, section 7):
+``id, event_id, official_id, assigned_role ('judge'|'chair'|'scorer'), designation_id null (OD-06 row when the role is a designated one),
+`attested_by, attester_capacity ('organizer'|'authorized_administrator'), attested_at, declaration_code, declaration_version, copy_hash, status
+`('active'|'superseded'|'withdrawn'), request_id`. A withdrawal or supersession is a new row or an events row, never an edit.
+`Reused: OD-06 `event_competition_role_designations` gains one kind, **`qualification_attester`** (the explicitly designated authorized administrator),
+`created by the event organizer account and ended with a reason like any designation; the OD-06 audit events table carries the new event kinds.
+`Rules: the attester must differ from the official; a designated attester cannot attest their own official row; assigned role must match the official's current role
+`(a role change supersedes); attesting is optional for Studio/Custom and never a precondition for registration, scheduling or payments.
+`The declaration text lives in a versioned rule-set function (like \`_compoc_rule_set\`), so each row records exactly what was signed.
+`
+`**Mandatory copy (every surface: organizer UI, chair view, exports, support articles):**
+`- Attestation: "**Attested by organizer, not verified by DanceFlow or any governing body.**"
+`- Free-text credential or unverified document: "Entered by the organizer; not verified."
+`- Platform-reviewed evidence (future Option A only): "Evidence reviewed by DanceFlow on <date> against <document>. This is not a governing-body certification."
+`- The words "certified", "licensed", "approved by NDCA/UCWDC/WSDC" appear only for a record whose verification method is a governing-body source. None exists today.
+`
+`### 6B.4 Option A, future body profiles: credential records (design only)
+`
+`Not built until a body profile exists. Table `event_competition_official_credentials` (event-scoped; cross-event reuse is Q13):
+``id, event_id, official_id, body, credential_code (closed set per body and role, e.g. ndca_roster_listing, ndca_adjudicator_license, ndca_membership_level,
+`ndca_scrutineer_s1..s3, ndca_scrutineering_certificate, ndca_chairman_ch1..ch3, ndca_us_residency_or_wdc_license, ucwdc_associate_membership,
+`ucwdc_contest_coordinator_certification, ucwdc_scoring_director_verification, wsdc_chief_judge_appointment), role_scope, level_code null,
+`identifier_ref (membership or roster id; restricted column), evidence_ref (code of an uploaded document or roster extract), valid_from, valid_to,
+`rulebook_registry_document, rulebook_edition, verification_status ('claimed'|'evidence_attached'|'verified'|'rejected'|'expired'),
+`verification_method ('organizer_entry'|'platform_review'|'body_source'), verified_by, verified_at, request_id`. Status changes append rows; expiry is
+`evaluated against the **event date**, not today (UCWDC membership ends January 15; NDCA rosters change). Requirement catalog per body and role
+`(the table of 6B.1 expressed as data) is a versioned rule-set function, never organizer-editable.
+`
+`Verification semantics: \`verified\` means a named DanceFlow reviewer checked the evidence against the cited official document, or a governing-body source
+`confirmed it; it never means "organizer says so". Requirements DanceFlow **cannot** verify (WSDC chief judge experience, NDCA "qualified" judgments) stay
+`\`attested_unverified\` and are listed as such; they are never displayed as met.
+`
+`### 6B.5 Enforcement
+`
+`- **Studio/Custom, `other`:** no credential or attestation obligation; readiness shows an optional "qualification attestation not recorded" note. No unsupported
+`  professional-certification demands.
+`- **Declared NDCA/UCWDC/WSDC, now (no profile):** the attestation is recorded and displayed with the mandatory copy; \`_compoc_blockers_qualifications\` lists,
+`  per assigned body role, each mandatory requirement from 6B.1 as \`unverified\` (not as met). **Attestation never clears a mandatory requirement.**
+`  Whether those unverified items are panel-lock *blockers* or *warnings* before profiles exist is Q12; OD-01 already blocks approval and publication of
+`  Studio-scored results for declared bodies, so this choice affects only round start and panel lock.
+`- **Declared body, with a future profile:** restricted body roles (Chairman, Scrutineer, Contest Coordinator, Scoring Director, WSDC Chief Judge) are
+`  assignable only with a \`verified\`, unexpired credential set for the event date; a missing, rejected or expired credential blocks that assignment and the
+`  operations that role gates, and nothing else. NDCA Scrutineer and Chairman cannot be one person (III.B.4).
+`- Ballots and marks carry no credential data; judges never see credential status of other officials (confidentiality unchanged).
+`
+`### 6B.6 Roles and visibility
+`
+`| Who | Attestations | Credential records |
+`|---|---|---|
+`| Organizer / manager | read, create (as organizer) | read, enter claims, attach evidence |
+`| Designated authorized administrator (`qualification_attester`) | create, read | read |
+`| Chair official | read status per official (no identifiers) | status only |
+`| The official | own attestation status | own records, may attach evidence; cannot verify |
+`| Platform reviewer (future) | none | verify or reject |
+`| Other staff, competitors, anon | none | none |
+`
+`### 6B.7 WSDC certification (Section 7, p.24) tracking
+`
+`Recorded as **UNVERIFIED future guidance**: launch date January 1, 2027 and an anticipated 30-50% guideline. No requirement, counter or readiness check is built on
+`it until WSDC publishes effective rules that are confirmed against the then-current registry edition. The register entry `OD15-WSDC-0002` carries status
+`\`unverified\`.
+`
+`### 6B.8 OD-16 touchpoints (OD-16 not yet decided: placeholder only)
+`
+`NDCA minimum judge counts (III.B.1.a-d), the Chairman's non-voting recommendation (III.B.4) and WSDC finals panel size (3.4.7) belong to OD-16 and
+`\`_compoc_blockers_panel_size\`. OD-15 adds no panel-size rule.
+`
 ## 7. Migration block, ordering, rollback
 
 Latest migration on `origin/release/website-embeds` is `20270218090000`. Proposed block for the coordinator to confirm
-(Q6): **`20270220090000` to `20270220097000`**, one file per step, applied strictly in order, each with
+(Q6): **`20270220090000` to `20270220098000`**, one file per step, applied strictly in order, each with
 `rollback/<name>_rollback.sql`, a header stating **"PROD apply needs separate owner approval; not applied to any database"**,
 LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight for anything redefined.
 
@@ -342,11 +455,12 @@ LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight f
 | `20270220093000` | `competition_oc_s3_enforcement_resolutions` | OD-05 s3 | REDEFINES the s1 stub of `_compoc_conflict_state` inside this block (md5-pinned) |
 | `20270220094000` | `competition_oc_s4_panel_lock` | OD-05 s4 | no (trigger on rounds, aggregator, stub validators 2-4 return `[]`; s5 and the reserved OD-16 slot later redefine stubs, md5-pinned) |
 | `20270220095000` | `competition_oc_s5_wsdc_separation_guards` | OD-06 enforcement | no (G1-G7 triggers on officials, designations, result versions; REDEFINES the s4 stub `_compoc_blockers_roles`, md5-pinned) |
-| `20270220096000` | reserved OD-15 | placeholder | adds columns to `event_competition_officials` |
+| `20270220096000` | `competition_oc_s6_official_attestations` (OD-15, design only) | OD-15 Option B | no (new attestation table and events kinds; adds designation kind `qualification_attester`; REDEFINES the s4 stub `_compoc_blockers_qualifications`, md5-pinned) |
 | `20270220097000` | reserved OD-16 | placeholder | fills `_compoc_blockers_panel_size` |
+| `20270220098000` | reserved OD-15 Option A: `competition_oc_s7_credential_records` | future, **not before a body profile exists** | no (credential table, rule-set catalog) |
 
 Order rationale: designations (s0) must exist before the OD-05 tier-2 lookup reads them (s1); enforcement of OD-06 (s5) comes after the shared guard
-point (s4) it plugs into. The block is now `20270220090000` to `20270220097000`.
+point (s4) it plugs into. The block is now `20270220090000` to `20270220098000`.
 
 No overlap with other sessions: OD-05 redefines none of `submit_competition_ballot`, `assign_competition_panel_member`,
 `add_competition_official`, `_compe2_guard_*` or the scoring/results functions (OD-01 in PR #832 is app-layer). Everything attaches by
@@ -369,6 +483,7 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
 - Slice 2: scope CHECKs; judge declares own only; read isolation per matrix; withdrawal audited; no relationship text in list RPC.
 - Slice 3: exception codes validated by sanctioning; subject cannot resolve self; NDCA tier-2 match cannot be cleared; resolutions immutable.
 - Slice 4: guard fires only on the activation edge; blocker order stable; OD-15 and OD-16 placeholder validators return `[]`.
+- OD-15: attestation row records actor, event, official, role, time, declaration version and copy hash; attester cannot be the attestee; Studio/Custom has no obligation; declared-body events list mandatory requirements as unverified and attestation never clears one; the mandatory copy strings appear verbatim on every surface; no governing-body wording ("certified", "licensed") without a body-source verification method; credential expiry evaluated at the event date (future Option A).
 - OD-06: G1-G7 each with a negative test and a positive control (chief judge CAN approve and review finalists but CANNOT calculate; owner CANNOT be judge, chair or scorer; family CAN be an ordinary judge, CANNOT be chair or scorer; chair and scorer cannot be one account; NDCA, UCWDC, Studio and Custom events never get these blocks; WSDC event without a valid attestation refuses official add, ballot and calculation but still allows registration, scheduling and payments; a designation change invalidates the attestation; exception resolutions require body reference and Board authorization reference where 3.4.2.b applies).
 - Cross-cutting: rollback verification; `ruleRegister.integrity.test.ts`; privilege test that no new function is executable by `anon`/`public`.
 
@@ -385,7 +500,7 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
 - **Q4:** NDCA IV.A.2 needs division classification and the family definition (source conflict). Confirm NDCA panel relatedness stays
   unimplemented, and not relied on for an NDCA-declared event, until both exist.
 - **Q5 (closed by OD-06):** WSDC roles come from explicit event-level designations (6A), not from DanceFlow roles.
-- **Q6:** confirm migration block `20270220090000`-`20270220097000` is free.
+- **Q6:** confirm migration block `20270220090000`-`20270220098000` is free.
 - **Q7 (OD-06):** who may attest the designation set (6A.3)? Recommended: a manager other than the last designator; for a one-manager event an explicit, recorded single-person acknowledgement.
 - **Q8 (OD-06):** is the chief judge's finalist-review record (3.4.4) a hard start blocker for WSDC-declared final rounds (recommended: yes, it is mandatory text) or advisory?
 - **Q9 (OD-06):** G4 lets an attested-undesignated manager calculate results. Confirm that reading (6A.5) of 3.4.1/3.4.3, versus requiring a designated scoring operator for every calculation.
@@ -417,6 +532,8 @@ findings are resolved below; **where this section conflicts with earlier text, t
 **Consistency**
 - F21: stubs and redefinitions are explicit in section 7 and md5-pinned. `COMP_WSDC_DESIGNATIONS_REQUIRED` ships in **s5**, so s1 tests cover no WSDC attestation behavior; before s5 a WSDC-declared event gets the s1 tier checks only, and the design states this interim gap (nothing is active; Competition OS is dark, and OD-01 already blocks WSDC results publication).
 - F22: "no designation fails closed" is an s5 behavior; remove it from the s1 test list in section 8.
+
+**OD-15 questions:** **Q12** before body profiles exist, are unverified mandatory body requirements panel-lock *blockers* or *warnings* (6B.5; OD-01 already blocks result approval/publication)? **Q13** may a credential record be reused across events of the same organizer (privacy, tenant isolation) or stays event-scoped? **Q14** who verifies Option A evidence (named DanceFlow reviewer, or organizer-entered only) and what is the evidence standard?
 
 New open questions: **Q10** attestation for NDCA-declared events (accounts-only residual risk); **Q11** designated owner/director reading ballots and marks via the manager policy.
 

@@ -1,0 +1,28 @@
+{
+  "id": "OD15-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: Adjudicators",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.B.3, III.B.3.a (p.16); IV.A.6 (p.25); III.D.5 (p.20); III.B.5 (p.16)",
+    "quote_free_summary": "Adjudicators come from the current roster and must be certified and qualified for the categories judged; Championships use only accepted Championship Adjudicators; an NDCA Adjudicator's License is required (Associate or higher; Full Member or Fellow for Championships); officials must be registered with the NDCA; non-resident officials need a current WDC license."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Credential records per adjudicator in a future NDCA profile; today unverified items are listed, not cleared.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6B): attestation record and credential records, surfaced through _compoc_blockers_qualifications. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "DanceFlow requires only an active team membership and a verified email (audit J-04N/J-05N). Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-15 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

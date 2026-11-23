@@ -1,0 +1,28 @@
+{
+  "id": "OD15-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC sanctioned events: Contest Coordinator, Judge, Scrutineer, Scoring Director",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.B.1.b, II.B.2 (p.3)",
+    "quote_free_summary": "A current, dues-paid Associate Membership is mandatory for each Contest Coordinator, Judge, Scrutineer and Scoring Director; membership expires on the last day of the Dance Season (January 15)."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Membership credential with expiry evaluated at the event date; never inferred from a DanceFlow account.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6B): attestation record and credential records, surfaced through _compoc_blockers_qualifications. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "No membership data exists today (audit J-06U). Expiry semantics follow II.B.2. Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-15 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

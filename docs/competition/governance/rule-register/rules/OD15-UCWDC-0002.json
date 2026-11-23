@@ -1,0 +1,28 @@
+{
+  "id": "OD15-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests: supervising and scoring personnel",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Preamble (p.1); General Information (p.8)",
+    "quote_free_summary": "Contests are supervised by a UCWDC \"certified\" Contest Coordinator with \"verified\" Scoring Directors/Scrutineers using an \"authorized\" scoring system; scoring personnel are trained and tested by a UCWDC Scoring Examiner."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Contest Coordinator, Scoring Director and Scrutineer body roles gated on verified credentials; scoring-system authorization is an OD-01 matter.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6B): attestation record and credential records, surfaced through _compoc_blockers_qualifications. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT SPECIFIED IN PROVIDED SOURCE: how certification or verification is evidenced. No UCWDC credential tier is designed until it is. Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-15 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
