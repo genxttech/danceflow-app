@@ -898,7 +898,10 @@ async function pastEventsScenario(link) {
   // an ended registration is reached through the wallet ticket screen above and the event's own page. Recorded as an observation, not a pass of a new behaviour.
   const regs = await read("ended-registrations", "danceflow://schedule/events", { scrolls: 6, wait: 12000 });
   record("past-events history (observation): the Tickets & registrations screen lists upcoming events only (" + (has(regs, NAMES.endedLastWeek) ? "ended event shown" : "ended event not shown, as before the fix") + ")", has(regs, NAMES.baseline), "unchanged behaviour; the baseline upcoming registration is listed");
-  record("past-events history: receipts/orders for an ended event: NOT RUN (no seeded order; BLOCKED, not passed)", true, "BLOCKED");
+  // The order screen for the ended event's paid order (a mock-web fixture; the app reads it through the same API call it uses in production).
+  const endedOrder = await read("ended-order", "danceflow://events/orders/99999999-9999-4999-8999-999999999991", { scrolls: 3, wait: 12000 });
+  record("past-events history: the paid order for an ended event is still reachable and shows its status", endedOrder.includes("Tickets are ready") && /\$25/.test(endedOrder), "");
+  record("past-events history: the ended event's order offers Open Wallet", endedOrder.includes("Open Wallet"), "");
 
   // 7. Empty state: make every public event ended, then read the lists again.
   const upd = q("update public.events set start_date = current_date - 30, end_date = current_date - 29, start_time = '19:00', end_time = '22:00', timezone = 'America/New_York' where studio_id = '11111111-1111-4111-8111-111111111111'");

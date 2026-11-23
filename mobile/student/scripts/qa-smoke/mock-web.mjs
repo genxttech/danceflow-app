@@ -30,6 +30,9 @@ http
     // PR 650 shape: admissions left per ticket type, counted server-side. A limited ticket (3 of 10 left) so the event screen shows "3 admission spots left".
     if (/^\/api\/student\/events\/[0-9a-f-]{36}\/availability$/.test(url.pathname))
       return json(res, 200, { eventId: url.pathname.split("/")[4], tickets: [{ ticketTypeId: "55555555-5555-4555-8555-555555555551", capacity: 10, remaining: 3, soldOut: false }] });
+    // Fictional paid order for the ended event "QA Ended Last Week" (run.mjs --past-events). A fixture only: no database row, no payment provider.
+    if (url.pathname === "/api/student/events/orders/99999999-9999-4999-8999-999999999991")
+      return json(res, 200, { orderId: "99999999-9999-4999-8999-999999999991", eventId: "44444444-4444-4444-8444-4444444444a1", eventName: "QA Ended Last Week", eventSlug: "qa-ended-last-week", status: "paid", paymentStatus: "paid", currency: "usd", totalAmount: 25, paidAt: new Date(Date.now() - 9 * 86400000).toISOString(), cancelledAt: null, expiresAt: null, registrationIds: ["66666666-6666-4666-8666-666666666681"], ticketCount: 1, ticketCodesIssued: 1, ticketsReady: true, tickets: [] });
     return json(res, 404, { error: "not mocked" });
   })
   .listen(8791, "0.0.0.0", () => console.log("mock web on 8791"));
