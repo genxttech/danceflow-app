@@ -12,7 +12,7 @@
     "quote_free_summary": "A current, dues-paid Associate Membership is mandatory for each Contest Coordinator, Judge, Scrutineer and Scoring Director; membership expires on the last day of the Dance Season (January 15)."
   },
   "rule_class": "mandatory",
-  "requirement": "Membership credential with expiry evaluated at the event date; never inferred from a DanceFlow account.",
+  "requirement": "DanceFlow requirement implementing the body rule: membership credential with expiry evaluated at the event date; never inferred from a DanceFlow account.",
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6B): attestation record and credential records, surfaced through _compoc_blockers_qualifications. Not built.",
   "tests": [],

@@ -12,7 +12,7 @@
     "quote_free_summary": "At least one NDCA-certified Scrutineer must officiate; a back-up Scrutineer is required when only one is engaged; scrutineer levels S1-S3 are awarded on an NDCA exam and an S1 may work only alongside an S2 or S3."
   },
   "rule_class": "mandatory",
-  "requirement": "Body role assignable only with a verified credential; never the generic scorer.",
+  "requirement": "DanceFlow requirement implementing the body rule: body role assignable only with a verified credential; never the generic scorer.",
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6B): attestation record and credential records, surfaced through _compoc_blockers_qualifications. Not built.",
   "tests": [],

@@ -12,7 +12,7 @@
     "quote_free_summary": "Adjudicators come from the current roster and must be certified and qualified for the categories judged; Championships use only accepted Championship Adjudicators; an NDCA Adjudicator's License is required (Associate or higher; Full Member or Fellow for Championships); officials must be registered with the NDCA; non-resident officials need a current WDC license."
   },
   "rule_class": "mandatory",
-  "requirement": "Credential records per adjudicator in a future NDCA profile; today unverified items are listed, not cleared.",
+  "requirement": "DanceFlow requirement implementing the body rule: credential records per adjudicator in a future NDCA profile; today unverified items are listed, not cleared.",
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6B): attestation record and credential records, surfaced through _compoc_blockers_qualifications. Not built.",
   "tests": [],

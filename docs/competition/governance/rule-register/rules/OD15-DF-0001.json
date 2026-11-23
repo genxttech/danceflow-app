@@ -9,7 +9,7 @@
   "enforcement_point": "Planned (design section 6B.3). Not built.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "Owner decision OD-15 Option B. Never presented as governing-body certification. Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification.",
+  "interpretation_notes": "Owner decision OD-15 Option B. DanceFlow policy: never presented as governing-body certification. Design only (PR-A, section 6B): not built, no test.",
   "applicable_event_versions": [
     "DanceFlow policy"
   ],
