@@ -166,6 +166,8 @@ declare
     'intake_private.rate_limits_update_guard|10||f',
     'intake_private.link_valid|10||t',
     'public.intake_issue_invitation|10|authenticated|t',
+    'public.intake_next_invitation_generation|10|authenticated|t',
+    'intake_private.request_has_live_target|10||t',
     'public.intake_revoke_invitations|10|authenticated|t',
     'public.intake_revoke_all_invitations_for_key|10|service_role|t',
     'public.intake_rate_limit_hit|10|service_role|t',
@@ -514,6 +516,7 @@ create table if not exists public.intake_sessions (
   request_id uuid not null,
   invitation_id uuid not null,
   audience text not null check (audience = 'student'),
+  issued_by_user uuid null, -- the staff member who minted the link (copied from the invitation; evidence that a staff-minted link was used)
   session_hash bytea not null check (octet_length(session_hash) = 32),
   idle_seconds int not null check (idle_seconds between 300 and 7200),
   created_at timestamptz not null default now(),
@@ -612,6 +615,7 @@ as $$
 begin
   if new.id <> old.id or new.studio_id <> old.studio_id or new.request_id <> old.request_id or new.invitation_id <> old.invitation_id
      or new.audience <> old.audience or new.session_hash <> old.session_hash or new.idle_seconds <> old.idle_seconds
+     or new.issued_by_user is distinct from old.issued_by_user
      or new.created_at <> old.created_at or new.absolute_expires_at <> old.absolute_expires_at
      or (old.revoked_at is not null and new.revoked_at is distinct from old.revoked_at) then
     raise exception 'nsi: sessions change only by activity and revocation' using errcode = '42501';
@@ -657,6 +661,21 @@ create trigger intake_sessions_30_guard before update on public.intake_sessions 
 drop trigger if exists intake_rate_limits_30_guard on public.intake_rate_limits;
 create trigger intake_rate_limits_30_guard before update on public.intake_rate_limits for each row execute function intake_private.rate_limits_update_guard();
 
+-- A request with no active appointment attachment has no live-target requirement; one that has attachments needs at least one live one.
+create or replace function intake_private.request_has_live_target(p_request_id uuid)
+returns boolean language plpgsql stable security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare v_attached int; v_live int;
+begin
+  select count(*), count(*) filter (where a.status::text in ('scheduled', 'rescheduled', 'confirmed') and a.ends_at > now())
+    into v_attached, v_live
+  from public.intake_request_appointments ra
+  join public.appointments a on a.id = ra.appointment_id and a.studio_id = ra.studio_id
+  where ra.request_id = p_request_id and ra.detached_at is null;
+  return v_attached = 0 or v_live > 0;
+end $$;
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- Shared validity check: used by exchange and by every session context call (one place, one answer)
 -- ---------------------------------------------------------------------------------------------------------------
@@ -667,8 +686,6 @@ as $$
 declare
   i public.intake_invitations;
   q public.intake_requests;
-  v_attached int;
-  v_live int;
 begin
   select * into i from public.intake_invitations x where x.id = p_invitation_id;
   if i.id is null or i.revoked_at is not null or i.expires_at <= now() then return false; end if;
@@ -679,19 +696,25 @@ begin
   if q.id is null or q.status not in ('invited', 'in_progress') then return false; end if;
   if not intake_private.retention_gate_open() then return false; end if;
   if intake_private.erasure_barrier_active(q.studio_id, q.client_id) then return false; end if;
-  select count(*), count(*) filter (where a.status::text in ('scheduled', 'rescheduled', 'confirmed') and a.ends_at > now())
-    into v_attached, v_live
-  from public.intake_request_appointments ra
-  join public.appointments a on a.id = ra.appointment_id and a.studio_id = ra.studio_id
-  where ra.request_id = q.id and ra.detached_at is null;
-  if v_attached > 0 and v_live = 0 then return false; end if;
-  return true;
+  return intake_private.request_has_live_target(q.id);
 end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Staff: issue and revoke (authenticated; assert_staff 'send'; the actor is auth.uid(), never a parameter)
 -- ---------------------------------------------------------------------------------------------------------------
-create or replace function public.intake_issue_invitation(p_studio_id uuid, p_request_id uuid, p_invitation_id uuid, p_kid text,
+create or replace function public.intake_next_invitation_generation(p_studio_id uuid, p_request_id uuid)
+returns int language plpgsql security definer
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+  perform intake_private.assert_staff(p_studio_id, 'send');
+  if not exists (select 1 from public.intake_requests r where r.id = p_request_id and r.studio_id = p_studio_id) then
+    raise exception 'nsi: unknown request' using errcode = '22023';
+  end if;
+  return coalesce((select max(i.generation) from public.intake_invitations i where i.request_id = p_request_id and i.audience = 'student'), 0) + 1;
+end $$;
+
+create or replace function public.intake_issue_invitation(p_studio_id uuid, p_request_id uuid, p_invitation_id uuid, p_generation int, p_kid text,
   p_token_salt bytea, p_token_hash bytea, p_expires_at timestamptz)
 returns uuid language plpgsql security definer
 set search_path = pg_catalog, pg_temp
@@ -704,7 +727,7 @@ declare
   v_ver uuid;
   v_gen int;
 begin
-  if p_invitation_id is null or p_kid is null or p_kid !~ '^[A-Za-z0-9_-]{8}$' or p_token_salt is null or octet_length(p_token_salt) <> 16
+  if p_invitation_id is null or p_generation is null or p_generation < 1 or p_kid is null or p_kid !~ '^[A-Za-z0-9_-]{8}$' or p_token_salt is null or octet_length(p_token_salt) <> 16
      or p_token_hash is null or octet_length(p_token_hash) <> 32 then
     raise exception 'nsi: invalid invitation parameters' using errcode = '22023';
   end if;
@@ -718,6 +741,10 @@ begin
   if q.status not in ('pending', 'invited', 'in_progress') then
     raise exception 'nsi: the request is not open' using errcode = '22023';
   end if;
+  -- everything that could make the new link unusable is checked BEFORE the previous generation is touched
+  if not intake_private.request_has_live_target(q.id) then
+    raise exception 'nsi: the request has no live appointment to complete intake for' using errcode = '22023';
+  end if;
   if q.pinned_version_id is null then
     select v.id into v_ver from public.intake_template_versions v
     where v.studio_id = p_studio_id and v.template_id = q.template_id and v.status = 'published'
@@ -728,6 +755,9 @@ begin
     v_ver := q.pinned_version_id;
   end if;
   select coalesce(max(i.generation), 0) + 1 into v_gen from public.intake_invitations i where i.request_id = q.id and i.audience = 'student';
+  if v_gen <> p_generation then
+    raise exception 'nsi: generation mismatch (expected %, the request is at %); re-read the next generation and derive the token again', p_generation, v_gen using errcode = '22023';
+  end if;
   update public.intake_invitations i set revoked_at = now(), revoked_reason = 'resent'
     where i.request_id = q.id and i.audience = 'student' and i.revoked_at is null;
   update public.intake_sessions s set revoked_at = now() where s.request_id = q.id and s.revoked_at is null;
@@ -766,7 +796,8 @@ begin
   return v_n;
 end $$;
 
--- Operator runbook: root-key compromise. service_role only; bounded batches; audited per studio with counts.
+-- Operator runbook: root-key compromise. service_role only; bounded batches; audited per studio with counts. One invitation at a time,
+-- taking the client lock first (the same order as issue, revoke, exchange and erase), so it can never deadlock with them.
 create or replace function public.intake_revoke_all_invitations_for_key(p_kid text, p_limit int default 500)
 returns int language plpgsql security definer
 set search_path = pg_catalog, pg_temp
@@ -774,23 +805,26 @@ as $$
 declare
   v_n int := 0;
   r record;
+  v_client uuid;
+  v_by_studio jsonb := '{}'::jsonb;
+  v_studio text;
 begin
   if p_kid is null or p_kid !~ '^[A-Za-z0-9_-]{8}$' then raise exception 'nsi: invalid key id' using errcode = '22023'; end if;
-  for r in
-    with picked as (
-      select i.id, i.studio_id from public.intake_invitations i where i.kid = p_kid and i.revoked_at is null
-      order by i.id limit least(greatest(coalesce(p_limit, 500), 1), 5000) for update),
-    done as (
-      update public.intake_invitations i set revoked_at = now(), revoked_reason = 'key_rotation'
-      from picked p where i.id = p.id returning i.studio_id, i.id)
-    select d.studio_id, count(*)::int as n from done d group by d.studio_id
-  loop
-    v_n := v_n + r.n;
-    perform intake_private.audit_write(r.studio_id, 'invitation_revoked', 'system', null, null, null, null, null, null, null,
-      jsonb_build_object('count', r.n, 'reason_code', 'key_rotation'), 'operational');
+  for r in select i.id, i.studio_id, i.request_id from public.intake_invitations i where i.kid = p_kid and i.revoked_at is null
+           order by i.id limit least(greatest(coalesce(p_limit, 500), 1), 5000) loop
+    select q.client_id into v_client from public.intake_requests q where q.id = r.request_id;
+    perform intake_private.lock_client(r.studio_id, v_client);
+    update public.intake_invitations i set revoked_at = now(), revoked_reason = 'key_rotation' where i.id = r.id and i.revoked_at is null;
+    if found then
+      v_n := v_n + 1;
+      update public.intake_sessions s set revoked_at = now() where s.invitation_id = r.id and s.revoked_at is null;
+      v_by_studio := jsonb_set(v_by_studio, array[r.studio_id::text], to_jsonb(coalesce((v_by_studio ->> r.studio_id::text)::int, 0) + 1));
+    end if;
   end loop;
-  update public.intake_sessions s set revoked_at = now()
-    where s.revoked_at is null and s.invitation_id in (select i.id from public.intake_invitations i where i.kid = p_kid and i.revoked_at is not null);
+  for v_studio in select jsonb_object_keys(v_by_studio) loop
+    perform intake_private.audit_write(v_studio::uuid, 'invitation_revoked', 'system', null, null, null, null, null, null, null,
+      jsonb_build_object('count', (v_by_studio ->> v_studio)::int, 'reason_code', 'key_rotation'), 'operational');
+  end loop;
   return v_n;
 end $$;
 
@@ -829,6 +863,7 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
   i public.intake_invitations;
+  v_client uuid;
   v_sid uuid;
   v_live int;
 begin
@@ -837,21 +872,26 @@ begin
      or p_absolute_seconds is null or p_absolute_seconds not between 900 and 28800 or p_idle_seconds > p_absolute_seconds then
     raise exception 'nsi: invalid exchange parameters' using errcode = '22023';
   end if;
-  -- per-token bucket (the only write on an invalid link): 20 attempts per 10 minutes
-  if not public.intake_rate_limit_hit(sha256(convert_to('intake/exchange/v1|', 'UTF8') || p_token_hash), 20, 600) then return; end if;
-  select * into i from public.intake_invitations x where x.token_hash = p_token_hash for share;
+  -- Lock order (same as issue, revoke, erase and bulk revoke): client lock first, then the invitation row. An unknown token returns
+  -- here without writing anything (so random guesses cannot grow any table); the per-token counter only counts KNOWN invitations.
+  select * into i from public.intake_invitations x where x.token_hash = p_token_hash;
   if i.id is null then return; end if;
+  select r.client_id into v_client from public.intake_requests r where r.id = i.request_id;
+  if v_client is null then return; end if;
+  perform intake_private.lock_client(i.studio_id, v_client);
+  select * into i from public.intake_invitations x where x.id = i.id for update;   -- serializes the live-session cap and waits for a concurrent revoke
+  if i.id is null then return; end if;
+  if not public.intake_rate_limit_hit(sha256(convert_to('intake/exchange/v1|', 'UTF8') || p_token_hash), 20, 600) then return; end if;
   if not intake_private.link_valid(i.id) then return; end if;
   select count(*) into v_live from public.intake_sessions s
     where s.invitation_id = i.id and s.revoked_at is null and s.idle_expires_at > now() and s.absolute_expires_at > now();
   if v_live >= 10 then return; end if;
-  insert into public.intake_sessions (studio_id, request_id, invitation_id, audience, session_hash, idle_seconds, idle_expires_at, absolute_expires_at)
-  values (i.studio_id, i.request_id, i.id, i.audience, p_session_hash, p_idle_seconds,
+  insert into public.intake_sessions (studio_id, request_id, invitation_id, audience, issued_by_user, session_hash, idle_seconds, idle_expires_at, absolute_expires_at)
+  values (i.studio_id, i.request_id, i.id, i.audience, i.issued_by_user, p_session_hash, p_idle_seconds,
           least(now() + p_idle_seconds * interval '1 second', now() + p_absolute_seconds * interval '1 second'),
           now() + p_absolute_seconds * interval '1 second')
   returning id into v_sid;
-  perform intake_private.audit_write(i.studio_id, 'link_exchanged', 'student', null, null, i.request_id,
-    (select r.client_id from public.intake_requests r where r.id = i.request_id), 'intake_session', v_sid, null,
+  perform intake_private.audit_write(i.studio_id, 'link_exchanged', 'student', null, null, i.request_id, v_client, 'intake_session', v_sid, null,
     jsonb_build_object('audience', i.audience), 'operational');
   return query select v_sid;
 end $$;
@@ -987,13 +1027,14 @@ begin
 end $$;
 
 revoke all on function intake_private.invitations_insert_guard(), intake_private.invitations_update_guard(), intake_private.sessions_insert_guard(),
-  intake_private.sessions_update_guard(), intake_private.rate_limits_update_guard(), intake_private.link_valid(uuid)
+  intake_private.sessions_update_guard(), intake_private.rate_limits_update_guard(), intake_private.link_valid(uuid), intake_private.request_has_live_target(uuid)
   from public, anon, authenticated, service_role, intake_destructive;
-revoke all on function public.intake_issue_invitation(uuid, uuid, uuid, text, bytea, bytea, timestamptz),
+revoke all on function public.intake_issue_invitation(uuid, uuid, uuid, int, text, bytea, bytea, timestamptz), public.intake_next_invitation_generation(uuid, uuid),
   public.intake_revoke_invitations(uuid, uuid), public.intake_revoke_all_invitations_for_key(text, int), public.intake_rate_limit_hit(bytea, int, int),
   public.intake_exchange_invitation(bytea, bytea, int, int), public.intake_session_context(bytea), public.intake_revoke_session(bytea),
   public.intake_purge_expired(int) from public, anon, authenticated, service_role, intake_destructive;
-grant execute on function public.intake_issue_invitation(uuid, uuid, uuid, text, bytea, bytea, timestamptz) to authenticated;
+grant execute on function public.intake_issue_invitation(uuid, uuid, uuid, int, text, bytea, bytea, timestamptz) to authenticated;
+grant execute on function public.intake_next_invitation_generation(uuid, uuid) to authenticated;
 grant execute on function public.intake_revoke_invitations(uuid, uuid) to authenticated;
 grant execute on function public.intake_revoke_all_invitations_for_key(text, int) to service_role;
 grant execute on function public.intake_rate_limit_hit(bytea, int, int) to service_role;

@@ -14,14 +14,14 @@ import { createHash, createHmac, hkdfSync, randomBytes, randomUUID, timingSafeEq
 export const INTAKE_ROOT_SECRET_ENV = "INTAKE_ROOT_SECRET";
 export const INTAKE_ROOT_SECRET_PREVIOUS_ENV = "INTAKE_ROOT_SECRET_PREVIOUS";
 
-/** Weak secrets are refused outright; a 32-byte random value (64 hex or 44 base64 characters) is the expected form. */
-export const MIN_SECRET_LENGTH = 32;
+/** The signing secret must decode to exactly 32 random bytes: 64 hex characters, or 43/44 base64 or base64url characters. */
+export const SECRET_BYTES = 32;
 export const TOKEN_SALT_BYTES = 16;
 const SESSION_TOKEN_BYTES = 32;
 const KID_BYTES = 6;
 
-type KeyPurpose = "invitation" | "otp";
-const SUBKEY_INFO: Record<KeyPurpose, string> = { invitation: "intake/invitation/v1", otp: "intake/otp/v1" };
+type KeyPurpose = "invitation" | "otp" | "ratelimit";
+const SUBKEY_INFO: Record<KeyPurpose, string> = { invitation: "intake/invitation/v1", otp: "intake/otp/v1", ratelimit: "intake/ratelimit/v1" };
 const KID_INFO = "intake/kid/v1";
 /** Fixed domain separators (fixed length, so concatenation is unambiguous). */
 const INVITATION_DOMAIN = Buffer.from("intake/invitation-token/v1\0", "utf8");
@@ -47,10 +47,22 @@ export function keyIdOf(secret: Buffer): string {
   return hkdf(secret, KID_INFO, KID_BYTES).toString("base64url");
 }
 
+/** Decodes a configured secret to its raw bytes, or null when it is not exactly SECRET_BYTES of encoded random data. */
+export function decodeSecret(value: string): Buffer | null {
+  const t = value.trim();
+  let bytes: Buffer | null = null;
+  if (/^[0-9a-fA-F]{64}$/.test(t)) bytes = Buffer.from(t, "hex");
+  else if (/^[A-Za-z0-9+/]{43}=?$/.test(t)) bytes = Buffer.from(t, "base64");
+  else if (/^[A-Za-z0-9_-]{43}$/.test(t)) bytes = Buffer.from(t, "base64url");
+  if (!bytes || bytes.length !== SECRET_BYTES) return null;
+  // a degenerate value (all bytes equal) is a placeholder, not random data
+  if (bytes.every((b) => b === bytes![0])) return null;
+  return bytes;
+}
+
 function toKey(value: string, name: string): IntakeKey {
-  const trimmed = value.trim();
-  if (trimmed.length < MIN_SECRET_LENGTH) throw new IntakeSecretError(`${name} is too short (minimum ${MIN_SECRET_LENGTH} characters)`);
-  const secret = Buffer.from(trimmed, "utf8");
+  const secret = decodeSecret(value);
+  if (!secret) throw new IntakeSecretError(`${name} must be ${SECRET_BYTES} random bytes (64 hex or 43-44 base64 characters)`);
   return { kid: keyIdOf(secret), secret };
 }
 
@@ -160,9 +172,17 @@ export function deriveEmailCode(ring: IntakeKeyring, challengeId: string, kid: s
 }
 
 export type RateLimitKind = "token" | "ip" | "email" | "request";
-/** Hashed bucket key: the database never sees an email address, IP address or token in clear. */
-export function rateLimitBucket(kind: RateLimitKind, value: string): Buffer {
+/**
+ * Keyed bucket key: HMAC-SHA256(HKDF subkey "intake/ratelimit/v1", kind || window_seconds || value). The database never sees an
+ * email address, IP address or token in clear, and without the secret a stored key cannot be tested against a guessed value
+ * (the keys are pseudonymous, not anonymous). The window length is part of the key, so different windows never share a counter.
+ */
+export function rateLimitBucket(ring: IntakeKeyring, kind: RateLimitKind, windowSeconds: number, value: string): Buffer {
   const normalized = kind === "email" ? value.trim().toLowerCase() : value.trim();
   if (!normalized) throw new RangeError("rate-limit key is empty");
-  return createHash("sha256").update(`intake/rate/v1|${kind}|${normalized}`, "utf8").digest();
+  if (!Number.isInteger(windowSeconds) || windowSeconds < 10 || windowSeconds > 86400) throw new RangeError("window must be 10 to 86400 seconds");
+  const sub = hkdf(ring.current.secret, SUBKEY_INFO.ratelimit, 32);
+  const w = Buffer.alloc(4);
+  w.writeUInt32BE(windowSeconds, 0);
+  return createHmac("sha256", sub).update(Buffer.from(`${kind}\0`, "utf8")).update(w).update(Buffer.from(normalized, "utf8")).digest();
 }

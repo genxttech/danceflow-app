@@ -3,10 +3,12 @@
 # Commits synthetic fixtures (including one synthetic staff user) and temporarily replaces public.intake_platform_policy() to open
 # Gate A; the original definition is restored at the end. Committed fixtures cannot be removed by application roles: DISCARD THE
 # CONTAINER AFTERWARDS.
-#   C1  N parallel staff issues for ONE request: all serialized, generations 1..N, exactly one live (unrevoked) invitation
+#   C1  N parallel staff issues for ONE request (all expecting generation 1): exactly one wins, the others are refused with a generation mismatch
 #   C2  N+4 parallel exchanges of ONE valid token: no deadlock, no error, at most 10 live sessions
 #   C3  rounds of one resend racing one exchange of the old token: afterwards no live session belongs to a revoked invitation
 #   C4  N*4 parallel rate-limit hits on one bucket with limit 10: exactly 10 allowed
+#   C5  deterministic lock order: while a session holds the CLIENT lock, an exchange and a bulk key revoke must WAIT without holding the
+#       invitation row lock (a third session takes FOR UPDATE NOWAIT on it immediately), then complete when the client lock is released
 set -u
 DB="${1:?container}"; N="${2:-8}"
 case "$DB" in nsi-i2-*|supabase_db_nsi*) ;; *) echo "refused: container must be a disposable local stack"; exit 2;; esac
@@ -36,8 +38,8 @@ mkreq() { # $1 index -> request id
   docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_ensure_request('$S', '$C', '$A');" 2>&1 | grep -E '^[0-9a-f-]{36}$' | head -1
 }
 hexhash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
-issue() { # request invitation-id hashseed -> psql output
-  docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role authenticated; set request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; select public.intake_issue_invitation('$S', '$1', '$2', 'kid00001', decode('$(printf 'ab%.0s' $(seq 1 16))', 'hex'), decode('$(hexhash "$3")', 'hex'), now() + interval '7 days');" 2>&1
+issue() { # request invitation-id hashseed [kid] [expected-generation] -> psql output
+  docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role authenticated; set request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; select public.intake_issue_invitation('$S', '$1', '$2', ${5:-1}, '${4:-kid00001}', decode('$(printf 'ab%.0s' $(seq 1 16))', 'hex'), decode('$(hexhash "$3")', 'hex'), now() + interval '7 days');" 2>&1
 }
 exch() { # hash-seed session-seed -> psql output
   docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select session_id from public.intake_exchange_invitation(decode('$(hexhash "$1")', 'hex'), decode('$(hexhash "$2")', 'hex'), 1800, 14400);" 2>&1
@@ -50,13 +52,13 @@ for i in $(seq 1 "$N"); do
   ( issue "$R1" "$(printf 'a5600000-0000-0000-0003-%012d' "$i")" "c1-$i" > "$tmp/c1_$i" 2>&1 ) &
 done
 wait
-ok=0; for i in $(seq 1 "$N"); do grep -q 40P01 "$tmp/c1_$i" && dead=$((dead+1)); grep -qE '^[0-9a-f-]{36}$' "$tmp/c1_$i" && ok=$((ok+1)); done
+ok=0; mism=0; for i in $(seq 1 "$N"); do grep -q 40P01 "$tmp/c1_$i" && dead=$((dead+1)); grep -qE '^[0-9a-f-]{36}$' "$tmp/c1_$i" && ok=$((ok+1)); grep -q 'generation mismatch' "$tmp/c1_$i" && mism=$((mism+1)); done
 live=$(q "select count(*) from public.intake_invitations where request_id = '$R1' and revoked_at is null;")
 maxg=$(q "select max(generation) from public.intake_invitations where request_id = '$R1';")
 cnt=$(q "select count(*) from public.intake_invitations where request_id = '$R1';")
 st=$(q "select status from public.intake_requests where id = '$R1';")
-[ "$ok" = "$N" ] && [ "$live" = "1" ] && [ "$maxg" = "$N" ] && [ "$cnt" = "$N" ] && [ "$st" = "invited" ] && [ "$dead" = "0" ] || { fail=$((fail+1)); echo "C1 ok=$ok live=$live maxgen=$maxg count=$cnt status=$st deadlocks=$dead"; sed -n 1,3p "$tmp/c1_1"; }
-echo "C1 parallel staff issues for one request: sessions=$N succeeded=$ok live_invitations=$live max_generation=$maxg status=$st deadlocks=$dead"
+[ "$ok" = "1" ] && [ "$mism" = "$((N - 1))" ] && [ "$live" = "1" ] && [ "$maxg" = "1" ] && [ "$cnt" = "1" ] && [ "$st" = "invited" ] && [ "$dead" = "0" ] || { fail=$((fail+1)); echo "C1 ok=$ok live=$live maxgen=$maxg count=$cnt status=$st deadlocks=$dead"; sed -n 1,3p "$tmp/c1_1"; }
+echo "C1 parallel staff issues for one request (all expect generation 1): attempts=$N succeeded=$ok refused_mismatch=$mism live_invitations=$live max_generation=$maxg status=$st deadlocks=$dead"
 
 # ---- C2
 R2=$(mkreq 2); INV2=a5600000-0000-0000-0004-000000000002
@@ -74,7 +76,7 @@ c3=0
 for r in $(seq 1 "$N"); do
   RQ=$(mkreq $((100 + r))); I1=$(printf 'a5600000-0000-0000-0005-%012d' "$r"); I2=$(printf 'a5600000-0000-0000-0006-%012d' "$r")
   issue "$RQ" "$I1" "c3-old-$r" >/dev/null
-  ( issue "$RQ" "$I2" "c3-new-$r" > "$tmp/c3a_$r" 2>&1 ) &
+  ( issue "$RQ" "$I2" "c3-new-$r" kid00001 2 > "$tmp/c3a_$r" 2>&1 ) &
   ( exch "c3-old-$r" "c3-sess-$r" > "$tmp/c3b_$r" 2>&1 ) &
   wait
   bad=$(q "select count(*) from public.intake_sessions s join public.intake_invitations i on i.id = s.invitation_id where s.request_id = '$RQ' and s.revoked_at is null and i.revoked_at is not null;")
@@ -94,6 +96,41 @@ wait
 allowed=0; for i in $(seq 1 "$K"); do grep -qx t "$tmp/c4_$i" && allowed=$((allowed+1)); done
 [ "$allowed" = "10" ] || { fail=$((fail+1)); echo "C4 allowed=$allowed (expected 10)"; }
 echo "C4 parallel rate-limit hits: attempts=$K allowed=$allowed (limit 10)"
+
+
+# ---- C5 (deterministic: held locks, no timing luck)
+RB=$(mkreq 300); IB=a5600000-0000-0000-0007-000000000300
+issue "$RB" "$IB" "c5-token" >/dev/null
+CB=$(printf 'a5600000-0000-0000-0001-%012d' 300)
+hold() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select intake_private.lock_client('$S', '$CB'); select pg_sleep($1); commit;" >/dev/null 2>&1; }
+# exchange waits for the client lock without touching the invitation row
+hold 9 &
+sleep 2
+t0=$(date +%s)
+( exch "c5-token" "c5-sess" > "$tmp/c5_exch" 2>&1 ) &
+sleep 3
+nowait=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_invitations where id = '$IB' for update nowait; commit;" 2>&1 | tr '\n' ' ')
+wait
+t1=$(date +%s)
+okx=0; grep -qE '^[0-9a-f-]{36}$' "$tmp/c5_exch" && okx=1
+case "$nowait" in *"$IB"*) nw=1;; *) nw=0;; esac
+if [ "$okx" = "1" ] && [ "$nw" = "1" ] && [ $((t1 - t0)) -ge 4 ]; then echo "C5a exchange waited for the client lock ($((t1 - t0)) s) without holding the invitation lock, then succeeded"; else fail=$((fail+1)); echo "C5a exchange_ok=$okx invitation_lockable_while_waiting=$nw waited=$((t1 - t0))s nowait=[$nowait]"; fi
+# bulk revoke waits for the client lock without touching the invitation row
+RC=$(mkreq 301); IC=a5600000-0000-0000-0007-000000000301
+issue "$RC" "$IC" "c5b-token" kidlock1 >/dev/null
+CC=$(printf 'a5600000-0000-0000-0001-%012d' 301)
+holdc() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select intake_private.lock_client('$S', '$CC'); select pg_sleep($1); commit;" >/dev/null 2>&1; }
+holdc 9 &
+sleep 2
+t0=$(date +%s)
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_revoke_all_invitations_for_key('kidlock1', 100);" > "$tmp/c5_bulk" 2>&1 ) &
+sleep 3
+nowait=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_invitations where id = '$IC' for update nowait; commit;" 2>&1 | tr '\n' ' ')
+wait
+t1=$(date +%s)
+revoked=$(q "select count(*) from public.intake_invitations where id = '$IC' and revoked_at is not null;")
+case "$nowait" in *"$IC"*) nw=1;; *) nw=0;; esac
+if [ "$revoked" = "1" ] && [ "$nw" = "1" ] && [ $((t1 - t0)) -ge 4 ] && grep -qx 1 "$tmp/c5_bulk"; then echo "C5b bulk key revoke waited for the client lock ($((t1 - t0)) s) without holding the invitation lock, then revoked 1"; else fail=$((fail+1)); echo "C5b revoked=$revoked lockable=$nw waited=$((t1 - t0))s out=[$(tr '\n' ' ' < "$tmp/c5_bulk")]"; fi
 
 printf '%s\n' "$ORIG" | docker exec -i "$DB" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 >/dev/null 2>&1; ORIG=""
 gate=$(q "select intake_private.retention_gate_open();"); cat=$(q "select intake_private.assert_catalog();")

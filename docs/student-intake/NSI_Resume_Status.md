@@ -126,3 +126,22 @@ Engineering tasks that are NOT owner decisions: provisioning `INTAKE_ROOT_SECRET
 | N3 | The rollback file's second and third header lines are garbled ("Refused while a detached link exists would not matter…") | Rollback not applied anywhere; editing it changes only its own hash (`NSI_I2_M11_Notes.md` records the current one). Fix when M12 touches the rollback set, not before |
 | N4 | H01c lacked a positive control | Added to `test_T_nsi_i2_m11_ensure_request_local.sql` (an unlinked appointment of the same kind is listed) |
 | N5 | Consider an index on `intake_request_appointments (studio_id, appointment_id)` for the preview's link exclusion and the anchor query | Add in M12/M13 with the C3 change; measure with the simulation on a large studio (P1-2) |
+
+## 10. M12 review conditions: P1-A (staff can mint a link whose token they know) and P1-B (rate-limit keys)
+
+Both are **hard blockers for I3-4 / any UI or outbox wiring**. M12 itself stays dark and unapplied until the delta review.
+
+**P1-B (done in TypeScript, M12 unchanged in meaning):** `rateLimitBucket(ring, kind, windowSeconds, value)` is now `HMAC-SHA256(HKDF subkey "intake/ratelimit/v1", kind || window || value)`; the signing secret must decode to exactly 32 random bytes (hex or base64) and a degenerate value is refused. Tests: 22 cases in `invitationToken.test.ts`.
+
+**P1-A.** The app derives the token and passes only its hash. Any caller who can run the app code (or any staff member with the service path in a future UI) knows the token it just minted, so a minted link can be used to submit "as the student". Two options:
+
+| | Option 2: record the minting actor (implemented in M12) | Option 1: two-party issue |
+|---|---|---|
+| How | The invitation stores `issued_by_user`; every session copies it (`issued_by_user`, immutable); the `invitation_issued` audit event names the staff member; the `link_exchanged` event refers to the session, so every use is attributable | Staff calls an authenticated "request invitation" RPC (no hash); a separate service-role "finalize" RPC, run only by the app server, supplies the token hash. Staff never hold the service key, so they cannot choose or learn a token the student did not receive |
+| Stops | Nothing (attributable, not prevented) | Staff self-minting, and a stolen service key alone |
+| Cost | Done | Two RPCs, a pending-invitation state, expiry of unfinalized requests, a second catalog level and a new test matrix; the app server becomes a required hop |
+| Residual | A staff member can still submit as the student, but cannot do so unnoticed or without being named in the evidence | A compromised app server plus any staff request can still mint |
+
+**Recommendation:** keep option 2 now, and add one rule before I3-4: **a submission made through a staff-minted link is stored with a `staff_minted` marker and never counts as student-authored evidence** (it can be staff-assisted data entry, which is a legitimate use). Use option 1 only for the guardian-consent path in I3-2, where the stakes are higher (minor consent). This keeps the student path simple and puts the stronger control where a forged consent would matter.
+
+M12 also carries these review fixes in place (still unapplied): lock order client lock then invitation row for exchange, issue, revoke, bulk revoke and erase; expected-generation parameter on issue plus a staff `intake_next_invitation_generation` read; issue refuses a request with no live appointment before revoking anything; an unknown token writes no rate-limit row; the live-session cap is serialized by the invitation row lock; sessions record the minting actor. Not done (listed, not hidden): `p_reason` on revoke, an enum widening of revoke reasons.

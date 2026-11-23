@@ -31,14 +31,16 @@ select pg_temp.chk('M02 the three tables exist with RLS on, hold zero rows, and 
   and not exists (select 1 from unnest(array['anon', 'authenticated', 'service_role']) r, unnest(array['intake_invitations', 'intake_sessions', 'intake_rate_limits']) t,
                          unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) p where has_table_privilege(r, 'public.' || t, p)));
 select pg_temp.chk('M03 function privileges: staff RPCs for authenticated only; exchange, context, revoke, rate limit, bulk revoke and purge for service_role only; anon none',
-  has_function_privilege('authenticated', 'public.intake_issue_invitation(uuid,uuid,uuid,text,bytea,bytea,timestamptz)', 'execute')
+  has_function_privilege('authenticated', 'public.intake_issue_invitation(uuid,uuid,uuid,int,text,bytea,bytea,timestamptz)', 'execute')
   and has_function_privilege('authenticated', 'public.intake_revoke_invitations(uuid,uuid)', 'execute')
+  and has_function_privilege('authenticated', 'public.intake_next_invitation_generation(uuid,uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.intake_next_invitation_generation(uuid,uuid)', 'execute')
   and (select bool_and(has_function_privilege('service_role', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute'))
        from unnest(array['public.intake_exchange_invitation(bytea,bytea,int,int)', 'public.intake_session_context(bytea)', 'public.intake_revoke_session(bytea)',
                          'public.intake_rate_limit_hit(bytea,int,int)', 'public.intake_revoke_all_invitations_for_key(text,int)', 'public.intake_purge_expired(int)']) f)
-  and not has_function_privilege('anon', 'public.intake_issue_invitation(uuid,uuid,uuid,text,bytea,bytea,timestamptz)', 'execute'));
+  and not has_function_privilege('anon', 'public.intake_issue_invitation(uuid,uuid,uuid,int,text,bytea,bytea,timestamptz)', 'execute'));
 select pg_temp.chk('M04 an authenticated user who is not staff of the studio cannot issue or revoke (42501), and nothing is written',
-  pg_temp.val_as('authenticated', format('select public.intake_issue_invitation(%L, %L, %L, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
+  pg_temp.val_as('authenticated', format('select public.intake_issue_invitation(%L, %L, %L, 1, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
     gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'kid00001', repeat('ab', 16), repeat('cd', 32))) like 'ERR 42501%'
   and pg_temp.val_as('authenticated', format('select public.intake_revoke_invitations(%L, %L)', gen_random_uuid(), gen_random_uuid())) like 'ERR 42501%'
   and not exists (select 1 from public.intake_invitations));

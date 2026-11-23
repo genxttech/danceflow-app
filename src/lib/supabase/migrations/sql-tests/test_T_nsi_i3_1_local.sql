@@ -35,8 +35,8 @@ create or replace function pg_temp.is_uuid(p text) returns boolean language sql 
 select pg_temp.owner_a(format('select public.intake_set_service_type(%L, %L, true)', pg_temp.kv('sa'), 'private_lesson'));
 
 create or replace function pg_temp.issue_as(p_user text, p_req uuid, p_inv uuid, p_hash text, p_exp text default '7 days') returns text language sql as $$
-  select pg_temp.val_as('authenticated', pg_temp.u(p_user), format('select public.intake_issue_invitation(%L, %L, %L, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + %L::interval)',
-    pg_temp.kv('sa'), p_req, p_inv, 'kid00001', repeat('ab', 16), p_hash, p_exp)) $$;
+  select pg_temp.val_as('authenticated', pg_temp.u(p_user), format('select public.intake_issue_invitation(%L, %L, %L, %s, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + %L::interval)',
+    pg_temp.kv('sa'), p_req, p_inv, (select coalesce(max(generation), 0) + 1 from public.intake_invitations where request_id = p_req and audience = 'student'), 'kid00001', repeat('ab', 16), p_hash, p_exp)) $$;
 create or replace function pg_temp.fresh(p_issue boolean default true) returns text language plpgsql as $f$
 declare c uuid; a uuid; r text; inv uuid := gen_random_uuid(); h text;
 begin
@@ -71,7 +71,7 @@ select pg_temp.setkv('s1_instr', pg_temp.issue_as('instr_a', pg_temp.part(pg_tem
 select pg_temp.setkv('s1_plain', pg_temp.issue_as('plain_a', pg_temp.part(pg_temp.kv('f4'), 1)::uuid, gen_random_uuid(), pg_temp.hx('x5')));
 select pg_temp.setkv('s1_pa', pg_temp.issue_as('padmin', pg_temp.part(pg_temp.kv('f4'), 1)::uuid, gen_random_uuid(), pg_temp.hx('x6')));
 select pg_temp.setkv('s1_nobody', pg_temp.issue_as('nobody', pg_temp.part(pg_temp.kv('f4'), 1)::uuid, gen_random_uuid(), pg_temp.hx('x7')));
-select pg_temp.setkv('s1_other', pg_temp.val_as('authenticated', pg_temp.u('owner_b'), format('select public.intake_issue_invitation(%L, %L, %L, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
+select pg_temp.setkv('s1_other', pg_temp.val_as('authenticated', pg_temp.u('owner_b'), format('select public.intake_issue_invitation(%L, %L, %L, 1, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
   pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('f4'), 1), gen_random_uuid(), 'kid00001', repeat('ab', 16), pg_temp.hx('x8'))));
 select pg_temp.chk('S01 owner, admin and front desk may issue; instructor, plain member, platform admin, outsider and another studio''s owner are refused; the request is untouched by refusals',
   pg_temp.is_uuid(pg_temp.kv('s1_owner')) and pg_temp.is_uuid(pg_temp.kv('s1_admin')) and pg_temp.is_uuid(pg_temp.kv('s1_fd'))
@@ -90,9 +90,9 @@ select pg_temp.chk('S02a issuing moves pending to invited, sets issued_at, pins 
 select pg_temp.setkv('f5', pg_temp.fresh(false));
 select pg_temp.setkv('p_short', pg_temp.issue_as('owner_a', pg_temp.part(pg_temp.kv('f5'), 1)::uuid, gen_random_uuid(), pg_temp.hx('p1'), '30 minutes'));
 select pg_temp.setkv('p_long', pg_temp.issue_as('owner_a', pg_temp.part(pg_temp.kv('f5'), 1)::uuid, gen_random_uuid(), pg_temp.hx('p2'), '31 days'));
-select pg_temp.setkv('p_hash', pg_temp.val_as('authenticated', pg_temp.u('owner_a'), format('select public.intake_issue_invitation(%L, %L, %L, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
+select pg_temp.setkv('p_hash', pg_temp.val_as('authenticated', pg_temp.u('owner_a'), format('select public.intake_issue_invitation(%L, %L, %L, 1, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
   pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('f5'), 1), gen_random_uuid(), 'kid00001', repeat('ab', 16), 'abcd')));
-select pg_temp.setkv('p_kid', pg_temp.val_as('authenticated', pg_temp.u('owner_a'), format('select public.intake_issue_invitation(%L, %L, %L, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
+select pg_temp.setkv('p_kid', pg_temp.val_as('authenticated', pg_temp.u('owner_a'), format('select public.intake_issue_invitation(%L, %L, %L, 1, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
   pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('f5'), 1), gen_random_uuid(), 'bad kid', repeat('ab', 16), pg_temp.hx('p3'))));
 select pg_temp.setkv('p_req', pg_temp.issue_as('owner_a', gen_random_uuid(), gen_random_uuid(), pg_temp.hx('p4')));
 select pg_temp.chk('S02b expiry outside 1 hour to 30 days, a wrong hash length, a malformed key id and an unknown request are refused with 22023 and write nothing',
@@ -114,6 +114,16 @@ select pg_temp.chk('S03 resending creates generation 2, revokes generation 1 (re
   and pg_temp.ctx(pg_temp.part(pg_temp.kv('l1'), 6)) = 'NONE'
   and pg_temp.exch(pg_temp.part(pg_temp.kv('l1'), 3), 'again-old') = 'NONE'
   and pg_temp.exch(pg_temp.kv('l1_h2'), 'again-new') <> 'NONE');
+
+-- ===== S03b the generation check stands on its own: an old generation that was (wrongly) left unrevoked still does not exchange ====
+select pg_temp.setkv('og_f', pg_temp.fresh(true));
+select pg_temp.setkv('og_inv2', gen_random_uuid()::text);
+select pg_temp.issue_as('owner_a', pg_temp.part(pg_temp.kv('og_f'), 1)::uuid, pg_temp.u('og_inv2'), pg_temp.hx('og-new'));
+set local session_replication_role = replica;
+update public.intake_invitations set revoked_at = null, revoked_reason = null where id = pg_temp.part(pg_temp.kv('og_f'), 2)::uuid;
+set local session_replication_role = origin;
+select pg_temp.chk('S03b a generation-1 invitation forced back to unrevoked still returns NONE (link_valid compares against the current generation); the current generation works',
+  pg_temp.exch(pg_temp.part(pg_temp.kv('og_f'), 3), 'og-old') = 'NONE' and pg_temp.exch(pg_temp.hx('og-new'), 'og-cur') <> 'NONE');
 
 -- ===== S04 exchange: success and every invalid class returns the same empty answer ===================================
 select pg_temp.setkv('e1', pg_temp.fresh(true));
@@ -289,16 +299,50 @@ update public.intake_sessions set absolute_expires_at = now() - interval '2 days
   where invitation_id = pg_temp.part(pg_temp.kv('pg_f'), 2)::uuid;
 insert into public.intake_rate_limits (bucket_hash, window_start, window_seconds, hits) values (decode(pg_temp.hx('old-bucket'), 'hex'), now() - interval '3 days', 600, 5),
   (decode(pg_temp.hx('new-bucket'), 'hex'), now(), 600, 1);
+update public.intake_sessions set absolute_expires_at = now() - interval '2 days', idle_expires_at = now() - interval '2 days', created_at = now() - interval '3 days'
+  where invitation_id = pg_temp.part(pg_temp.kv('hold_f'), 2)::uuid;
 set local session_replication_role = origin;
 select pg_temp.setkv('pg_res', pg_temp.val_as('service_role', null, 'select public.intake_purge_expired(500)::text'));
 select pg_temp.chk('S11 purge removes sessions expired for more than 24 hours and old rate-limit windows, keeps current ones and live sessions, and never touches a held client''s rows',
-  (pg_temp.kv('pg_res')::jsonb ->> 'sessions')::int >= 1 and (pg_temp.kv('pg_res')::jsonb ->> 'rate_limits')::int >= 1
+  case when pg_temp.kv('pg_res') like 'ERR%' then false else (pg_temp.kv('pg_res')::jsonb ->> 'sessions')::int >= 1 and (pg_temp.kv('pg_res')::jsonb ->> 'rate_limits')::int >= 1 end
   and not exists (select 1 from public.intake_sessions where invitation_id = pg_temp.part(pg_temp.kv('pg_f'), 2)::uuid)
   and exists (select 1 from public.intake_sessions where invitation_id = pg_temp.part(pg_temp.kv('pg_keep'), 2)::uuid)
   and not exists (select 1 from public.intake_rate_limits where bucket_hash = decode(pg_temp.hx('old-bucket'), 'hex'))
   and exists (select 1 from public.intake_rate_limits where bucket_hash = decode(pg_temp.hx('new-bucket'), 'hex'))
   and exists (select 1 from public.intake_sessions where request_id = pg_temp.part(pg_temp.kv('hold_f'), 1)::uuid),
   pg_temp.kv('pg_res'));
+
+
+-- ===== S13 next generation, expected-generation check, live-target pre-check, unknown tokens, minting actor ========================
+select pg_temp.setkv('n_f', pg_temp.fresh(true));
+select pg_temp.setkv('n_gen_owner', pg_temp.val_as('authenticated', pg_temp.u('owner_a'), format('select public.intake_next_invitation_generation(%L, %L)', pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('n_f'), 1))));
+select pg_temp.setkv('n_gen_instr', pg_temp.val_as('authenticated', pg_temp.u('instr_a'), format('select public.intake_next_invitation_generation(%L, %L)', pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('n_f'), 1))));
+select pg_temp.setkv('n_mismatch', pg_temp.val_as('authenticated', pg_temp.u('owner_a'), format('select public.intake_issue_invitation(%L, %L, %L, 7, %L, decode(%L, ''hex''), decode(%L, ''hex''), now() + interval ''7 days'')',
+  pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('n_f'), 1), gen_random_uuid(), 'kid00001', repeat('ab', 16), pg_temp.hx('mm'))));
+select pg_temp.chk('S13a the next-generation RPC answers staff only (owner 2, instructor refused); issuing with a wrong expected generation is refused (22023) and leaves the live generation untouched',
+  pg_temp.kv('n_gen_owner') = '2' and pg_temp.kv('n_gen_instr') like 'ERR 42501%' and pg_temp.kv('n_mismatch') like 'ERR 22023%generation mismatch%'
+  and (select count(*) = 1 and bool_and(revoked_at is null) from public.intake_invitations where request_id = pg_temp.part(pg_temp.kv('n_f'), 1)::uuid),
+  pg_temp.kv('n_gen_owner') || ' / ' || pg_temp.kv('n_mismatch'));
+select pg_temp.setkv('t_f', pg_temp.fresh(true));
+update public.appointments set status = 'cancelled' where id = pg_temp.part(pg_temp.kv('t_f'), 5)::uuid;
+select pg_temp.setkv('t_issue', pg_temp.issue_as('owner_a', pg_temp.part(pg_temp.kv('t_f'), 1)::uuid, gen_random_uuid(), pg_temp.hx('dead-target')));
+select pg_temp.chk('S13b a new link is refused (22023) while the request has no live appointment, and the previous generation is not revoked by the refused call',
+  pg_temp.kv('t_issue') like 'ERR 22023%no live appointment%'
+  and (select count(*) = 1 and bool_and(revoked_at is null) from public.intake_invitations where request_id = pg_temp.part(pg_temp.kv('t_f'), 1)::uuid));
+select pg_temp.setkv('u_before', (select count(*)::text from public.intake_rate_limits));
+select pg_temp.exch(pg_temp.hx('definitely-unknown-token'), 'unk-1');
+select pg_temp.exch(pg_temp.hx('definitely-unknown-token-2'), 'unk-2');
+select pg_temp.setkv('u_after_unknown', (select count(*)::text from public.intake_rate_limits));
+select pg_temp.setkv('u_known', pg_temp.fresh(true));
+select pg_temp.exch(pg_temp.part(pg_temp.kv('u_known'), 3), 'known-1');
+select pg_temp.chk('S13c an unknown token writes nothing (no rate-limit row); a known token is counted',
+  pg_temp.kv('u_before') = pg_temp.kv('u_after_unknown') and (select count(*)::text from public.intake_rate_limits) <> pg_temp.kv('u_after_unknown'),
+  pg_temp.kv('u_before') || '/' || pg_temp.kv('u_after_unknown'));
+select pg_temp.chk('S13d a session carries the staff member who minted its link (copied from the invitation, immutable), and the issue audit event names that member',
+  (select s.issued_by_user = pg_temp.u('owner_a') and s.issued_by_user = i.issued_by_user from public.intake_sessions s join public.intake_invitations i on i.id = s.invitation_id
+   where s.session_hash = decode(pg_temp.hx('known-1'), 'hex'))
+  and exists (select 1 from public.intake_audit_events e where e.event_type = 'invitation_issued' and e.actor_user_id = pg_temp.u('owner_a') and e.request_ref = pg_temp.part(pg_temp.kv('u_known'), 1)::uuid)
+  and pg_temp.try(format('update public.intake_sessions set issued_by_user = null where session_hash = decode(%L, ''hex'')', pg_temp.hx('known-1'))) like '42501%');
 
 -- ===== S12 immutability, privileges, catalog =======================================================================
 select pg_temp.chk('S12a an invitation can only be revoked (once); its hash, salt, kid, pin and expiry can never change; sessions change only by activity and revocation',
@@ -314,10 +358,11 @@ select pg_temp.chk('S12b table grants: no API role holds any privilege on the th
   and (select count(*) = 6 and bool_and(roles = array['intake_destructive']::name[]) from (select polname, (select array_agg(rolname) from pg_roles where oid = any (polroles)) roles
         from pg_policy where polrelid in ('public.intake_invitations'::regclass, 'public.intake_sessions'::regclass, 'public.intake_rate_limits'::regclass)) p));
 select pg_temp.chk('S12c function privileges: staff RPCs are executable by authenticated only; exchange, context, revoke, rate limit, bulk revoke and purge by service_role only; anon holds none; the implementations are not executable by API roles',
-  has_function_privilege('authenticated', 'public.intake_issue_invitation(uuid,uuid,uuid,text,bytea,bytea,timestamptz)', 'execute')
+  has_function_privilege('authenticated', 'public.intake_issue_invitation(uuid,uuid,uuid,int,text,bytea,bytea,timestamptz)', 'execute')
   and has_function_privilege('authenticated', 'public.intake_revoke_invitations(uuid,uuid)', 'execute')
-  and not has_function_privilege('service_role', 'public.intake_issue_invitation(uuid,uuid,uuid,text,bytea,bytea,timestamptz)', 'execute')
-  and not has_function_privilege('anon', 'public.intake_issue_invitation(uuid,uuid,uuid,text,bytea,bytea,timestamptz)', 'execute')
+  and has_function_privilege('authenticated', 'public.intake_next_invitation_generation(uuid,uuid)', 'execute') and not has_function_privilege('anon', 'public.intake_next_invitation_generation(uuid,uuid)', 'execute')
+  and not has_function_privilege('service_role', 'public.intake_issue_invitation(uuid,uuid,uuid,int,text,bytea,bytea,timestamptz)', 'execute')
+  and not has_function_privilege('anon', 'public.intake_issue_invitation(uuid,uuid,uuid,int,text,bytea,bytea,timestamptz)', 'execute')
   and (select bool_and(has_function_privilege('service_role', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute'))
        from unnest(array['public.intake_exchange_invitation(bytea,bytea,int,int)', 'public.intake_session_context(bytea)', 'public.intake_revoke_session(bytea)',
                          'public.intake_rate_limit_hit(bytea,int,int)', 'public.intake_revoke_all_invitations_for_key(text,int)', 'public.intake_purge_expired(int)']) f)
