@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "competition-os/rule-register/entry",
+  "title": "Competition OS rule register entry",
+  "description": "One entry per rule: official rule -> Competition OS requirement -> implementation -> automated test -> verification status. Never copy rule text beyond a short phrase; quote_free_summary is a paraphrase.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "governing_body",
+    "format",
+    "source",
+    "rule_class",
+    "requirement",
+    "implementation",
+    "enforcement_point",
+    "tests",
+    "verification_status",
+    "interpretation_notes",
+    "applicable_event_versions",
+    "decision_refs",
+    "last_reviewed"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9-]{2,63}$" },
+    "example": { "type": "boolean", "description": "true only for the illustrative template entry; example entries are exempt from the verified_compliant evidence checks." },
+    "governing_body": {
+      "type": "string",
+      "minLength": 2,
+      "description": "A body named in the source registry (NDCA, UCWDC, WSDC, or a later registered body), or one of: dance_flow_policy, organizer_policy, silent."
+    },
+    "format": { "type": "string", "minLength": 1, "description": "Competition format / discipline / division the rule applies to." },
+    "source": {
+      "type": ["object", "null"],
+      "description": "Required for governing-body rule classes; MUST be null for dance_flow_policy, organizer_policy and rulebook_silent.",
+      "additionalProperties": false,
+      "required": [
+        "registry_document",
+        "edition",
+        "effective_from",
+        "effective_to",
+        "sha256",
+        "section",
+        "quote_free_summary"
+      ],
+      "properties": {
+        "registry_document": { "type": "string", "minLength": 1, "description": "File name exactly as listed in governing-body-source-registry.md." },
+        "edition": { "type": "string", "minLength": 1 },
+        "effective_from": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "effective_to": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "section": { "type": "string", "minLength": 1 },
+        "quote_free_summary": { "type": "string", "minLength": 1, "maxLength": 600 }
+      }
+    },
+    "rule_class": {
+      "type": "string",
+      "enum": [
+        "mandatory",
+        "recommended",
+        "permitted_exception",
+        "organizer_discretion",
+        "dance_flow_policy",
+        "organizer_policy",
+        "rulebook_silent"
+      ]
+    },
+    "requirement": { "type": "string", "minLength": 1 },
+    "implementation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "symbol_or_migration"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "symbol_or_migration": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "enforcement_point": { "type": "string", "minLength": 1 },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "name"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "verification_status": {
+      "type": "string",
+      "enum": ["verified_compliant", "inconsistent", "unsupported", "requires_interpretation", "unverified"]
+    },
+    "interpretation_notes": { "type": "string" },
+    "applicable_event_versions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Rulebook editions (as named in the registry) whose events this entry applies to."
+    },
+    "decision_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "last_reviewed": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+  }
+}
