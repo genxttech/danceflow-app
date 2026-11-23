@@ -1,0 +1,90 @@
+# Integrations Roadmap (proposal)
+
+Status: DRAFT, docs only. Nothing here is authorized, scheduled or built. No provider enrollment, developer-account creation, OAuth app registration, billing change or vendor contact has been done or is implied; each such step is an owner-authorized action (see OD-9). Estimates are engineer-days of focused work excluding provider review time, ±50%, for one engineer with developer-owned QA included.
+Inputs: `Integrations_Audit_Existing.md`, `Integrations_Candidates.md`, `Connected_Apps_Architecture.md`.
+
+## 1. Recommended first three
+
+| # | Item | Why first | Effort | Risk | Approval lead time | Duplication risk |
+|---|---|---|---|---|---|---|
+| 1 | **Per-dancer and per-staff ICS calendar feeds** (extend the existing token-ICS pattern; webcal links in Business, Student app and portal) | Apple, Outlook and Google Calendar all consume ICS, so one native feature covers every read-only calendar need, including the dancer audience, which no OAuth integration serves. Pattern already exists for instructors and coaches | S (≈6–10 d) | Low: secret URL leakage (mitigate with revocable tokens, minimal event detail) | None | Low: replaces future per-vendor read integrations |
+| 2 | **Webhooks + public REST API + scoped API keys, then a private (invite-link) Zapier app and Make app** | One investment opens QuickBooks/Xero/Mailchimp/Sheets/Slack/HubSpot/Meta lead-ads without per-vendor approval. Zapier is table stakes among competing platforms. Built on the shared outbox, so it also forces the Connected Apps core to exist | M (≈25–35 d for core webhooks+API; +8–12 d Zapier private app; +5 d Make) | Medium: data-classification of events, abuse/rate limits, support load | None for webhooks/API; private Zapier/Make need only a free developer account (owner decision OD-9); public listing later | Low |
+| 3 | **Apple Wallet + Google Wallet passes** (memberships, class packs, event tickets; QR for check-in) | Highest dancer-visible value among the near-term set, ties to Student app check-in; no third-party data leaves DanceFlow beyond the pass | M (≈20–30 d both, incl. update service) | Medium: signing-key custody, certificate renewal, update-registration bugs | Apple: Developer Program membership and pass certificate (no pass review); Google: issuer account + publishing-access review (duration undocumented) | Low |
+
+Also near-term but not "integrations": **Slice 0, Connected Apps hardening** (§3) is a prerequisite to anything OAuth-based and should start immediately because it fixes live defects.
+
+Why not the obvious alternatives first:
+- *QuickBooks/Xero direct*: Intuit/Xero moved to metered tiers; QuickBooks token rotation and chart-of-accounts mapping make it L; QuickBooks-ready CSV/journal export plus Zapier covers most value sooner (ranked #4 below).
+- *Microsoft Graph / Google two-way*: duplicates ICS for read, and Google verification state is unknown (OD-8).
+- *Meta lead ads*: 4–12 week approval for a feature Zapier/Make already deliver.
+- *Gusto/ADP/Paychex*: partnership gates and compliance burden; payroll export first.
+
+## 2. Ranked list (full)
+
+1 Per-dancer/staff ICS feeds · 2 Webhooks/API/Zapier+Make private · 3 Wallet passes · 4 Accounting and payroll exports (QuickBooks-ready CSV/journal, timesheet) · 5 Website-builder embed snippets and docs · 6 Small native fields (class playlist link, COI upload+expiry, background-check status) · 7 Google Calendar two-way/busy hints · 8 Google Business Profile reviews · 9 QuickBooks Online / Xero direct (pilot on Xero Starter tier if demand) · 10 Microsoft Graph calendar · 11 Zoom, Mailchimp, Stripe Terminal, workout write (HealthKit/Health Connect), Slack webhooks · 12 Public Zapier listing · Reject for now: Meta/WhatsApp/Instagram native, Square, DocuSign/Dropbox Sign, Spotify API, Fitbit/Garmin, Teams, CalDAV write, embedded payroll, HubSpot/Klaviyo/CC/AC, Calendly/Cal.com, review-platform APIs.
+
+## 3. Phasing and engineering slices
+
+### Phase A — Foundations (weeks 1–6)
+| Slice | Content | Est. | Depends on |
+|---|---|---|---|
+| A0 Audit remediation (live code) | G1 token column isolation (move to credentials table), G3 event timeZone fix, G4 cron time-budget + `maxDuration` + backoff, G5 scope verification, G8 pause on inactive instructor; Wave tests (W2), confirm/schedule wave-autopost (W1), provider revoke on disconnect (G2/W3), OAuth/refresh tests (G10) | 10–14 d | none; Wave scheduling needs owner confirmation (OD-8b) |
+| A1 Vault v2 + audit + pending-connect | key ids, rotation job, `integration_audit_events`, DB-backed OAuth state with PKCE | 6–8 d | A0 (reuse) |
+| A2 Generic connection model + outbox + inbound-event table | tables, RLS, claim/lease worker, health, error taxonomy; hub cards from registry (read-only first) | 15–20 d | A1; NSI outbox decision (shared pattern, no shared SQL with NSI unless NSI T4 authorizes) |
+| A3 Migrate Google Calendar to generic layer | dual-read cutover, keep reconciler as capability | 8–10 d | A2 |
+
+### Phase B — First three integrations (weeks 4–14, overlaps A)
+| Slice | Content | Est. | Depends on |
+|---|---|---|---|
+| B1 Dancer/staff ICS | token table, revoke/rotate UI, webcal links, student-app/portal entry points, KB article | 6–10 d | Student app release train (APPS coordinator) |
+| B2 Outbound webhooks | endpoint mgmt UI, signing, event allowlist, delivery log, replay | 12–15 d | A2 |
+| B3 Public REST API + API keys | read lead/schedule/client lookup, create lead, idempotency, rate limits, docs | 12–18 d | A2; Staff API conventions |
+| B4 Zapier private app, Make app | triggers via REST hooks, polling fallback, test accounts, KB recipes | 10–15 d | B2, B3; owner authorizes free developer accounts (OD-9) |
+| B5 Wallet passes | pass model + signing service, Apple web service + APNs, Google class/object API, Student app buttons, revoke/update | 20–30 d | A1 (key custody); Apple/Google enrollments (OD-9); Student app slice |
+
+### Phase C — Value extensions (months 4–7)
+| Slice | Est. |
+|---|---|
+| C1 QuickBooks-ready export + payroll timesheet export (extend accountant deliveries; mapping UI) | 8–12 d |
+| C2 Embed snippets/docs per builder, auto-resize + UTM pass-through | 4–6 d |
+| C3 Native fields: class playlist link, COI upload+expiry reminder, background-check status | 6–9 d |
+| C4 Google Calendar busy-time import (suggestions only) incl. watch renewal | 12–15 d (after verification state known) |
+| C5 Google Business Profile reviews view/reply | 12–16 d (after access approved) |
+
+### Phase D — On demand (month 7+)
+Xero (Starter-tier pilot) 15–20 d, QuickBooks Online 20–30 d, Microsoft Graph calendar 15–20 d, Zoom 12–18 d, Mailchimp one-way 10–15 d, Stripe Terminal L, workout write 10–15 d per OS, public Zapier listing 8–12 d plus review.
+
+## 4. ARIA plan (alongside slices)
+Read tools and suggest-only notifications ship with A2 (connection health, failed jobs, reconnect prompts); "act with approval" (retry, pause) with B2; per-feature suggestions (offer calendar subscription, add pass, lead arrived via webhook) with B1/B5. Autonomous connect/disconnect, money-related posting, external marketing sends and key creation stay out of ARIA permanently (Architecture §14).
+
+## 5. Dependencies and coordination
+- **Mobile (Student/Business apps):** B1 entry points and B5 buttons need release-train slots; APPS coordinator owns scheduling. Wallet "add to wallet" adds no new SDK in the app if links/JWTs are served from the backend (to verify during design).
+- **NSI:** shares the transactional outbox decision (Option A: `outbound_deliveries` for intake email). The Connected Apps `integration_jobs` table is separate from email delivery; reuse the claim/lease code, not the table, until NSI T4 completes. No intake email is queued while M-0 release dependencies are open.
+- **TWILIO/TW-4F (engineering position, not an owner decision):** SMS stays out of outbound integration events; Meta/WhatsApp/Instagram-style messaging is later/reject because it would bypass TW-4F consent, STOP/START/HELP, studio-prepaid credit and cost attribution; no new channel authorized in the pilot.
+- **COMPETITION (engineering position, not an owner decision; internal-confidential):** generic layer excludes minors' (U18) data, scoring/results and judge identity, and payment/Stripe data until a rulebook-governed decision; calendar subscription for such events is excluded until release. No outreach to organizers/directors.
+- **Pulse / Business app:** hub status surface should feed Pulse "attention" cards later (no work now).
+- **Billing:** plan gating of each integration is an owner decision (OD-5); engineering will implement via existing `requireStudioFeature`.
+
+## 6. Owner decisions (collected)
+| ID | Decision | Default recommendation |
+|---|---|---|
+| OD-1 | Who may connect accounting and create API keys/webhooks: owner only, or owner+admin? | Owner+admin for calendar/webhooks; owner only for accounting posting and API keys |
+| OD-2 | May front desk connect a personal calendar / view integration status? | Personal calendar yes (own); status read-only |
+| OD-3 | On disconnect, allow "disconnect anyway" leaving orphan external items? | Yes, audit-recorded |
+| OD-4 | Key management: env-based key ids now, KMS later? | Env key ids now |
+| OD-5 | **Pricing/plan gating** per integration (which plan; any add-on price; API/webhook access tiers; Wallet) — engineering makes no pricing proposal | Owner to decide |
+| OD-6 | Retention for mappings/job history/audit after disconnect | 90 days mappings; audit per studio policy |
+| OD-7 | Data minimisation default for external calendar descriptions (client names) | Minimal by default, opt-in detail |
+| OD-8 | Is the live Google OAuth consent screen verified/production (sensitive-scope verification state)? Is the wave-autopost cron scheduled outside the repo and is `WAVE_POSTING_ENABLED` on in PROD? | Owner/ops to confirm; engineering cannot see production config |
+| OD-9 | **Authorize provider enrollments** when their slice starts: Apple Developer pass certificate, Google Wallet issuer account, Zapier/Make developer accounts, Google Business Profile access application | Authorize per slice, not in advance |
+| OD-10 | Confirm the first three (ICS, webhooks/API/Zapier+Make private, Wallet) | Confirm |
+| OD-11 | Public Zapier listing (and its support commitment) vs staying private | Stay private until demand |
+| OD-12 | Default privacy for dancer ICS (detail level, token rotation cadence) | Minimal detail, rotate on request |
+| OD-13 | Cost tolerance for metered APIs (Intuit/Xero tiers) before any accounting API work | Defer |
+| OD-14 | Outbound webhook event allowlist and any SMS-derived aggregate events (needs separate approved design) | No SMS events |
+
+## 7. Risks
+Provider policy churn (Meta, Google, Spotify, Intuit, Xero changed terms/pricing in 2025–26); approval unknowns (Google Wallet, Google Business Profile, Zoom, Slack); support load from customer-owned third-party accounts; token/key custody (mitigated by vault v2); scope creep into two-way edits (mitigated by projection rule); mobile release capacity; research items still unverified (Candidates §12).
+
+## 8. Definition of done per integration (developer-owned QA)
+QA matrix entry per capability (PASS only with evidence; BLOCKED where a live provider account is needed and not authorized); RLS cross-tenant tests; vault/rotation tests; outbox crash/duplicate tests; revoke/disconnect/purge tests; KB article and support runbook; flag/entitlement wiring; audit events; ARIA tools tested for role limits.
