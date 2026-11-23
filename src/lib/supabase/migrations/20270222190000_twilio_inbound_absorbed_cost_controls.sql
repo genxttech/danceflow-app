@@ -442,9 +442,9 @@ end $$;
 create function public.tw4_inbound_auto_reply_allowed(p_account_sid text, p_kind text)
 returns boolean language sql security definer
 set search_path = pg_catalog, public, pg_temp
--- on the webhook's response path: fail fast (the route then sends the reply exactly as before this migration)
+-- on the webhook's response path: lock_timeout makes a contended suppression insert fail fast (the route then sends the reply exactly as before this migration).
+-- There is deliberately no statement_timeout: a function-level SET of it does not limit the statement already running; the caller's own timeout applies.
 set lock_timeout = '2s'
-set statement_timeout = '5s'
 as $$ select public._tw4ib_reply_allowed(p_account_sid, p_kind, now()); $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
