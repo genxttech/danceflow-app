@@ -160,15 +160,24 @@ export class ProviderFeeLifecycleStore {
    * Returns how many NEW alerts were raised (counts only).
    */
   async inboundAllowanceCheck(): Promise<number> {
-    const row = await this.call<{ allowance_warnings?: number; allowance_critical?: number; volume?: number } | null>("tw4_rfl_inbound_allowance_check", {});
-    const pilot = Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
+    // the two checks are independent: a failure of either never stops the other; the alerts raised are counted and the step still fails visibly
+    let alerts = 0;
+    let failure: string | null = null;
+    const codeOf = (error: unknown) => (error instanceof ProviderFeeError ? error.code : "unknown");
     try {
-      return pilot + (await this.inboundCostControlsCheck());
+      const row = await this.call<{ allowance_warnings?: number; allowance_critical?: number; volume?: number } | null>("tw4_rfl_inbound_allowance_check", {});
+      alerts += Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
     } catch (error) {
-      // the pilot alerts were raised: keep their count (and any partial count) while still failing the step visibly
-      const partial = error instanceof InboundCheckError ? error.alerts : 0;
-      throw new InboundCheckError(error instanceof ProviderFeeError ? error.code : "unknown", pilot + partial);
+      failure = codeOf(error);
     }
+    try {
+      alerts += await this.inboundCostControlsCheck();
+    } catch (error) {
+      if (error instanceof InboundCheckError) alerts += error.alerts;
+      failure = failure ?? codeOf(error);
+    }
+    if (failure !== null) throw new InboundCheckError(failure, alerts);
+    return alerts;
   }
 
   /**

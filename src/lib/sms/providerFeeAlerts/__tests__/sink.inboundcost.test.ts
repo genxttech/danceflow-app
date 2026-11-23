@@ -80,3 +80,30 @@ describe("a failing or partial new check keeps the pilot alerts in the run's cou
     expect(out).toMatchObject({ inboundAlerts: 5, errors: 0 });
   });
 });
+
+describe("the pilot check failing never stops the all-business check (re-review item 5)", () => {
+  it("tw4_rfl_inbound_allowance_check throws: the all-business check still runs, its alerts count, and the step is an error", async () => {
+    const calls: string[] = [];
+    const store = new ProviderFeeLifecycleStore({
+      rpc: async (fn: string) => {
+        calls.push(fn);
+        if (fn === "tw4_rfl_inbound_allowance_check") return { data: null, error: { code: "57014" } };
+        if (fn === "tw4_inbound_cost_controls_check") return { data: { volume_alerts: 1, absorbed_alerts: 1, anomaly_alerts: 0, cap_alerts: 1, errors: 0 }, error: null };
+        if (fn === "tw4_rfl_scan_entities") return { data: [], error: null };
+        if (fn === "tw4_rfl_inventory_gaps") return { data: { gaps: 0 }, error: null };
+        return { data: null, error: { code: "unexpected" } };
+      },
+    } as never);
+    await expect(store.inboundAllowanceCheck()).rejects.toMatchObject({ code: "57014", alerts: 3 });
+    expect(calls).toContain("tw4_inbound_cost_controls_check");
+    const o = { scanBegin: vi.fn(async () => ({ ran: true, reason: null, runId: "r1" })), scanFinish: vi.fn(async () => true), escalateDelivery: vi.fn(async () => 0), releaseAlert: vi.fn(async () => true) };
+    const out = await runProviderFeeLifecycleScan(store, null, o as never);
+    expect(out).toMatchObject({ ran: true, inboundAlerts: 3, errors: 1 });
+    expect(o.scanFinish).toHaveBeenCalledWith("r1", "failed", expect.objectContaining({ inboundAlerts: 3 }), "scan_errors");
+  });
+
+  it("both checks failing: the pilot code is reported and nothing is counted", async () => {
+    const store = new ProviderFeeLifecycleStore({ rpc: async () => ({ data: null, error: { code: "42501" } }) } as never);
+    await expect(store.inboundAllowanceCheck()).rejects.toMatchObject({ code: "42501", alerts: 0 });
+  });
+});
