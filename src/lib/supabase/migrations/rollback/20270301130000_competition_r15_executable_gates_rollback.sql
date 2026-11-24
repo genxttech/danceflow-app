@@ -1,5 +1,5 @@
--- Rollback of 20270301111000_competition_r15_executable_gates.sql. Restores the RB3 predicate P body and the OD-17 M2 placement guard. No data change.
--- Roll back 20270301112000 (write guard) independently; it does not depend on this file.
+-- Rollback of 20270301130000_competition_r15_executable_gates.sql. Restores the RB3 predicate P body and the OD-17 M2 placement guard. No data change.
+-- Roll back 20270301131000 (write guard) independently; it does not depend on this file.
 begin;
 
 drop trigger if exists r15_guard_round_start on public.event_competition_rounds;

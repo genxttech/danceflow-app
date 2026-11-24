@@ -1,4 +1,4 @@
--- Competition S4 / R-15 -- eligibility write guard (slot 20270301112000). Requires 20270301110000. Apply ONLY after the app writes eligibility through
+-- Competition S4 / R-15 -- eligibility write guard (slot 20270301131000). Requires 20270301110000 (core) and runs after S5 (120000) and the gates (130000). Apply ONLY after the app writes eligibility through
 -- set_competition_entry_eligibility; before that, every eligibility save from the old app is refused.
 --
 -- Problem: event_competition_entries is writable by any event manager through the table API (policy competition_manage, FOR ALL). A manager can set
@@ -11,7 +11,7 @@
 -- set_competition_entry_eligibility) run as their owner and are unaffected, exactly as in the U18/U18-S guards. TRIGGER privilege is revoked from the client
 -- roles so a client cannot add a competing trigger. No data change.
 --
--- Rollback: rollback/20270301112000_competition_r15_eligibility_write_guard_rollback.sql.
+-- Rollback: rollback/20270301131000_competition_r15_eligibility_write_guard_rollback.sql.
 
 begin;
 

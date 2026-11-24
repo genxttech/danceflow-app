@@ -1,4 +1,4 @@
--- Competition S4 / R-15 -- executable gates (slot 20270301111000). Requires 20270301110000. BEHAVIOR CHANGE on dark Competition OS features; no data change.
+-- Competition S4 / R-15 -- executable gates (slot 20270301130000). Requires 20270301110000. BEHAVIOR CHANGE on dark Competition OS features; no data change.
 --
 -- Provisional planning stays possible; EXECUTION requires clearance. One predicate, wired once per gate:
 --   * _cf1_entry_unavailable_reason (predicate P, shared by roster builders, lock, calculate, approve, F3 publish, advancement preview/apply,
@@ -12,7 +12,7 @@
 --     checked in or marked danced.
 -- Not changed: 10D/10D.1 placement checks, withdrawal, scratch, no-show, registration, reopen/correction edges.
 --
--- Rollback: rollback/20270301111000_competition_r15_executable_gates_rollback.sql (never refuses).
+-- Rollback: rollback/20270301130000_competition_r15_executable_gates_rollback.sql (never refuses).
 
 begin;
 
@@ -23,8 +23,8 @@ begin
   if to_regprocedure('public._r15_entry_clearance_reason(uuid)') is null or to_regprocedure('public._r15_entry_availability_reason(uuid)') is null then
     raise exception 'R15 gates preflight: 20270301110000 (core) is not applied.';
   end if;
-  -- Without the S5 age predicate no entry can be age-cleared, so the strict gates would freeze every competition. S5 (20270301120000) must be
-  -- applied BEFORE this file even though its timestamp is later: hosted SQL is applied file by file through the ops runner, not by timestamp order.
+  -- Without the S5 age predicate no entry can be age-cleared, so the strict gates would freeze every competition. S5 (20270301120000) sorts BEFORE this
+  -- file, so timestamp order equals release order. Rollback order is the reverse (guard 131000, this file, S5 120000, core 110000).
   if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
     raise exception 'R15 gates preflight: the S5 age predicate (20270301120000) is not applied; apply it first.';
   end if;

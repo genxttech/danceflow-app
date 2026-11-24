@@ -4,7 +4,7 @@
 -- entries awaiting eligibility review, but such assignments cannot become executable; official heat participation, floor calls, ballot inclusion, advancement,
 -- scoring, placement and result publication REQUIRE eligibility clearance. `ineligible` stays blocked. `waived` is accepted only for an explicitly waivable
 -- Studio policy with an authorized, audited basis and never overrides OD-02 (under 18) or a mandatory body requirement. Unknown age fails closed.
--- Design: docs/competition/r15-eligibility-enforcement-design.md (PR 862). Gates are in 20270301111000, the write guard in 20270301112000.
+-- Design: docs/competition/r15-eligibility-enforcement-design.md (PR 862). Gates are in 20270301130000, the write guard in 20270301131000.
 --
 -- WHAT THIS FILE ADDS
 --   1. event_competition_eligibility_determinations: append-only evidence (who, role, when, outcome, reason code, waiver category, criteria, server-side
@@ -14,7 +14,7 @@
 --   3. _r15_age_state(uuid): the ONLY bridge to the S5 age predicate (public._comp_participant_age_clearance, owned by S5, slot 20270301120000). It is called
 --      dynamically; while that function does not exist, or for any result other than 'allowed', the entry is NOT age-cleared (fail closed).
 --   4. _r15_entry_fingerprint, _r15_required_criteria, _r15_entry_clearance_reason (NULL = cleared), competition_entry_clearance_state.
---   5. set_competition_entry_eligibility: the only audited way to change eligibility_status (the write guard in 112000 refuses direct client writes).
+--   5. set_competition_entry_eligibility: the only audited way to change eligibility_status (the write guard in 131000 refuses direct client writes).
 --
 -- Clearance of an entry (all must hold): status is eligible or waived; the LATEST determination row equals that status; its fingerprint equals the live
 -- fingerprint (division, age/skill/role labels, participant competitor+role set: a roster substitution or label change makes it stale); an `eligible`
@@ -22,7 +22,11 @@
 -- declares no sanctioning at all (none, not even 'other'); the S5 age state is 'allowed'. Existing eligible/waived rows without a determination are PROVISIONAL, never promoted.
 --
 -- Rollback: rollback/20270301110000_competition_r15_eligibility_clearance_core_rollback.sql (refuses while any determination exists).
--- Order: this file, then the app switch to the RPC, then 111000 (gates), then 112000 (write guard).
+-- RELEASE ORDER = timestamp order: 20270301090000 (S1/S2), 100000-102000 (S3), 110000 (this file, S4 core), 120000 (S5 age predicate), 130000 (S4 gates),
+-- 131000 (S4 write guard); the app switches to the RPC between 110000 and 130000/131000.
+-- ROLLBACK ORDER = reverse release order: S4 guard 131000, S4 gates 130000, S5 120000, THEN this file. Never roll back S5 while the gates are installed: the gates
+-- reach S5 through _r15_age_state, which fails closed when S5 is absent, and that would freeze Competition. This file's rollback refuses while the gates are installed.
+-- S4 alone (without S5) yields age state 'unknown' for every entry: nothing can be cleared, which is the intended fail-closed behavior; no stub ships in any migration.
 
 begin;
 
@@ -222,7 +226,7 @@ $$;
 revoke all on function public._r15_required_criteria(uuid) from public, anon, authenticated, service_role;
 
 -- NULL = cleared (executable). Otherwise the first matching reason. Does NOT include predicate P (status, refunds); callers that need both use
--- _cf1_entry_unavailable_reason after 20270301111000.
+-- _cf1_entry_unavailable_reason after 20270301130000.
 create function public._r15_entry_clearance_reason(p_entry_id uuid)
 returns text
 language plpgsql

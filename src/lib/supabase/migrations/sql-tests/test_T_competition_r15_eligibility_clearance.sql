@@ -1,6 +1,6 @@
 -- Competition S4 / R-15 -- eligibility clearance regression suite (NOT YET EXECUTED: status PENDING, needs a local isolated Postgres under the heavy-lock rules).
 --
--- Covers 20270301110000 (core), 20270301111000 (gates), 20270301112000 (write guard) on top of 10A-10D.1, CF1 (A1-A6, RB3, OD-17), E1, E2, O1, F2, F3.
+-- Covers 20270301110000 (core), 20270301130000 (gates), 20270301131000 (write guard) on top of 10A-10D.1, CF1 (A1-A6, RB3, OD-17), E1, E2, O1, F2, F3.
 -- Load the O1 fixture helper first (it supplies pg_temp.compo1_fixture_publish_rounds):
 --   cat sql-tests/fixtures/competition_round_ready.sql sql-tests/test_T_competition_r15_eligibility_clearance.sql | psql ...
 -- One transaction; the final block ALWAYS raises, so nothing persists:

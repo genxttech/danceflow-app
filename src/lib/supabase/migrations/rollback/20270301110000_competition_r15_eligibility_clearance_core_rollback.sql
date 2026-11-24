@@ -1,5 +1,5 @@
 -- Rollback of 20270301110000_competition_r15_eligibility_clearance_core.sql.
--- Refuses while any determination exists (dropping the table would erase clearance evidence). Roll back 20270301112000 and 20270301111000 FIRST:
+-- Refuses while any determination exists (dropping the table would erase clearance evidence). Roll back 20270301131000 and 20270301130000 FIRST:
 -- this file drops functions the gates call.
 begin;
 
@@ -10,13 +10,13 @@ begin
     raise exception 'R15 core rollback refused: eligibility determinations exist (clearance evidence). Nothing was changed.';
   end if;
   if exists (select 1 from pg_trigger where tgname in ('r15_guard_round_start', 'r15_guard_heat_status', 'r15_guard_heat_entry_clearance', 'r15_guard_version_publish', 'r15_guard_entry_eligibility_write') and not tgisinternal) then
-    raise exception 'R15 core rollback refused: the R15 gates or write guard are still installed; roll back 20270301112000 and 20270301111000 first.';
+    raise exception 'R15 core rollback refused: the R15 gates or write guard are still installed; roll back 20270301131000 and 20270301130000 first.';
   end if;
   if position('_r15_entry_availability_reason' in pg_get_functiondef('public.cf1_od17_guard_heat_entry()'::regprocedure)) > 0 then
-    raise exception 'R15 core rollback refused: cf1_od17_guard_heat_entry still calls _r15_entry_availability_reason; roll back 20270301111000 first.';
+    raise exception 'R15 core rollback refused: cf1_od17_guard_heat_entry still calls _r15_entry_availability_reason; roll back 20270301130000 first.';
   end if;
   if position('_r15_' in pg_get_functiondef('public._cf1_entry_unavailable_reason(uuid)'::regprocedure)) > 0 then
-    raise exception 'R15 core rollback refused: predicate P is still the strict R15 body; roll back 20270301111000 first.';
+    raise exception 'R15 core rollback refused: predicate P is still the strict R15 body; roll back 20270301130000 first.';
   end if;
 end $$;
 
