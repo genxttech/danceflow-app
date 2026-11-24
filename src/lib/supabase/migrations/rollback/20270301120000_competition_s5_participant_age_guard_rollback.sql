@@ -1,8 +1,16 @@
 -- Rollback for 20270301120000_competition_s5_participant_age_guard.sql: drops the S5 triggers and functions and restores
 -- public._comp10c_resolve_competitor to its 20261109090000 body byte for byte. Existing rows are untouched. GIT-ONLY: not applied anywhere.
--- Order: roll back this file before anything that calls the S5 predicates (the S4 eligibility-clearance predicate) is rolled forward again.
+-- Order: roll back anything that CALLS the S5 predicates (the S4 eligibility-clearance predicate) BEFORE this file: PL/pgSQL callers are not dependency-tracked, so dropping
+-- the predicates succeeds and a still-installed caller would then fail only at run time. Dates of birth completed by the new resolve function stay in place after rollback.
 
 begin;
+
+do $$
+begin
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)'::regprocedure), E'\r', '')) <> '3e80dd88a91cfaa6c5e8aff30cb41055' then
+    raise exception 'S5 rollback: public._comp10c_resolve_competitor is not the S5 definition; reconcile before rolling back';
+  end if;
+end $$;
 
 drop trigger if exists event_competition_entry_participants_s5_age_guard on public.event_competition_entry_participants;
 drop trigger if exists event_competition_competitors_s5_dob_guard on public.event_competition_competitors;
@@ -92,6 +100,13 @@ $$;
 
 revoke all on function public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)
   from public, anon, authenticated;
+
+do $$
+begin
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)'::regprocedure), E'\r', '')) <> 'cb549703a9daf25bb70f0c424bec01cf' then
+    raise exception 'S5 rollback: the restored _comp10c_resolve_competitor does not match the 20261109090000 body';
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
 commit;

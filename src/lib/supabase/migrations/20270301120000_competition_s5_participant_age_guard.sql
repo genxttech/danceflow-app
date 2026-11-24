@@ -5,6 +5,20 @@
 -- roster changes, alternates, substitutions, staff-created entries, studio registrations, guest or anchored identities, roster edits after
 -- registration, partner changes and direct PostgREST writes by managers cannot bypass it. UI validation alone is insufficient.
 --
+-- RELEASE ORDER AND ACTIVATION GATES (read before any apply; none is requested by this draft):
+--   * Apply the app change that REQUIRES a date of birth (PR 835 and its stack) BEFORE or WITH this migration. Without it every registration whose roster person has no
+--     date of birth fails closed with age_not_established, and staff or legacy participant inserts from a client or instructor anchor fail unless that competitor already
+--     has a stored date of birth.
+--   * Existing competition SQL suites insert participants for competitors without a date of birth and must be given adult dates of birth before they run on a chain that
+--     includes this file (listed in the PR).
+--   * Activation-gate query (run read-only before public activation; both counts must be 0, otherwise an owner decision is needed; rows are never auto-deleted):
+--       select count(*) filter (where public._comp_participant_age_clearance(competitor_id) = 'blocked_under_18') as under_18,
+--              count(*) filter (where public._comp_participant_age_clearance(competitor_id) = 'unknown_age') as unknown_age
+--       from public.event_competition_entry_participants;
+--   * The guard trusts the date of birth it is given (self-attested at registration or entered by staff); the first date of birth written for an anchored competitor is kept.
+--   * Correcting a participating competitor's date of birth to one that does not clear is refused by design (remove the participant row first, with the usual withdrawal
+--     process); erasure of a date of birth of a participating competitor is therefore also refused. OWNER DECISION needed if a correction/erasure path is wanted.
+--
 -- ONE enforcement point, ONE age predicate (this migration OWNS the age predicate; the broader eligibility-clearance predicate of the S4 work CALLS it):
 --   public._comp_age_clearance_from_dob(date, timestamptz)  -> 'allowed' | 'blocked_under_18' | 'unknown_age'   (pure; reason codes only)
 --   public._comp_participant_age_clearance(uuid competitor)  -> same three codes (reads the competitor's stored date of birth)
@@ -13,8 +27,7 @@
 -- Every person who competes is an event_competition_entry_participants row (couple halves, team members, alternates, substitutes, pro/am students and
 -- professionals alike), and every such row points at an event_competition_competitors row that stores the date of birth. The trigger fires for EVERY
 -- writer: manager PostgREST writes (policy competition_manage is FOR ALL), SECURITY DEFINER registration RPCs (start_competition_registration),
--- service_role, and the sync/bridge triggers. It is not bypassable by a flag or setting. (Only a table owner or superuser who disables the trigger or
--- runs with session_replication_role = replica can skip it; that is the same residual as every other guard in this schema.)
+-- service_role, and the sync/bridge triggers. It is not bypassable by a flag or setting. (Both triggers are ENABLE ALWAYS. Only a table owner or superuser who disables or drops them can skip them.)
 --
 -- Fail closed: a missing, future or pre-1900 date of birth is 'unknown_age' and is refused exactly like an under-18. No waiver, eligibility status or
 -- organizer determination can lift it: there is no override path in this file.
@@ -42,8 +55,8 @@ begin
      or to_regprocedure('public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)') is null then
     raise exception '20270301120000 requires the Phase 10C competitor registration chain (20261109090000)';
   end if;
-  if position('set user_id = coalesce(user_id, p_user_id),' in pg_get_functiondef('public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)'::regprocedure)) = 0
-     or position('date_of_birth = coalesce(date_of_birth' in pg_get_functiondef('public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)'::regprocedure)) > 0 then
+  -- Pinned body hash (CR removed) of the 20261109090000 definition; a drifted hosted body must be reconciled before this applies.
+  if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)'::regprocedure), E'\r', '')) <> 'cb549703a9daf25bb70f0c424bec01cf' then
     raise exception '20270301120000: public._comp10c_resolve_competitor is not the expected 20261109090000 definition; reconcile before applying';
   end if;
 end $$;
@@ -110,6 +123,12 @@ as $$
 declare
   v_code text;
 begin
+  -- Not retroactive: an update that changes neither the competitor nor the event leaves a legacy row alone.
+  if tg_op = 'UPDATE' and new.competitor_id is not distinct from old.competitor_id and new.event_id is not distinct from old.event_id then
+    return new;
+  end if;
+  -- Serialize with a concurrent date-of-birth change on the same competitor (the competitor guard looks for committed participants).
+  perform 1 from public.event_competition_competitors c where c.id = new.competitor_id for share;
   v_code := public._comp_participant_age_clearance(new.competitor_id);
   if v_code <> 'allowed' then
     -- Reason code only: never a birthdate, an age, a name or an id.
@@ -124,9 +143,11 @@ revoke all on function public._comp_s5_participant_age_guard() from public, anon
 -- Sorts after event_competition_entry_participants_competitor (which resolves competitor_id from client/instructor anchors first).
 drop trigger if exists event_competition_entry_participants_s5_age_guard on public.event_competition_entry_participants;
 create trigger event_competition_entry_participants_s5_age_guard
-  before insert or update of competitor_id, event_id
+  before insert or update
   on public.event_competition_entry_participants
   for each row execute function public._comp_s5_participant_age_guard();
+-- ENABLE ALWAYS, like the other guards in this schema: a session with session_replication_role = replica does not skip it.
+alter table public.event_competition_entry_participants enable always trigger event_competition_entry_participants_s5_age_guard;
 
 -- ---------------------------------------------------------------------------
 -- 3. A competitor's date of birth cannot be changed (or removed) to something that no longer clears, while the competitor participates in an entry.
@@ -161,6 +182,7 @@ create trigger event_competition_competitors_s5_dob_guard
   before update of date_of_birth
   on public.event_competition_competitors
   for each row execute function public._comp_s5_competitor_dob_guard();
+alter table public.event_competition_competitors enable always trigger event_competition_competitors_s5_dob_guard;
 
 -- ---------------------------------------------------------------------------
 -- 4. Complete (never change) a missing date of birth when an anchored competitor is resolved again.

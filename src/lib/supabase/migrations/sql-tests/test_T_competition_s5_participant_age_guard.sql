@@ -76,7 +76,7 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values (
 insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required)
   values (pg_temp.id('event', 1), pg_temp.id('studio', 1), 'S5 Comp', 't-s5-e1', 'competition', current_date + 30, current_date + 30, 'published', 'public', true);
 insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status)
-  values (pg_temp.id('program', 1), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'Studio', 'studio_generic', 'relative', 'skating', 'configured');
+  values (pg_temp.id('program', 1), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'Studio', 'custom', 'relative', 'skating', 'configured');
 insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status)
   values (pg_temp.id('contest', 1), pg_temp.id('event', 1), pg_temp.id('program', 1), 'Team', 'single_dance', 'team', 'open');
 insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
@@ -95,15 +95,16 @@ insert into public.event_competition_competitors (id, event_id, studio_id, first
   (pg_temp.id('comp', 5), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'No', 'Dob', null),
   (pg_temp.id('comp', 6), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'Future', 'Dob', (pg_temp.ref() + 5)),
   (pg_temp.id('comp', 7), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'Ancient', 'Dob', date '1899-12-31'),
-  (pg_temp.id('comp', 8), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'Adult', 'Eight', date '1985-05-05');
+  (pg_temp.id('comp', 8), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'Adult', 'Eight', date '1985-05-05'),
+  (pg_temp.id('comp', 10), pg_temp.id('event', 1), pg_temp.id('studio', 1), 'Adult', 'Ten', date '1980-10-10');
 insert into public.event_competition_competitors (id, event_id, studio_id, client_id, first_name, last_name, date_of_birth)
   values (pg_temp.id('comp', 9), pg_temp.id('event', 1), pg_temp.id('studio', 1), pg_temp.id('client', 1), 'Anchored', 'Adult', null);
 
 -- a LEGACY under-18 participant row placed before the guard existed (guard bypassed only for this fixture)
-set local session_replication_role = replica;
+alter table public.event_competition_entry_participants disable trigger event_competition_entry_participants_s5_age_guard;
 insert into public.event_competition_entry_participants (id, event_id, entry_id, competitor_id, participant_role, display_name, sort_order)
   values (pg_temp.id('part', 90), pg_temp.id('event', 1), pg_temp.id('entry', 2), pg_temp.id('comp', 4), 'team_member', 'Legacy Minor', 1);
-set local session_replication_role = origin;
+alter table public.event_competition_entry_participants enable always trigger event_competition_entry_participants_s5_age_guard;
 
 create or replace function pg_temp.ins(p_entry int, p_comp int, p_role text default 'dancer', p_n int default 1) returns text
 language sql as $$
@@ -163,8 +164,11 @@ select pg_temp.expect_msg('substitution to a minor is refused',
 select pg_temp.expect_msg('substitution to an unknown-age competitor is refused',
   format($q$update public.event_competition_entry_participants set competitor_id = %L where entry_id = %L and competitor_id = %L$q$, pg_temp.id('comp', 5), pg_temp.id('entry', 1), pg_temp.id('comp', 8)),
   'unknown_age', '42501');
-select pg_temp.expect_ok('substitution to an adult is allowed',
-  format($q$update public.event_competition_entry_participants set competitor_id = %L where entry_id = %L and competitor_id = %L$q$, pg_temp.id('comp', 2), pg_temp.id('entry', 1), pg_temp.id('comp', 8)));
+select pg_temp.expect_ok('substitution to an adult (not already in the entry) is allowed',
+  format($q$update public.event_competition_entry_participants set competitor_id = %L where entry_id = %L and competitor_id = %L$q$, pg_temp.id('comp', 10), pg_temp.id('entry', 1), pg_temp.id('comp', 8)));
+select pg_temp.expect_ok('the guard also fires with session_replication_role = replica (ENABLE ALWAYS)', $q$set local session_replication_role = replica$q$);
+select pg_temp.expect_msg('a minor is refused even under session_replication_role = replica', $q$select pg_temp.ins(1, 4, 'dancer', 30)$q$, 'blocked_under_18', '42501');
+select pg_temp.expect_ok('restore session_replication_role', $q$set local session_replication_role = origin$q$);
 
 -- existing rows are unchanged and unrelated updates on them still work (the guard is not retroactive)
 select pg_temp.chk('the LEGACY under-18 row was not modified or deleted by the migration logic',
@@ -190,6 +194,8 @@ select pg_temp.expect_msg('manager direct insert of a minor is refused', $q$sele
 select pg_temp.expect_msg('manager direct insert with unknown age is refused', $q$select pg_temp.ins(2, 5, 'dancer', 13)$q$, 'unknown_age', '42501');
 select pg_temp.expect_msg('manager direct update to a minor is refused',
   format($q$update public.event_competition_entry_participants set competitor_id = %L where entry_id = %L and competitor_id = %L$q$, pg_temp.id('comp', 4), pg_temp.id('entry', 2), pg_temp.id('comp', 1)), 'blocked_under_18', '42501');
+select pg_temp.expect_msg('a manager cannot edit a competitor date of birth (column grant is bib_number only)',
+  format($q$update public.event_competition_competitors set date_of_birth = date '1999-09-09' where id = %L$q$, pg_temp.id('comp', 8)), 'permission denied');
 select pg_temp.expect_msg('the new functions are not callable by an authenticated manager (predicates reveal age clearance)',
   format($q$select public._comp_participant_age_clearance(%L)$q$, pg_temp.id('comp', 1)), 'permission denied');
 select pg_temp.expect_msg('the dob predicate is not callable by an authenticated manager',
@@ -199,6 +205,9 @@ reset role;
 set role service_role;
 select pg_temp.expect_msg('service_role direct insert of a minor is refused (no service-role bypass)', $q$select pg_temp.ins(2, 4, 'dancer', 14)$q$, 'blocked_under_18', '42501');
 select pg_temp.chk('service_role may execute the predicates (preflight tooling)', public._comp_participant_age_clearance(pg_temp.id('comp', 1)) = 'allowed');
+reset role;
+select pg_temp.expect_msg('service_role date-of-birth update to a minor on a participating competitor is refused',
+  format($q$set local role service_role; update public.event_competition_competitors set date_of_birth = %L where id = %L$q$, (pg_temp.ref() - interval '9 years')::date, pg_temp.id('comp', 8)), 'blocked_under_18', '42501');
 reset role;
 
 -- ============================================================================
@@ -228,7 +237,7 @@ select pg_temp.expect_ok('the now-dated anchored adult can be added to an entry'
 -- 6. Static facts about the installed objects
 -- ============================================================================
 select pg_temp.chk('both guard triggers exist and are enabled',
-  (select count(*) from pg_trigger where tgname in ('event_competition_entry_participants_s5_age_guard', 'event_competition_competitors_s5_dob_guard') and tgenabled = 'O' and not tgisinternal) = 2);
+  (select count(*) from pg_trigger where tgname in ('event_competition_entry_participants_s5_age_guard', 'event_competition_competitors_s5_dob_guard') and tgenabled = 'A' and not tgisinternal) = 2);
 select pg_temp.chk('the new functions are definer, pinned search_path, and not executable by public/anon/authenticated',
   not exists (select 1 from pg_proc p where p.proname in ('_comp_age_clearance_from_dob', '_comp_participant_age_clearance', '_comp_s5_participant_age_guard', '_comp_s5_competitor_dob_guard')
               and p.pronamespace = 'public'::regnamespace

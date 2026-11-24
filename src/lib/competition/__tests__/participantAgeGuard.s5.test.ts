@@ -27,7 +27,10 @@ describe("S5 database participant age guard (static checks; the executing suite 
 
   it("uses ONE enforcement point on participant rows plus a competitor date-of-birth guard, and no bypass setting", () => {
     expect(forward).toContain("event_competition_entry_participants_s5_age_guard");
-    expect(forward).toContain("before insert or update of competitor_id, event_id");
+    expect(forward).toContain("before insert or update\n  on public.event_competition_entry_participants");
+    expect(forward).toContain("enable always trigger event_competition_entry_participants_s5_age_guard");
+    expect(forward).toContain("enable always trigger event_competition_competitors_s5_dob_guard");
+    expect(forward).toContain("for share");
     expect(forward).toContain("event_competition_competitors_s5_dob_guard");
     expect(forward).not.toMatch(/current_setting\(/);
     expect(forward).not.toMatch(/app\.comp10c_backfill/);
