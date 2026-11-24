@@ -1,4 +1,4 @@
-import { nextUp, nextUpLabel } from "@/lib/nextUp";
+import { dateInZone, nextUp, nextUpLabel } from "@/lib/nextUp";
 import type { StudioAppointment } from "@/lib/staffApi";
 
 const NOW = Date.parse("2026-11-24T15:00:00.000Z");
@@ -69,6 +69,18 @@ describe("nextUp", () => {
     expect(nextUp(rows, NOW, { oneToOne: false, classes: true })?.appointment.id).toBe("c");
     expect(nextUp(rows, NOW, { oneToOne: true, classes: false })?.appointment.id).toBe("l");
     expect(nextUp(rows, NOW, { oneToOne: false, classes: false })).toBeNull();
+  });
+
+  it("a lesson ending exactly now has ended; an unreadable end time falls back to the start", () => {
+    const boundary = nextUp([appt("x", "2026-11-24T14:00:00.000Z", "2026-11-24T15:00:00.000Z")], NOW, ALL);
+    expect(boundary?.kind).toBe("record_result");
+    const unreadable = nextUp([appt("y", "2026-11-24T10:00:00.000Z", "not a time")], NOW, ALL);
+    expect(unreadable?.kind).toBe("record_result");
+  });
+
+  it("dateInZone gives the studio's calendar date", () => {
+    expect(dateInZone(Date.parse("2026-11-25T03:30:00.000Z"), "America/New_York")).toBe("2026-11-24");
+    expect(dateInZone(Date.parse("2026-11-25T03:30:00.000Z"), "Not/AZone")).toBeNull();
   });
 
   it("breaks ties by id so the pick is stable", () => {

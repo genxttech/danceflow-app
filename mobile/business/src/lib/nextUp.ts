@@ -7,7 +7,8 @@ import type { StudioAppointment } from "@/lib/staffApi";
   - The target is the earliest open lesson or class that has not ended yet (in progress counts). Nothing is picked for rentals or other types: they have no check-in here.
   - If nothing is left to do ahead, the target is the oldest open lesson or class that has already ended, because its result is still missing.
   - `behind` counts the ended open ones, so the screen can say how many results are missing.
-  - A kind is offered only when its write or attendance capability is on in this build, so the button never leads to a screen without the controls.
+  - A kind is offered only when its write or attendance capability is on in this build AND the caller's studio role may mark attendance (the screen checks the role): the same two
+    conditions the appointment screen needs for its controls.
 */
 
 const OPEN = ["scheduled", "confirmed", "rescheduled"];
@@ -29,7 +30,11 @@ export function nextUp(appointments: readonly StudioAppointment[], nowMs: number
     .filter((a) => OPEN.includes(a.status) && ((can.oneToOne && ONE_TO_ONE.includes(a.appointmentType)) || (can.classes && a.appointmentType === "group_class")))
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id));
 
-  const ended = (a: StudioAppointment) => Date.parse(a.endsAt) <= nowMs;
+  // an unreadable end time falls back to the start time, so a bad row can never hold the card "ahead" forever
+  const ended = (a: StudioAppointment) => {
+    const end = Date.parse(a.endsAt);
+    return (Number.isFinite(end) ? end : Date.parse(a.startsAt)) <= nowMs;
+  };
   const ahead = open.filter((a) => !ended(a));
   const behind = open.filter(ended);
 
@@ -48,4 +53,13 @@ export function nextUpLabel(kind: NextUpKind, who: string) {
   if (kind === "take_attendance") return "Take attendance";
   if (kind === "record_result") return `Record the result for ${who}`;
   return `Check in ${who}`;
+}
+
+/** "2026-11-24": the calendar date of an instant in a time zone. Used to tell whether the day on screen is today without relying on how the screen got there. */
+export function dateInZone(nowMs: number, timeZone: string) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(nowMs));
+  } catch {
+    return null;
+  }
 }

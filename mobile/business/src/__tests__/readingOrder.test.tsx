@@ -18,7 +18,7 @@ import { FRONT_DESK_CARDS, INSTRUCTOR_CARDS, OWNER_CARDS } from "@/test-utils/pu
   A reorder, a lost heading or a control that stops being named fails here.
 */
 
-jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+jest.mock("expo-router", () => ({ router: { push: jest.fn() }, useFocusEffect: (effect: () => void | (() => void)) => jest.requireActual<typeof import("react")>("react").useEffect(effect, [effect]) }));
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");
   return { SafeAreaView: View };
