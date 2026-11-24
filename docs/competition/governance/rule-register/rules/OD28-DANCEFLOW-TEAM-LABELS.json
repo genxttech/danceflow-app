@@ -27,7 +27,7 @@
     }
   ],
   "verification_status": "unverified",
-  "interpretation_notes": "Unverified for the same reason as OD19-STUDIO-CUSTOM-FORMAT-LABELS (persisted names). Scoring finding: team offerings inherit the style's judging; Ballroom Formation and Team Match resolve to the Studio ordinal majority engine (Placements), Country Team (Medal Marks, legacy 'custom') and a Studio team judged by Ratings fail closed with no calculable result. No NDCA cumulative-point scoring exists.",
+  "interpretation_notes": "Unverified for the same reason as OD19-STUDIO-CUSTOM-FORMAT-LABELS (persisted names). Scoring finding: team offerings inherit the style's judging; Ballroom Formation and Team Match resolve to the Studio ordinal majority engine (Placements), Country Team (Medal Marks, legacy 'custom') and a Studio team judged by Ratings fail closed with no calculable result. No NDCA cumulative-point scoring exists. Readiness caveat (pre-existing, not team-specific): a draft round with no calculable method is only a readiness NOTICE (COMP_SCORING_NO_METHOD), publishing is not blocked, and the readiness page can show the scoring row as Ready, so a Country Team or a Custom team judged by Ratings can be published without ever producing results. A capability guard is reported separately and not implemented.",
   "applicable_event_versions": [
     "studio_simple@3"
   ],

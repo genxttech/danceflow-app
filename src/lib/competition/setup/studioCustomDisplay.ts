@@ -1,4 +1,4 @@
-// OD-19 (owner decision 2026-11-23, Option C): display-label layer for the Studio / Custom `custom` formats.
+// OD-19 (owner decision 2026-11-23, Option C): display-label layer for the Studio / Custom `custom` and (OD-28) team formats.
 //
 // The seeded profile studio_simple@3 is IMMUTABLE once a program references it (see studioCustomV3.ts and the
 // profile SQL it mirrors, guarded by a drift test), so the format names there ("Student/Student", "Spotlight",
@@ -96,7 +96,8 @@ export const STUDIO_CUSTOM_DISPLAY_KEYS = Object.keys(STUDIO_CUSTOM_DISPLAY);
 
 /**
  * Returns the profile with DanceFlow Studio/Custom display wording on the listed `custom` formats. Idempotent,
- * pure, and a no-op for any format that is missing from the profile or is not entry_format "custom".
+ * pure, and a no-op for any format that is missing from the profile or whose entry_format differs from the one its
+ * display entry names ("custom" by default, "team" for the OD-28 team formats).
  */
 export function withStudioCustomDisplayLabels(profile: SetupProfileDefaults): SetupProfileDefaults {
   const categoryTypes: Record<string, EntryFormatDefinition> = { ...profile.categoryTypes };

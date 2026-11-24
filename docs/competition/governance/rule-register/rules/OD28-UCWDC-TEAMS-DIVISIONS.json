@@ -12,7 +12,7 @@
     "quote_free_summary": "Team divisions are offered for teams of three or more competing members (Team Line Dance Classic Country and Open, Team Partner Dance Classic Country and Open, Team Combo, Team Cabaret, Team International), while ShowTime has any number of members. Teams may have any gender mix, a team couple is leader and follower without gender restriction, and there are no age requirements in team divisions."
   },
   "rule_class": "mandatory",
-  "requirement": "A future UCWDC profile must distinguish ordinary Teams (3 or more members, listed divisions) from ShowTime (any number). Studio/Custom 'Team' (2 to 100) matches neither. UCWDC's 'no age requirements' does not override DanceFlow's OD-02 adult-only launch policy.",
+  "requirement": "A future UCWDC profile must distinguish ordinary Teams (3 or more members, listed divisions) from ShowTime (any number). Studio/Custom 'Team' (2 to 100) matches neither exactly: ordinary Teams need 3 or more, and ShowTime has no ordinary-team division structure. UCWDC's 'no age requirements' does not override DanceFlow's OD-02 adult-only launch policy.",
   "implementation": [],
   "enforcement_point": "NOT IMPLEMENTED. Future: UCWDC profile. The generic Studio/Custom team model (2 to 100 members, no body rules) must not carry it (OD-28 item 9); it belongs to a future body profile.",
   "tests": [],
