@@ -64,12 +64,11 @@ describe("R-11 extension: override scope, reason rules and audit", () => {
   });
 
   // Both markers read only the F2 file; a later exact-text patch of approve would not flip them (see R-11 report section 10).
-  it.fails("KNOWN BLOCKER RB-11.1: approve requires a SUBSTANTIVE override reason (as A5/A6 do via _cf1_reason_is_substantive)", () => {
-    expect(body).toMatch(/if not public._cf1_reason_is_substantive(v_reason)/);
+  it.fails("KNOWN BLOCKER RB-11.1: approve requires a SUBSTANTIVE override reason (as A6 does via _cf1_reason_is_substantive)", () => {
+    expect(body).toMatch(/if not public\._cf1_reason_is_substantive\(v_reason\)/);
   });
 
   it.fails("KNOWN BLOCKER RB-11.2: approve distinguishes INITIAL approval from a corrected/recalculated result, so self-approval cannot be used after a correction", () => {
-    expect(body).toMatch(/(if|and|or)[^;
-]*(correction_open|result_invalidated)/i);
+    expect(body).toMatch(/(if|and|or)[^;\n]*(correction_open|result_invalidated)/i);
   });
 });
