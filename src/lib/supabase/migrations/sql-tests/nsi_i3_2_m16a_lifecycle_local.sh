@@ -59,7 +59,7 @@ mutate() { # label sed-expression expected-substring
 }
 mutate "guard allows any assurance change" "s|or (new.assurance <> old.assurance and not (old.assurance = 'declared_unverified' and new.assurance = 'staff_attested'|or (false and not (old.assurance = 'declared_unverified' and new.assurance = 'staff_attested'|" "A04"
 mutate "guard lets assurance_at move alone" "s|     or (new.assurance_at <> old.assurance_at and new.assurance = old.assurance)|     or false|" "A04"
-mutate "attestation update allowed" "s|    raise exception 'nsi: guardian attestations are immutable' using errcode = '42501';|    return new;|" "A05"
+mutate "attestation update allowed" "s|raise exception 'nsi: guardian attestations are immutable' using errcode = '42501';|    return new;|" "A05"
 mutate "attestation insert guard drops the respondent checks" "s|     or p.role <> 'guardian' or p.superseded_at is not null or p.redacted_at is not null then|     or false then|" "A05"
 mutate "erase does not delete attestations" "s|  delete from public.intake_guardian_attestations where studio_id = p_studio_id and client_id = p_client_id;||" "A06"
 mutate "audit allowlist without method" "s|'case_ref', 'method'];|'case_ref'];|" "A01"
@@ -73,7 +73,7 @@ suite $C test_T_nsi_i3_2_m16a_local.sql "M16a boundary suite after the probes"
 
 say "== replays and refusals on an M16a database"
 apply $C 16 && say "   replay M16a ok"; [ "$(fp $C)" = "$F16" ] && say "   fingerprint unchanged by the M16a replay" || bad "M16a replay changed the catalog"
-e=$(applyfile $C "$M/${FILES[14]}.sql"); echo "$e" | grep -q "later NSI migration" && say "   M15 replay over M16a refused" || bad "M15 replay over M16a not refused: $e"
+e=$(applyfile $C "$M/${FILES[14]}.sql"); echo "$e" | grep -qE "later NSI migration|requires M14" && say "   M15 replay over M16a refused" || bad "M15 replay over M16a not refused: $e"
 e=$(applyfile $C "$R/$RBM15.sql"); echo "$e" | grep -q "later NSI migration" && say "   M15 rollback over M16a refused" || bad "M15 rollback over M16a not refused: $e"
 [ "$(fp $C)" = "$F16" ] && say "   refusals left the catalog unchanged" || bad "refusals changed the catalog"
 docker exec -i $C psql -U postgres -q -c "create or replace function intake_private.zz_m16b_probe() returns void language sql as \$\$ select 1 -- nsi-body:m16b \$\$;" >/dev/null 2>&1
@@ -89,7 +89,8 @@ docker exec -i $C psql -U postgres -q -c "set session_replication_role = replica
 docker exec -i $C psql -U postgres -q -c "set session_replication_role = replica; insert into public.intake_respondents (id, studio_id, request_id, client_id, role, display_name, declared_relationship, assurance) values ('$RID', gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'guardian', 'x', 'parent', 'staff_attested');" >/dev/null 2>&1
 e=$(applyfile $C "$R/$RBM16.sql"); echo "$e" | grep -q "staff_attested respondents exist" && say "   rollback refused while a staff_attested respondent exists" || bad "rollback not refused with a staff_attested respondent: $e"
 docker exec -i $C psql -U postgres -q -c "set session_replication_role = replica; delete from public.intake_respondents where id = '$RID';" >/dev/null 2>&1
-docker exec -i $C psql -U postgres -q -c "set session_replication_role = replica; insert into public.intake_audit_events (studio_id, event_type, actor_type, retention_class, retention_state) values (null, 'guardian_attested', 'staff', 'operational', 'pending_policy');" >/dev/null 2>&1
+docker exec -i $C psql -U postgres -q -c "set session_replication_role = replica; insert into public.intake_audit_events (studio_id, event_type, actor_type, retention_class, retention_state) values (gen_random_uuid(), 'guardian_attested', 'staff', 'operational', 'pending_policy');" >/dev/null 2>&1
+[ "$(docker exec -i $C psql -U postgres -At -c "select count(*) from public.intake_audit_events where event_type = 'guardian_attested'" | tail -1)" = "1" ] || bad "fixture: the guardian_attested audit row was not inserted"
 e=$(applyfile $C "$R/$RBM16.sql"); echo "$e" | grep -q "guardian_attested audit events exist" && say "   rollback refused while a guardian_attested audit event exists" || bad "rollback not refused with an audit event: $e"
 docker exec -i $C psql -U postgres -q -c "set session_replication_role = replica; delete from public.intake_audit_events where event_type = 'guardian_attested';" >/dev/null 2>&1
 [ "$(fp $C)" = "$F16" ] && say "   refused rollbacks left the catalog unchanged" || bad "refused rollbacks changed the catalog"

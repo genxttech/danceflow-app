@@ -471,7 +471,7 @@ select pg_temp.chk('A04 M6 functions: postgres-owned, SECURITY DEFINER, pinned s
    from pg_proc where proname in ('evaluate_appointment_eligibility', 'intake_reconcile_preview', 'intake_reconcile_status')));
 select pg_temp.chk('A05 catalog self-check passes with M6', pg_temp.try('select intake_private.assert_catalog()') = 'ok', pg_temp.try('select intake_private.assert_catalog()'));
 select pg_temp.chk('A06 exactly 19 tables and 85 functions (70 + 3 + 12; 22 and 103 from M12), collection gate closed',
-  (select count(*) = case when to_regclass('public.intake_sessions') is not null then 22 else 19 end from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r')
+  (select count(*) = case when to_regclass('public.intake_sessions') is not null then (case when to_regclass('public.intake_guardian_attestations') is not null then 23 else 22 end) else 19 end from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r')
   and (select count(*) = case when to_regclass('public.intake_sessions') is not null then (case when to_regclass('public.intake_guardian_attestations') is not null then 113 when to_regprocedure('public.intake_determine_minor_from_birthday(uuid,uuid)') is not null then 110 when to_regprocedure('intake_private.legal_hold_insert_guard()') is not null then 104 else 103 end) else 85 end from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
   and not intake_private.retention_gate_open());
 select pg_temp.chk('A07 appointments fingerprint equals the pre-migration baseline (no appointment schema change)',
