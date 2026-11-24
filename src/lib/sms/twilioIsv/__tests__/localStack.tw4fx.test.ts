@@ -558,7 +558,8 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
       // W1 negative balance + grace near; W2 past grace (open exposure) + a number in grace + an authorization ending in 10 days (owner notices, escalation);
       // W3 the pilot (approval needed) in grace; W4 an UNFUNDED charge in grace; W5 credit on hold + recorded exposure at the business alert threshold + grace near
       const w1 = world();
-      age(register(w1, "campaign"), "5 days");
+      const res1 = register(w1, "campaign");
+      age(res1, "5 days");
       replica(`update public.studio_sms_credit_accounts set balance_cents = -100 where legal_entity_id = '${w1.entity}';`);
       const w2 = world();
       age(register(w2, "campaign"), "75 days");
@@ -589,26 +590,35 @@ select (public._fx_orig_exposure('${P}'::uuid) = public.tw4_act_exposure('${P}':
         const out = psql(`begin;
 ${withGrace ? "" : `${def.replace(noGrace, "continue;")};`}
 ${withGrace ? `insert into public.studio_sms_provider_alerts (legal_entity_id, studio_id, kind, dedupe_key, audience, severity, summary)
-  values ('${w2.entity}', '${w2.studio}', 'funding_exposure_grace_ending', 'auth:${ending}', 'admin', 'warning', 'fixture: a colliding grace warning key');` : ""}
+  values ('${w2.entity}', '${w2.studio}', 'funding_exposure_grace_ending', 'auth:${ending}', 'admin', 'warning', 'fixture: a colliding grace warning key'),
+  -- the reverse: another kind already holds the grace warning's own keys (both candidate periods); only the kind + key pair is unique, so the warning is still raised
+         ('${w1.entity}', '${w1.studio}', 'exposure_open', 'fx-grace:${res1}:' || public._tw4ml_month_key('${w1.entity}', now()), 'admin', 'info', 'fixture: another kind holding a grace key'),
+         ('${w1.entity}', '${w1.studio}', 'exposure_open', 'fx-grace:${res1}:' || public._tw4ml_key_add(public._tw4ml_month_key('${w1.entity}', now()), -1), 'admin', 'info', 'fixture: another kind holding a grace key');` : ""}
 create temp table fx_scan (line text) on commit drop;
 select public.tw4_rfl_funding_exposure_check();
 insert into fx_scan select e.id || '=' || public.tw4_rfl_scan_entity(e.id)::text from (select distinct legal_entity_id id from public.studio_sms_entity_studios where studio_id in (${studios})) e;
 select public.tw4_rfl_funding_exposure_check();
 set local session_replication_role = replica;
-update public.studio_sms_provider_alerts set status = 'failed', attempts = 5 where ${mine} and kind <> 'funding_exposure_grace_ending';
+update public.studio_sms_provider_alerts set status = 'failed', attempts = 5 where ${mine} and kind <> 'funding_exposure_grace_ending' and summary not like 'fixture:%';
 set local session_replication_role = origin;
 select public.tw4_rfl_escalate_delivery();
 select json_build_object(
-  'other', (select coalesce(json_agg(x order by x), '[]'::json) from (select kind || '|' || severity || '|' || audience || '|' || coalesce(studio_id::text, '-') || '|' || coalesce(resource_id::text, '-') x
-             from public.studio_sms_provider_alerts where ${mine} and kind <> 'funding_exposure_grace_ending') q),
+  'other', (select coalesce(json_agg(x order by x), '[]'::json) from (select kind || '|' || severity || '|' || audience || '|' || coalesce(studio_id::text, '-') || '|' || coalesce(resource_id::text, '-')
+               || '|' || dedupe_key || '|' || summary x
+             from public.studio_sms_provider_alerts where ${mine} and kind <> 'funding_exposure_grace_ending' and summary not like 'fixture:%') q),
   'grace', (select coalesce(json_agg(dedupe_key order by dedupe_key), '[]'::json) from public.studio_sms_provider_alerts where ${mine} and kind = 'funding_exposure_grace_ending' and dedupe_key like 'fx-grace:%'),
   'scans', (select json_agg(line order by line) from fx_scan),
   'state', (select json_agg(s.studio_id || ':' || public._tw4rc_service_state(s.studio_id) || ':' || public._tw4rfl_df_sending(s.studio_id) || ':' || a.hold || ':' || a.balance_cents || ':' || a.reserved_cents order by s.studio_id)
              from public.studio_sms_entity_studios s join public.studio_sms_credit_accounts a on a.legal_entity_id = s.legal_entity_id where s.studio_id in (${studios})),
   'collision', (select count(*) from public.studio_sms_provider_alerts where ${mine} and kind = 'authorization_expiring' and dedupe_key = 'auth:${ending}'))::text;
 rollback;`).split("\n");
-        return JSON.parse(out[out.length - 1]) as Pass;
+        const parsed = JSON.parse(out[out.length - 1]) as Pass;
+        // ids generated inside a pass (exposure rows, escalated alert ids) differ between the two passes: keep the fixture ids, replace any other uuid
+        parsed.other = parsed.other.map((x) => x.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => (known.has(id) ? id : "<generated>"))).sort();
+        return parsed;
       };
+      const known = new Set<string>([...ws.flatMap((w) => [w.entity, w.studio]), ending,
+        ...psql(`select id from public.studio_sms_provider_resources where studio_id in (${studios}) union all select id from public.studio_sms_recurring_authorizations where studio_id in (${studios})`).split("\n").filter(Boolean)]);
       const withWarning = pass(true);
       const without = pass(false);
       expect(withWarning.grace.length).toBeGreaterThanOrEqual(ws.length);   // a warning for every fixture resource that is in its last 72 hours of grace
@@ -617,6 +627,7 @@ rollback;`).split("\n");
       expect(withWarning.scans).toEqual(without.scans);
       expect(withWarning.state).toEqual(without.state);
       expect(withWarning.collision).toBe(1);   // the owner notice is raised although a warning row holds the same key
+      expect(withWarning.grace.some((k) => k.startsWith(`fx-grace:${res1}:`))).toBe(true);   // and the warning is raised although another kind holds its key
       const kinds = new Set(withWarning.other.map((x) => x.split("|")[0]));
       for (const k of ["exposure_open", "next_period_uncovered", "pilot_approval_needed", "negative_balance", "account_on_hold", "authorization_expiring", "owner_notice_second",
         "owner_unresponsive", "alert_delivery_exhausted", "funding_exposure_unfunded", "funding_exposure_unauthorized", "funding_exposure_threshold"]) expect(kinds).toContain(k);
@@ -624,6 +635,51 @@ rollback;`).split("\n");
       expect(psql("select pg_get_constraintdef(oid) from pg_constraint where conname = 'studio_sms_provider_alerts_once'")).toBe("UNIQUE (kind, dedupe_key)");
       const nonPilot = [w1, w2, w4, w5].map((w) => `'${w.entity}'`).join(", ");
       expect(Number(psql(`select count(*) from public.studio_sms_provider_alerts where legal_entity_id in (${nonPilot})`))).toBe(0);   // both passes rolled back
+    });
+
+    it("delivery: grace warnings are claimed strictly AFTER every other alert (even older ones and a failed retry), never taking a slot while another alert waits", () => {
+      const w = world();
+      const fileClaim = (() => {
+        const src = file("20261211090000_twilio_rfl_ops.sql");
+        const i = src.indexOf("create or replace function public.tw4_rfl_alerts_claim(p_limit int)");
+        return src.slice(i, src.indexOf("end $$;", i) + "end $$;".length);
+      })();
+      expect(fileClaim).toContain("order by x.created_at, x.id");
+      /** One rolled-back transaction: only this scenario's rows are claimable; claims one at a time and returns the kinds in claim order. */
+      const claimOrder = (withGrace: boolean, oldClaim: boolean, limit: number, rounds: number): string[] => {
+        const ins = (kind: string, ago: string, severity: string, extra = "") =>
+          `insert into public.studio_sms_provider_alerts (legal_entity_id, studio_id, kind, dedupe_key, audience, severity, summary, created_at${extra ? ", status, attempts" : ""})
+             values ('${w.entity}', '${w.studio}', '${kind}', 'claim:' || gen_random_uuid(), 'admin', '${severity}', 'claim order fixture ' || '${kind}', now() - interval '${ago}'${extra});`;
+        const grace = withGrace ? [...Array.from({ length: 25 }, (_, n) => ins("funding_exposure_grace_ending", `${180 - n} minutes`, "warning")),
+          ins("funding_exposure_grace_ending", "200 minutes", "warning", ", 'failed', 2")].join("\n") : "";
+        const out = psql(`begin;
+set local session_replication_role = replica;
+update public.studio_sms_provider_alerts set status = 'delivered', delivered_at = now() where status <> 'delivered';
+${grace}
+${ins("exposure_open", "60 minutes", "critical")}
+${ins("funding_exposure_threshold", "30 minutes", "critical")}
+${ins("negative_balance", "10 minutes", "critical")}
+set local session_replication_role = origin;
+${oldClaim ? fileClaim + ";" : ""}
+select public.tw4_rfl_set_switch('delivery', true, '${P}', 'fixture: delivery on inside a rolled-back claim-order probe');
+create temp table fx_claim (n int, kind text) on commit drop;
+${Array.from({ length: rounds }, (_, r) => `insert into fx_claim select ${r}, c.kind from public.tw4_rfl_alerts_claim(${limit}) c;`).join("\n")}
+select coalesce(json_agg(kind order by n, kind), '[]'::json)::text from fx_claim;
+rollback;`).split("\n");
+        return JSON.parse(out[out.length - 1]) as string[];
+      };
+      const urgent = ["exposure_open", "funding_exposure_threshold", "negative_balance"];
+      // one at a time: the oldest-first order of the other alerts is unchanged by the 26 older grace rows
+      expect(claimOrder(false, false, 1, 3)).toEqual(urgent);
+      expect(claimOrder(true, false, 1, 4)).toEqual([...urgent, "funding_exposure_grace_ending"]);
+      // a full cap: every other alert is in the first claim, the grace rows only fill what is left
+      const batch = claimOrder(true, false, 20, 1);
+      expect(batch.length).toBe(20);
+      for (const k of urgent) expect(batch).toContain(k);
+      expect(claimOrder(true, false, 3, 1).sort()).toEqual([...urgent].sort());
+      // mutation: the previous (20261211) ordering lets the older grace backlog take the whole cap and delay the urgent alerts
+      expect(claimOrder(true, true, 3, 1)).toEqual(["funding_exposure_grace_ending", "funding_exposure_grace_ending", "funding_exposure_grace_ending"]);
+      expect(claimOrder(true, true, 20, 1).filter((k) => urgent.includes(k))).toEqual([]);
     });
   });
 
