@@ -21,8 +21,8 @@
   "rule_class": "mandatory",
   "requirement": "A future UCWDC profile must schedule and record the Judge Meeting.",
   "enforcement_point": "NOT IMPLEMENTED.  DanceFlow does not verify or fulfill it; it remains the organizer's responsibility (R-14) unless DanceFlow explicitly implements and verifies it in a future body profile. It must not block eligible Studio/Custom competitions.",
-  "verification_status": "unsupported",
-  "interpretation_notes": "Re-read 2026-11-24.",
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Re-read 2026-11-24. The text is descriptive ('is discussed at the official UCWDC Judge Meeting held prior to each competition session at every UCWDC event'), not imperative; mandatory is an interpretation to confirm.",
   "applicable_event_versions": [
     "2026 (v1-26-2026)"
   ]

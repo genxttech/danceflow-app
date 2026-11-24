@@ -16,10 +16,10 @@
     "effective_to": null,
     "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
     "section": "III.D.46 (printed p24)",
-    "quote_free_summary": "A Chairman of Judges must conduct a mandatory Adjudicators meeting before the first session to review judging rules, ethics and conduct; a judge who arrives after it cannot judge."
+    "quote_free_summary": "A Chairman of Judges must conduct a mandatory Adjudicators meeting before the first session to review judging rules, ethics and conduct; an official who arrives late may judge only after a private meeting with the Chairman to review these items."
   },
   "rule_class": "mandatory",
-  "requirement": "A future NDCA profile must record the meeting and bar late-arriving judges.",
+  "requirement": "A future NDCA profile must record the meeting and the private catch-up meeting for a late-arriving judge.",
   "enforcement_point": "NOT IMPLEMENTED.  DanceFlow does not verify or fulfill it; it remains the organizer's responsibility (R-14) unless DanceFlow explicitly implements and verifies it in a future body profile. It must not block eligible Studio/Custom competitions.",
   "verification_status": "unsupported",
   "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-24. No meeting record exists in DanceFlow. BLOCKER for an NDCA profile.",

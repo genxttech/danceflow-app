@@ -258,7 +258,7 @@ export type Sanctioning = (typeof SANCTIONING_VALUES)[number];
  * restriction on declared events: it only states what DanceFlow does not do.
  */
 export const OPERATIONAL_REQUIREMENTS_DISCLOSURE =
-  "DanceFlow does not currently verify or fulfill the applicable governing-body operational and reporting requirements (venue, timetable, meetings, reporting deadlines, surcharges and similar). These remain the organizer's responsibility.";
+  "DanceFlow does not currently verify or fulfill the applicable governing-body operational and reporting requirements (venue, timetable, meetings, reporting deadlines, surcharges and similar). These remain the organizer's responsibility, and this statement does not lift any restriction DanceFlow applies to declared events.";
 
 export function sanctioningDisclosure(value: string | null | undefined): {
   declared: boolean;
