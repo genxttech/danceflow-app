@@ -1,0 +1,24 @@
+R-11 runner: container df-r11-449173 image ns1-base:snap; migration pins pre=3cf63c3bb00a78142ea2c8e70a8b4a0c post=5adf8f1680306964abb688068616b4ce
+CHAIN: ns1-base:snap + HL1/A1..A7/RB3/U66/F3/PV-1/OJ-1 applied
+PASS  P1 approve text before the migration = post A3 + PV-1 pin
+ACL before: supabase_admin {supabase_admin=X/supabase_admin,authenticated=X/supabase_admin} true {"search_path=public, pg_temp"}
+P2 characterization: FAIL as expected on the unpatched chain: COMPETITION R11 SQL SUITE FAIL: S: approve text is the post-R-11 pin (md5 5adf8f1680306964abb688068616b4ce, CRs removed) []; S: ordering in the installed text: stale checks < history read < override refusal < audit event < roster check < approved write; PV-1 verify after the hash check []; S: no client flag decides initial/corrected: the text reads only the three append-only history tables and never a parameter or the mutable correction_open / status of the round []; r1: distinct audit kind result_approval_override (not result_approved) with actor, version, reason, calculator and refs.initial = true []; r2: normal audit kind result_approved, reason null, refs.initial = true, override false []; RB-11.1: one-character reason "x" is refused [statement unexpectedly succeeded]; RB-11.1: two-character reason [statement unexpectedly succeeded]; RB-11.1: placeholder "n/a" [statement unexpectedly succeeded]; RB-11.1: placeholder "testing" [statement unexpectedly succeeded]; RB-11.1: a repeated character (20+ characters) [statement unexpectedly succeeded]; RB-11.1: 20+ characters but a single word [statement unexpectedly succeeded]; RB-11.1: four words but fewer than 20 characters [statement unexpectedly succeeded]; RB-11.1: the same word repeated (20+ characters, only one distinct word) [statement unexpectedly succeeded]; RB-11.1 (review): "a b c d" padded with non-breaking spaces to 21+ characters [statement unexpectedly succeeded]; RB-11.1 (review): four punctuation tokens [statement unexpectedly succeeded]; RB-11.1 (review): a leading tab and three real words [statement unexpectedly succeeded]; RB-11.1 (review): zero-width padding [statement unexpectedly succeeded]; r3: that approval is the audited override with the exact reason []; RB-11.2: the calculator/opener cannot self-approve the corrected version with NO reason [P0001 COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve only with an override reason (1-500 characters).]; RB-11.2: ...nor with a SUBSTANTIVE override reason [statement unexpectedly succeeded]; RB-11.2: ...the refusal text names the independent approver rule [statement unexpectedly succeeded]; r4: audit = result_approved, reason null, refs.initial = false, override false; approvals row without a reason []; RB-11.2: the person who opened the correction (not the calculator) cannot approve it [statement unexpectedly succeeded]; RB-11.2: ...not even with a substantive reason [statement unexpectedly succeeded]; R
+PASS  P3 approve text after the migration = post pin
+PASS  P3 owner / ACL / security definer / search_path unchanged by CREATE OR REPLACE
+SUITE r11_after_apply: COMPETITION R11 SQL SUITE PASS (85 checks)
+PASS  P5 migration replay is a no-op (same text)
+PASS  P5 migration replay keeps the ACL
+PASS  P5 rollback restores the exact pre-migration text (md5)
+PASS  P5 rollback keeps the ACL
+PASS  P5 rollback removed every R-11 fragment
+PASS  P5 rollback replay is a no-op
+PASS  P5 re-apply forward after rollback
+PASS  P5 ACL after re-apply
+SUITE f2: COMPETITION F2 SQL SUITE PASS (198 checks)
+SUITE a3: COMPETITION CF1 A3 SQL SUITE PASS (117 checks, 7 blocked)
+SUITE pv1: COMPETITION PV-1 SQL SUITE PASS (30 checks)
+SUITE f3: COMPETITION CF1 F3 SQL SUITE PASS (191 checks)
+SUITE a5: COMPETITION CF1 A5 SQL SUITE PASS (186 checks, 4 blocked: A3-dependent lock refusal, cancel exit, multi-session probe, other suites)
+SUITE r11_final: COMPETITION R11 SQL SUITE PASS (85 checks)
+R-11 RUNNER: PASS
+exit 0
