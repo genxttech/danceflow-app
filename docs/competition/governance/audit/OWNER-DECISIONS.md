@@ -587,3 +587,50 @@ These need follow-up whatever you decide above (they are defects or missing cont
 ## 7. Independent verification results
 
 An independent subagent (which did not see these conclusions) verified PDF SHA-256 against the registry (NDCA, UCWDC-SF, UCWDC-C, UCWDC-PA, WSDC all matched) and checked 18 citations across NDCA, WSDC and UCWDC and 14 code references. All code references were confirmed; 16 of 18 citations were confirmed. Findings fixed here: NDCA III.D.16 and III.D.17 are on printed p.21, not p.22 (corrected in OD-10, OD-23, X5); the callback-target error string lives in the A4a migration (OD-09 wording corrected). **Errata for the inventory PR author (#790, scoring file):** row S-27N cites III.D.17 as p.22; it is p.21. Judging J-31N cites III.D.16 as p.22; it is p.21. The reference to a missing event-delete guard (X-18 / OD-04) was additionally confirmed in this consolidation by a migration search, not by the subagent.
+
+## 8. Closeout of the ratification pass (2026-11-24)
+
+Status: all 32 decisions (OD-01..OD-32) and 16 ratifications (R-01..R-16) are ANSWERED. This is a record of owner decisions, not of implementations. A policy decision below is never an implemented fix, and an unexecuted test is never a passing test. Evidence labels: EXEC = executed by a session and reported, INSP = code inspection, PENDING = not run. The coordinator did not re-run any test and has not reviewed most draft PR diffs line by line. Studio/Custom release gates are kept separate from future body profile requirements: a missing NDCA, UCWDC or WSDC capability blocks only that profile while OD-01 stays effective.
+
+### 8.1 Studio/Custom public-release blockers (OPEN)
+
+| # | Blocker | Severity | Evidence | Workstream / PR | Closing criteria | Correction authorized? |
+|---|---|---|---|---|---|---|
+| S1 | RB-11.2 D3 self-approval reachable for corrected result versions | release blocker | INSP + static `it.fails` marker (PR 859); SQL test PENDING | R-11 correction session; PR 859 findings | migration reviewed, tested locally, applied to the authorized release environment; markers flip to pass | draft NON-APPLIED migration authorized (R-14); apply NOT authorized |
+| S2 | RB-11.1 override reason accepts 1 character | release blocker | INSP + static marker; SQL test PENDING | same | same | same |
+| S3 | R-10 part 3: panel readiness (default 1, no parity) accepts panels the ballot lock refuses; recovery only by cancel | release blocker | INSP; hosted counts EXEC read-only 2026-11-24: DEV 73 rounds all draft, PROD 8 all draft, 0 misleading-ready, 0 stuck (latent) | PR 858 design | enforcement corrected AND independently verified, counts re-run | design only; implementation NOT authorized |
+| S4 | R-15: `unverified`/`needs_review` entries can be scheduled, called back and placed (only `ineligible` blocked) | release blocker | INSP (`_cf1_entry_unavailable_reason`); end-to-end path table PENDING | R-15 session (PR pending) | integrated candidate passes end-to-end verification incl. teams and unknown age | design only; implementation NOT authorized |
+| S5 | No database-level under-18 guard for team roster changes and staff-created entries (OD-02/R-04/OD-28) | release blocker | INSP (PR 860 finding) | PRs 835, 837, 846, 860 | per-member enforcement verified on every path | SQL NOT authorized |
+| S6 | OD-31 F1: a manager can set parent entry `event_competition_entries.status = 'disqualified'` by direct table write (affects R2 refund handling and the "Not eligible" label); F7 DELETE/column changes on heat entries | P2 / P3 | EXEC local suite (PR 856), hosted reads EXEC | PR 856 | reviewed fix or owner-accepted residual; final OD-31 sign-off BLOCKED until an integrated release artifact exists | NOT authorized |
+| S7 | Git/DB drift: JC1/U18/U18-S applied on DEV and PROD but absent from the shipping Git line | gate | EXEC hosted reads (PR 856) | PR 856, PR 492 pins | the three migrations (byte-identical) land on the shipping line | owner merge required |
+| S8 | OD-04 event deletion guard not applied; fixtures that delete events with ballots will be refused | gate | EXEC local Postgres: SQL 158 checks, race 6, vitest 36 (PR 844) | PR 844 | independent review done, PROD apply approved and applied, fixtures reworked | apply NOT authorized |
+| S9 | R-09 "Not called back" label: display mapping exists but no surface calls `displayResultLabel` yet | medium | INSP (PR 860) | PR 860 | label verified on every surface; stored label and PV-1 unchanged | display-only authorized |
+| S10 | Unmerged Studio policy PRs: 832 (OD-01 guard), 835, 837, 846 (age/eligibility), 848, 853, 855, 860 (wording), 859 (verification tests) | gate | targeted tests EXEC (sessions); tsc, full vitest, build NOT RUN | listed | CI green, independent review, owner approval and merge | merge NOT authorized |
+| S11 | Verification still running: R-12 (exclusion/recovery/refund/reopen/hold/cancel/chair), R-13 (refund, desk balance, event-detail edits, financial security), R-16 (publication visibility) | pending | PENDING | R-12 session, R-07 session | reports with findings and tests | investigation authorized |
+| S12 | Studio rounds that cannot be calculated: DEV 9 rounds on `relative_placement`, PROD 8 on legacy `skating` (all draft) | info before activation | EXEC read-only counts | PR 859, PR 858 | cleaned or blocked before activation | NOT authorized |
+
+### 8.2 Future governing-body profile blockers (do not block Studio/Custom while OD-01 holds)
+
+NDCA: Skating System algorithm source gap; advancement (IV.C.1 recall/50%, semi/quarter, eight-couple Final vs tie conflict IV.C.1.f/IV.C.2); III.D.30/III.D.31 withdrawal and replacement; III.D.36/III.D.38 nine/ten-dance; IX.A.1 dance order and "all dances"; panel sizes (III.B.1) and chairman/scrutineer credentials (III.B.4); officials list and substitution (III.B.6); ballot confidentiality (III.D.16) and scrutineer-sheet publication (III.D.17); venue, timetable, meetings, reporting (III.D.22/23/1/46, III.E.1); age classes X.A and edition/effective-date handling (OD-30; the July edition is an UNREVIEWED CANDIDATE).
+
+UCWDC: Majority Rules engine and medal ballots (Rules #1-#11), authorized scoring system designation, Judge Certification Code of Conduct (missing source), heating randomization/contiguity, Mixed-Role and gender rules, DSA/awards reports, missed-call disqualification, Judge Review Board process, registration data (privacy decision), Teams/ShowTime rules.
+
+WSDC: Relative Placement (candidate sources held UNREVIEWED), WSDC-approved scoring system dependency (external), separation of duties 3.4.1-3.4.3, panel sizes 3.4.7, virtual-judging prohibition, results access/corrections 3.1.9, five-leader/five-follower points condition, Member Competitor Surcharge, judge certification launch 2027-01-01 (anticipated, unverified), venue.
+
+Cross-cutting design prerequisites: event-level role designations (OD-06/OD-15), conflict/recusal (OD-05), ballot visibility and read audit (OD-10), judge-confirmed corrections and paper verification (OD-11/OD-12), correction cases (OD-07), running-order changes (OD-26), editions and `age_basis` (OD-30).
+
+### 8.3 Draft PRs requiring review, tests or corrections
+
+Decision lists and audit evidence: 795 (this file), 787, 788, 790 (inventories), 783 (judging brief: NOT approved), 794 (D1 package, deferred). Code: 832, 835, 837, 846, 848, 853, 855, 860; verification/test-only: 859, 856, 833. SQL (not applied): 844. Designs (docs only): 834, 836, 838, 839, 840, 841, 842, 843, 845, 847, 849, 850, 851, 852, 854, 857, 858. In flight: R-11 correction migration, R-12/R-13 verification, R-15 investigation, R-16 verification (PRs pending). All are drafts; none is merged.
+
+### 8.4 Hosted migrations and approval dependencies
+
+Applied on DEV and PROD already (2026-11-19, hosted reads re-run 2026-11-24): JC1, U18, U18-S. Not applied anywhere and each needing separate owner approval before any PROD apply: the OD-04 guard (PR 844) and the R-11 correction migration (draft pending). Designs only, with no migration files yet: R-10, R-15, OD-02 team/staff guard, OD-26, OD-07, OD-10/11/12, OD-30. Merges to protected branches and any deployment need the usual owner approval. No Stripe, provider or financial action is authorized.
+
+### 8.5 Outstanding evidence and independent reviews
+
+Executed so far (session-reported, not re-run by the coordinator): OD-31 local suites on image `cf1host:found` (U18 21, U18-S 17, JC1 15, OD31 negative suite 28, A5 186, A6 247, HL1 42, F2 198, OD17 59, A4 55, A0 199, R2 write gate 21; NS1 and R2 entry refunds NOT executable in that composition); OD-04 SQL 158 and race 6; targeted vitest in PRs 832, 835, 837, 859 (547 tests), 860 (1133). NOT RUN: `tsc`, full vitest, `next build`, e2e, PostgREST-level tests, browser QA, most SQL negative cases for R-09/R-11/R-12/R-13, hosted behavior of any OD slice. Independent reviews are recorded in PRs 834, 838-845, 847, 849-852, 854, 856-860; reviews and CI state of PRs 832, 835, 837 were not read by the coordinator.
+
+### 8.6 Work that continues autonomously under existing permissions
+
+Read-only investigation, docs and test-only PRs, local/non-production verification under the heavy-lock FIFO rules, independent reviews, relabelling/wording work, and the draft (non-applied) migration PR authorized above. Requires separate authorization: any merge, hosted apply, deployment, public registration activation, Stripe or provider action, Canary D (on hold), D1 (deferred); outreach is not permitted.
