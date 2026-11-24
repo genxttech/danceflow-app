@@ -9,7 +9,7 @@
   "enforcement_point": "Not built. SCORING_REGISTRY keeps wsdc_relative_placement@unpinned and ndca_skating@unpinned unavailable.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "Promotion of a candidate needs independent review of applicability, completeness and authority. UCWDC Majority Rules v16.9b is the only body algorithm fully specified in the supplied sources (OD-24 source note section 7).",
+  "interpretation_notes": "Promotion of a candidate needs independent review of applicability, completeness and authority. UCWDC Majority Rules v16.9b is the only final/placement algorithm fully specified in the supplied sources (the WSDC callback tally is also specified) (OD-24 source note section 7).",
   "applicable_event_versions": [
     "Version 2026.1C",
     "June 2026, Master v1"

@@ -50,7 +50,7 @@ The Rules & Info page presents, under "Prelim Scoring": **Announcement** and **D
 |---|---|---|---|---|---|
 | Prelim Scoring: Announcement ("Callback Scoring Memorandum") | `https://worldsdc.com/wp-content/uploads/2020/12/Callback-Scoring-Memorandum.pdf` | 2026-11-24 01:19:57 | Memorandum dated December 7, 2019; valuations "effective January 1, 2020" | `5ef9478eeef054d4f435a590ae7895bc6f8d57debe5b50d229215490634b1e6b` | 139,324 |
 | Prelim Scoring: Details ("Call-Back Scoring white paper") | `https://worldsdc.com/wp-content/uploads/2023/06/Call-Back-Scoring_white-paper.pdf` | 2026-11-24 01:20:04 | "CALLBACK SCORING UPDATE 12-7-2019" (5 pp.) | `c14a50ccb852e6baaadf85acf4fd261be5bde46d51c568bc139fd7547c39955a` | 98,415 |
-| Relative Placement: Details ("Unraveling the Mystery of the Relative Placement Scoring System", J. Tigges) | `https://worldsdc.com/wp-content/uploads/2021/04/Relative-Placement-12-20-20-Rev-5-1-10-1.pdf` | 2026-11-24 01:20:09 | "Updated 12.20.2021" (page footers; file name says 12-20-20); 9 pp. | `573cb005fc4f6ba0335b8fe237cd44eb989306dfbb2bb9f3e24e584400f3bc30` | 510,370 |
+| Relative Placement: Details ("Unraveling the Mystery of the Relative Placement Scoring System", J. Tigges) | `https://worldsdc.com/wp-content/uploads/2021/04/Relative-Placement-12-20-20-Rev-5-1-10-1.pdf` | 2026-11-24 01:20:09 | footers read "Updated 12.20.2021" on some pages and 12.20.2020 on others (file name says 12-20-20); 9 pp. | `573cb005fc4f6ba0335b8fe237cd44eb989306dfbb2bb9f3e24e584400f3bc30` | 510,370 |
 | Relative Placement: Scoring Template (blank hand-scoring sheet) | linked as `http://www.worldsdc.com/wp-content/uploads/2021/04/Scoring-By-Hand_Template_12-20-20.pdf`; fetched over https at `https://worldsdc.com/` + same path | 2026-11-24 01:20:12 | Sheet text carries "12/27/20"; 1 p. | `7ba2b4988e2074791d02f4098d32f2889eb22c7f75c662598e831ef542e2870c` | 105,039 |
 | Relative Placement: Scoring Example (filled sheet, 12 couples, 7 judges) | linked as `http://www.worldsdc.com/wp-content/uploads/2021/04/Scoring-By-Hand_Example_12-20-20.pdf`; fetched as above | 2026-11-24 01:20:17 | Contest line reads "Sept.1,'04"; 1 p. | `35b50754e4d19e6cf251b0afcc4f1653337a6ff2430be1d6a1c0aeed69bddee1` | 96,220 |
 
@@ -149,7 +149,7 @@ Public facts only (no contact):
 
 - Pinned rules: "WSDC-approved Callback system" (3.4.9, p.20); Trial Events must use a "WSDC approved Scoring System"
   (p.6); "Requirements for computerized scoring systems" (3.4.9.e; Section 6).
-- The public page `https://worldsdc.com/scoring-systems/` (retrieved 2026-11-24 01:17Z) says a scoring audit is run on
+- The public page `https://worldsdc.com/scoring-systems/` (retrieved 2026-11-24 01:17Z; the page is **undated**, so its list may be stale) says a scoring audit is run on
   systems used at Registry Events: simulate scoring and data-security scenarios, evaluate against Section 6, determine
   compliance, recommend fixes, re-evaluate. Systems found compliant are listed as "vetted and approved by the WSDC", for
   **Jack and Jill contests only**. The page lists nine approved systems (public on the page; not reproduced here) and an

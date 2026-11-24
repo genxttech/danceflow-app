@@ -17,7 +17,7 @@
   "enforcement_point": "None.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "Public page worldsdc.com/scoring-systems (retrieved 2026-11-24) describes the audit and lists approved systems for Jack and Jill only; the admission route is not public. Approval is distinct from algorithm correctness and from rule compliance.",
+  "interpretation_notes": "Public page worldsdc.com/scoring-systems (retrieved 2026-11-24) describes the audit and lists approved systems for Jack and Jill only (the page is undated, so the list may be stale); the admission route is not public. Approval is distinct from algorithm correctness and from rule compliance.",
   "applicable_event_versions": [
     "Version 2026.1C"
   ],
