@@ -564,14 +564,27 @@ export function toAttendanceResult(raw: unknown, clientId: string): AttendanceRe
 
 type RequestOptions = { method?: "GET" | "PUT" | "POST" | "DELETE"; body?: unknown; headers?: Record<string, string> };
 
+/** A request with no answer after this long is given up as a network error, so a hung connection never leaves a spinner forever. A write resends with the same Idempotency-Key. */
+export const REQUEST_TIMEOUT_MS = 20_000;
+
+/** Bearer tokens travel only over HTTPS. Plain http is allowed for the emulator and loopback of a QA build, never for a real host. */
+export function isAllowedBaseUrl(url: string) {
+  if (/^https:\/\//i.test(url)) return true;
+  return /^http:\/\/(10\.0\.2\.2|localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url);
+}
+
 export function createStaffApi(options: StaffApiOptions): StaffApi {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
+  if (!isAllowedBaseUrl(baseUrl)) throw new Error("The DanceFlow web address must start with https://.");
   const doFetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
   const sleep = options.sleepImpl ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   async function send(path: string, token: string, request: RequestOptions) {
+    const controller = typeof AbortController === "undefined" ? null : new AbortController();
+    const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
     try {
       return await doFetch(`${baseUrl}/api/staff${path}`, {
+        ...(controller ? { signal: controller.signal } : {}),
         method: request.method ?? "GET",
         headers: {
           Accept: "application/json",
@@ -584,6 +597,8 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
       });
     } catch {
       throw new StaffApiError(0, "network_error", "We could not reach DanceFlow.");
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 

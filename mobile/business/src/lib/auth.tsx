@@ -2,7 +2,7 @@ import type React from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as Linking from "expo-linking";
 import type { Session } from "@supabase/supabase-js";
-import { clearPersistedSupabaseSessions, supabase } from "@/lib/supabase";
+import { clearPersistedSupabaseSessions, supabase, hasPendingSignInRequest } from "@/lib/supabase";
 import { parseAuthLink, resolveEmailOtpType } from "@/lib/authLink";
 
 /*
@@ -62,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { code, tokenHash, type } = parseAuthLink(url);
 
     if (tokenHash) {
+      if (!(await hasPendingSignInRequest())) throw new Error("This sign-in link was not requested from this device.");
       const otpType = resolveEmailOtpType(type);
       if (!otpType) throw new Error("This sign-in link type is not supported.");
       const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
