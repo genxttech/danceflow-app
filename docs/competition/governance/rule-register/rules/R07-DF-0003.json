@@ -1,0 +1,50 @@
+{
+  "id": "R07-DF-0003",
+  "governing_body": "dance_flow_policy",
+  "format": "Ballot formats and proficiency rating",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: proficiency_rating@1 stays rejected and three_band@1 (Bronze/Silver/Gold) accepts no ballot. Any ballot format that is not approved, or any scoring value with no ballot format, fails closed (COMP_BALLOT_FORMAT_NOT_APPROVED / COMP_BALLOT_SCORING_METHOD_UNSUPPORTED).",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql",
+      "symbol_or_migration": "_compe2_format_approved"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql",
+      "symbol_or_migration": "_compe2_validate_marks"
+    },
+    {
+      "path": "src/lib/competition/ballots/schemes.ts",
+      "symbol_or_migration": "validateBallot"
+    },
+    {
+      "path": "src/lib/competition/scoring/registry.ts",
+      "symbol_or_migration": "proficiency_rating"
+    }
+  ],
+  "enforcement_point": "_compe2_format_approved is checked in the submit RPC and in _compe2_guard_ballot_insert before any mark is validated; validateBallot refuses unregistered/unapproved formats.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "three_band (Bronze/Silver/Gold) fails closed even with valid-looking marks"
+    },
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "proficiency_rating@1 is rejected (not merely unavailable)"
+    },
+    {
+      "path": "src/lib/competition/ballots/__tests__/ballots.e2.test.ts",
+      "name": "fails closed for any marks"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "R-07(3). Inspection finding (P3): _compe2_validate_marks still contains a three_band branch; it is unreachable because _compe2_format_approved runs first in both the RPC and the insert trigger. KNOWN GAP (P3, not reachable): ballotFormatForScoring indexes a plain object, so a prototype-chain name such as constructor returns a non-null value; every stored scoring value is CHECK-constrained, so no row can reach it. Application-layer behavior and static SQL parity are verified by EXECUTED tests (r07.failclosed.test.ts); the SQL runtime suites (sql-tests/test_T_competition_scoring_registry.sql, test_T_competition_e2_ballots.sql) were NOT RUN in this slice (heavy-lock queue), so the status stays unverified until their results are attached.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

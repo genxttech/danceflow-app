@@ -1,0 +1,42 @@
+{
+  "id": "R07-DF-0005",
+  "governing_body": "dance_flow_policy",
+  "format": "Multi-Dance (Studio/Custom)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: each dance is calculated independently and yields its own result; no combined championship placement exists, and an engine run covering none or several dances fails closed (COMP_ENGINE_UNSPECIFIED_CASE, multi_dance_unsupported, X-6). DanceFlow never infers an overall winner.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/engines/common.ts",
+      "symbol_or_migration": "multi_dance_unsupported"
+    },
+    {
+      "path": "src/lib/competition/results/engines/studioCallbackTally.ts",
+      "symbol_or_migration": "multi_dance_unsupported"
+    }
+  ],
+  "enforcement_point": "Both Studio engines refuse danceIds.length != 1 (X-6); results are stored per round and dance with no aggregate column or reader.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "a single-dance run carries no overall, combined or aggregate field"
+    },
+    {
+      "path": "src/lib/competition/results/engines/__tests__/studioOrdinalMajority.f1.test.ts",
+      "name": "X-6 none or several dances → unspecified"
+    },
+    {
+      "path": "src/lib/competition/results/engines/__tests__/studioCallbackTally.f1.test.ts",
+      "name": "X-6 none or several dances → unspecified (also for a round that is not danced)"
+    }
+  ],
+  "verification_status": "verified_compliant",
+  "interpretation_notes": "R-07(6). Enforced inside the pure engines, which F2 runs for every calculation; verified by executed vitest. The disclosure text (R-07(7)) is specified in docs/competition/governance/audit/R-07-MULTI-DANCE-DISCLOSURE-SPEC.md; it is NOT yet shown in any UI.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

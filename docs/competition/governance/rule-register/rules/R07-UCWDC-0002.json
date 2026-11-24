@@ -1,0 +1,33 @@
+{
+  "id": "R07-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC multi-dance championship and tiebreakers",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Rules #9-#11 (PDF pp.5-7); single-dance tiebreakers Rules #6-#8 (PDF pp.3-5)",
+    "quote_free_summary": "Multi-dance championship results combine per-dance placements into an aggregate value with head-to-head tiebreakers; single-dance ties continue through look-ahead, look-behind and head-to-head rules before a placement is shared."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Overall Multi-Dance calculation and the tiebreakers (Rules #9-#11, and #6-#8 for single dances) are NOT IMPLEMENTED for a future UCWDC engine. The Studio ordinal engine stops its tie chain earlier and shares the placement (OD-13); it is not modified to approximate them.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "a single-dance run carries no overall, combined or aggregate field"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "R-07(8). Related audit rows S-08, S-16; OD-13, OD-24. Fail-closed today: a run covering several dances is refused (X-6).",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

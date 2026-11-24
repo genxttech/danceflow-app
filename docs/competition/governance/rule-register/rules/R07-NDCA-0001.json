@@ -1,0 +1,33 @@
+{
+  "id": "R07-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Ten-Dance competitions",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.36 (printed p.23, PDF p.30)",
+    "quote_free_summary": "In a Ten-Dance competition each dance is a separate competition, and the Skating System is applied to all ten dances together to determine the winner."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Ten-Dance aggregate scoring (Skating System over all dances together) is NOT IMPLEMENTED for a future NDCA profile; DanceFlow produces one result per dance and no overall winner.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "a single-dance run carries no overall, combined or aggregate field"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "R-07(9). The ratification text cites p.22; re-reading the pinned PDF shows III.D.36 on printed p.23 (the book's own index lists Ten-Dance Competitions at 23; PDF page 30). The Skating System algorithm is NOT SPECIFIED IN PROVIDED SOURCE (OD-24).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
