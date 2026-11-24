@@ -37,7 +37,7 @@ Sources are in the research fact sheet; items marked "not verified" could not be
 | Sender re-verification cron on and one clean cycle (readiness cannot lapse) | not needed | required | required |
 | Inventory reconcile cron on and one clean cycle | not needed | required | required |
 | Usage reconciler on, ready (TW024) and fresh | not needed | required | required |
-| Controlled test credit funded (bounded, audited, dual control) | not needed | required | not applicable |
+| Controlled test credit funded (bounded by a per-business budget, written authorization for budget and grant as two separate acts, audited) | not needed | required | not applicable |
 | STOP/START/HELP verified live; opt-out hardening live (R+4 done) | not needed | required | required |
 | Absorbed-inbound alert and volume alert (pilot) | not needed | required | required |
 | Recurring-charge cron on with the database switch, proven on a credit studio | not needed | not needed (pilot refused by design) | required |
