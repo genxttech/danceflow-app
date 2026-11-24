@@ -8,7 +8,7 @@
     "effective_from": "2026-01-01",
     "effective_to": null,
     "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
-    "section": "Rule #8, item 1 (p.4); similar wording in items 2 and 6",
+    "section": "Rule #8, item 1 (p.4)",
     "quote_free_summary": "If tied contestants' re-ordered marks are not identical at Rule #8, 'a scoring error has occurred, and the previous rules must be re-calculated.'"
   },
   "rule_class": "mandatory",

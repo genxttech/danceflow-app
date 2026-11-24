@@ -4,7 +4,7 @@
   "format": "Studio / Custom events: placement-only publication and visibility defaults",
   "source": null,
   "rule_class": "dance_flow_policy",
-  "requirement": "DanceFlow policy: Studio/Custom results show placements (and rating bands where the method has them) only; visibility defaults to 'entrants' and becomes 'public' only by explicit organizer choice at publication; public results hide judge names and letters (owner decision O3, 2026-10-24); published results always reach entrants' portals (P10); unpublished results are readable only by result managers (P5). Preserved by OD-23 Option B for initial activation.",
+  "requirement": "DanceFlow policy: Studio/Custom results show placements (and rating bands where the method has them) only; visibility defaults to 'entrants' and becomes 'public' only by explicit organizer choice at publication; public results hide judge names and letters (owner decision O3, 2026-10-24); published results always reach entrants' portals (P10); unpublished results are readable by result managers (P5; the reader matrix also lists the scorer role, to be verified); public readers also require a published, public event. Preserved by OD-23 Option B for initial activation.",
   "implementation": [
     {
       "path": "src/lib/supabase/migrations/20270122090000_competition_f3_publication.sql",

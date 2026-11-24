@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
   "tests": [],
   "verification_status": "requires_interpretation",
-  "interpretation_notes": "The text treats 'original copies of the judges' marking sheets' (III.D.16) and 'digital copies of the scrutineer sheets' (III.D.17) as different items but does not define 'scrutineer sheets'. Section IV also speaks of 'the scrutineers' marking sheet' where disqualifications must be noted, and of 'blank scrutineer sheets'. What a scrutineer sheet contains, whether it shows per-judge marks, and when after a day it may be uploaded relative to finalization are UNRESOLVED. Confidentiality rules also tie to OD-10 (PR 842).",
+  "interpretation_notes": "The text treats 'original copies of the judges' marking sheets' (III.D.16) and 'digital copies of the scrutineer sheets' (III.D.17) as different items but does not define 'scrutineer sheets'. The book also uses 'blank scrutineer sheets' (Section III, qualifications list, p.15), 'scrutineering sheets' (Section III, p.14: a copy of the program and scrutineering sheets is submitted after sanctioned events) and 'the scrutineers' marking sheet' (Section IX, p.40, where disqualifications are noted). What a scrutineer sheet contains, whether it shows per-judge marks, and when after a day it may be uploaded relative to finalization are UNRESOLVED. Confidentiality rules also tie to OD-10 (PR 842).",
   "applicable_event_versions": [
     "June 2026, Master v1"
   ],

@@ -16,7 +16,8 @@ Placement-only publication with these defaults (K0 contract rows O3, P5, P10; F3
   `src/lib/competition/results/viewer.ts` and `publication.ts`; the reader matrix is `RESULT_READER_MATRIX` in
   `src/lib/competition/results/contract.ts`.
 - Public results hide judge names and letters (owner decision O3, 2026-10-24; the sources do not specify it for Studio).
-- Unpublished results are readable only by result managers (P5); published results always reach entrants' portals (P10).
+- Unpublished results are readable by result managers (P5; the reader matrix also lists the scorer role and the contract marks that entry "to verify", so P5 and the matrix are in tension and are not reconciled here); published results always reach entrants' portals (P10).
+- Public readers also require the event to be published and public, in addition to a publication chosen as `public`.
 
 ## 2. Disclosure text specification (`OD23-DF-0002`, text only, NOT IMPLEMENTED)
 
@@ -45,8 +46,8 @@ results, CSV/spreadsheet export, share/embed views, announcements or certificate
 
 The text treats "original copies of the judges' marking sheets" (III.D.16) and "digital copies of the scrutineer sheets"
 (III.D.17) as different items, and Studio treats ballots as the original marks and a published report as tabulated
-results. The rule book does **not** define "scrutineer sheets": Section IV also refers to "the scrutineers' marking sheet"
-(where disqualifications are noted) and to "blank scrutineer sheets". UNRESOLVED: what a scrutineer sheet contains, whether
+results. The rule book does **not** define "scrutineer sheets": the book also uses "blank scrutineer sheets" (Section III, p.15), "scrutineering sheets" (Section III, p.14) and
+"the scrutineers' marking sheet" (Section IX, p.40, where disqualifications are noted). UNRESOLVED: what a scrutineer sheet contains, whether
 it shows per-judge marks, how its upload relates to finalization and corrections, and whether posting it would breach
 III.D.16 until the end of the competition. Register `OD23-NDCA-0001` is `requires_interpretation` for this reason.
 
