@@ -22,3 +22,4 @@ PR lands. Update the row in the same PR that adds the inventory file.
 ## R-07 verification (2026-11-23)
 
 - **R-07 (Studio scoring fail-closed controls): verification report delivered, docs and test-only.** No bypass found; SQL runtime suites NOT RUN (heavy-lock queue); register entries `R07-*` (DF-0001..0005 policy, UCWDC-0001..0002, NDCA-0001..0002, WSDC-0001 recorded NOT IMPLEMENTED); Multi-Dance disclosure is spec text only. See [R-07-VERIFICATION.md](R-07-VERIFICATION.md) and [R-07-MULTI-DANCE-DISCLOSURE-SPEC.md](R-07-MULTI-DANCE-DISCLOSURE-SPEC.md).
+- **R-08 (Scratch/No-show in scoring): verification report added** ([R-08-VERIFICATION.md](R-08-VERIFICATION.md)). Policy ratified; implementation inspected, SQL suites NOT RUN. Open: Multi-Dance semantics (RF-8.1: scratch/no-show per heat entry, exclusion whole-round only, X-6 refuses multi-dance rounds). Register `R08-*`.

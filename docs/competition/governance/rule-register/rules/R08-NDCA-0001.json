@@ -1,0 +1,28 @@
+{
+  "id": "R08-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Final withdrawal",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.30 (printed p.23, PDF p.30); context V.B.2 (PDF p.38)",
+    "quote_free_summary": "After a qualifying injury or illness withdrawal once a Final has begun, the couple is awarded last place for each dance it did not dance; competitors must attend at least one-half hour before their program."
+  },
+  "rule_class": "mandatory",
+  "requirement": "NOT IMPLEMENTED for a future NDCA profile and NOT applied universally: the NDCA last-place-per-dance exception applies only to a qualifying withdrawal after a Final begins and is not a general Scratch/No-show rule. Cross-reference OD08-NDCA-0001 (PR 840).",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Studio policy (no automatic last place) intentionally differs. This entry only records the non-universal scope; the withdrawal rule itself is OD08-NDCA-0001.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-08 (owner ratification 2026-11-23); R-08 verification (docs/competition/governance/audit/R-08-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}
