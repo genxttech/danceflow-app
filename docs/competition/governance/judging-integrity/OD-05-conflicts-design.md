@@ -385,7 +385,7 @@ Reused: OD-06 `event_competition_role_designations` gains one kind, **`qualifica
 created by the event organizer account and ended with a reason like any designation; the OD-06 audit events table carries the new event kinds.
 Rules: the attester must differ from the official; a designated attester cannot attest their own official row; assigned role must match the official's current role
 (a role change supersedes); attesting is optional for Studio/Custom and never a precondition for registration, scheduling or payments.
-The declaration text lives in a versioned rule-set function (like \`_compoc_rule_set\`), so each row records exactly what was signed.
+The declaration text lives in a versioned rule-set function (like `_compoc_rule_set`), so each row records exactly what was signed.
 
 **Mandatory copy (every surface: organizer UI, chair view, exports, support articles):**
 - Attestation: "**Attested by organizer, not verified by DanceFlow or any governing body.**"
@@ -405,20 +405,20 @@ rulebook_registry_document, rulebook_edition, verification_status ('claimed'|'ev
 evaluated against the **event date**, not today (UCWDC membership ends January 15; NDCA rosters change). Requirement catalog per body and role
 (the table of 6B.1 expressed as data) is a versioned rule-set function, never organizer-editable.
 
-Verification semantics: \`verified\` means a named DanceFlow reviewer checked the evidence against the cited official document, or a governing-body source
+Verification semantics: `verified` means a named DanceFlow reviewer checked the evidence against the cited official document, or a governing-body source
 confirmed it; it never means "organizer says so". Requirements DanceFlow **cannot** verify (WSDC chief judge experience, NDCA "qualified" judgments) stay
-\`attested_unverified\` and are listed as such; they are never displayed as met.
+`attested_unverified` and are listed as such; they are never displayed as met.
 
 ### 6B.5 Enforcement
 
 - **Studio/Custom, `other`:** no credential or attestation obligation; readiness shows an optional "qualification attestation not recorded" note. No unsupported
   professional-certification demands.
-- **Declared NDCA/UCWDC/WSDC, now (no profile):** the attestation is recorded and displayed with the mandatory copy; \`_compoc_blockers_qualifications\` lists,
-  per assigned body role, each mandatory requirement from 6B.1 as \`unverified\` (not as met). **Attestation never clears a mandatory requirement.**
+- **Declared NDCA/UCWDC/WSDC, now (no profile):** the attestation is recorded and displayed with the mandatory copy; `_compoc_blockers_qualifications` lists,
+  per assigned body role, each mandatory requirement from 6B.1 as `unverified` (not as met). **Attestation never clears a mandatory requirement.**
   Whether those unverified items are panel-lock *blockers* or *warnings* before profiles exist is Q12; OD-01 already blocks approval and publication of
   Studio-scored results for declared bodies, so this choice affects only round start and panel lock.
 - **Declared body, with a future profile:** restricted body roles (Chairman, Scrutineer, Contest Coordinator, Scoring Director, WSDC Chief Judge) are
-  assignable only with a \`verified\`, unexpired credential set for the event date; a missing, rejected or expired credential blocks that assignment and the
+  assignable only with a `verified`, unexpired credential set for the event date; a missing, rejected or expired credential blocks that assignment and the
   operations that role gates, and nothing else. A Scrutineer may not serve as Chairman **at the same event** (III.B.4); a person holding both credentials is never blocked for holding them, only from being assigned both roles in one event. III.B.1.f lets a back-up Scrutineer be the chairman, adjudicator or organizer: a source tension, recorded and not resolved here.
 - Ballots and marks carry no credential data; judges never see credential status of other officials (confidentiality unchanged).
 
@@ -437,12 +437,12 @@ confirmed it; it never means "organizer says so". Requirements DanceFlow **canno
 
 Recorded as **UNVERIFIED future guidance**: launch date January 1, 2027 and an anticipated 30-50% guideline. No requirement, counter or readiness check is built on
 it until WSDC publishes effective rules that are confirmed against the then-current registry edition. The register entry `OD15-WSDC-0002` carries status
-\`unverified\`.
+`unverified`.
 
 ### 6B.8 OD-16 touchpoints (OD-16 not yet decided: placeholder only)
 
 NDCA minimum judge counts (III.B.1.a-d), the Chairman's non-voting recommendation (III.B.4) and WSDC finals panel size (3.4.7) belong to OD-16 and
-\`_compoc_blockers_panel_size\`. OD-15 adds no panel-size rule.
+`_compoc_blockers_panel_size`. OD-15 adds no panel-size rule.
 
 ## 6B.9 Independent review of 6B: resolutions (this subsection governs where it conflicts with 6B.1-6B.8)
 
