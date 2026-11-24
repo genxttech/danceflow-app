@@ -79,3 +79,7 @@ Same isolated-worktree runner. Evidence: `rehearsal/full_chain/summary_m13_final
 ## M14 final bytes (pinned 16317c9ba; migration sha256 ae6bbf0b…ef2d2, rollback 03e40c9c…006b)
 
 Same isolated-worktree runner, scenarios `full-nsi-end` / `full-nsi-mid`. A (NSI last) and B (NSI inside the history) both reach `be5a715adedad4197649593d23c6ce09|770`; pg_dump differs by **0 lines**; suites on A: M14 8, M13 5, M12 26, M11 18, M10 17, M7 36, M9 17, I1 109, I2 92 all PASS; rollbacks M14 -> M13 -> M12 -> M11 -> M10 -> M9 each restore the prior fingerprint exactly. Evidence: `rehearsal/full_chain/summary_m14_final_bytes.txt`, `rehearsal/m14_baseline/lifecycle_run2.log` (lifecycle failures=0). Not applied to DEV; awaiting delta review GO.
+
+## M15 final bytes (pinned 7d12050f4; migration sha256 0b700fb2ccb3704ae69c0d3e4e326885996041cb38dd60acca672f908148cdfe, rollback eae4db123871ebca2c2ea62c497977bf71189da779ddfceef2d3394da386c02e)
+
+Same isolated-worktree runner. A (NSI last) and B (NSI inside the history) both reach `3fc0eea416e8f820856935a2b94d078a|776`; pg_dump differs by **0 lines**; suites on A: M15 16, M14 8, M13 5, M12 26, M11 18, M10 17, M7 36, M9 17, I1 109, I2 92 all PASS; rollbacks M15 -> M14 -> M13 -> M12 -> M11 -> M10 -> M9 each restore the prior fingerprint exactly. Lifecycle run 2 (failures=0): `rehearsal/m15_local/lifecycle_run2.log`. Evidence: `rehearsal/full_chain/summary_m15_final_bytes.txt`.
