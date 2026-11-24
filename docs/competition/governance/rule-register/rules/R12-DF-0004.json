@@ -1,0 +1,41 @@
+{
+  "id": "R12-DF-0004",
+  "governing_body": "dance_flow_policy",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-24",
+  "format": "Studio / Custom: reopen ballots",
+  "requirement": "Reopening is for an authorized manager with a reason, only from the locked, unapproved state; never for calculated, approved, published or completed results (those need the OD-07 correction process).",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql",
+      "symbol_or_migration": "reopen_competition_round_ballots, _compe2_guard_round_lock_edges"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270106090000_competition_o1_day_of.sql",
+      "symbol_or_migration": "_compo1_guard_round_status"
+    }
+  ],
+  "enforcement_point": "Database function; the status edge is guarded by a trigger that needs the audit row of the same transaction.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_e2_ballots.sql",
+      "name": "COMP_REOPEN_RESULT_APPROVED"
+    },
+    {
+      "path": "src/lib/competition/governance/__tests__/r12Operational.static.test.ts",
+      "name": "only ballots_locked; approved/published result versions and any publication row refuse; unknown shape fails closed"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Inspected: manager-only (chair refused), reason 1-500 chars, round must be ballots_locked, approved/published versions and publication rows refuse, unknown shape fails closed; direct client status writes are refused by the O1 trigger; U66 adds COMP_REOPEN_RECOVERY_PENDING. No path to reopen a completed, approved or published round was found by inspection. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue).",
+  "decision_refs": [
+    "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
+    "docs/competition/governance/r12-operational-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule",
+    "OD-07 (PR 838)"
+  ]
+}

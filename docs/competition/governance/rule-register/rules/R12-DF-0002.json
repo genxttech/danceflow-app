@@ -1,0 +1,42 @@
+{
+  "id": "R12-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-24",
+  "format": "Studio / Custom: correction recovery for exclusion",
+  "requirement": "A correction is not cleared while a current publication or a replacement result exists; the only clearing path is recover_correction_for_exclusion (manager, same-transaction audit row); every correction, recovery and audit row is retained.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270120095500_competition_cf1_a7_od13_correction_integrity.sql",
+      "symbol_or_migration": "cf1_a7_guard_exclusion_during_correction (ENABLE ALWAYS)"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270120103000_competition_cf1_u66_correction_recovery.sql",
+      "symbol_or_migration": "recover_correction_for_exclusion, _cf1_u66_blockers, cf1_u66_clear_correction_open, cf1_u66_block_reopen"
+    }
+  ],
+  "enforcement_point": "Database trigger and function; blockers evaluated inside the round lock.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_u66_recovery.sql",
+      "name": "1e authorization: a judge, a chair, a stranger, a manager of another studio and an unverified manager are all refused"
+    },
+    {
+      "path": "src/lib/competition/governance/__tests__/r12Operational.static.test.ts",
+      "name": "the U66 blockers include current publication, replacement ballot, co-sign, live result version and active advancement"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Inspected: blockers cover current publication (wrong shape fails closed), replacement ballot, co-sign, live (calculated/approved) result version and active advancement; nothing is deleted. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue).",
+  "decision_refs": [
+    "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
+    "docs/competition/governance/r12-operational-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule",
+    "OD-07 (PR 838) governs post-completion corrections",
+    "OD-11/OD-12 (PRs 843/845)"
+  ]
+}
