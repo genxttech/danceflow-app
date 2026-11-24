@@ -295,10 +295,13 @@ end $$;
 -- S4 interplay (R-15): when S4 core (20270301110000) is already installed, its bridge _r15_age_state only trusts this predicate if it has the SAME OWNER as the bridge
 -- (a function planted by another role must not declare competitors adult). Refuse here rather than leave the strict gates permanently fail-closed.
 do $$
+declare
+  v_bridge oid := to_regprocedure('public._r15_age_state(uuid)');
 begin
-  if to_regprocedure('public._r15_age_state(uuid)') is not null
+  -- (the bridge is looked up first and only then dereferenced: a cast of an absent function would raise even when S4 is not installed)
+  if v_bridge is not null
      and (select p.proowner from pg_proc p where p.oid = 'public._comp_participant_age_clearance(uuid)'::regprocedure)
-         is distinct from (select p.proowner from pg_proc p where p.oid = 'public._r15_age_state(uuid)'::regprocedure) then
+         is distinct from (select p.proowner from pg_proc p where p.oid = v_bridge) then
     raise exception '20270301120000: _comp_participant_age_clearance and S4 _r15_age_state have different owners; apply both as the same role';
   end if;
 end $$;

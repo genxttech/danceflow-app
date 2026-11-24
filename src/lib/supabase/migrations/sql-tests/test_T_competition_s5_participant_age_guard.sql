@@ -153,10 +153,10 @@ select pg_temp.expect_msg('team member who is under 18 is refused', $q$select pg
 select pg_temp.expect_msg('a multi-row team insert with one minor is refused as a whole',
   format($q$insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, display_name, sort_order)
             values (%L, %L, %L, 'team_member', 'T1', 6), (%L, %L, %L, 'team_member', 'T2', 7)$q$,
-         pg_temp.id('event', 1), pg_temp.id('entry', 1), pg_temp.id('comp', 1), pg_temp.id('event', 1), pg_temp.id('entry', 1), pg_temp.id('comp', 4)),
+         pg_temp.id('event', 1), pg_temp.id('entry', 1), pg_temp.id('comp', 10), pg_temp.id('event', 1), pg_temp.id('entry', 1), pg_temp.id('comp', 4)),
   'blocked_under_18', '42501');
-select pg_temp.chk('the refused team insert left no participant row behind',
-  (select count(*) from public.event_competition_entry_participants where entry_id = pg_temp.id('entry', 1) and competitor_id = pg_temp.id('comp', 4)) = 0);
+select pg_temp.chk('the refused team insert left no participant row behind (the adult half was rolled back too)',
+  (select count(*) from public.event_competition_entry_participants where entry_id = pg_temp.id('entry', 1) and competitor_id in (pg_temp.id('comp', 4), pg_temp.id('comp', 10)) and display_name in ('T1', 'T2')) = 0);
 
 -- substitution / partner change: updating the competitor of an existing row is guarded
 select pg_temp.expect_msg('substitution to a minor is refused',
@@ -208,7 +208,7 @@ select pg_temp.expect_msg('service_role direct insert of a minor is refused (no 
 select pg_temp.chk('service_role may execute the predicates (preflight tooling)', public._comp_participant_age_clearance(pg_temp.id('comp', 1)) = 'allowed');
 reset role;
 select pg_temp.expect_msg('service_role date-of-birth update to a minor on a participating competitor is refused',
-  format($q$set local role service_role; update public.event_competition_competitors set date_of_birth = %L where id = %L$q$, (pg_temp.ref() - interval '9 years')::date, pg_temp.id('comp', 8)), 'blocked_under_18', '42501');
+  format($q$set local role service_role; update public.event_competition_competitors set date_of_birth = %L where id = %L$q$, (pg_temp.ref() - interval '9 years')::date, pg_temp.id('comp', 2)), 'blocked_under_18', '42501');
 reset role;
 
 -- ============================================================================
@@ -226,12 +226,15 @@ select pg_temp.expect_ok('a competitor who participates in no entry may be edite
 -- ============================================================================
 -- 5. Resolve completes a missing date of birth on an anchored competitor, never changes an existing one
 -- ============================================================================
-select pg_temp.chk('resolve: an anchored competitor with no date of birth gets the supplied one',
-  (select public._comp10c_resolve_competitor(pg_temp.id('event', 1), null, pg_temp.id('client', 1), null, 'Anchored', 'Adult', null, date '1992-03-03', null, '{}'::jsonb, 'registration', null)) = pg_temp.id('comp', 9)
-  and (select date_of_birth from public.event_competition_competitors where id = pg_temp.id('comp', 9)) = date '1992-03-03');
+select pg_temp.chk('resolve: returns the existing anchored competitor',
+  (select public._comp10c_resolve_competitor(pg_temp.id('event', 1), null, pg_temp.id('client', 1), null, 'Anchored', 'Adult', null, date '1992-03-03', null, '{}'::jsonb, 'registration', null)) = pg_temp.id('comp', 9));
+-- (a separate statement: a single statement would read the table with the snapshot taken before the function ran)
+select pg_temp.chk('resolve: an anchored competitor with no date of birth got the supplied one',
+  (select date_of_birth from public.event_competition_competitors where id = pg_temp.id('comp', 9)) = date '1992-03-03');
+select pg_temp.chk('resolve: a second call with another date returns the same competitor',
+  (select public._comp10c_resolve_competitor(pg_temp.id('event', 1), null, pg_temp.id('client', 1), null, 'Anchored', 'Adult', null, date '2012-03-03', null, '{}'::jsonb, 'registration', null)) = pg_temp.id('comp', 9));
 select pg_temp.chk('resolve: an existing date of birth is never changed',
-  (select public._comp10c_resolve_competitor(pg_temp.id('event', 1), null, pg_temp.id('client', 1), null, 'Anchored', 'Adult', null, date '2012-03-03', null, '{}'::jsonb, 'registration', null)) = pg_temp.id('comp', 9)
-  and (select date_of_birth from public.event_competition_competitors where id = pg_temp.id('comp', 9)) = date '1992-03-03');
+  (select date_of_birth from public.event_competition_competitors where id = pg_temp.id('comp', 9)) = date '1992-03-03');
 select pg_temp.expect_ok('the now-dated anchored adult can be added to an entry', format($q$select pg_temp.ins(2, 9, 'dancer', 15)$q$));
 
 -- ============================================================================
