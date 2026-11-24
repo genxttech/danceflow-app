@@ -20,7 +20,7 @@
     },
     {
       "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
-      "name": "rows that did not advance read 'Not called back' in a callback preliminary only, and never carry a placement"
+      "name": "rows that did not advance read 'Not called back' in a non-final round (organizer page: callback preliminary), and never carry a placement"
     }
   ],
   "applicable_event_versions": [

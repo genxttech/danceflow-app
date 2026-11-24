@@ -108,7 +108,10 @@ describe("R-05 Multi-Dance and Solo policy wording", () => {
       expect(D.categoryTypes[key].default_pricing, key).toBe(P.categoryTypes[key].default_pricing);
       expect(D.categoryTypes[key].pricing_models, key).toEqual(P.categoryTypes[key].pricing_models);
     }
-    expect(D.categoryTypes.ndca_amateur_multi.eligibility_note).toBe(P.categoryTypes.ndca_amateur_multi.eligibility_note);
+    for (const key of ["ndca_pro_am_multi", "ndca_amateur_multi"]) {
+      expect(D.categoryTypes[key].eligibility_note, key).toMatch(/does not check amateur status/);
+      expect(`${D.categoryTypes[key].description} ${D.categoryTypes[key].eligibility_note}`, key).not.toMatch(/NDCA|X\.B\.4|Pro\/Am Student Competitor|registered/);
+    }
     expect(D.categoryTypes.ndca_pro_am_multi.label).toBe("Pro/Am Multi-Dance");
   });
 
@@ -144,7 +147,7 @@ describe("R-09 'Not called back' is a display mapping only", () => {
     expect(engine).toContain('export const NOT_CALLED_BACK_LABEL = "Semi-final";');
   });
 
-  it("rows that did not advance read 'Not called back' in a callback preliminary only, and never carry a placement", () => {
+  it("rows that did not advance read 'Not called back' in a non-final round (organizer page: callback preliminary), and never carry a placement", () => {
     const row = { entryNumber: "1", displayName: null, placement: null, tieGroup: null, advanced: false, ratingBand: null, mine: false };
     expect(placementLabel(row, "preliminary")).toBe("Not called back");
     expect(placementLabel(row, "final")).toBe("Not advanced");

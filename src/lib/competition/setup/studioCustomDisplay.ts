@@ -23,8 +23,6 @@ export type CustomFormatDisplay = {
   description: string;
   /** Replaces the profile's eligibility_note for the format (when omitted the profile note is removed: a stale body-rule note must not survive). */
   eligibilityNote?: string;
-  /** Keep the profile's eligibility_note instead of removing it (only for notes that make no body claim). */
-  keepEligibilityNote?: boolean;
   /** Replaces music_source.note when the profile's note names a governing body. */
   musicNote?: string;
 };
@@ -118,8 +116,8 @@ export const STUDIO_PARTNERSHIP_DISPLAY: Readonly<Record<string, CustomFormatDis
   // R-05: the Multi-Dance minimum of two dances is DanceFlow Studio policy, not a universal requirement. The names stay
   // (they describe real governing-body style formats); only the organizer-facing description changes and the profile's
   // eligibility note is kept.
-  ndca_pro_am_multi: { entryFormat: "pro_am", label: "Pro/Am Multi-Dance", keepEligibilityNote: true, description: "A registered professional and their Pro/Am Student Competitor dance one entry made of a prescribed set of one style's dances. DanceFlow Studio policy: a Multi-Dance entry needs at least two dances. Nine- and ten-dance events are not currently supported by DanceFlow." },
-  ndca_amateur_multi: { entryFormat: "couple", label: "Amateur Multi-Dance", keepEligibilityNote: true, description: "Two registered amateur dancers dance one entry made of a prescribed set of one style's dances. DanceFlow Studio policy: a Multi-Dance entry needs at least two dances. Nine- and ten-dance events are not currently supported by DanceFlow." },
+  ndca_pro_am_multi: { entryFormat: "pro_am", label: "Pro/Am Multi-Dance", eligibilityNote: "DanceFlow does not check amateur status, proficiency level, age or registration for this format.", description: "A professional and their student dance one entry made of a prescribed set of one style's dances. DanceFlow Studio policy: a Multi-Dance entry needs at least two dances. Nine- and ten-dance events are not currently supported by DanceFlow." },
+  ndca_amateur_multi: { entryFormat: "couple", label: "Amateur Multi-Dance", eligibilityNote: "DanceFlow does not check amateur status, proficiency level, age or registration for this format.", description: "Two dancers dance one entry made of a prescribed set of one style's dances. DanceFlow Studio policy: a Multi-Dance entry needs at least two dances. Nine- and ten-dance events are not currently supported by DanceFlow." },
 };
 
 /**
@@ -169,7 +167,7 @@ export function withStudioCustomDisplayLabels(profile: SetupProfileDefaults): Se
     if (!definition || definition.entry_format !== (display.entryFormat ?? "custom")) continue;
     const next: EntryFormatDefinition = { ...definition, label: display.label, description: display.description };
     if (display.eligibilityNote !== undefined) next.eligibility_note = display.eligibilityNote;
-    else if (!display.keepEligibilityNote) delete next.eligibility_note;
+    else delete next.eligibility_note;
     if (display.musicNote !== undefined && definition.music_source) {
       next.music_source = { ...definition.music_source, note: display.musicNote };
     }
