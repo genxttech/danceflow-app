@@ -1,0 +1,28 @@
+{
+  "id": "R11-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Chairman authority",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.7 (PDF p.34)",
+    "quote_free_summary": "On matters of conduct of the competition, adjudicator marking and program scheduling, the Chairman's decision is final."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Chairman finality on marking and timetable is NOT IMPLEMENTED for a future NDCA profile; Studio managers and chairs have the separate, limited roles recorded in R-11.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for the corresponding future governing-body profile: the Studio D3 self-approval override must be unavailable there.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Text re-read in the pinned PDF (PDF p.34); printed page not extracted.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-11 extension (owner ratification 2026-11-24); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

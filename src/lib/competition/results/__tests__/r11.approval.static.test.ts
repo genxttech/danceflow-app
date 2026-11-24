@@ -40,3 +40,36 @@ describe("R-11: approve_competition_round_result", () => {
     expect(f2).toMatch(/revoke all on function public\.approve_competition_round_result\(uuid, uuid, text, uuid\) from public, anon/i);
   });
 });
+
+/**
+ * R-11 extension (owner 2026-11-24): D3 self-approval is retained for INITIAL approval only. These are static characterizations of the
+ * CURRENT migration text; the two `it.fails` markers record release blockers (the tests PASS while the gap exists and will start failing, prompting removal of
+ * the marker, once approve distinguishes initial from corrected results or requires a substantive reason). No SQL is executed.
+ */
+describe("R-11 extension: override scope, reason rules and audit", () => {
+  it("the override is audited under its own event kind with actor, version, input hash and reason", () => {
+    expect(body).toMatch(/'result_approval_override'/);
+    expect(body).toMatch(/_compf2_event\([\s\S]*?v_uid[\s\S]*?v_reason/);
+    expect(body).toMatch(/insert into public\.event_competition_result_approvals[\s\S]*?override_reason/);
+  });
+
+  it("the approvals row ties an override reason to approver = calculator by a CHECK constraint, and the table is insert-only", () => {
+    expect(f2).toMatch(/event_competition_result_approvals_override_check/);
+    expect(f2).toMatch(/'event_competition_result_approvals', 'event_competition_result_events'\] loop/);
+  });
+
+  it("the reason rule today is only: trimmed, non-blank, at most 500 characters (a 1-character reason is accepted)", () => {
+    expect(body).toMatch(/v_reason text := nullif\(btrim\(coalesce\(p_override_reason, ''\)\), ''\)/);
+    expect(body).not.toMatch(/_cf1_reason_is_substantive/);
+  });
+
+  // Both markers read only the F2 file; a later exact-text patch of approve would not flip them (see R-11 report section 10).
+  it.fails("KNOWN BLOCKER RB-11.1: approve requires a SUBSTANTIVE override reason (as A5/A6 do via _cf1_reason_is_substantive)", () => {
+    expect(body).toMatch(/if not public._cf1_reason_is_substantive(v_reason)/);
+  });
+
+  it.fails("KNOWN BLOCKER RB-11.2: approve distinguishes INITIAL approval from a corrected/recalculated result, so self-approval cannot be used after a correction", () => {
+    expect(body).toMatch(/(if|and|or)[^;
+]*(correction_open|result_invalidated)/i);
+  });
+});

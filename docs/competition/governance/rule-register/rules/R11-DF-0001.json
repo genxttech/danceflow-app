@@ -4,7 +4,7 @@
   "format": "Studio result approval controls",
   "source": null,
   "rule_class": "dance_flow_policy",
-  "requirement": "DanceFlow policy: approval needs a different manager than the calculator, or the calculator's audited override reason (1-500 chars); no override exists for the minimum-two-couples rule, the Final withdrawal/exclusion windows, exclusion or withdrawal co-sign separation of duties, or approval of a stale result; approval is manager-only; API access is authenticated-only.",
+  "requirement": "DanceFlow policy (R-11, ratified 2026-11-24): D3 audited self-approval is retained for INITIAL Studio/Custom result approval ONLY; otherwise approval needs a different manager. No override exists for the minimum-two-couples rule, the withdrawal/exclusion windows, exclusion or withdrawal co-sign separation of duties, or approval of a stale result; approval is manager-only; chair and manager do not override each other.",
   "implementation": [
     {
       "path": "src/lib/supabase/migrations/20270114090000_competition_f2_results_lifecycle.sql",
@@ -20,15 +20,20 @@
     {
       "path": "src/lib/competition/results/__tests__/r11.approval.static.test.ts",
       "name": "refuses a stale result BEFORE the override branch, so an override reason can never approve a stale result"
+    },
+    {
+      "path": "src/lib/competition/results/__tests__/r11.approval.static.test.ts",
+      "name": "the override is audited under its own event kind with actor, version, input hash and reason"
     }
   ],
-  "verification_status": "unverified",
-  "interpretation_notes": "Inspected plus static tests (executed); SQL suites f2_results, a4_minimum_integration, a5_exclusion, a6_withdrawal NOT RUN. Gaps: no test that a chair is refused approve; none that an override reason fails against a stale hash; none that the roster-minimum code surfaces at approve independently of STALE; none for service_role (approve revokes only public/anon, unlike A5/A6; not exploitable since auth.uid() is null); approve does not check a verified email for the approver; override reason is not required to be substantive (A5/A6 are).",
+  "verification_status": "inconsistent",
+  "interpretation_notes": "RELEASE BLOCKERS: RB-11.2 the override is reachable for corrected/recalculated versions (approve has no initial-vs-corrected distinction); RB-11.1 the override reason accepts 1 character (not substantive; A6 uses _cf1_reason_is_substantive). Also: service_role not revoked on approve/calculate (not exploitable: auth.uid() null); no verified-email check for the approver. See R-11-VERIFICATION.md section 5. Inspected plus static tests (executed, two it.fails markers); SQL suites NOT RUN.",
   "applicable_event_versions": [
     "DanceFlow policy"
   ],
   "decision_refs": [
-    "R-11 (owner ratification 2026-11-23); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)"
+    "R-11 (owner ratification 2026-11-23); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)",
+    "R-11 extension (owner ratification 2026-11-24); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)"
   ],
   "last_reviewed": "2026-11-24"
 }

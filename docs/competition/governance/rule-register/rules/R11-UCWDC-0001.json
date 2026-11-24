@@ -1,0 +1,28 @@
+{
+  "id": "R11-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC finality of decisions",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.N.1 (Couples, PDF p.15)",
+    "quote_free_summary": "Decisions of the contest judges, the Contest Coordinator and the Event Director are final."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Finality of the judges', Contest Coordinator's and Event Director's decisions is NOT IMPLEMENTED for a future UCWDC profile; no Studio result approval or override may alter a judging decision under that profile.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for the corresponding future governing-body profile: the Studio D3 self-approval override must be unavailable there.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Text re-read in the pinned PDF (Couples, PDF p.15). The same clause in the other UCWDC rulebooks was not checked.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "R-11 extension (owner ratification 2026-11-24); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}
