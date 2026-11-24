@@ -2,6 +2,7 @@
 # Competition S6 -- entry status guard under a REAL race: three connections on one entry.
 #   A  manager, lifecycle RPC (definer): scratch the entry, then holds its transaction open for 4 s (row lock held)
 #   B  manager (authenticated), starts 1 s later: direct UPDATE status -> 'withdrawn'. Must WAIT on A's row lock, then be REFUSED (42501 COMP_S6_ENTRY_STATUS_WRITER)
+#   D  manager, second submit of the same scratch (hardening 20270301142000): must WAIT, then be a no-op
 #   C  owner-role definer writer (the real _r2_withdraw_entry), starts 1 s later: must WAIT, then change nothing (the entry is already scratched, its WHERE excludes terminal states) and not error
 # Expected end state: entry 'scratched', exactly ONE audit row (change_type scratch), B refused, C no error and no second audit row.
 # Usage: bash test_T_competition_s6_entry_status_concurrency.sh [container]   (needs the chain through BOTH S6 migrations; superuser supabase_admin)
@@ -59,7 +60,13 @@ select public._r2_withdraw_entry('$ENT', 'S6 race owner writer', 'retain');
 SQL
 ) &
 PC=$!
-wait $PA; wait $PB; wait $PC
+( SUX <<SQL > "$OUT/s6c_d.out" 2>&1
+set role authenticated; $CLAIMS
+select public.change_competition_entry_lifecycle('$ENT', 'scratched', 'S6 race second submit', 'retain');
+SQL
+) &
+PD=$!
+wait $PA; wait $PB; wait $PC; wait $PD
 
 STATUS=$(SU -c "select status from public.event_competition_entries where id = '$ENT'")
 AUD=$(SU -c "select count(*) from public.event_competition_entry_changes where entry_id = '$ENT'")
@@ -67,6 +74,7 @@ AUDS=$(SU -c "select count(*) from public.event_competition_entry_changes where 
 ok "A (lifecycle RPC) finished without error" "$([ -z "$(grep -i error "$OUT/s6c_a.out")" ] && echo 1 || echo 0)"
 ok "B (direct manager write) was refused with COMP_S6_ENTRY_STATUS_WRITER (42501)" "$(grep -q 'COMP_S6_ENTRY_STATUS_WRITER' "$OUT/s6c_b.out" && echo 1 || echo 0)"
 ok "C (owner definer writer) raised no error" "$([ -z "$(grep -i error "$OUT/s6c_c.out")" ] && echo 1 || echo 0)"
+ok "D (second manager submit of the same scratch) waited, then was a no-op without error (needs 20270301142000)" "$([ -z "$(grep -i error "$OUT/s6c_d.out")" ] && echo 1 || echo 0)"
 ok "final status is scratched (not withdrawn)" "$([ "$STATUS" = "scratched" ] && echo 1 || echo 0)"
 ok "exactly one audit row, the scratch with the reason" "$([ "$AUD" = "1" ] && [ "$AUDS" = "1" ] && echo 1 || echo 0)"
 if [ -z "$FAILS" ]; then echo "S6 CONCURRENCY PASS ($PASS checks)"; exit 0; else echo "S6 CONCURRENCY FAIL:$FAILS (status=$STATUS audit=$AUD)"; exit 1; fi

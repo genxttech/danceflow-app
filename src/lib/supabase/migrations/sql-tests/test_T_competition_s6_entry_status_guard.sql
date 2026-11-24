@@ -220,6 +220,55 @@ select pg_temp.chk('F8 a SECURITY DEFINER function owned by the owner role, call
   (select bool_and(pg_temp.try_as('authenticated', format('select pg_temp.definer_writer(%L)', s)) = 'OK') from unnest(array['pending','waitlisted','scratched','withdrawn','disqualified','complete','confirmed']) s)
   and pg_temp.es('003') = 'confirmed');
 
+-- H. lifecycle RPC hardening (20270301142000): idempotent, serialized source states, placed entries refused -------------------------------------------------------
+create temp table t_h (k text, r text, v bigint);
+grant all on t_h to authenticated, anon, service_role;
+-- H1 a repeat scratch of an already scratched entry (entry 1 was scratched in F1) is a no-op: no second audit row, no lifecycle_version bump
+create temp table t_h1 (ver bigint, aud bigint);
+insert into t_h1 select lifecycle_version, pg_temp.aud(id) from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032800001';
+insert into t_h select 'repeat_scratch', pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032800001', 'scratched', 'again', 'retain')$q$), 0;
+select pg_temp.chk('H1 repeat scratch is a silent no-op: same lifecycle_version, same audit row count, still scratched',
+  (select r from t_h where k = 'repeat_scratch') = 'OK'
+  and (select lifecycle_version from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032800001') = (select ver from t_h1)
+  and pg_temp.aud('00000000-0000-0000-0000-cf1032800001') = (select aud from t_h1) and pg_temp.es('001') = 'scratched');
+-- H2 a scratched entry cannot be withdrawn through the RPC (and not the other way); the refusal changes nothing
+select pg_temp.chk('H2 scratched -> withdrawn through the RPC is refused with COMP_ENTRY_LIFECYCLE_STATE and changes nothing',
+  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032800001', 'withdrawn', 'x', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_STATE%'
+  and pg_temp.es('001') = 'scratched' and pg_temp.aud('00000000-0000-0000-0000-cf1032800001') = (select aud from t_h1));
+-- H3 disqualified / complete entries cannot be scratched or withdrawn through the RPC
+update public.event_competition_entries set status = 'complete' where id = '00000000-0000-0000-0000-cf1032810004';
+update public.event_competition_entries set status = 'disqualified' where id = '00000000-0000-0000-0000-cf1032810005';
+select pg_temp.chk('H3 complete and disqualified entries are refused by the RPC (COMP_ENTRY_LIFECYCLE_STATE) and unchanged',
+  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032810004', 'scratched', 'x', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_STATE%'
+  and pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032810005', 'withdrawn', 'x', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_STATE%'
+  and (select status from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810004') = 'complete'
+  and (select status from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810005') = 'disqualified');
+-- H4 an entry whose heat entry is danced is refused (R2 participation rule), although the heat is not locked
+update public.event_competition_heat_entries set status = 'danced' where entry_id = '00000000-0000-0000-0000-cf1032800004';
+set local session_replication_role = replica;
+update public.event_competition_heats set lock_state = 'open' where id = '00000000-0000-0000-0000-cf1032d00001';
+set local session_replication_role = origin;
+select pg_temp.chk('H4 an entry with a danced heat entry (heat unlocked) is refused with COMP_ENTRY_LIFECYCLE_PLACED and unchanged',
+  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032800004', 'scratched', 'x', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_PLACED%'
+  and pg_temp.es('004') = 'confirmed' and pg_temp.hs('004') = 'danced');
+-- H5 an entry in an active heat is refused too
+set local session_replication_role = replica;
+update public.event_competition_heat_entries set status = 'scheduled' where entry_id = '00000000-0000-0000-0000-cf1032800004';
+update public.event_competition_heats set status = 'active' where id = '00000000-0000-0000-0000-cf1032d00001';
+set local session_replication_role = origin;
+select pg_temp.chk('H5 an entry in an ACTIVE heat is refused with COMP_ENTRY_LIFECYCLE_PLACED and unchanged',
+  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032800004', 'scratched', 'x', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_PLACED%'
+  and pg_temp.es('004') = 'confirmed');
+-- H6 legitimate source states still work: waitlisted -> scratched, pending -> withdrawn
+update public.event_competition_entries set status = 'waitlisted' where id = '00000000-0000-0000-0000-cf1032810006';
+update public.event_competition_entries set status = 'pending' where id = '00000000-0000-0000-0000-cf1032810007';
+select pg_temp.chk('H6 waitlisted -> scratched and pending -> withdrawn through the RPC still work (one audit row each)',
+  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032810006', 'scratched', 'w', 'retain')$q$) = 'OK'
+  and pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032810007', 'withdrawn', 'p', 'not_applicable')$q$) = 'OK'
+  and (select status from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810006') = 'scratched'
+  and (select status from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810007') = 'withdrawn'
+  and (select count(*) from public.event_competition_entry_changes where entry_id in ('00000000-0000-0000-0000-cf1032810006', '00000000-0000-0000-0000-cf1032810007') and change_type in ('scratch', 'withdraw')) = 2);
+
 -- G. heat entry / entry consistency and downstream classes -----------------------------------------------------------------------------------------
 select pg_temp.chk('G1 no fixture entry is scratched/withdrawn while one of its heat entries is still scheduled/checked_in',
   not exists (select 1 from public.event_competition_entries e join public.event_competition_heat_entries h on h.entry_id = e.id

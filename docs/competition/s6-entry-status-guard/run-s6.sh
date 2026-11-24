@@ -51,7 +51,7 @@ apply(){ # $1 file
 : > "$OUT/migrations-applied.txt"
 for f in $(ls "$M" | grep -E '^[0-9]{14}_.*competition.*\.sql$' | LC_ALL=C sort); do
   v="${f%%_*}"
-  case "$v" in 20270301140000|20270301141000) continue ;; esac
+  case "$v" in 20270301140000|20270301141000|20270301142000) continue ;; esac
   case "$v" in 20270103090000|20270103091000) ;; *) [ "$v" \> "20270119090000" ] || continue ;; esac
   apply "$M/$f"
 done
@@ -70,7 +70,9 @@ SQL
 # F3 read-back BEFORE S6 (state read-back of the forged-marker chain on the pre-S6 database)
 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$REPO/docs/competition/s6-entry-status-guard/f3-readback.sql" > "$OUT/f3-readback-before-S6.log" 2>&1
 apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"
-"${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P2-after-S6.txt"
+"${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P2-after-140000-141000.txt"
+apply "$M/20270301142000_competition_s6_entry_lifecycle_hardening.sql"
+"${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P3-after-142000.txt"
 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$REPO/docs/competition/s6-entry-status-guard/f3-readback.sql" > "$OUT/f3-readback-after-S6.log" 2>&1
 cat > "$OUT/probe.sql" <<'SQL'
 select 'fn:'||p.proname from pg_proc p where p.pronamespace='public'::regnamespace and p.proname in ('cf1_s6_guard_entry_status','change_competition_entry_lifecycle','cf1_u18_guard_heat_entry_status','cf1_u18s_guard_heat_entry_scratch') order by 1;
@@ -93,11 +95,14 @@ for s in $SUITES; do runsuite "$s"; done
 bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/concurrency.log" 2>&1; log "concurrency: $(tail -1 "$OUT/concurrency.log")"
 
 # rollback proof: back to exactly the pre-S6 state
+"${PSQL[@]}" -1 < "$M/rollback/20270301142000_competition_s6_entry_lifecycle_hardening_rollback.sql" > "$OUT/rb-142000.log" 2>&1; echo "rollback 142000 rc=$?" >> "$OUT/migrations-applied.txt"
+"${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P2b-after-rollback-142000.txt"
+if diff -u "$OUT/state-P2-after-140000-141000.txt" "$OUT/state-P2b-after-rollback-142000.txt" > "$OUT/rollback-142000-diff.txt"; then log "rollback 142000 proof: PASS"; else log "rollback 142000 proof: FAIL"; fi
 "${PSQL[@]}" -1 < "$M/rollback/20270301141000_competition_s6_entry_status_write_guard_rollback.sql" > "$OUT/rb-141000.log" 2>&1; echo "rollback 141000 rc=$?" >> "$OUT/migrations-applied.txt"
 "${PSQL[@]}" -1 < "$M/rollback/20270301140000_competition_s6_entry_lifecycle_definer_rollback.sql" > "$OUT/rb-140000.log" 2>&1; echo "rollback 140000 rc=$?" >> "$OUT/migrations-applied.txt"
 "${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P1-after-rollback.txt"
 if diff -u "$OUT/state-P0-before-S6.txt" "$OUT/state-P1-after-rollback.txt" > "$OUT/rollback-diff.txt"; then log "rollback proof: PASS (catalog state identical to pre-S6, $(wc -l < "$OUT/state-P0-before-S6.txt") lines)"; echo PASS > "$OUT/rollback-result.txt"; else log "rollback proof: FAIL (see rollback-diff.txt)"; echo FAIL > "$OUT/rollback-result.txt"; fi
 # forward again, then the S6 suite once more
-apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"
+apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"; apply "$M/20270301142000_competition_s6_entry_lifecycle_hardening.sql"
 cp "$OUT/suites.tsv" "$OUT/suites-first-pass.tsv"; : > "$OUT/suites.tsv"; runsuite test_T_competition_s6_entry_status_guard; mv "$OUT/suites.tsv" "$OUT/suite-s6-after-reapply.tsv"; mv "$OUT/suites-first-pass.tsv" "$OUT/suites.tsv"
 log "done"; echo DONE > "$OUT/result.txt"

@@ -1,6 +1,6 @@
 # S6: guard for direct writes of `event_competition_entries.status` (DRAFT, NOT APPLIED)
 
-Owner decision 2026-11-24, option B (corrects the OD-31 finding F1/F2). **Nothing here is applied, merged or authorized for any hosted database.** Two new migration files (slots `20270301140000`, `20270301141000`), their byte-exact rollbacks, a SQL suite, a concurrency script and a local runner. Stacked on PR 867 (it relies on the U18 `current_user in ('postgres','supabase_admin')` allowlist convention and the guards that PR lands); retarget to `release/website-embeds` after PR 867 merges.
+Owner decision 2026-11-24, option B (corrects the OD-31 finding F1/F2). **Nothing here is applied, merged or authorized for any hosted database.** Three new migration files (slots `20270301140000`, `20270301141000`, and the OPTIONAL, separable `20270301142000`), their rollbacks, a SQL suite, a concurrency script and a local runner. Stacked on PR 867 (it relies on the U18 `current_user in ('postgres','supabase_admin')` allowlist convention and the guards that PR lands); retarget to `release/website-embeds` after PR 867 merges.
 
 Rule-dependence: none of this is a governing-body rule. It is a DanceFlow integrity control (status values and their effects on refunds, scoring eligibility and registration are DanceFlow behaviour): **NOT SPECIFIED IN PROVIDED SOURCE**, same class as U18/U18-S.
 
@@ -60,6 +60,10 @@ Proof obligations and where they are tested (all in `test_T_competition_s6_entry
 ## 5. What changes for the one existing RPC
 
 `change_competition_entry_lifecycle` becomes SECURITY DEFINER (body byte-identical, md5 `3b4622d846fa2e6b223b3005d2425650` after CR removal, the same pin U18's preflight uses; hosted body contains CR characters from the original apply, so the pin always strips them) and EXECUTE is limited to `authenticated` (it previously had PUBLIC, anon, authenticated, service_role). anon and service_role were always refused by the body (`auth.uid()` null). The rollback restores the invoker definition and the exact previous ACL; **"byte-exact" is relative to the repository text**: the hosted body carries CRs the repository text does not, so a rollback restores the repository definition (CR-free), and the proof compares `md5(prosrc)`, ACL, security flag and trigger set before and after.
+
+## 5b. Optional hardening of the same RPC (`20270301142000`, separable)
+
+Requested by the SC1 port session and by the invariants requirement (refund R2 class, roster, heat-entry consistency). Same signature, grants, DEFINER, `search_path` and audit mechanics; four behaviour changes, each an owner policy choice (drop the file to keep the June semantics): (1) entries with a danced/disqualified heat entry or in an active/complete heat are refused (`COMP_ENTRY_LIFECYCLE_PLACED`), in addition to the existing locked/certified-heat refusal; (2) repeating a scratch/withdraw that is already in effect is a no-op (no second audit row, no `lifecycle_version` bump); (3) the entry row is locked `FOR UPDATE` after the authorization check and the decision uses the status read under the lock; (4) only `pending`, `confirmed`, `waitlisted` entries may be scratched/withdrawn through the RPC (`COMP_ENTRY_LIFECYCLE_STATE` otherwise, so disqualified/complete and scratched <-> withdrawn are refused). Rollback restores the `140000` definition from that file's own text.
 
 ## 6. Reassessment of the 2026-11-13 residual acceptance
 
