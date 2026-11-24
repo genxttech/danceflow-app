@@ -1,8 +1,10 @@
-# Judging-integrity design: OD-05 conflicts and recusal (slices 1-4) and OD-06 WSDC role separation, with OD-15 qualifications and OD-16 panel design (OD-17 placeholder)
+# Judging-integrity design: OD-05 conflicts and recusal (slices 1-4) and OD-06 WSDC role separation, with OD-15 qualifications, OD-16 panel and OD-17 panel-change design
 
 **Status: DESIGN ONLY (PR-A, docs).** No SQL, no code, nothing applied, merged, deployed or activated. Competition OS is dark.
 Governed by [RULEBOOK_GOVERNANCE.md](../../RULEBOOK_GOVERNANCE.md). Owner decision OD-05 (2026-11-23, Option D, BLOCK, with panel-level
 safeguards) is recorded in the audit owner-decision list (PR #795, `OWNER-DECISIONS.md`, branch `claude/comp-audit-owner-decisions`).
+
+**OD-17 was decided on 2026-11-23 (owner): Option B now (Studio/Custom panel behavior unchanged), Option A required for a future NDCA profile** (section 6D, design only).
 
 **OD-16 was decided on 2026-11-23 (owner): Option B now (Studio/Custom model kept, subject to fixing its internal panel-minimum inconsistency), Option A for future body profiles** (section 6C and the separate defect document).
 
@@ -11,7 +13,7 @@ safeguards) is recorded in the audit owner-decision list (PR #795, `OWNER-DECISI
 **OD-06 was decided on 2026-11-23 (owner): Option A, enforce WSDC separation of duties** for WSDC-declared events, with explicit event-level
 designations (section 6A). It is designed here in the same coordinated block as OD-05.
 
-**What this document does not do:** it invents no rule, claims no body compliance, and does not decide OD-17.
+**What this document does not do:** it invents no rule, claims no body compliance, and decides nothing beyond the owner decisions it records.
 Those two are **not yet decided: design placeholder only** wherever they appear below. Where a source is silent or conflicting
 the text says so and the behavior is labelled DanceFlow policy.
 
@@ -224,7 +226,7 @@ Validators 2-4 ship as functions returning `[]` until their decisions land, so t
 and the readiness UI contract are fixed once and the three later decisions plug in without a second trigger, a second error vocabulary
 or contradictory ordering. E1's `competition_round_panel_status/ready` are read by the UI beside this list and are not modified.
 
-## 6. OD-06 / OD-15 / OD-16 touchpoints (OD-06, OD-15 and OD-16 decided; OD-17 placeholder)
+## 6. OD-06 / OD-15 / OD-16 touchpoints (OD-06, OD-15, OD-16 and OD-17 decided)
 
 | Decision | Status | Touchpoint with OD-05 | Reserved |
 |---|---|---|---|
@@ -530,10 +532,92 @@ interact with panel minimums and the frozen panel; nothing is designed here.
 
 New question **Q16**: when the Chief Judge joins the panel under WSDC 3.4.7.c, do they count toward the 3.4.7 minimum or must the minimum be met without them (the text says "plus the Chief Judge")?
 
+## 6D. OD-17: panel appointment, publication and substitution (decided 2026-11-23: Option B now, Option A required for a FUTURE NDCA profile)
+
+**Docs and design only.** No substitution SQL, no migration file. Decision: Studio/Custom panel appointment and substitution behavior is **unchanged** (Option B). A future NDCA profile
+must implement the NDCA change-control procedure (Option A). Nothing here is applied to UCWDC, WSDC or Studio/Custom.
+
+### 6D.1 Rule evidence (re-read in the pinned PDFs on 2026-11-23)
+
+| Ref | Document / edition | What it says (own words) | Class |
+|---|---|---|---|
+| NDCA III.B.6 (p.16-17) | Rule Book June 2026 | The proposed list of all officials must be posted on the competition website at least thirty days before the competition. Once the Ballroom Department has approved the list, no additions or changes may be made without NDCA approval. | mandatory |
+| NDCA III.B.6 (p.17) | same | If, for an unforeseen reason on the night of the event, a listed official cannot officiate, a substitute may be appointed for the competitions, subject to the approval of the NDCA Observer and a proper announcement made before the affected competition. | permitted exception (conditions mandatory) |
+| NDCA III.B.6 (p.17) | same | If no substitute can be found, the remaining officials act and the organizer sends a written explanation of the incident to the Ballroom Department within ten days. | mandatory (organizer duty) |
+| NDCA III.D.1 (p.19) | same | Organizers must appoint all adjudicating panels before the event commences; panels are to be strictly adhered to except in emergencies. | mandatory with emergency exception |
+| NDCA IV.C.8 (p.27) | same | Among the Chairman's duties: excusing an adjudicator from officiating when the Chairman feels that adjudicator's sound judgment may be impaired. | chairman power (discretionary) |
+| NDCA III.C.6 (p.19) | same | The NDCA Observer is the Chairman of Adjudicators (except when the Chairman is also the Competition Organizer); the Observer's name is posted on the competition website. | mandatory |
+| NDCA III.B.4 (p.16) | same | A Scrutineer may serve only "as a substitute adjudicator as per Rule III.B.5". III.B.5 is the World Dance Council non-resident rule and says nothing of substitutes; the substitution text is in III.B.6. | **source inconsistency**: cross-reference looks mis-numbered; not resolved, not relied on |
+
+**NOT SPECIFIED IN PROVIDED SOURCE (NDCA):** who acts as Observer when the Chairman is also the organizer; whether "ten days" are calendar days; what a substitute may be mid-competition after ballots exist
+(the text speaks of a substitute "for the competitions" announced "before the affected competition"); what the Ballroom Department's "approval" artifact looks like.
+
+**UCWDC and WSDC: searched, nothing found.** I searched the extracted text of UCWDC Couples, Pro/Pro-Pro/Am, Line Dance, Teams and the Scoring Format for "substitut", replacement of judges, judge lists, announcement of
+panels, and "panel": the only panel text is UCWDC-C II.N.3 (post-event complaints to the Judge Review Board). WSDC Registry Event Rules v2026.1C: no advance-publication or general substitution rule; the only
+replacement text is 3.4.6.b.iv (Chief Judge replaced by the Secondary Chief Judge for a specific contest; already in OD-05/OD-06) and 3.1.1 (events must hire sufficient judging staff and avoid conflicts).
+These are **rulebook-silent** for this topic. NDCA procedures are therefore **not** applied to UCWDC, WSDC or Studio/Custom.
+
+### 6D.2 Today (unchanged for Studio/Custom, UCWDC, WSDC)
+
+E1 `assign_competition_panel_member` / `unassign_competition_panel_member` / `guard_competition_panel_assignment`: the panel is editable while the round is draft or scheduled and frozen from the start
+(`COMP_PANEL_FROZEN`). E2 `record_competition_judge_attendance` records an audited absence with a reason (1-500), refused once the judge has ballots. There is no officials-list publication, no change
+authorization, and no mid-round replacement. These stay as they are; this section changes none of them.
+
+### 6D.3 Future NDCA profile (Option A): requirements as hard blockers, NOT IMPLEMENTED
+
+| # | Requirement | Source | Design (future, NDCA-declared events only) |
+|---|---|---|---|
+| N1 | Officials list posted at least 30 days before | III.B.6 | record `list_published_at`, a publication reference (URL) and the approval reference/date the organizer states from the Ballroom Department. DanceFlow cannot verify website posting or the approval: **attested by organizer, not verified by DanceFlow or NDCA**. Hard blocker to NDCA-profile activation of a round until recorded and at least 30 days before the event date. |
+| N2 | No change after approval without NDCA approval | III.B.6 | any add, remove or letter change of a seated official after the list approval requires a recorded change authorization (reference, date, who at NDCA approved as stated by the organizer, reason). Without it the change is refused. |
+| N3 | Emergency substitute: Observer approval, announcement, before the affected competition | III.B.6 | audited emergency-substitution record: the unavailable official, the substitute, reason, Observer approval (reference and the Observer's identity as designated), announcement time and reference, round the substitute is for, all timestamps. The substitute may be seated only while the affected round is still scheduled (before it starts). |
+| N4 | No substitute: remaining officials act; written explanation in ten days | III.B.6 | record the incident and create a **follow-up obligation** (below). The remaining panel must still satisfy the panel rule (OD-16, section 6C); if it does not, the round does not start/lock. |
+| N5 | Panels appointed before the event, emergencies excepted | III.D.1 | a round of an NDCA-declared event cannot start with an unapproved panel; changes after appointment go through N2/N3 as emergencies with a reason. |
+| N6 | Chairman may excuse an adjudicator whose judgment may be impaired | IV.C.8 | excusal record by the **designated Chairman** (OD-06 event-level designation of an NDCA Chairman; credential per OD-15), with reason, scope and time. |
+| N7 | Observer identity | III.C.6 | the Observer is the designated Chairman, or, when the Chairman is the organizer, an explicitly designated Observer (kind added with the NDCA profile); who that is, is NOT SPECIFIED, so the organizer designates it and it is attested. |
+
+### 6D.4 Proposed tables (future slot, NDCA profile only; same conventions as sections 4 and 6A)
+
+All immutable evidence (`protect_competition_history_evidence()`), RLS managers and the designated Chairman/Observer only, request-id idempotent, tenant keyed by `event_id`.
+
+- `event_competition_officials_list_records`: `id, event_id, kind ('published'|'ballroom_approved'), occurred_on, reference_code (validated, not free text), recorded_by, recorded_at, attestation_code, request_id`.
+- `event_competition_panel_changes`: `id, event_id, round_id, kind ('post_approval_change'|'emergency_substitution'|'chairman_excusal'|'remaining_officials_act'), official_from_id null, official_to_id null, reason (1-500), authorization_ref null, authorizing_role ('ballroom_department'|'ndca_observer'|'chairman' as stated), announcement_at null, announcement_ref null, decided_by, decided_at, request_id`.
+- `event_competition_panel_change_applications`: `change_id unique, assignment_id, applied_at`: insert-only link proving which change authorized which assignment row (no update of evidence).
+- `event_competition_followups`: `id, event_id, source_change_id, kind ('ndca_written_explanation'), incident_at, due_at (incident_at + 10 days, calendar interpretation = Q17), status ('open'|'organizer_marked_sent'), marked_by, marked_at, sent_reference null`. Status changes are event rows; the current state is derived.
+
+**Follow-up copy (mandatory):** "NDCA requires the organizer to send a written explanation to the Ballroom Department within ten days. DanceFlow does not send it and does not verify that it was sent." Overdue items show to the organizer and managers; a mark as sent is an organizer attestation ("marked as sent by organizer, not verified by DanceFlow or NDCA"). DanceFlow never claims to have submitted anything.
+
+### 6D.5 Minimal changes to existing functions (no redefinition)
+
+- `assign_competition_panel_member`, `unassign_competition_panel_member`, `guard_competition_panel_assignment`: **not redefined**. A new `BEFORE INSERT OR DELETE` trigger on `event_competition_panel_assignments` (name sorted after E1's guard and after the OD-05 assignment trigger `zz_compoc_guard_assignment_conflict`) applies only to NDCA-declared events with a recorded Ballroom approval and requires an authorizing `panel_changes` row not yet applied; it records the application link. Studio/Custom, UCWDC and WSDC events never reach this branch.
+- `record_competition_judge_attendance`: **unchanged** (absence audited, refused once the judge has ballots). For N4, a new RPC records the incident and the follow-up; it does not edit attendance or ballots.
+- Round start gate: one more validator in the shared aggregator of section 5 (`_compoc_blockers_panel_change`), so list publication, approval and change authorization appear in the same `COMP_PANEL_BLOCKED` list as conflicts, roles, qualifications and panel size. It runs only for NDCA-declared events.
+- OD-05 recusal and OD-17 substitution share the audit vocabulary: a recusal that empties a seat is handled by the same panel-change record (kind `post_approval_change` or `emergency_substitution`), never by an unaudited assignment edit.
+
+### 6D.6 Ballot and audit preservation (coordination with OD-04, OD-10, OD-11)
+
+By construction OD-17 adds **no writer to ballots, marks, attendance or result tables**: a substitute gets a new assignment (own official row and letter) before the round starts, when no ballots exist; the
+replaced official's assignment and any ballots are never transferred, overwritten or invalidated. After a round starts the E1 freeze still applies and E2 still refuses an absence once a judge has ballots,
+so prior markings remain intact. A substitution or excusal **after ballots exist** (a judge becomes unable mid-round) cannot be represented today: it needs per-heat panel membership and engines/readiness that
+evaluate each heat's panel, the same dependency as OD-05 heat-level recusal (Q3) and the OD-16 panel rule. It is **not designed here** and fails closed (the round cannot be silently re-paneled; it is cancelled or
+handled by the organizer outside DanceFlow, and the incident record is still kept). Coordination: OD-11 (PR #843, judge-confirmed corrections) owns changes to ballots; OD-10 (PR #842, ballot visibility) owns who may read
+them; OD-04 (PR #844, event delete guard) protects scoring evidence from hard deletion: the new evidence tables must be added to its protected set if it enumerates tables (not verified here).
+
+### 6D.7 Attestation versus verification
+
+Every external reference above (list posting, Ballroom Department approval, NDCA approval of a change, Observer approval, announcement, explanation sent) is entered by the organizer or the designated
+Chairman/Observer and shown with the OD-15 copy: "Entered by organizer; not verified by DanceFlow or NDCA." Only a governing-body source could make it verified; none exists. An organizer attestation never
+substitutes for a mandatory requirement: without the reference the NDCA-profile blocker stays.
+
+### 6D.8 NOT IMPLEMENTED: blockers to the future NDCA profile
+
+N1-N7 above are each **NOT IMPLEMENTED and a blocker to activating an NDCA profile**; they are in the rule register as `OD17-NDCA-*` entries (status `unsupported`). The III.B.4/III.B.5 cross-reference is recorded as a source inconsistency.
+
+New questions: **Q17** is "within ten days" calendar days, and from what instant (incident or event end)? **Q18** who acts as NDCA Observer when the Chairman is also the organizer (the text read is silent)? **Q19** may a substitute or excusal be modelled after ballots exist, and if so with which per-heat panel semantics (depends on Q3/OD-16)?
+
 ## 7. Migration block, ordering, rollback
 
 Latest migration on `origin/release/website-embeds` is `20270218090000`. Proposed block for the coordinator to confirm
-(Q6): **`20270220090000` to `20270220098000`**, one file per step, applied strictly in order, each with
+(Q6): **`20270220090000` to `20270220099000`**, one file per step, applied strictly in order, each with
 `rollback/<name>_rollback.sql`, a header stating **"PROD apply needs separate owner approval; not applied to any database"**,
 LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight for anything redefined.
 
@@ -547,10 +631,11 @@ LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight f
 | `20270220095000` | `competition_oc_s5_wsdc_separation_guards` | OD-06 enforcement | no (G1-G7 triggers on officials, designations, result versions; REDEFINES the s4 stub `_compoc_blockers_roles`, md5-pinned) |
 | `20270220096000` | `competition_oc_s6_official_attestations` (OD-15, design only) | OD-15 Option B | no (new attestation table and events kinds; adds designation kind `qualification_attester`; REDEFINES the s4 stub `_compoc_blockers_qualifications`, md5-pinned) |
 | `20270220097000` | reserved OD-16 (`competition_oc_s8_panel_rules`, design only) | OD-16 | REDEFINES the s4 stub `_compoc_blockers_panel_size`, md5-pinned; adds `_compoc_panel_rules`. The Studio E1/E2 readiness correction is a **separate** bounded change (defect document), not part of this block |
+| `20270220099000` | reserved OD-17 Option A: `competition_oc_s9_ndca_panel_change_control` | future, **NDCA profile only, not before a profile exists** | no (list records, panel changes, applications, follow-ups; new assignment trigger; REDEFINES the s4 stub `_compoc_blockers_panel_change`, md5-pinned) |
 | `20270220098000` | reserved OD-15 Option A: `competition_oc_s7_credential_records` | future, **not before a body profile exists** | REDEFINES `_compoc_blockers_qualifications` again, md5-pinned (credential table, rule-set catalog) |
 
 Order rationale: designations (s0) must exist before the OD-05 tier-2 lookup reads them (s1); enforcement of OD-06 (s5) comes after the shared guard
-point (s4) it plugs into. The block is now `20270220090000` to `20270220098000`.
+point (s4) it plugs into. The block is now `20270220090000` to `20270220099000`.
 
 No overlap with other sessions: OD-05 redefines none of `submit_competition_ballot`, `assign_competition_panel_member`,
 `add_competition_official`, `_compe2_guard_*` or the scoring/results functions (OD-01 in PR #832 is app-layer). Everything attaches by
@@ -591,7 +676,8 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
   unimplemented, and not relied on for an NDCA-declared event, until both exist.
 - **Q5 (closed by OD-06):** WSDC roles come from explicit event-level designations (6A), not from DanceFlow roles.
 - **Q16 (OD-16):** does the Chief Judge count toward the WSDC 3.4.7 judge minimum when joining the panel under 3.4.7.c, or must the minimum be met without them?
-- **Q6:** confirm migration block `20270220090000`-`20270220098000` is free.
+- **Q17-Q19 (OD-17):** see section 6D.8 (ten-day count; Observer when the Chairman is the organizer; modelling after ballots exist).
+- **Q6:** confirm migration block `20270220090000`-`20270220099000` is free.
 - **Q7 (OD-06):** who may attest the designation set (6A.3)? Recommended: a manager other than the last designator; for a one-manager event an explicit, recorded single-person acknowledgement.
 - **Q8 (OD-06):** is the chief judge's finalist-review record (3.4.4) a hard start blocker for WSDC-declared final rounds (recommended: yes, it is mandatory text) or advisory?
 - **Q9 (OD-06):** G4 lets an attested-undesignated manager calculate results. Confirm that reading (6A.5) of 3.4.1/3.4.3, versus requiring a designated scoring operator for every calculation.

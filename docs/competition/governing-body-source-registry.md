@@ -45,6 +45,8 @@ A profile version is immutable once a program references it; a correction is pub
 
 - **Body panel-size and chair rules are NOT IMPLEMENTED** (OD-16): NDCA III.B.1.a-d, XII.N.1; WSDC 3.4.7; UCWDC states no minimum (Scoring Format Rule #3.4). Each mandatory provision is a blocker to activating that body's profile; advisory ones (NDCA III.B.4 non-voting chair, WSDC five per role in Tier 5-6 preliminaries) are warnings. Register entries `OD16-*`.
 
+- **NDCA officials-list publication, change control and emergency substitution are NOT IMPLEMENTED** (OD-17): III.B.6 (30-day posting, NDCA approval of changes, Observer-approved substitute, ten-day written explanation), III.D.1, IV.C.8, III.C.6. Each is a blocker to activating an NDCA profile. UCWDC and WSDC: rulebook-silent in the supplied text (searched 2026-11-23). Register entries `OD17-*`.
+
 ## Source conflicts
 
 Recorded per rule 3 below. Each one that affects eligibility or integrity fails closed until the owner resolves it.
@@ -52,6 +54,7 @@ Recorded per rule 3 below. Each one that affects eligibility or integrity fails 
 | Body | Sections in conflict | Subject | Effect until resolved | Register entries |
 |---|---|---|---|---|
 | NDCA | Rule Book IV.A.1 (p.25) versus IV.D.1.a(2) (p.28) | Definition of "immediate family" for the excuse-yourself duty: IV.A.1 enumerates (spouse, children, parent, sibling, grand-parent, grand-child, niece, nephew, in-law, first cousin); IV.D.1.a(2) says "first cousin or above" (open-ended, undefined) | No NDCA family/household definition is implemented or claimed; automatic checks cover accounts only (OD-05) | `OD05-NDCA-0001`, `OD05-NDCA-0002`, `OD05-NDCA-0003` |
+| NDCA | Rule Book III.B.4 (p.16) versus III.B.5 (p.16) and III.B.6 (p.16-17) | III.B.4 sends "substitute adjudicator" to III.B.5, which is the World Dance Council non-resident rule; substitution is in III.B.6 | Cross-reference not relied on; no NDCA substitution rule derived from it (OD-17) | `OD17-NDCA-0008` |
 
 ## Rules for using a source
 

@@ -1,0 +1,20 @@
+{
+  "id": "OD17-WSDC-0001",
+  "governing_body": "silent",
+  "format": "WSDC Registry Events: officials list publication, panel changes, judge substitution",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. WSDC Registry Event Rules v2026.1C (read 2026-11-23): no advance-publication or general substitution rule; only 3.4.6.b.iv (Chief Judge replaced by the Secondary Chief Judge for a contest; see OD05-WSDC-0001) and 3.1.1 (hire sufficient judging staff, avoid conflicts). NDCA procedures are not applied.",
+  "implementation": [],
+  "enforcement_point": "None (unchanged Studio behavior).",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Silence recorded, not a finding of compliance. Design only.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-17 (owner decision 2026-11-23: Option B now, Option A required for a future NDCA profile; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
