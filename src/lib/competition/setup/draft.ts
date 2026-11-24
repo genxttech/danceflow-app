@@ -14,6 +14,7 @@ import type {
   SetupProfileDefaults,
 } from "./types";
 import { TIMEZONE_OPTIONS, US_STATE_OPTIONS } from "@/lib/forms/options";
+import { withStudioCustomDisplayLabels } from "./studioCustomDisplay";
 
 /**
  * 10C.5: pure model behind the Competition Setup Wizard.
@@ -1037,7 +1038,7 @@ export function stepErrors(answers: SetupAnswers, profile: SetupProfileDefaults,
 
 export function deriveDraft(
   answers: SetupAnswers,
-  profile: SetupProfileDefaults,
+  profileInput: SetupProfileDefaults,
   context: {
     eventName: string;
     profileKey: string;
@@ -1048,6 +1049,8 @@ export function deriveDraft(
     canEditOperations?: boolean;
   },
 ): DerivedDraft {
+  // OD-19: Studio/Custom display wording for the `custom` formats (ids and behavior unchanged). Idempotent.
+  const profile = withStudioCustomDisplayLabels(profileInput);
   const keys = activeProgramKeys(answers, profile);
   const errors: DerivedDraft["errors"] = {};
   const eventChanges = context.event ? presentationChanges(answers.presentation, context.event) : {};

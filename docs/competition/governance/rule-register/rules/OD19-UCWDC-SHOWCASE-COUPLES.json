@@ -1,0 +1,32 @@
+{
+  "id": "OD19-UCWDC-SHOWCASE-COUPLES",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples Showcase (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.G.2.a-b (p6)",
+    "quote_free_summary": "Couples Showcase uses music pre-selected for each dance on a rotating schedule, and choreographic interpretation is a main judging factor."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future UCWDC body profile must model Couples Showcase divisions with the couple definition. Today 'Studio/Custom: Showcase' is a DanceFlow format.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: the UCWDC profile.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "NOT IMPLEMENTED; BLOCKER for the future UCWDC profile. Same offering-versus-level question as OD19-UCWDC-SHOWCASE-PROAM. Re-read in the pinned PDF on 2026-11-23.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-19",
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-18"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "OD19-NDCA-STUDENT-STUDENT-YOUTH",
+  "governing_body": "NDCA",
+  "format": "NDCA Student/Student, Pre-Teen/Junior/Youth (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.B.8.a (p8) versus II.A.6.b (p5)",
+    "quote_free_summary": "II.B.8.a-b describes age divisions and costuming for Pre-Teen, Junior and Youth Student/Student events, while II.A.6.b opens Student/Student only to adult Pro/Am Student Competitors."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Youth Student/Student is not offered. The two NDCA sections conflict (source conflict ndca_student_student_youth). OD-02 prohibits under-18 competitors at first activation regardless.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Fail closed: no youth Student/Student offering exists in the Studio/Custom profile or any body profile.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed before activation. Unresolved source conflict (II.A.6.b adult-only versus II.B.8.a Pre-Teen/Junior/Youth). A written owner or NDCA reading is required before any youth offering. Re-read in the pinned PDF on 2026-11-23.",
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-19",
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-18"
+  ]
+}

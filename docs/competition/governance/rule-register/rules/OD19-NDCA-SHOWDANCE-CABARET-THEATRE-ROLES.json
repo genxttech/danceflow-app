@@ -1,0 +1,24 @@
+{
+  "id": "OD19-NDCA-SHOWDANCE-CABARET-THEATRE-ROLES",
+  "governing_body": "silent",
+  "format": "NDCA Showdance, Cabaret, Theatre Arts Compulsory (future NDCA body profile)",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "No role restriction beyond the couple definition is stated for these three formats; a future NDCA profile models them as couples (leader + follower) with no extra roles. Studio/Custom keeps them flexible.",
+  "implementation": [],
+  "enforcement_point": "None needed for roles today; Studio/Custom accepts any roles by OD-19.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "NDCA Rule Book June 2026 (sha256 d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6) II.B.4(2)-(3) (p6) and XI.A (p46) re-read 2026-11-23: no role restriction beyond the couple definition found. Not marked verified_compliant because eligibility safeguards (OD-02/OD-03/OD-18) are separate and unresolved. governing_body is 'silent' per register rules; the NDCA sections are cited here only.",
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-19",
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-18"
+  ]
+}

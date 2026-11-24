@@ -18,3 +18,11 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## OD-19 follow-ups (Studio/Custom relabel)
+
+OD-19 decided 2026-11-23 (Option C now, Option A for future body profiles). Draft PR: relabel of the wizard/review
+copy, see [od19-custom-format-relabel.md](../../od19-custom-format-relabel.md). Audit rows CL-09, FD-30, RP-04, FD-11,
+FD-29 stay open for the future body profiles: register entries `OD19-*` record role enforcement as NOT IMPLEMENTED and
+a BLOCKER for those profiles. Open: persisted contest names for new setups still carry the legacy label (needs an
+owner decision on a migration or render-time mapping).

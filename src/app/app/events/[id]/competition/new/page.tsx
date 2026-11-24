@@ -5,6 +5,7 @@ import { competitionWorkspaceHref } from "@/lib/competition/workspaceLink";
 import type { SetupProfileDefaults } from "@/lib/competition/setup/types";
 import { STUDIO_CUSTOM_PROFILE } from "@/lib/competition/setup/studioCustomV3";
 import { setupProfileProblems } from "@/lib/competition/setup/draft";
+import { withStudioCustomDisplayLabels } from "@/lib/competition/setup/studioCustomDisplay";
 import { readEventOperationsLocks, readEventPresentation } from "@/lib/competition/setup/eventPresentationServer";
 import { formatEventDates, formatEventTimes, formatEventVenue } from "@/lib/events/eventDisplay";
 import CompetitionSetupWizard, { type EventSummary } from "./CompetitionSetupWizard";
@@ -46,7 +47,7 @@ export default async function NewCompetitionPage({ params }: { params: Promise<{
       eventId={id}
       event={summary}
       profile={{ key: profile.profile_key, version: profile.version }}
-      defaults={profile.defaults as SetupProfileDefaults}
+      defaults={withStudioCustomDisplayLabels(profile.defaults as SetupProfileDefaults)}
       // Competition registration has its own window and account setting (stored on the competition); they are not
       // read from, or written to, the event's ticket registration settings.
       initialRegistration={{ opens: "", closes: "", accountRequired: true }}
