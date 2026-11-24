@@ -196,3 +196,6 @@ M15 (sha256 0b700fb2ccb3…cdfe) applied to shared DEV via sb.sh; DEV catalog fi
 
 ## 17. M16 (I3-2) spec review (2026-11-24)
 Independent review of NSI_I3_2_DB_Spec.md rev 1: **NO-GO for SQL**, conditional GO for a narrowed first slice; P0 (session holder chose the code recipient), seven P1s. Rev 2 folds all of it in and splits the work: **M16a** (guardian audience, evidence-based respondent guard, erase/purge for new tables, attestation under the existing attest capability), **M16b** (two-party issue with a staff-bound recipient hash, email challenge), **M16c** (decline, O4). No owner decision blocks M16a/M16b; P1-A rule 4, O11, O5b untouched. A quick re-review of rev 2 is recommended before any M16a SQL.
+
+## 18. M16a APPLIED TO DEV (2026-11-24)
+M16a (staff attestation of a guardian; sha256 57c83291…46dd) applied to shared DEV via sb.sh; DEV catalog fingerprint now **63e82e902ac004b406195a9164b944b2|807** (was 3fc0eea4…|776), assert_catalog ok, Gate A closed, 0 rows, DEV-safe suites PASS (I1 113, level-10 9, level-11 5, level-12 4). Independent code review GO; P2 test follow-ups in NSI_I3_2_M16a_Notes.md (before Gate A). Report: rehearsal/d12_dev_m16a/D12_report_2026-11-24.md. M16b needs another spec round (rev 3 section 10.3) and depends on I3-4 session-bound save; M16c waits on owner decision O4. PROD untouched.
