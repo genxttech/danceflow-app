@@ -190,3 +190,6 @@ M14 is not applied to DEV; waiting for the delta-review GO relayed by the coordi
 
 ## 15. M14 APPLIED TO DEV (2026-11-23)
 M14 (sha256 ae6bbf0b…ef2d2) applied to shared DEV via sb.sh; DEV catalog fingerprint now **be5a715adedad4197649593d23c6ce09|770** (was 97e13781e9f0498d8e452c64d6d43e18|768), assert_catalog ok, Gate A closed, 0 rows, DEV-safe suites PASS. Report: rehearsal/d10_dev_m14/D10_report_2026-11-23.md. Delta review GO (two low items accepted as documented, bytes unchanged). PROD untouched. Next: M15 (I3-3) after the rev 3 spec re-review; then M16.
+
+## 16. M15 APPLIED TO DEV (2026-11-24)
+M15 (sha256 0b700fb2ccb3…cdfe) applied to shared DEV via sb.sh; DEV catalog fingerprint now **3fc0eea416e8f820856935a2b94d078a|776** (was be5a715a…|770), assert_catalog ok, Gate A closed, 0 rows, DEV-safe suites PASS (I1 109, level-10 9, level-11 5). Independent review: CONDITIONAL GO, condition (DEV columns exist) met and added as L05. Report: rehearsal/d11_dev_m15/D11_report_2026-11-24.md. Follow-ups M15.1 (P2-2, P2-3, P2-4 tests) before Gate A. PROD untouched. Next: M16 (I3-2) spec review, then implementation; P1-A rule 4 still a draft.

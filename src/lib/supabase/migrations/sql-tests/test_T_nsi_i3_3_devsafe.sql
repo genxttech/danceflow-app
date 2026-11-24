@@ -44,6 +44,9 @@ select pg_temp.chk('L03 refusals: an unknown request raises 22023, a malformed o
   and pg_temp.val_as('authenticated', gen_random_uuid(), format('select count(*) from public.intake_minor_basis(%L, %L)', gen_random_uuid(), gen_random_uuid())) like 'ERR 42501%'
   and intake_private.fulfillment_state(gen_random_uuid()) = 'incomplete');
 
+select pg_temp.chk('L05 the helper columns exist on this database: studio_local_date runs (forces the studio_settings and studios time zone lookups) and returns a date',
+  intake_private.studio_local_date(gen_random_uuid()) between current_date - 2 and current_date + 2);
+
 select pg_temp.chk('L04 Gate A is closed and nothing was written: no determination rows were added by this suite',
   not intake_private.retention_gate_open() and (select n from t_before) = (select count(*) from public.intake_minor_determinations));
 

@@ -1,0 +1,5 @@
+dev-apply _f.sql -> epdrtzcydvnoidwrepqz at 03:03:40Z
+Initialising login role...
+unexpected status 400: {"message":"Failed to run sql query: ERROR:  P0001: NSI I1 DEV-SAFE SUITE PASS (109 checks)\nCONTEXT:  PL/pgSQL function inline_code_block line 6 at RAISE\n"}
+Try rerunning the command with --debug to troubleshoot the error.
+supabase exit status: 1
