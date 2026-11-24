@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded: OD-26
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-26 | **Option A: controlled, audited mid-event running-order changes** (unstarted heats only; safe operational cutoff; versioned order with exact diffs; event-level scheduling authority; impact preview; notification design only) as a future Studio/Custom capability. | 2026-11-23 | Docs only: [design](../running-order/OD-26-running-order-changes-design.md) and [migration impact and test plan](../running-order/OD-26-migration-impact-and-test-plan.md); register OD26-DF-0001..0003, OD26-NDCA-0001..0005, OD26-UCWDC-0001..0005, OD26-WSDC-0001..0003, OD26-SILENT-0001..0003. | **Design draft, pending owner confirmation; resolves O1 open decision 3 at design level only. NDCA timetable (III.D.1, 30 minutes, first event, 1:00 a.m.), Chairman authority (IV.C.3/IV.C.7), UCWDC move-up and contiguity, WSDC Chief Judge authority and restarts: NOT IMPLEMENTED, profile blockers. No NDCA penalty is ever computed or charged. No SQL, migration, notification or activation authorized.** OD-01 (PR 832) preserved. |

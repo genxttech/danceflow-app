@@ -1,0 +1,35 @@
+{
+  "id": "OD26-UCWDC-0004",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, contiguous heats for a multi-heat division",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Heating Rules item 3 and item 7 (page not confirmed)",
+    "quote_free_summary": "When a division needs several heats those heats must run contiguously, one right after another, including when divisions are co-mingled."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Under a future UCWDC profile a running-order change that would separate a division's heats is blocked; it never alters within-heat randomized order. Studio/Custom has no contiguity check (OD-25 keeps the current planner).",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation. Future body-profile check inside the apply RPC.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED and a profile blocker. Whether co-mingled divisions may be separated by a reorder (items 5-7) is Q5. The text has no stated exception to 'must'.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

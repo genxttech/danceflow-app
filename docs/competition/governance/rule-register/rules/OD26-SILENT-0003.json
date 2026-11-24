@@ -1,0 +1,27 @@
+{
+  "id": "OD26-SILENT-0003",
+  "governing_body": "silent",
+  "format": "NDCA Sanctioned events, notification of a changed timetable",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: the NDCA text read requires the organizer to make the timetable available before the competition but contains no requirement to notify participants of a mid-event change. Any notification behavior is organizer or DanceFlow policy.",
+  "implementation": [],
+  "enforcement_point": "Nothing to enforce; no NDCA compliance claimed.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Keyword search of the compiled rule book for timetable, time table, schedule, program, on 'late' and 'delay' and reading of III.D.1, IV.B.7, IV.C.3, IV.C.7 and V.B.2. Not an end-to-end read; the July 2026 edition is not compared (UNVERIFIED).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

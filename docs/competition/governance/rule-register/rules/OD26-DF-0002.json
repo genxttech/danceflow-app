@@ -1,0 +1,27 @@
+{
+  "id": "OD26-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "DanceFlow Studio/Custom competitions, safe operational cutoff for heats committed to the floor",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Classify every floor heat as frozen (staging, active, complete, locked or certified, evidence present, round past scoring), bypassed, confirm-required (commit window or checked-in entries) or movable; a standard grant moves only movable heats; confirm-required heats need a higher grant plus an acknowledgment bound to the preview checksum. Defaults (window of two heats and twenty minutes, pull-forward three, quick-change gap one) are DanceFlow defaults, not body rules.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future classifier inside the apply RPC (database) mirrored by a pure app helper for the preview.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation. Called and staged are the same status (staging) in the current vocabulary; ballots are accepted by round state, so unstarted must also be proven by absence of evidence under row locks.",
+  "applicable_event_versions": [
+    "DanceFlow Studio/Custom"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,35 @@
+{
+  "id": "OD26-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, Tentative Schedule posting",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "1.1 item 9 (p.4)",
+    "quote_free_summary": "A member's event posts its event rules, code of conduct and a Tentative Schedule on its website ninety days before the event."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Track as a pre-event posting duty of the member; no mid-event rule. DanceFlow does not post to the organizer's website and claims no compliance.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED. The text says 'Tentative Schedule' and sets no obligation about changing it mid-event.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

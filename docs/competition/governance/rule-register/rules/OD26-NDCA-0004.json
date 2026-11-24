@@ -1,0 +1,35 @@
+{
+  "id": "OD26-NDCA-0004",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, Chairman of Adjudicators authority over the timetable",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.3 and IV.C.7 (p.27)",
+    "quote_free_summary": "The Chairman is responsible for observance of the established timetable or alterations to it if required, and the Chairman's decision on changes in program scheduling is final."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must record the authority basis (Organizer, Chairman, or both) of every running-order alteration and map the Chairman to an event-level designation (the kind PR 834 reserves with the NDCA profile); Chairman and Organizer authority are modelled separately.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation. Until a profile exists, declared NDCA events are refused by the apply RPC (COMPRO_BODY_AUTHORITY_UNAVAILABLE).",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "III.D.1 puts timetable authorship and adherence on the Organizer, IV.C.3 and IV.C.7 on the Chairman. The text read does not say who may initiate an alteration or whether Organizer concurrence is required: owner interpretation needed (Q1). NOT IMPLEMENTED; profile blocker.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

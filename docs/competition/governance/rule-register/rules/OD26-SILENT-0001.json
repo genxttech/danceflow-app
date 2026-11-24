@@ -1,0 +1,27 @@
+{
+  "id": "OD26-SILENT-0001",
+  "governing_body": "silent",
+  "format": "WSDC Registry Events, daily timetable adherence, lateness, cut-off and change notification",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: no WSDC requirement was found for daily timetable adherence, lateness limits, cut-off times, notification of schedule changes, or who may reorder contests, other than OD26-WSDC-0001 through -0003. Any WSDC behavior beyond those is organizer or DanceFlow policy.",
+  "implementation": [],
+  "enforcement_point": "Nothing to enforce; no WSDC compliance claimed.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Searched the full extracted pinned text for timetable, schedule, heat, order, restart, start, begin, time, late, delay, ahead, behind, announce, post, publish, notify, cancel and reschedule and read each hit in context. Section 1.4 (event changes) concerns location and dates. Absence in the text read is not proof of absence in other WSDC documents.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
