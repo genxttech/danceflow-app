@@ -9,7 +9,7 @@
   "enforcement_point": "Nothing to enforce; no NDCA compliance claimed.",
   "tests": [],
   "verification_status": "requires_interpretation",
-  "interpretation_notes": "Keyword search of the compiled rule book for timetable, time table, schedule, program, on 'late' and 'delay' and reading of III.D.1, IV.B.7, IV.C.3, IV.C.7 and V.B.2. Not an end-to-end read; the July 2026 edition is not compared (UNVERIFIED).",
+  "interpretation_notes": "Keyword search of the compiled rule book for timetable, time table, schedule, program, on 'late' and 'delay' and reading of III.D.1, IV.B.7 (p.26), IV.C.3, IV.C.7 and V.B.2. Not an end-to-end read; the July 2026 edition is not compared (UNVERIFIED).",
   "applicable_event_versions": [
     "June 2026, Master v1"
   ],

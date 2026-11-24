@@ -8,7 +8,7 @@
     "effective_from": "2026-06-01",
     "effective_to": null,
     "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
-    "section": "III.D.1 (p.19), last sentence of the timetable text",
+    "section": "III.D.1 (p.19), third of four sentences of the timetable text",
     "quote_free_summary": "The first event of the day must not start ahead of its scheduled time."
   },
   "rule_class": "mandatory",

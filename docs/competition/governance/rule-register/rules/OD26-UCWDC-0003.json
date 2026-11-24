@@ -8,7 +8,7 @@
     "effective_from": "2026-01-01",
     "effective_to": null,
     "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
-    "section": "Heating Rules item 4 (page not confirmed)",
+    "section": "Heating Rules item 4 (p.1)",
     "quote_free_summary": "Where possible a division's smaller heats precede its larger ones so that, after scratches, the Contest Coordinator can move contestants up to keep heats balanced."
   },
   "rule_class": "recommended",
@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation. Separate slice (S6). Coordinated with OD-25 reproducible randomization (seed, algorithm version, final order).",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "NOT IMPLEMENTED and a profile blocker for the UCWDC move-up capability. Modal language is 'Whenever possible'. Page number of the Scoring Format is not confirmed in the extracted text.",
+  "interpretation_notes": "NOT IMPLEMENTED and a profile blocker for the UCWDC move-up capability. Modal language is 'Whenever possible'. Printed page 1.",
   "applicable_event_versions": [
     "2026 v16.9b"
   ],

@@ -8,7 +8,7 @@
     "effective_from": "2026-01-01",
     "effective_to": null,
     "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
-    "section": "Heating Rules item 3 and item 7 (page not confirmed)",
+    "section": "Heating Rules item 3 and item 7 (p.1)",
     "quote_free_summary": "When a division needs several heats those heats must run contiguously, one right after another, including when divisions are co-mingled."
   },
   "rule_class": "mandatory",
@@ -29,7 +29,8 @@
     "OD-01 (PR 832)",
     "OD-06/OD-17 (PR 834)",
     "OD-25 (owner decision 2026-11-23)",
-    "OD-21 (PR 847)"
+    "OD-21 (PR 847)",
+    "OD-25 register entry OD25-UCWDC-0004 (PR 850), same contiguity rule"
   ],
   "last_reviewed": "2026-11-23"
 }

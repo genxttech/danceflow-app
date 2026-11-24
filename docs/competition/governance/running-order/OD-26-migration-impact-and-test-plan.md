@@ -12,7 +12,7 @@ Base inspected: `origin/release/website-embeds` at `49dbaee1b`, 2026-11-23.
 
 | Object | Defined in | Change | Pin |
 |---|---|---|---|
-| `public._comp10d_guard_floor_heat()` (trigger `comp10d_guard_floor_heat` on `event_competition_floor_heats`) | 10D `20261111090000`; **redefined by CF1-A0** inside `20270120090000_competition_cf1_callback_final_advancement.sql` (anchor replacement that adds `_cf1_auth_apply_floor_heat` to the INSERT branch) | Add an UPDATE-only, `heat_number`-only bypass backed by a same-transaction revision row (design 6.6). The INSERT bypass and the draft rule are left exactly as they are. | md5 of the **current** body, read from the repo-applied state at implementation time, not copied from this document. CF1 pins the *pre-CF1* 10D body as `bd20973caffce985813daadde8be947a`; the post-CF1 body has a different md5 that the implementation must compute and pin. Use the anchor-replacement-with-count-check technique CF1-A0 used (it aborts unless the anchor occurs exactly once). |
+| `public._comp10d_guard_floor_heat()` (trigger `comp10d_guard_floor_heat` on `event_competition_floor_heats`) | 10D `20261111090000`; **redefined by CF1-A0** inside `20270120090000_competition_cf1_callback_final_advancement.sql` (anchor replacement that adds `_cf1_auth_apply_floor_heat` to the INSERT branch) | Add an UPDATE-only, `heat_number`-only bypass backed by a same-transaction revision row (design 6.6). The INSERT bypass and the draft rule are left exactly as they are. | md5 of the **current** body, read from the repo-applied state at implementation time, not copied from this document. CF1 pins the *pre-CF1* 10D body as `bd20973caffce985813daadde8be947a`; the post-CF1 body has a different md5 that the implementation must compute and pin. The body has an old-side and a new-side version check and CF1-A0 patched only the new side, so patch two count-checked anchors or add one early-return block; a bypass on only one side never runs. |
 
 ### 1.2 Read or called only (must not change)
 
@@ -51,13 +51,14 @@ Latest migration on the base is `20270218090000`. Slots seen in open PRs and des
 | Slot(s) | Owner | State |
 |---|---|---|
 | `20270219090000` | OD-04 event delete guard (PR #844) | open implementation |
-| `20270220089000`, `20270220090000`-`20270220099000` | OD-05/06/15/16/17 block (PR #834) | design |
+| `20270220089000`, `20270220090000`-`20270220099000`, `20270220100000` | OD-05/06/15/16/17 block (PR #834) | design |
+| `20270220098000`, `20270221090000` | OD-10 ballot visibility (PR #842) | design |
 | `20270221090000`, `20270221093000` | OD-07 corrections (PR #838) | design |
 | `20270221090100` | TW-4F dispute hold (PR #800) | open |
 | `20270222090000`-`20270222093000` | OD-11 ballot corrections (PR #843) | design |
 | `20270222190000` | TW-4F inbound controls (PR #793) | open |
 | `20270223090000` | TW-4F funding exposure (PR #797) **and** calendar feeds tokens (PR #820) | two PRs claim the same timestamp (not this slice's problem; flagged to the coordinator) |
-| `20270223090000`-`20270223092000` | OD-12 paper verification (PR #845) | design |
+| `20270221090000`, `20270222090000`, `20270222092000`, `20270222093000`, `20270223090000`-`20270223092000` | OD-12 paper verification (PR #845) | design |
 | `20270223091000` | TW-4F test credit (PR #796) | open |
 | `20270223130000`, `20270223140000` | integrations S0 (PRs #824, #831) | open |
 
@@ -74,6 +75,8 @@ Latest migration on the base is `20270218090000`. Slots seen in open PRs and des
 Dependency order: OD-05/06 s0 (designations) is **not** required by this block (separate grant table), so OD-26 can ship before or after PR #834's
 block; if the coordinator chooses to share the table (Q7), s0 of OD-26 moves after `20270220090000`. CF1 (`20270120090000`) must be applied wherever
 s2 is applied, because s2 pins the CF1-redefined body; the preflight raises if `_cf1_auth_apply_floor_heat` is missing or the body md5 differs.
+
+Nothing was found at or above `20270224`.
 
 **Hosted state is not assumed.** Per project rule the pin comes from the repo, and the apply status of CF1 and O1 per environment must be probed
 read-only through the ops tooling before any apply; PROD apply is an owner gate. Each file's header must say "PROD apply needs separate owner approval;
@@ -130,6 +133,7 @@ segfault quirk); use direct SQL roles.
 | F3 | Floor heat with one `staging` and one `scheduled` scoring heat (mixed) | frozen |
 | F4 | Never-called heat of an active round that holds a ballot | pinned, refused |
 | F5 | Never-called heat with a mark/tally/result row | pinned, refused |
+| F5b | Active callback round with a round-scope ballot or tally (`heat_id` null) and all heats `scheduled` | every heat of that round pinned, refused |
 | F6 | Heat with `lock_state` `locked` / `certified` | pinned, refused |
 | F7 | Heat whose round is `ballots_locked`, `calculated`, `approved`, `published`, `complete`, `cancelled` | pinned, refused |
 | F8 | Heat entry `danced` or `disqualified` on an otherwise `scheduled` heat | frozen |
@@ -139,6 +143,7 @@ segfault quirk); use direct SQL roles.
 | F12 | After a successful apply: every scoring-heat row, entry, dance, panel assignment, ballot, result, round transition event and lock ledger row is byte-identical (row-hash comparison before/after) | identical |
 | F13 | `staging`/`active`/`complete` heats keep their numbers and contiguity `1..n` holds after apply | holds |
 | F14 | Cancelled-only floor heat reorders as an empty slot | allowed, flagged |
+| PT1 | Any floor heat of the version has `planned_start_at` or `planned_duration_seconds` set | `COMPRO_PLANNED_TIMES_PRESENT`, zero writes |
 | F15 | A `draft` scoring heat present in the live version | refused (not part of live order) |
 
 ### 5.3 Concurrency and transitions (requirement 5)
@@ -153,7 +158,7 @@ segfault quirk); use direct SQL roles.
 | C6 | Apply while CF1 appends a Final | serialize; Final stays last or revision records the append (Q8) |
 | C7 | Scratch commits between preview and apply | fingerprint changed, refused |
 | C8 | Replay of the same `request_id` | `replayed: true`, no second revision; reuse with another payload = `COMPRO_REQUEST_REUSE` |
-| C9 | Lock-order check: apply vs O1 round start/cancel vs E2 lock ballots | no deadlock under repeated runs |
+| C9 | Lock-order check: apply vs O1 round start/cancel vs E2 lock ballots vs `set_competition_heat_lock_state` vs the CF1 revoke/correct path (`NOWAIT`) vs heat-entry check-in and scratch | no deadlock under repeated runs; NOWAIT paths fail fast, no corruption |
 
 ### 5.4 Conflicts and validation (requirements 5, 6)
 
@@ -162,6 +167,7 @@ segfault quirk); use direct SQL roles.
 | V1 | Non-permutation (missing, duplicate, extra, out-of-range number) | `COMPRO_NOT_A_PERMUTATION` |
 | V2 | Reorder that would place a later round before an earlier round of a division | `ROUND_PRECEDENCE` BLOCK; a pre-existing violation does not block but a new one does |
 | V3 | Final appended by CF1 moved ahead of its source round | blocked |
+| V3b | Round R heat 2 moved before heat 1 of the same round | `ROUND_HEAT_ORDER` BLOCK |
 | V4 | Official on two rounds' panels in one floor heat | BLOCK |
 | V5 | Competitor back-to-back newly introduced | ACK required; acknowledged apply records it |
 | V6 | Competitor with a different partner in adjacent heats (pro with two students) | detected via `competitor_id` |
@@ -169,7 +175,7 @@ segfault quirk); use direct SQL roles.
 | V8 | Names/emails equal but different `competitor_id` | **not** treated as the same person |
 | V9 | Scratched entries | ignored for conflicts, present in the diff |
 | V10 | More than one `floor_id` in the version | `COMPRO_MULTI_FLOOR_UNSUPPORTED` |
-| V11 | Pull-forward at or above `pull_forward_confirm` | CONFIRM |
+| V11 | Pull-forward below the threshold with `reorder`; at or above it with `reorder`, then with `reorder_in_window` | ACK; refused; then CONFIRM acknowledged |
 | V12 | No-op proposal | `COMPRO_NO_CHANGE`, no revision |
 | V13 | Any BLOCK finding | zero writes (row-hash comparison) |
 | V14 | Atomicity: force a failure after the revision insert (fault injection) | whole transaction rolled back: no revision, no renumbering |
@@ -180,11 +186,12 @@ segfault quirk); use direct SQL roles.
 |---|---|---|
 | U1 | UPDATE/DELETE/TRUNCATE on revisions and authorities as every role including the table owner path used by app roles | blocked |
 | U2 | Revision numbers gapless, start at 1; baseline 0 is the publication snapshot | holds |
-| U3 | `snapshot_checksum` recomputes from `snapshot_after` | equal |
+| U3 | `snapshot_checksum` recomputes from `order_snapshot`; revision rows contain no names, emails or phone numbers | equal |
 | U4 | `diff` lists exactly the heats whose number changed, the affected non-scratched competitors, the affected panels, and the published entries changed against the announced revision | equal to an independently computed expectation |
 | U5 | Each revision carries actor, grant id and level, reason code and text, timestamp, request id, transaction id | all present |
 | U6 | Previous schedules preserved: revision N-1 `order_after` equals revision N `order_before` | holds; original publication row unchanged |
 | U7 | A change to `heat_number` of a non-draft version **without** a same-transaction revision row, by any role or SQL path | raises (`COMP10D_SCHEDULE_PUBLISHED` or the defence trigger) |
+| U8b | After the guard change: a DELETE of a published floor heat, and an UPDATE of any column other than `heat_number`/`updated_at`, still raise `COMP10D_SCHEDULE_PUBLISHED` (old-side and new-side checks both handled; each anchor patched exactly once) | holds |
 | U8 | CF1 Final append still works after the guard change; draft-version edits still work; published-version delete/other-column update still refused | holds |
 | U9 | Rollback revision restores an earlier order only if every moved heat is still movable | else refused |
 

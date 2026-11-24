@@ -101,11 +101,11 @@ competitors of a changed timetable; "make it available ... prior to the competit
 | Couples II.P.3 (p.14) | Contests post the heats for all divisions, but quoted: "the exact heat order is not guaranteed". A competitor who fails to report or answer the Floor Coordinator's calls for a specific heat is disqualified from that dance category (II.P.3.a). | permission; **the order may change** |
 | Couples II.P.1 (p.14) | For heated divisions competitors "should" report to the Floor Coordinator 30 minutes before the division's first heat, earlier if the schedule says so. | recommended |
 | Couples II.N.1 (p.13) | Decisions of the contest judges, the Contest Coordinator and the Event Director are final. | authority statement; scope for schedule decisions not stated |
-| Scoring Format, Heating Rules item 3 | A division that needs several heats must run them contiguously, one right after another. | mandatory ("must") |
-| Scoring Format, Heating Rules item 4 | Quoted: "Whenever possible", of a division's heats the smaller precedes the larger so that scratches let the **Contest Coordinator move up** contestants to re-balance. | recommended |
+| Scoring Format, Heating Rules item 3 (p.1) | A division that needs several heats must run them contiguously, one right after another. | mandatory ("must") |
+| Scoring Format, Heating Rules item 4 (p.1) | Quoted: "Whenever possible", of a division's heats the smaller precedes the larger so that scratches let the **Contest Coordinator move up** contestants to re-balance. | recommended |
 | Scoring Format, Heating Rules item 1, 2, 7 | Randomization by the scoring system; heat sizes within one of each other; contiguity restated for co-mingled divisions. (Coordinated with OD-25.) | item 1 mandatory language; item 2 and 7 "should" |
 
-Page numbers of the Scoring Format items are **not confirmed** (the extracted text has no page footers); the section is cited by rule number. A keyword
+The Scoring Format Heating Rules items 3, 4 and 7 are on printed page 1 (confirmed by the independent re-read; consistent with the OD-25 PR #850). A keyword
 search of the Couples rules and the Scoring Format for timetable, schedule, delay, late, running order, start time, midnight and curfew found no timetable
 adherence, lateness, cut-off or change-notification rule beyond the rows above (NOT SPECIFIED IN PROVIDED SOURCE; a keyword search is not an end-to-end
 read).
@@ -122,7 +122,7 @@ notify, cancel and reschedule, then read every hit in context.
 | Definitions, Raw Score Judge (p.3) | The Raw Score Judge "does not determine heats", the number of callbacks, cuts to finals or "any other contest structure decisions"; those duties are performed by the Chief Judge or Secondary Chief Judge. | Whether **running order** counts as a "contest structure decision" is not stated: **requires interpretation** (Q3). |
 | 3.4.4 (p.19) | The Chief Judge must review all finalists before finals are posted or started. | Not affected by a reorder (nothing starts), noted for completeness. |
 | 3.4.8 (p.20), Section 6 item 7 (p.23) | Partner rotation, pairing and music selection must stay random and fair; scoring systems should place paired competitors in random dance order. | Concerns within-contest randomization, not the order in which contests run. A reorder never changes within-heat order. |
-| 1.4 (pp.5-6) | Changes needing Board approval are event-level (location, dates, hiatus). | Not about the daily timetable. |
+| 1.4 (pp.6-7) | Changes needing Board approval are event-level (location, dates, hiatus). | Not about the daily timetable. |
 
 **Source gap (recorded after reading):** in the pinned text, **no requirement was found** for daily timetable adherence, lateness limits, cut-off
 times, schedule-change notification, or who may reorder contests during an event, other than the three rows above. Absence in the text read is not
@@ -164,11 +164,11 @@ Definitions used below. **Frontier N\*** = the highest `heat_number` of a floor 
 | 2 | Any scoring heat `complete` | **FROZEN** | Executed; its number and record are history. |
 | 3 | Any scoring heat `staging` ("called"/"staged") | **FROZEN** | Competitors have been called. Un-calling would be a backwards status edge, which the O1 machine does not have (forward only) and this design does not add. |
 | 4 | Any scoring heat `lock_state` `locked` or `certified` | **FROZEN (pinned)** | 10A evidence locks; a locked never-run heat must not move either. |
-| 5 | Any ballot, mark, callback tally, result row, correction record or attendance-dependent evidence for any scoring heat (even if the heat is `scheduled`) | **FROZEN (pinned)** | E2 accepts ballots by round state, so a never-called heat can already hold evidence. Evidence is proven by lookup under row locks, not assumed. |
+| 5 | Any ballot, mark, callback tally, result row or correction record for the scoring heat **or for its round** (round-scope ballots have `heat_id` null, so any round-level ballot, tally or result pins **every** heat of that round), even if the heat is `scheduled` | **FROZEN (pinned)** | E2 accepts ballots by round state, so a never-called heat can already hold evidence. Evidence is proven by lookup under row locks, not assumed. |
 | 6 | A scoring heat's round is `ballots_locked`, `calculated`, `approved`, `published`, `complete` or `cancelled` | **FROZEN (pinned)** | Round past scoring; moving its heats would rewrite the story of a scored round. |
 | 7 | Any heat entry `danced` or `disqualified` | **FROZEN** | Execution evidence. (`scratched` entries are ignored for placement and conflict checks, kept in the diff.) |
 | 8 | Unstarted floor heat with `heat_number < N*` ("bypassed") | **NOT MOVABLE by reorder; reported** | Skipped over by the floor. It can still be called with the normal day-of control (O1 does not enforce numeric order). Re-sequencing it would renumber heats that have already run. The *actual* run order is the O1 transition events. |
-| 9 | Unstarted, in the **commit window** (see 4.3), or having any `checked_in` entry | **CONFIRM-REQUIRED** | Physically committed; moving it needs the higher authority and an acknowledgment bound to the preview. |
+| 9 | Unstarted, in the **commit window** (see 4.3), having any `checked_in` entry, or **moved earlier by at least `pull_forward_confirm` positions** relative to the last announced revision | **CONFIRM-REQUIRED** | Physically committed; moving it needs the higher authority and an acknowledgment bound to the preview. |
 | 10 | Unstarted, `heat_number > N*`, outside the window, no checked-in entries, no evidence, lock `open`, round `draft/scheduled/active` | **MOVABLE** | The only class a standard grant may move. |
 | 11 | Floor heat whose scoring heats are all `cancelled` (an empty slot) | **MOVABLE, flagged** | Keeps its number until removed; excluded from conflict analysis. |
 | 12 | Scoring heat `draft` | **Not part of the live order** | Unplaced/unpublished; refused if it appears in the live version. |
@@ -200,10 +200,9 @@ All new tables are event-scoped, RLS-enabled, with the same conventions as O1/E1
 `protect_competition_history_evidence`-style trigger, truncate guarded, no deletes). Names are placeholders for the implementation PR.
 
 1. `event_competition_running_order_heads` (mutable pointer, **the optimistic-lock row**): `schedule_version_id pk`, `event_id`, `revision_number int not
-   null default 0`, `announced_revision_number int null`, `policy jsonb` (section 4.3 parameters, validated by CHECK), `updated_at`. Created lazily for the
-   live version at the first change or first read of the console.
+   null default 0`, `announced_revision_number int null`, `policy jsonb` (section 4.3 parameters, validated by CHECK), `updated_at`. Created inside the apply transaction under the per-event lock (`insert ... on conflict do nothing`) or by a separate `ensure_*` RPC; the preview is read-only, never creates it, and treats a missing head as revision 0.
 2. `event_competition_running_order_revisions` (**immutable, append-only**): `id, event_id, schedule_version_id, revision_number, base_revision_number,
-   kind ('reorder' | 'system_append' [CF1 Final appended; optional slice] | 'baseline'), order_before jsonb, order_after jsonb, diff jsonb, snapshot_after
+   kind ('reorder' | 'system_append' [CF1 Final appended; optional slice] | 'baseline'), order_before jsonb, order_after jsonb, diff jsonb, order_snapshot
    jsonb, snapshot_checksum text (sha-256), reason_code text, reason text (3-500), actor_user_id, authority_grant_id, authority_level, findings jsonb,
    acknowledgments jsonb, preview_checksum text, request_id uuid unique, transaction_id bigint, created_at`. `unique (schedule_version_id,
    revision_number)`. Revision 0 is the baseline = the publication snapshot (referenced, not copied).
@@ -214,6 +213,8 @@ All new tables are event-scoped, RLS-enabled, with the same conventions as O1/E1
 
 Not changed: `event_competition_schedule_publications` (its `unique (schedule_version_id)` is the reason revisions get their own table),
 `event_competition_heats`, entries, ballots, results, O1 transition events.
+
+**Scope.** The RPC works on the live version at any time but exists for **mid-event** use, because before the first heat runs a republish is still allowed. A later republish starts a new version whose revision chain starts again at 0 (the old chain stays readable); republish stays refused once any heat ran. Revisions have their own reader and are **not** in `competition_audit_log` (a CF1-redefined union); adding a union branch edits a CF1 function and is a coordinator question like Q8.
 
 ## 6. The change operation
 
@@ -238,16 +239,17 @@ Not changed: `event_competition_schedule_publications` (its `unique (schedule_ve
    `FOR SHARE`, so an in-flight ballot finishes first and a later one waits; this closes the window where a ballot appears for a heat we classified
    as evidence-free); (d) floor heats `ORDER BY id FOR UPDATE`; (e) scoring heats `ORDER BY id FOR UPDATE`.
 4. Optimistic check: head `revision_number = p_expected_revision`, else `COMPRO_STALE_REVISION` with the current revision. Then recompute
-   `state_fingerprint` (md5 over each floor heat's number, run state, lock state, evidence flag) and compare to `p_expected_fingerprint`, else
+   `state_fingerprint` (md5 over each floor heat's number, run state, lock state, evidence flag and counts of entries by status) and compare to `p_expected_fingerprint`, else
    `COMPRO_STATE_CHANGED` (a heat was called, a ballot arrived, a lock changed, a competitor scratched). The caller re-previews.
 5. Recompute classification (section 4) and findings (section 7) **inside the lock**; recompute `preview_checksum` and require equality with the
    provided one (`COMPRO_PREVIEW_MISMATCH`): the actor applies exactly what they reviewed.
 6. Refuse on any BLOCK finding; require an acknowledgment entry for each ACK finding and each CONFIRM-REQUIRED heat (`COMPRO_ACK_REQUIRED`).
 7. Write the revision row **first** (so its `transaction_id = txid_current()` is the evidence the guard checks), then update
    `floor_heats.heat_number` for the movable set in **one statement** (the deferrable unique key is checked once, as in `move_competition_floor_heat`),
-   then bump the head. Build `snapshot_after` with the same builder used for publication (`build_competition_schedule_snapshot`) so the revision and the
-   original publication are comparable.
+   then bump the head. Store an **order-only snapshot** (floor heat id, number, scoring heat ids) with its checksum, not the full publication snapshot: that snapshot carries entry display names, statuses and lock states, which would put personal data into an append-only table that can never be trimmed. Names are joined live, under RLS, by the preview and readers.
 8. Return the revision number, the diff and the audience summary. **No notification is sent** (section 11).
+
+Other writers outside O1 that the lock order must coexist with: `set_competition_heat_lock_state` takes **no** event or round lock and locks one heat `FOR UPDATE` (a lock-state change racing the apply is caught by the in-lock recomputation, which re-reads lock states after step 3e); CF1 paths that use `NOWAIT` on heats and rounds raise `55P03` instead of waiting, so a concurrent reorder can make them fail fast but not deadlock; heat-entry check-in and scratch take no locks, so under READ COMMITTED they are covered by the in-lock recomputation of the classification and the `preview_checksum` recheck, not by row locks. The implementation must either lock the affected heats' entries `FOR SHARE` or record this as the accepted guarantee. Test C9 covers all of them.
 
 ### 6.3 Why a single statement and no scoring-heat update
 
@@ -270,8 +272,9 @@ next heat in the new order.
 
 ### 6.6 Guard change (the only one)
 
-`_comp10d_guard_floor_heat` (current body is the CF1-redefined one; the implementation must read it, pin its md5, and use an anchor replacement exactly
-as CF1-A0 did) gains, on `UPDATE` only: allowed when `to_jsonb(new) - {heat_number, updated_at} = to_jsonb(old) - {heat_number, updated_at}`
+**Planned times stay with the slot, so v1 refuses reorder when any floor heat of the version has `planned_start_at` or `planned_duration_seconds` set** (`COMPRO_PLANNED_TIMES_PRESENT`, BLOCK): the bypass below allows only `heat_number` and `updated_at` to differ, and a reorder under authored times would leave times out of order with the numbers. Planned times are not authored by any app path today, so this costs nothing now. Letting times follow the heat (widening the bypass to the two time columns, with the NDCA time model) belongs to the NDCA time-model slice (S7), not v1. Test PT1.
+
+`_comp10d_guard_floor_heat` (current body is the CF1-redefined one; the implementation must read it and pin its md5). **The body has two version checks**: an old-side check (`tg_op in ('UPDATE','DELETE') and not _comp10d_version_editable(old...)`) that CF1-A0 did not touch, and a new-side check that CF1-A0 patched. A bypass patching only one never runs, because the other raises first. Specify either two anchors, each with an occurrence-count check of exactly 1, or an early `return new` block at the top of the function that tests the whole condition once. The change gains, on `UPDATE` only: allowed when `to_jsonb(new) - {heat_number, updated_at} = to_jsonb(old) - {heat_number, updated_at}`
 **and** a revision row for this event/version with `transaction_id = txid_current()` exists whose `order_after` lists this floor heat at the new number.
 Everything else keeps raising `COMP10D_SCHEDULE_PUBLISHED`. A defence-in-depth `BEFORE UPDATE OF heat_number` trigger refuses any other path that changes
 `heat_number` of a non-draft version, so a future redefinition of the guard cannot silently reopen the order.
@@ -285,13 +288,14 @@ Severity: **BLOCK** (never applies), **ACK** (applies only with an acknowledgmen
 | `NOT_PERMUTATION` | BLOCK | The submitted numbers are exactly the numbers currently held by movable floor heats; every movable heat appears once. |
 | `FROZEN_TOUCHED` | BLOCK | A frozen, pinned or bypassed floor heat appears in the order, or its number would change. |
 | `ROUND_PRECEDENCE` | BLOCK | For each division, no later round's heats may be placed before an earlier round's heats **unless the pre-change order already had that violation** (never introduce a new one). A Final appended by CF1 stays after its source round. |
+| `ROUND_HEAT_ORDER` | BLOCK | Within one round, scoring heats keep their per-round `heat_number` order (readers such as `_compe2_round_heats` order by it); a reorder may not invert it unless the pre-change order already had the inversion. |
 | `SAME_FLOOR_HEAT_COMPETITOR` | BLOCK | The existing 10D rule (`_comp10d_floor_heat_problems`) holds for the new order. A reorder does not change membership, so this should never fire; it is a regression guard. |
 | `OFFICIAL_ON_TWO_PANELS_SAME_HEAT` | BLOCK | An official who sits on two rounds' panels must not end up in a floor heat that contains both rounds. Panels are per round (E1); the RPC never edits panels. |
 | `MULTI_FLOOR` | BLOCK (v1) | If more than one distinct `floor_id` is used in the version the RPC refuses (`COMPRO_MULTI_FLOOR_UNSUPPORTED`): concurrent-floor overlap needs a time model that does not exist. |
 | `BACK_TO_BACK_COMPETITOR` | ACK | The same competitor (identity via entry participants, so partner swaps count) is in adjacent floor heats where it was not before. Common for a Pro dancing with several students; therefore warned, not blocked. |
 | `QUICK_CHANGE` | ACK | Gap between two appearances is below `quick_change_min_gap` where it was not before. |
 | `OFFICIAL_AS_COMPETITOR_ADJACENT` | ACK | An official who also competes (permitted only where OD-05 allows it) lands adjacent to a heat in a round they judge. Same floor heat is BLOCK. |
-| `PULLED_FORWARD` | ACK/CONFIRM | Earlier than its last-announced position by at least `pull_forward_confirm`. |
+| `PULLED_FORWARD` | ACK below threshold, CONFIRM at or above | Earlier than its last-announced position. Any pull-forward needs an acknowledgment; at or above `pull_forward_confirm` positions it is CONFIRM-REQUIRED and needs the `reorder_in_window` grant even outside the window. A standard `reorder` grantee can therefore move heats later, or earlier by fewer positions than the threshold. |
 | `IN_WINDOW` | CONFIRM | Section 4.3. |
 | `CHECKED_IN_AFFECTED` | CONFIRM | Number of checked-in competitors in heats whose number changes. |
 | `ANNOUNCED_CHANGED` | INFO | Heats whose number differs from the last announced revision. |
@@ -312,7 +316,7 @@ The preview is a pure function of the proposal and is shown before apply in the 
    checked-in or not, scratched ignored. Counts first, names expandable (least-privilege: names appear only to actors who already see the roster).
 4. **Staff affected**: officials on the affected rounds' panels (per round, E1), scrutineer/chair/scorer assignments of those rounds.
 5. **Published timetable entries affected**: each floor heat entry in the last announced revision whose number or planned time changes, as a
-   before/after list (this is the exact published-entry diff the requirement asks for).
+   before/after list (this is the exact published-entry diff the requirement asks for). The RPC changes **numbers only**; see the planned-time rule in 6.6.
 6. **Findings** (section 7) with severity, the acknowledgments the actor will sign, and the `preview_checksum`.
 7. **What will not change**: statement that no entry, assignment, ballot, panel, result or execution record is touched, with live counts.
 8. A **no-op** proposal (`COMPRO_NO_CHANGE`) is refused, so empty revisions cannot pad the history.
@@ -320,14 +324,14 @@ The preview is a pure function of the proposal and is shown before apply in the 
 ## 9. Versioning, diff and preserved schedules
 
 - Revision numbers are per live version, gapless, starting at 1; revision 0 is the publication baseline. **Nothing is ever overwritten**: every
-  `order_before`, `order_after` and `snapshot_after` is kept.
+  `order_before`, `order_after` and `order_snapshot` is kept.
 - `diff` is structured: `heats_moved[]` (floor_heat_id, from, to), `scoring_heats[]`, `competitors[]` (competitor id, old and new number, checked-in),
   `officials[]` (rounds affected), `published_entries[]` (against the head's `announced_revision_number`, or revision 0).
 - "Announced" is an explicit operator action in the future console: marking a revision as announced (printed, posted, spoken, notified). Before any
   announcement is recorded, **revision 0 is treated as announced**, the conservative default, since printed sheets may exist.
 - Consumers: today no application code reads the publication snapshot. Readers of the live order (console, readiness) read `floor_heats` and see the
   new numbers automatically. Any **future** reader of a published timetable (a participant heat sheet, an export) must read the head revision's
-  snapshot, not `event_competition_schedule_publications`. That is a tested contract in the implementation slice.
+  order snapshot (names joined live), not `event_competition_schedule_publications`. That is a tested contract in the implementation slice.
 - **CF1 interplay (optional slice).** CF1 appends a Final's floor heat to the live version. Without a revision row the head's snapshot would disagree
   with the live order. The optional slice writes a `system_append` revision from the CF1 apply path; this edits a CF1 function and needs the
   coordinator's decision (Q8). Until then a consistency check in the console flags "live order differs from head snapshot".
@@ -342,6 +346,7 @@ this operation.**
 - **Grants** (table 3 in section 5), event-level, per person: `reorder` (move MOVABLE heats) and `reorder_in_window` (also CONFIRM-REQUIRED heats).
 - **Who may grant or end a grant:** only a studio owner or organizer owner of the event (the event-owner level, not admins or staff), recorded with
   reason; a person may hold a grant on their own authority only as the event owner. Granting is audited like any designation.
+- **Who may hold a grant:** a named person with an account who also satisfies `can_manage_event_competition` for the event, **or** an official designated for the event whose body-profile role maps to reorder authority (for example an NDCA Chairman who is not otherwise a manager). A grantee who is not a manager sees counts and order, and competitor names only where they already have roster access.
 - **No grant = nobody can reorder.** Fail closed. Platform admins have **no implicit** reorder right: a platform operator needs an explicit grant like
   anyone else (a break-glass path is a separate decision, Q6).
 - **Coordination with OD-06 (PR #834).** That design defines `event_competition_role_designations` with a closed set of WSDC-oriented kinds and
@@ -366,7 +371,7 @@ timing constant). This design therefore adds **no delivery code**.
 |---|---|---|
 | Competitors in heats whose number changed | Entry participants of non-scratched entries | Their call time changed. Pulled-forward and checked-in are highlighted. |
 | Competitors in adjacent heats | Optional ("heat before you moved") | Not required; off by default. |
-| Officials | Panel members of affected rounds, chair, scorer | Their judging schedule changed. (NDCA IV.B.7 tells an engaged professional to ascertain the timetable: a duty of the judge, not a notification rule on the organizer; printed page not re-confirmed.) |
+| Officials | Panel members of affected rounds, chair, scorer | Their judging schedule changed. (NDCA IV.B.7 tells an engaged professional to ascertain the timetable: a duty of the judge, not a notification rule on the organizer; IV.B.7, p.26.) |
 | Floor and desk staff | Floor coordinator, check-in desk, MC/announcer designees | Operational. |
 | Organizer-side | The actor and the event owner | Confirmation. |
 
@@ -407,7 +412,7 @@ mapping and records. They **never** charge or compute penalties.
   reason); "first event of the day" per floor/day to be defined (Q2).
 - **1:00 a.m. cutoff.** Monitoring projects whether the last final will finish before 1:00 a.m. event-local time; a proposal that plans a final to start
   after 1:00 a.m. is a preventable violation. Actual conduct: record each round that took the floor after 1:00 a.m. (round, heat, count of non-scratched
-  couples, timestamp, rule reference). **No dollar amount is computed or stored, and nothing is charged.**
+  couples, timestamp, rule reference). **No dollar amount is computed or stored, and nothing is charged.** The couple count is for the organizer's own record only.
 - **Competitor lead time.** V.B.2's half-hour attendance expectation informs the default commit window; the profile may derive `window_minutes` from it.
 - Mandatory NDCA items are recorded as `unsupported` (Chairman/Organizer authority as `requires_interpretation`), NOT IMPLEMENTED: `OD26-NDCA-0001` through `-0005`; the absence of a notification rule is `OD26-SILENT-0003`.
 
@@ -442,7 +447,7 @@ mapping and records. They **never** charge or compute penalties.
 
 ### 12.4 Rule-register entries added by this PR
 
-`OD26-DF-0001`..`0003` (DanceFlow policy, `unverified`, design only); `OD26-NDCA-0001`..`0005`; `OD26-UCWDC-0001`..`0005`; `OD26-WSDC-0001`..`0003`; `OD26-SILENT-0001`..`0003`. All body requirements are `unsupported` or `requires_interpretation` and **NOT IMPLEMENTED**; each is a blocker for the corresponding body profile. No entry claims `verified_compliant`. Id prefix `OD26-` avoids the ids used by the open register PRs (OD01, OD04-OD13, OD18, OD21 families, checked read-only on 2026-11-23); the OD-25 docs PR was in flight and its ids were not available.
+`OD26-DF-0001`..`0003` (DanceFlow policy, `unverified`, design only); `OD26-NDCA-0001`..`0005`; `OD26-UCWDC-0001`..`0005`; `OD26-WSDC-0001`..`0003`; `OD26-SILENT-0001`..`0003`. All body requirements are `unsupported` or `requires_interpretation` and **NOT IMPLEMENTED**; each is a blocker for the corresponding body profile. No entry claims `verified_compliant`. Id prefix `OD26-` avoids the ids used by the open register PRs (OD01, OD04-OD13, OD18, OD21 families, checked read-only on 2026-11-23; PR #850 uses `OD25-*` and cites `OD25-UCWDC-0004` for the same contiguity rule as `OD26-UCWDC-0004`).
 
 ## 13. Interaction with other decisions
 
