@@ -126,11 +126,11 @@ insert into public.event_competition_divisions (id, event_id, program_id, contes
   (pg_temp.u('003003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'Advanced', 'open'),
   (pg_temp.u('003009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('002002'), 'Other Newcomer', 'open');
 -- r1 draft, r2 scheduled, r3 active, r9 other studio
-insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status) values
-  (pg_temp.u('006001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Final', 'final', 1, 'draft'),
-  (pg_temp.u('006002'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'Final', 'final', 1, 'scheduled'),
-  (pg_temp.u('006003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'Final', 'final', 1, 'draft'),
-  (pg_temp.u('006009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'Final', 'final', 1, 'draft');
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values
+  (pg_temp.u('006001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Final', 'final', 1, 'draft', 'ordinal_majority'),
+  (pg_temp.u('006002'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'Final', 'final', 1, 'scheduled', 'ordinal_majority'),
+  (pg_temp.u('006003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'Final', 'final', 1, 'draft', 'ordinal_majority'),
+  (pg_temp.u('006009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'Final', 'final', 1, 'draft', 'ordinal_majority');
 
 -- ============================================================================
 -- 1. Surface: grants, RLS, anon
