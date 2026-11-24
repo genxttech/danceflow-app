@@ -1,0 +1,20 @@
+{
+  "id": "OD12-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Every Competition OS event: independent verification of paper-ballot transcription",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): every paper ballot version needs verification by a different authorized person against the paper original before the round can lock, calculate, approve or publish; discrepancy is terminal for that version and goes to the OD-11 judge-confirmed process; reports show ids, counts and codes only; retention checklist is advisory.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-12-paper-ballot-verification-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Applies to NDCA, UCWDC, WSDC, Studio and Custom events alike; stricter than any body text supplied for UCWDC/Studio. Owner decision OD-12. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-12 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

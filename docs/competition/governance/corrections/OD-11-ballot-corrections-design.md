@@ -263,7 +263,7 @@ The OD-10 design (session `od10-ballot-visibility`) was **not yet published** wh
 
 No OD-12 design was available when this was written. The class (a) contract this design **needs and defines for OD-12 to align with**:
 
-- Proposal fields: `paper_original_ref text` (a retention-box/card locator, no marks), `paper_verified_by uuid`, `paper_verified_at` (set by the review event).
+- Proposal field: `paper_original_ref text` (a retention locator, no marks). Verification identity and time live only in the OD-12 verification table (OD-12 section 11, finding 2), not on the proposal.
 - The reviewer compares staged marks with the retained signed original (NDCA III.D.16 access is limited to the Chairman and Scrutineer until the end of the
   competition, so for NDCA events the reviewer is the Chairman/Scrutineer role; for others a scorer or chair different from the transcriber).
 - If OD-12 adds a "verified by" column to first-time paper ballots (WSDC 3.4.9.b.i), class (a) reuses the same person rule (verifier != inputter) and the same
@@ -370,7 +370,7 @@ proposed `20270221090000-093000` (PR #838). **Proposed OD-11 block: `20270222090
 | `20270222092000_competition_od11_s2_confirm_apply` | confirm/apply/judge-authored RPCs, session-level helper, hash helper |
 | `20270222093000_competition_od11_s3_enforcement` | `_compe2_insert_ballot` pinned anchors, `enter_competition_paper_ballot` refusal, A7 narrowing, deferred backstop, pending blocker |
 
-Hard order: **OD-04 -> OD-05/06 (needs `_compoc_conflict_state`, designations) -> OD-12 migration (if it touches ballots) -> OD-10 (reader predicate) -> OD-11 s0-s3.**
+Hard order (amended by OD-12 section 11, finding 3): **OD-04, OD-05/06, OD-10, OD-12 s0-s1 (tables and helpers only, no ballot column), OD-11 s0-s3, then OD-12 s2 (blocker and lock/approve/publish anchors)**.
 OD-07 is a soft dependency (the `od07_case_ref` has no foreign key). If OD-10 or OD-12 cannot land first, s3 does not ship (the fail-closed confidentiality default in 4.9 is acceptable only for dark events).
 **Unresolved before PR-B:** (1) OD-10 and OD-12 designs; (2) the NDCA Chairman / UCWDC Contest Coordinator / WSDC Chief Judge role mappings (J-01, OD-06, OD-15); (3) answers Q1-Q8; (4) the hosted state of A7 and of PV-1; (5) the apply-while-published hiding behavior (OD-07 Q4 / OD-22).
 

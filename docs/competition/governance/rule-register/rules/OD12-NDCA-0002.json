@@ -1,0 +1,28 @@
+{
+  "id": "OD12-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, retention of original score sheets",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.E item 2 (PDF p.32)",
+    "quote_free_summary": "Organizers retain the original adjudicators' score sheets for 30 days after the close of the event, in case of a discrepancy in the scrutineers' final markings."
+  },
+  "rule_class": "mandatory",
+  "requirement": "The organizer checklist names the 30-day minimum and records the organizer's acknowledgement; DanceFlow never retains paper and never deletes evidence automatically.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-12-paper-ballot-verification-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "The 30 days is a minimum retention, not a deletion trigger or a correction deadline. Acknowledgement is the organizer's statement, not proof of physical retention. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-12 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

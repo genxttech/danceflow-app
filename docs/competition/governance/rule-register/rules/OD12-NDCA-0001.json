@@ -1,0 +1,28 @@
+{
+  "id": "OD12-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, Chairman transcription check and access to originals",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C item 5 (PDF p.34, printed p.27); III.D.16 (PDF p.28)",
+    "quote_free_summary": "The Chairman inspects marks after each heat and verifies correct transcription; only the Chairman and Scrutineer have direct access to the original marking sheets until the end of the competition."
+  },
+  "rule_class": "mandatory",
+  "requirement": "The software records the Chairman's verification act; a generic scorer or manager is not assumed to qualify; original-sheet comparison is limited to the Chairman and Scrutineer roles.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-12-paper-ballot-verification-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "The Scrutineer has no DanceFlow role and the chair-to-Chairman mapping is not approved (audit row J-01), so NDCA-declared events fail closed. The software cannot perform the physical comparison. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-12 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

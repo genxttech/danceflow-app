@@ -1,0 +1,28 @@
+{
+  "id": "OD12-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, transfer of paper score sheets",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.9.b.i (PDF p.20)",
+    "quote_free_summary": "Transfer of judges' paper score sheet results to the computerized system must be audited by the Chief Judge and/or a scoring team approved by the Chief Judge, verified by a person other than the one inputting."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Every paper ballot version is verified against the paper original by the designated Chief Judge or a Chief-Judge-approved scoring-team member who is not the transcriber, before the round can lock, calculate, approve or publish.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-12-paper-ballot-verification-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Timing and the content of the audit record are not specified; the Chief Judge and approved-team designations depend on OD-06 (not built). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-12 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
