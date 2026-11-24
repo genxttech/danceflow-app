@@ -12,7 +12,7 @@
     "quote_free_summary": "Adjudicators other than invigilators may not use cell phones or any other unauthorized electronic devices during the periods in which they are officiating."
   },
   "rule_class": "mandatory",
-  "requirement": "No judging on personal phones; no electronic device unless an \"authorized\" device is defined.",
+  "requirement": "No judging on cell phones or other personal electronic devices; no electronic device at all unless a source defines an \"authorized\" device (none does).",
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6E): judging-arrangement declaration and _compoc_blockers_judging_arrangement for the declared body. Not built.",
   "tests": [],

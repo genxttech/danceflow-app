@@ -1,0 +1,28 @@
+{
+  "id": "OD29-NDCA-0008",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: virtual events",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.A.11.d-e (p.13)",
+    "quote_free_summary": "Virtual events and competitions are not sanctioned by the NDCA, and no virtual event may be attached to a sanctioned event."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A declared remote or virtual component is not offered for an NDCA-declared event; the rule is about events, not a rule on where an individual judge sits.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6E): judging-arrangement declaration and _compoc_blockers_judging_arrangement for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Event-level rule; whether it also bars a remote judge at an in-person event is not stated. NOT IMPLEMENTED (design only, PR-A section 6E): a BLOCKER to activating an NDCA profile; no test; no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

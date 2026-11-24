@@ -4,7 +4,7 @@
   "format": "UCWDC events: judging devices, electronic ballots, remote judging",
   "source": null,
   "rule_class": "rulebook_silent",
-  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. No device, electronic-ballot or remote-judging text in UCWDC Couples, Pro/Pro-Pro/Am, Line Dance, Teams or the Scoring Format (2026). Terms searched: cell phone, electronic device, unauthorized, earbud, virtual judging, remote judging, online judging, tablet, mobile, smartphone, device, in person, virtual.",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. No device, electronic-ballot or remote-judging text in UCWDC Couples, Pro/Pro-Pro/Am, Line Dance, Teams or the Scoring Format (2026). Terms searched: cell phone, electronic device, unauthorized, earbud, virtual judging, remote judging, online judging, tablet, mobile, smartphone, device, in person, virtual. The Scoring Format preamble (p.1) requires a vetted and verified UCWDC \"authorized\" Scoring System, a scoring-system requirement handled under OD-01, not a device or location rule.",
   "implementation": [],
   "enforcement_point": "None.",
   "tests": [],
