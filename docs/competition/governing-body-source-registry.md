@@ -36,6 +36,31 @@ A profile version is immutable once a program references it; a correction is pub
 | `studio_simple@2` | superseded, kept | Seeded by `20261113090000`. Referenced by a DEV walkthrough draft, so it is kept unchanged; new setups cannot use it. |
 | `studio_simple@3` | current | Seeded by `20261114090000`. Cites the documents above; see [phase10c5-source-to-ui-matrix.md](phase10c5-source-to-ui-matrix.md). |
 
+## Edition lifecycle and effective dates (OD-30, design only)
+
+Owner decision OD-30 (2026-11-23): editions are versioned, admitted by the DanceFlow platform owner after review, and
+selected per event by an authorized organizer; nothing upgrades an event automatically. Design:
+[governance/editions/OD-30-rulebook-editions-design.md](governance/editions/OD-30-rulebook-editions-design.md);
+process: [edition-difference-method.md](governance/editions/edition-difference-method.md). Nothing below changes a row
+or a status above.
+
+- **No pinned edition states an effective date.** NDCA says amendments "take effect upon publication"
+  (Introduction F, p.2) but the June 2026 PDF does not state its publication date; UCWDC (cover "2026 - 2028",
+  "REVISED 2025") and WSDC (footers "Version 2026.1C") state none. Effective date is **UNKNOWN** for every row.
+- **Never infer a date** from a file name (`v1-26-2026`, `Jan172026`), a cover month, a revision year, a footer
+  version label or HTTP `Last-Modified`. Publication date, effective date, event date and organizer declaration are
+  different facts.
+- **Candidate editions** (recorded in a "Candidate editions" note when PR #840 lands, for example the July 2026 NDCA
+  edition) are not rows, are never cited by a profile or register entry, and move to a row only through the
+  independent-review promotion gate. Re-verified 2026-11-23: the July candidate's II.B.7.f differs from June (June
+  "shall be as listed below"; July the organizer "is not required to offer all" of the listed age divisions;
+  thresholds unchanged); see [age-basis-source-notes.md](governance/editions/age-basis-source-notes.md).
+- **Statuses.** The three statuses above stay in force. The finer lifecycle (`candidate`, `under_review`, `approved`,
+  `superseded`, `rejected`, `withdrawn`) is a proposal that maps onto them (`approved` = `authoritative`; everything
+  not selectable = `not current`); it is not adopted until the design is accepted.
+- **Register dates.** `source.effective_from` is schema-required, so `OD30-*` entries carry the placeholder
+  `2026-11-22` and say so in their notes; the proposed fix (nullable date plus status) is finding F-1 in the design.
+
 ## Known gaps
 
 - **Undefined algorithms.** The NDCA rule book requires the Skating System but does not define the algorithm, and the WSDC rules refer to their website for Relative Placement. Scoring engines (10F) need authoritative specifications for both.

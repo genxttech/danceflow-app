@@ -1,0 +1,21 @@
+{
+  "id": "OD30-SILENT-0001",
+  "governing_body": "silent",
+  "format": "Effective dates of pinned editions (NDCA, UCWDC, WSDC)",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: when any pinned edition takes effect. NDCA defines effectivity as upon publication (Introduction F, p.2) but the June 2026 PDF does not state its publication date; UCWDC (cover '2026 - 2028', 'REVISED 2025') and WSDC (footers 'Version 2026.1C') state none. No date may be taken from the file names ('v1-26-2026', 'Jan172026').",
+  "implementation": [],
+  "enforcement_point": "Not built. Each gap blocks automatic determination (docs/competition/governance/editions/OD-30-rulebook-editions-design.md).",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Blocks any date-window evaluation for a body-declared event; the July 2026 NDCA candidate has the same gap.",
+  "applicable_event_versions": [
+    "Editions pinned in the source registry (2026)"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03"
+  ],
+  "last_reviewed": "2026-11-23"
+}

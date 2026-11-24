@@ -1,0 +1,20 @@
+{
+  "id": "OD30-DF-0004",
+  "governing_body": "dance_flow_policy",
+  "format": "Audit reference to edition and scoring policy (all bodies)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: every event binding, scoring pin, result version and published result retains an immutable reference to the rulebook edition (or studio_custom) and the scoring-policy tuple in force when it was executed; recomputation reads stored references and never re-resolves them; pre-change rows are marked legacy_unrecorded, never inferred.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/editions/OD-30-rulebook-editions-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-30 item 14. Evidence for publications is transitive through result_version_id. Design only: nothing implemented.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

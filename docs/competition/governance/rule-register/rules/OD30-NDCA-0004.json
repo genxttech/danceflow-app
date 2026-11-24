@@ -1,0 +1,30 @@
+{
+  "id": "OD30-NDCA-0004",
+  "governing_body": "NDCA",
+  "format": "NDCA rule amendments, edition effectivity",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "Introduction F 'Application of Competition Rules' (printed p2)",
+    "quote_free_summary": "Amendments to the Rule Book take effect upon publication."
+  },
+  "rule_class": "mandatory",
+  "requirement": "An NDCA edition's effective date is defined by its publication; Competition OS may record an NDCA effective date only after the publication date is verified from a publisher statement.",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). The June 2026 PDF states no publication date; the July 2026 candidate has no change log (PR #840). Edition effectivity cannot be established from the provided sources.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

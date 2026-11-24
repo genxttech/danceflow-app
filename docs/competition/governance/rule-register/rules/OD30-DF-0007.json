@@ -1,0 +1,20 @@
+{
+  "id": "OD30-DF-0007",
+  "governing_body": "dance_flow_policy",
+  "format": "A reviewed edition is not an engine or a certification (all bodies)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: admission of an edition authorizes only its selection; it does not authorize a scoring engine or body scoring profile, does not make a result body-compliant, and is not external certification or approval.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/editions/OD-30-rulebook-editions-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-30 item 16; scoring dependencies stay with OD-01, OD-09 and OD-24. Design only: nothing implemented.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

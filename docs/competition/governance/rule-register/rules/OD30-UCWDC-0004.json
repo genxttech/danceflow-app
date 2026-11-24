@@ -1,0 +1,30 @@
+{
+  "id": "OD30-UCWDC-0004",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples Open and Masters adult exception",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "II.D.3.a-b (p3)",
+    "quote_free_summary": "Open and Masters competitors must be Adults, except in couples where an Adult may dance with a partner aged 16 or above."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "Competition OS does not compute this. The exception is recorded for the Couples age_basis; it can never admit a registrant under 18 while OD-02 stands (a 16-17-year-old partner is a minor under the launch restriction).",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). Couples document only; the ProPro/ProAm document states no such exception. OD-02 prohibits under-18 registration regardless of this permitted exception.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded: OD-30
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-30 | **Option A:** versioned rulebook editions, effective-date tracking and body-specific `age_basis` rules; platform owner admits editions, organizers select, no automatic upgrade, controlled amendment after registrations begin, no ordinary switching after competition activity. Foundational prerequisite for any body profile. | 2026-11-23 | Docs only: [design](editions/OD-30-rulebook-editions-design.md), [edition-difference method and promotion gate](editions/edition-difference-method.md), [age-basis source notes](editions/age-basis-source-notes.md); register `OD30-*`. | **Design only, NOT IMPLEMENTED.** Every pinned edition's effective date is UNKNOWN; July 2026 NDCA stays an UNREVIEWED CANDIDATE (II.B.7.f changed). ProAm/Couples whose-age (AE-16) UNRESOLVED. Register cannot express an unknown date (finding F-1). No scoring engine or certification implied. OD-02 absolute. |

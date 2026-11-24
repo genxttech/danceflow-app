@@ -1,0 +1,30 @@
+{
+  "id": "OD30-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA amateur age classes (X.A.1 a-e, g)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "X.A.1 (printed p42)",
+    "quote_free_summary": "Age classes other than Under 21 take effect on the actual birthday; a competitor moving up may change anytime in a 60-day period beginning 30 days before and ending 30 days after the birthday, extended to the last day of a multi-day Sanctioned competition when the 30-day mark falls after events have begun."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not compute NDCA age classes. The age_basis for NDCA amateur classes would record a birthday reference with window_before 30, window_after 30 and the multi-day extension as stated parameters; whether the window is a recorded election is unresolved.",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). Window election and 'competitive events have begun' unresolved (OD30-SILENT-0002). Does not apply to Under 21 (OD30-NDCA-0002). Coordinates with NDCA-OD03-AGE-CLASSIFICATIONS (PR #837).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

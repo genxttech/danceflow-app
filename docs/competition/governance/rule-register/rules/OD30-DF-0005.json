@@ -1,0 +1,20 @@
+{
+  "id": "OD30-DF-0005",
+  "governing_body": "dance_flow_policy",
+  "format": "Versioned age_basis model (all bodies)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: an explicit, versioned age_basis per body, edition and division/event category records which reference rule applies, whose age counts, and what is unresolved; there is no universal reference date, and an age_basis that is not verified_text never drives an automatic determination.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/editions/OD-30-rulebook-editions-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-30 items 11-12. Organizer-defined divisions have no body basis (organizer policy). Design only: nothing implemented.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

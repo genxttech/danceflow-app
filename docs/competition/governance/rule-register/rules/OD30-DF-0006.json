@@ -1,0 +1,20 @@
+{
+  "id": "OD30-DF-0006",
+  "governing_body": "dance_flow_policy",
+  "format": "OD-02 adult-only restriction independent of edition and age settings (Competition OS launch)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (OD-02): under-18 competitor registration stays prohibited regardless of organizer attestation, waiver, edition selection, body exception or any age_basis setting; the OD-02 gate does not read edition or age_basis.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/editions/OD-30-rulebook-editions-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-30 item 13 and OD-02. The gate's own reference moment is defined in OD-02 (PR #835). Design only: nothing implemented.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
