@@ -42,7 +42,6 @@ select pg_temp.chk('L03 refusals: an unknown request raises 22023, a malformed o
   and pg_temp.val_as('service_role', null, 'select public.intake_declare_minor_status(decode(repeat(''ab'', 32), ''hex''), ''maybe'')') like 'ERR 22023%'
   and pg_temp.val_as('service_role', null, 'select public.intake_session_minor_state(decode(repeat(''ab'', 32), ''hex''))') is null
   and pg_temp.val_as('authenticated', gen_random_uuid(), format('select count(*) from public.intake_minor_basis(%L, %L)', gen_random_uuid(), gen_random_uuid())) like 'ERR 42501%'
-  and pg_temp.val_as('anon', null, format('select public.intake_determine_minor_from_birthday(%L, %L)', gen_random_uuid(), gen_random_uuid())) like 'ERR 42501%'
   and intake_private.fulfillment_state(gen_random_uuid()) = 'incomplete');
 
 select pg_temp.chk('L04 Gate A is closed and nothing was written: no determination rows were added by this suite',

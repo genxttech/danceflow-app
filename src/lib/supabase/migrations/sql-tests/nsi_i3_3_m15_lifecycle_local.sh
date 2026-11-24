@@ -70,7 +70,7 @@ mutate "staff provenance not stored on the row" "s|declared_value_class, actor_u
 mutate "session state ignores a closed request" "s|  if q.id is null or q.status not in ('pending', 'invited', 'in_progress') then return null; end if;|  if q.id is null then return null; end if;|" "N11"
 mutate "staff read capability wrong" "s|assert_staff(p_studio_id, 'view_status')|assert_staff(p_studio_id, 'minor_override')|" "N12"
 mutate "drop the O11 branch" "s|    if v_source = 'declared' then|    if false then|" "N15"
-mutate "drop the B2 branch" "s|  if not v_found then|  if false then|" "N15"
+mutate "drop the B2 branch" "s|  if v_found is not true then|  if false then|" "N15"
 [ "$(fp $C)" = "$F15" ] && say "   catalog identical after the probes" || bad "catalog differs after the probes"
 suite $C test_T_nsi_i3_3_m15_local.sql "M15 boundary suite after the probes"
 

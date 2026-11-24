@@ -712,7 +712,8 @@ begin
   end if;
   select d.is_minor, d.source, true into v_minor, v_source, v_found from public.intake_minor_determinations d
   where d.request_id = p_request_id order by d.created_at desc, d.id desc limit 1;
-  if not v_found then
+  -- SELECT INTO with no row sets every target to NULL, so test for "not true"
+  if v_found is not true then
     return 'determination_outstanding';
   end if;
   if v_minor = false then

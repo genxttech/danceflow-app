@@ -89,17 +89,14 @@ select pg_temp.chk('N01 Gate A closed returns gate_closed and writes nothing; an
   and pg_temp.kv('n1_unknown') like 'ERR 22023%' and pg_temp.kv('n1_foreign') like 'ERR 22023%',
   pg_temp.kv('n1_closed') || ' / ' || pg_temp.kv('n1_unknown') || ' / ' || pg_temp.kv('n1_foreign'));
 
-select pg_temp.setkv('n2_auth', pg_temp.run_as('authenticated', pg_temp.u('owner_a'), format('select public.intake_determine_minor_from_birthday(%L, %L)', pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('n1'), 1))));
-select pg_temp.setkv('n2_anon', pg_temp.run_as('anon', null, format('select public.intake_determine_minor_from_birthday(%L, %L)', pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('n1'), 1))));
-select pg_temp.setkv('n2_decl_auth', pg_temp.run_as('authenticated', pg_temp.u('owner_a'), 'select public.intake_declare_minor_status(decode(repeat(''ab'', 32), ''hex''), ''adult'')'));
-select pg_temp.setkv('n2_state_anon', pg_temp.run_as('anon', null, 'select public.intake_session_minor_state(decode(repeat(''ab'', 32), ''hex''))'));
-select pg_temp.setkv('n2_help1', pg_temp.run_as('service_role', null, 'select intake_private.studio_local_date(gen_random_uuid())'));
-select pg_temp.setkv('n2_help2', pg_temp.run_as('service_role', null, 'select intake_private.age_in_years(current_date, current_date)'));
-select pg_temp.setkv('n2_basis_sr', pg_temp.run_as('service_role', null, format('select * from public.intake_minor_basis(%L, %L)', pg_temp.kv('sa'), pg_temp.part(pg_temp.kv('n1'), 1))));
-select pg_temp.chk('N02 privileges: determine, declare and session state are service_role only; the helpers are not executable by any API role; the staff read is not executable by service_role',
-  pg_temp.kv('n2_auth') like '42501%' and pg_temp.kv('n2_anon') like '42501%' and pg_temp.kv('n2_decl_auth') like '42501%' and pg_temp.kv('n2_state_anon') like '42501%'
-  and pg_temp.kv('n2_help1') like '42501%' and pg_temp.kv('n2_help2') like '42501%' and pg_temp.kv('n2_basis_sr') like '42501%',
-  pg_temp.kv('n2_auth') || ' | ' || pg_temp.kv('n2_help1') || ' | ' || pg_temp.kv('n2_basis_sr'));
+-- (privileges are checked in the catalog: calling a function the role may not execute crashes the local QA image, see the TW-4F notes)
+select pg_temp.chk('N02 privileges: determine, declare and session state are executable by service_role only; the staff read by authenticated only; the helpers by nobody; the restricted role by none of them',
+  (select bool_and(has_function_privilege('service_role', f, 'execute') and not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute') and not has_function_privilege('intake_destructive', f, 'execute'))
+     from unnest(array['public.intake_determine_minor_from_birthday(uuid,uuid)', 'public.intake_declare_minor_status(bytea,text)', 'public.intake_session_minor_state(bytea)']) f)
+  and has_function_privilege('authenticated', 'public.intake_minor_basis(uuid,uuid)', 'execute') and not has_function_privilege('service_role', 'public.intake_minor_basis(uuid,uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.intake_minor_basis(uuid,uuid)', 'execute') and not has_function_privilege('intake_destructive', 'public.intake_minor_basis(uuid,uuid)', 'execute')
+  and (select bool_and(not has_function_privilege(r, f, 'execute'))
+         from unnest(array['intake_private.studio_local_date(uuid)', 'intake_private.age_in_years(date,date)']) f, unnest(array['anon', 'authenticated', 'service_role', 'intake_destructive']) r));
 
 -- ===== N03 age edges (the day of the 18th birthday is adult, the day before is a minor), thresholds, bounds ===========
 select pg_temp.setkv('n3a', pg_temp.fresh(false)); select pg_temp.setkv('n3b', pg_temp.fresh(false)); select pg_temp.setkv('n3c', pg_temp.fresh(false));
@@ -175,12 +172,15 @@ select pg_temp.chk('N07 a second call changes nothing (already_current); an auto
 -- ===== N08 closed request, erasure barrier ============================================================================
 select pg_temp.setkv('n8', pg_temp.fresh(false));
 select pg_temp.set_bd(pg_temp.part(pg_temp.kv('n8'), 4), (pg_temp.today_a() - interval '40 years')::date);
-update public.intake_requests set status = 'submitted' where id = pg_temp.part(pg_temp.kv('n8'), 1)::uuid;
-select pg_temp.setkv('n8_r', pg_temp.det(pg_temp.part(pg_temp.kv('n8'), 1)));
+select pg_temp.setkv('n8b', pg_temp.fresh(false));
+select pg_temp.set_bd(pg_temp.part(pg_temp.kv('n8b'), 4), (pg_temp.today_a() - interval '40 years')::date);
 update public.intake_requests set status = 'cancelled_by_staff' where id = pg_temp.part(pg_temp.kv('n8'), 1)::uuid;
-select pg_temp.setkv('n8_r2', pg_temp.det(pg_temp.part(pg_temp.kv('n8'), 1)));
-select pg_temp.chk('N08 a request that is not open (submitted, cancelled) is refused with request_not_open and nothing is written',
-  pg_temp.kv('n8_r') = 'request_not_open' and pg_temp.kv('n8_r2') = 'request_not_open' and pg_temp.nrows(pg_temp.part(pg_temp.kv('n8'), 1)) = 0);
+update public.intake_requests set status = 'expired' where id = pg_temp.part(pg_temp.kv('n8b'), 1)::uuid;
+select pg_temp.setkv('n8_r', pg_temp.det(pg_temp.part(pg_temp.kv('n8'), 1)));
+select pg_temp.setkv('n8_r2', pg_temp.det(pg_temp.part(pg_temp.kv('n8b'), 1)));
+select pg_temp.chk('N08 a request that is not open (cancelled, expired) is refused with request_not_open and nothing is written',
+  pg_temp.kv('n8_r') = 'request_not_open' and pg_temp.kv('n8_r2') = 'request_not_open'
+  and pg_temp.nrows(pg_temp.part(pg_temp.kv('n8'), 1)) = 0 and pg_temp.nrows(pg_temp.part(pg_temp.kv('n8b'), 1)) = 0);
 
 -- ===== N09 declaration: birthday first, provenance, one declaration, invalid sessions ==================================
 select pg_temp.setkv('l1', pg_temp.live());   -- no birthday: the declaration path
@@ -270,8 +270,8 @@ declare q record;
 begin
   select * into q from public.intake_requests where id = p_req::uuid;
   set local session_replication_role = replica;
-  insert into public.intake_completions (studio_id, request_id, client_id, template_id, template_version_id, version_number)
-  values (q.studio_id, q.id, q.client_id, q.template_id, gen_random_uuid(), 1);
+  insert into public.intake_completions (studio_id, request_id, client_id, template_id, template_version_id, version_number, student_response_id)
+  values (q.studio_id, q.id, q.client_id, q.template_id, gen_random_uuid(), 1, gen_random_uuid());
   set local session_replication_role = origin;
 end $f$;
 select pg_temp.setkv('f1', pg_temp.fresh(false)); select pg_temp.setkv('f2', pg_temp.fresh(false)); select pg_temp.setkv('f3', pg_temp.fresh(false)); select pg_temp.setkv('f4', pg_temp.fresh(false));
