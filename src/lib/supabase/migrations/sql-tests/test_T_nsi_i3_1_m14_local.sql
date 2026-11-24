@@ -181,7 +181,7 @@ select pg_temp.chk('T07 with 55 held clients holding the oldest expired sessions
 
 -- ===== T08 markers, ACLs, catalog ====================================================================================
 select pg_temp.chk('T08 every M14 body carries the m14 marker; the hold-insert trigger exists; the erase and purge implementations stay owned by the restricted role; the catalog self-check passes',
-  (select count(*) = 11 and bool_and(position('nsi-body:m14' in prosrc) > 0)
+  (select count(*) = 11 and bool_and(prosrc ~ 'nsi-body:m(14|16a)')
      from pg_proc where (proname in ('client_has_active_hold', 'is_held', 'delete_guard', 'legal_hold_insert_guard', 'lock_client', 'try_lock_client', 'purge_expired_impl', 'erase_client_impl',
                                       'intake_erase_client', 'intake_revoke_session', 'intake_create_legal_hold')))
   and exists (select 1 from pg_trigger where tgrelid = 'public.intake_legal_holds'::regclass and tgname = 'intake_legal_holds_05_lock' and not tgisinternal)

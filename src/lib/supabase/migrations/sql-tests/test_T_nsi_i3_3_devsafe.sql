@@ -23,7 +23,7 @@ create temp table t_before as select count(*) as n from public.intake_minor_dete
 select pg_temp.chk('L01 M15 is applied: every M15 body carries the m15 marker, the inventory is 110 functions, the catalog self-check passes',
   (select count(*) = 7 and bool_and(position('nsi-body:m15' in prosrc) > 0)
      from pg_proc where proname in ('studio_local_date', 'age_in_years', 'intake_determine_minor_from_birthday', 'intake_declare_minor_status', 'intake_session_minor_state', 'intake_minor_basis', 'fulfillment_state'))
-  and (select count(*) = 110 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
+  and (select count(*) = (case when to_regclass('public.intake_guardian_attestations') is not null then 113 else 110 end) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
   and (select 'ok' = (select 'ok' from (select intake_private.assert_catalog()) x)));
 
 select pg_temp.chk('L02 privileges: determine, declare and session state are service_role only; the staff read is authenticated only; the helpers have no API grants; fulfillment_state stays executable by the restricted role',
