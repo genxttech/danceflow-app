@@ -1,0 +1,32 @@
+{
+  "id": "OD27-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, definition of a couple",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.A.7.a (p.5)",
+    "quote_free_summary": "A couple is a leader and follower 'without regard to the sex or gender of the dancer' across all classifications."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must define every couple as a leader and a follower regardless of sex or gender, in all classifications (professional, amateur, pro/am student, student/student, mixed amateur).",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: gender collection, columns, migrations, role-lock enforcement, UI.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Consistent with Studio's role model, which needs no gender. Not a requirement to collect gender. The relation to II.B.7.c (OD27-NDCA-0003) is a question for the owner.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-27 (owner decision 2026-11-23: Option B retain Studio/Custom role flexibility; document body limitations; retrospective audit PR #795)",
+    "docs/competition/governance/roles/OD-27-role-flexibility-and-body-role-rules.md",
+    "OD-02/OD-03/OD-18/OD-19 (sibling PRs)",
+    "OD-28 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

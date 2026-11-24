@@ -1,0 +1,32 @@
+{
+  "id": "OD27-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, role switching",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.A.7.a(1) (p.5)",
+    "quote_free_summary": "Partners may not switch roles at any time during an event, single-dance or multi-dance."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must forbid partners switching roles during an event, within the scope the text states (single-dance or multi-dance).",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: gender collection, columns, migrations, role-lock enforcement, UI.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "CORRECTION of the audit: the audit said 'event' is undefined; the text actually parenthesizes '(single-dance or multi-dance)', which states the scope as covering both event kinds. Remaining interpretation questions: how it applies across rounds of one event; across the dances of a multi-dance event; whether any momentary reversal is tolerated (NDCA states no exception, unlike UCWDC's 'momentary role reversals'); whether it binds a partnership entered in two events; and how it applies to Mixed-Role or same-sex couples under the II.A.7.a definition. The rule applies to couples as defined in II.A.7.a (OD27-NDCA-0002).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-27 (owner decision 2026-11-23: Option B retain Studio/Custom role flexibility; document body limitations; retrospective audit PR #795)",
+    "docs/competition/governance/roles/OD-27-role-flexibility-and-body-role-rules.md",
+    "OD-02/OD-03/OD-18/OD-19 (sibling PRs)",
+    "OD-28 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

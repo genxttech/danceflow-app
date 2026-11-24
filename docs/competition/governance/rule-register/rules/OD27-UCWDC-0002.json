@@ -1,0 +1,32 @@
+{
+  "id": "OD27-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples, Mixed-Role divisions",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.A.7 and II.A.12 (p.2); II.C.2 (p.3)",
+    "quote_free_summary": "A division is defined by age, skill level and Mixed-Role (for example 'ProAm Female Diamond Novice'); Mixed-Role divisions are those where traditional dance-gender roles are not required; a Mixed-Role pair is one follower and one leader of any gender, who must retain their roles throughout each Dance Category."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future UCWDC profile must model Mixed-Role as a division dimension and require one leader and one follower of any gender who keep their roles throughout each Dance Category.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: gender collection, columns, migrations, role-lock enforcement, UI.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "SUFFICIENT today: dance_role per participant (one leader plus one follower is exactly what participantShapeErrors already requires) and no gender needed for the pairing itself. NOT SUFFICIENT: there is no Mixed-Role division axis (studioCustomV3 country_* schemes have skill_level and age_group only); no check that a partnership keeps its roles across entries or across a Dance Category; gender-named divisions (such as the 'Female' in the source's example) have no axis. 'Dance Category' is a UCWDC term whose mapping to DanceFlow dances is not established.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-27 (owner decision 2026-11-23: Option B retain Studio/Custom role flexibility; document body limitations; retrospective audit PR #795)",
+    "docs/competition/governance/roles/OD-27-role-flexibility-and-body-role-rules.md",
+    "OD-02/OD-03/OD-18/OD-19 (sibling PRs)",
+    "OD-28 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

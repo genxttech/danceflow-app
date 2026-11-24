@@ -1,0 +1,42 @@
+{
+  "id": "OD27-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: leader/follower role flexibility",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): a couple-style entry needs exactly one leader and one follower (any people); the dance role is stored per participant per entry (dance_role: leader | follower); relationship role (student, professional, ...) is a separate dimension; Studio Country division schemes use only skill-level and age-group axes. No gender is collected or inferred, and no role-lock is enforced. Preserved unchanged by OD-27 Option B for initial activation.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/participantRoles.ts",
+      "symbol_or_migration": "participantShapeErrors, allowedRolesForFormat"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20261110090000_phase10c4_participant_role_integrity.sql",
+      "symbol_or_migration": "event_competition_entry_participants.dance_role, _comp10c4_participant_shape_errors"
+    },
+    {
+      "path": "src/lib/competition/setup/studioCustomV3.ts",
+      "symbol_or_migration": "divisionSchemes.country_proam / country_propro / country_couples / country_routine"
+    }
+  ],
+  "enforcement_point": "participantShapeErrors in src/lib/competition/participantRoles.ts and its SQL mirror _comp10c4_participant_shape_errors; division schemes in src/lib/competition/setup/studioCustomV3.ts.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/participantRoles.phase10c4.test.ts",
+      "name": "couple-style formats need exactly one leader and one follower"
+    }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Approved behavior and tested as written (the 10C.4 migration header states the intent: NDCA treats every couple as a leader plus a follower regardless of gender), but: (a) the role is per entry, so nothing checks that the same partnership keeps its roles across different entries or Dance Categories; (b) the studioCustomV3 scheme note cites UCWDC II.A.7 yet models only skill level and age group, not the Mixed-Role dimension that II.A.7 names; (c) no user-facing disclosure exists; (d) tests were not run for this docs-only entry; (e) the client and profile tables were not audited for gender fields. Not any body's rule.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-27 (owner decision 2026-11-23: Option B retain Studio/Custom role flexibility; document body limitations; retrospective audit PR #795)",
+    "docs/competition/governance/roles/OD-27-role-flexibility-and-body-role-rules.md",
+    "OD-02/OD-03/OD-18/OD-19 (sibling PRs)",
+    "OD-28 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
