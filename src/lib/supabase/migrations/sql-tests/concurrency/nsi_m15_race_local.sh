@@ -88,18 +88,20 @@ ok=0; [ "$w" -ge 1 ] && [ "$(last $TD/m15_a2.out)" = "declared_adult" ] && [ "$(
 note "A2 declare: waiting=$w result=$(last $TD/m15_a2.out) rows=$(nrows "$R") elapsed=$((t1 - t0))s"
 must "A2 declare takes the client lock before it writes (waits for the holder, then declares)" "$ok"
 
-# ---- A3: the two reads never take the client lock
+# ---- A3: the two reads never take the client lock (deterministic: both reads finish while the holder STILL holds the lock, so they did not wait for it)
 P=$(seed_client 13); C=${P%%|*}; REST=${P#*|}; R=${REST%%|*}; TK=${P##*|}
-holder "$C" 9; sleep 1
+holder "$C" 25; sleep 1
 t0=$(date +%s%N)
 st=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_session_minor_state(decode('$(hexhash "sess-$TK")', 'hex'));" 2>&1 | tail -1)
 t1=$(date +%s%N)
 bs=$(as_staff "$U" "select count(*) from public.intake_minor_basis('$S', '$R');" | tail -1)
-t2=$(date +%s%N); wait
+t2=$(date +%s%N)
+held=$(q "begin; select pg_try_advisory_xact_lock($(lockkey "$C")); rollback;" | grep -E '^(t|f)$' | head -1)
+wait
 d1=$(( (t1 - t0) / 1000000 )); d2=$(( (t2 - t1) / 1000000 ))
-ok=0; [ "$st" = "unknown" ] && [ "$bs" = "0" ] && [ $d1 -lt 4000 ] && [ $d2 -lt 4000 ] && ok=1
-note "A3 reads while the client lock is held: state=$st (${d1} ms) basis_rows=$bs (${d2} ms)"
-must "A3 session_minor_state and intake_minor_basis do not wait for the client lock (each under 4 s while the holder keeps it for 9 s)" "$ok"
+ok=0; [ "$st" = "unknown" ] && [ "$bs" = "0" ] && [ "$held" = "f" ] && ok=1
+note "A3 reads while the client lock is held: state=$st (${d1} ms) basis_rows=$bs (${d2} ms) holder still holding after both reads=$([ "$held" = f ] && echo yes || echo no)"
+must "A3 session_minor_state and intake_minor_basis finish while another session still holds the client lock (they do not wait for it)" "$ok"
 
 # ---- A2b: declare takes the client lock BEFORE it locks the session row (client lock first, then the session row, like the revoke-all path)
 P=$(seed_client 19); C=${P%%|*}; REST=${P#*|}; R=${REST%%|*}; TK=${P##*|}
