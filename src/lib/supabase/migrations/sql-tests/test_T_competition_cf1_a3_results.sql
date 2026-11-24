@@ -390,7 +390,7 @@ select pg_temp.chk('U79: the ten redefined functions match the post-A3 md5 pins 
     ('public._compf2_evidence(uuid,text,text)', '415a823b4a689cae26b8a20187af58e7'), ('public.competition_round_results_review(uuid)', 'c9d747907caad0a88b75da1c53862f43'),
     ('public.calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)', 'bc3cc4397e740444a4d4a53d93b499cc|167529bada8ca5a4dd98e22d4d0a3252'),
     ('public.approve_competition_round_result(uuid,uuid,text,uuid)', 'ac33e456925e64665db1ea0547bae18b|3cf63c3bb00a78142ea2c8e70a8b4a0c|5adf8f1680306964abb688068616b4ce')) t(sig, pin)
-    -- A pin may list the post-A3 text and its pinned successors (PV-1 20270215090000 / OJ-1 20270215091000 / R-11 20270224090000), separated by |.
+    -- A pin may list the post-A3 text and its pinned successors (PV-1 20270215090000 / OJ-1 20270215091000 / R-11 20270301090000), separated by |.
     where md5(replace(pg_get_functiondef(t.sig::regprocedure), E'\r', '')) = any (string_to_array(t.pin, '|'))));
 select pg_temp.chk('U61: lock_competition_round_ballots is NOT touched by A3 (still the HL1 text 6e417534...; A2 owns it)',
   md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) in ('6e4175342d51ffe274d70ce413bae8c3')
@@ -833,7 +833,7 @@ declare
 
   update public.event_competition_rounds set status = 'approved', updated_at = now() where id = p_round_id;$n$;
 begin
-  -- R-11 (20270224090000) replaced three fragments of approve after PV-1; reverse them first (a no-op when R-11 is absent) so the reconstruction continues down to the pre-A3 text.
+  -- R-11 (20270301090000) replaced three fragments of approve after PV-1; reverse them first (a no-op when R-11 is absent) so the reconstruction continues down to the pre-A3 text.
   v_appr := replace(v_appr, $r3n$'override', v_override, 'initial', v_initial));$r3n$, $r3o$'override', v_override));$r3o$);
   v_appr := replace(v_appr, $r2n$  -- R-11 (owner 2026-11-24): the single-staff override exists for the INITIAL approval of a round only. Initial or corrected comes from append-only
   -- history (an approval of another version, an A7 correction cause, an F2 correction audit event), read under the round lock held since the top.

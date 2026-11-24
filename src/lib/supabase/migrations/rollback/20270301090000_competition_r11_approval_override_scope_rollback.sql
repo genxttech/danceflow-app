@@ -1,4 +1,4 @@
--- Rollback for 20270224090000_competition_r11_approval_override_scope.sql (R-11 correction). NOT APPLIED ANYWHERE.
+-- Rollback for 20270301090000_competition_r11_approval_override_scope.sql (R-11 correction). NOT APPLIED ANYWHERE.
 -- Restores the exact pinned pre-migration text of public.approve_competition_round_result(uuid,uuid,text,uuid) (post A3 + PV-1, md5 3cf63c3b...,
 -- the text F2 + A3 + PV-1 produce) by reversing the three exact-fragment replacements, and only if the installed text still is the post-migration text
 -- (md5 5adf8f1680306964abb688068616b4ce). create or replace keeps owner, SECURITY DEFINER, search_path and the ACL; nothing else is created, altered or dropped.

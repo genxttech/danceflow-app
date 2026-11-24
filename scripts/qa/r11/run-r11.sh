@@ -1,10 +1,10 @@
 #!/bin/bash
-# R-11 correction (20270224090000): LOCAL isolated Postgres proof. NOT a hosted tool: it never touches DEV, PROD, sb.sh or any shared database.
+# R-11 correction (20270301090000): LOCAL isolated Postgres proof. NOT a hosted tool: it never touches DEV, PROD, sb.sh or any shared database.
 #
 #   bash scripts/qa/r11/run-r11.sh [--phase all|chain|suites]       (the caller MUST hold C:\dfr\heavy.lock under its own ticket; this script checks owner.txt)
 #
 # One disposable container (name df-r11-<pid>, label df.r11=1, no published port, removed on exit) from the committed local image ns1-base:snap
-# (E1, E2, O1, REG, F2), then the CF1 chain used by sql-tests/run_cf1_f3.sh plus F3, PV-1 and OJ-1, from THIS worktree, EXCLUDING 20270224090000 (R-11). Then:
+# (E1, E2, O1, REG, F2), then the CF1 chain used by sql-tests/run_cf1_f3.sh plus F3, PV-1 and OJ-1, from THIS worktree, EXCLUDING 20270301090000 (R-11). Then:
 #   P1  precondition: approve md5 = 3cf63c3b... (post A3 + PV-1)
 #   P2  characterization: the R-11 suite on the UNPATCHED chain must FAIL, and fail on the RB-11.1 / RB-11.2 / S: checks (the blockers reproduce)
 #   P3  apply the migration; approve md5 = post pin; ACL snapshot taken
@@ -17,7 +17,7 @@ export MSYS_NO_PATHCONV=1
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"; M="$ROOT/src/lib/supabase/migrations"; T="$M/sql-tests"
 OUT="${R11_OUT:-$ROOT/.qa-out/r11}"; mkdir -p "$OUT"; REPORT="$OUT/report.txt"; : > "$REPORT"
 C="df-r11-$$"; IMAGE="${R11_IMAGE:-ns1-base:snap}"
-MIG=20270224090000_competition_r11_approval_override_scope.sql
+MIG=20270301090000_competition_r11_approval_override_scope.sql
 PRE=3cf63c3bb00a78142ea2c8e70a8b4a0c
 POST=$(grep -o "v_post constant text := '[0-9a-f]*'" "$M/$MIG" | grep -o "[0-9a-f]\{32\}")
 log() { echo "$*" | tee -a "$REPORT"; }

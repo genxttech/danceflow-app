@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * R-11 correction migration (20270224090000), STATIC proof. No database. It re-derives the effective text of
+ * R-11 correction migration (20270301090000), STATIC proof. No database. It re-derives the effective text of
  * approve_competition_round_result from the migration files (F2 body + the A3 and PV-1 exact-text patches), checks the pinned md5 values the
  * migration and its rollback assert, applies / reverses the R-11 fragments exactly as the SQL does, and checks the shape of the new text.
  * The behavior is proven by test_T_competition_r11_approval_override_scope.sql (local isolated Postgres; see R-11-CORRECTION-MIGRATION.md).
@@ -20,8 +20,8 @@ const md5 = (s: string) => crypto.createHash("md5").update(s, "utf8").digest("he
 const F2 = read("20270114090000_competition_f2_results_lifecycle.sql");
 const A3 = read("20270120093000_competition_cf1_a3_results_integrity.sql");
 const PV1 = read("20270215090000_competition_pv1_result_recompute.sql");
-const R11 = read("20270224090000_competition_r11_approval_override_scope.sql");
-const RB = read("rollback/20270224090000_competition_r11_approval_override_scope_rollback.sql");
+const R11 = read("20270301090000_competition_r11_approval_override_scope.sql");
+const RB = read("rollback/20270301090000_competition_r11_approval_override_scope_rollback.sql");
 
 const HEADER =
   "CREATE OR REPLACE FUNCTION public.approve_competition_round_result(p_round_id uuid, p_result_version_id uuid, p_override_reason text, p_request_id uuid)\n" +
@@ -92,8 +92,8 @@ describe("R-11 migration: pinned texts are reproducible offline", () => {
   });
 
   it("neither file contains a carriage return in a function body (CRLF would change the md5 on a CRLF checkout)", () => {
-    expect(fs.readFileSync(path.join(dir, "20270224090000_competition_r11_approval_override_scope.sql"), "utf8")).not.toMatch(/\r/);
-    expect(fs.readFileSync(path.join(dir, "rollback/20270224090000_competition_r11_approval_override_scope_rollback.sql"), "utf8")).not.toMatch(/\r/);
+    expect(fs.readFileSync(path.join(dir, "20270301090000_competition_r11_approval_override_scope.sql"), "utf8")).not.toMatch(/\r/);
+    expect(fs.readFileSync(path.join(dir, "rollback/20270301090000_competition_r11_approval_override_scope_rollback.sql"), "utf8")).not.toMatch(/\r/);
   });
 });
 
@@ -147,7 +147,7 @@ describe("R-11 migration: shape of the new approve text", () => {
   });
 
   it("the migration is guarded: pre md5 pin, idempotent no-op on the post text, anchors exactly once, ACL / definer / search_path re-asserted, one transaction, header says NOT APPLIED", () => {
-    expect(R11).toMatch(/^-- 20270224090000_competition_r11_approval_override_scope\.sql\n-- [-=]+\n-- NOT APPLIED ANYWHERE\. DRAFT\. Applying this migration to ANY hosted environment \(DEV, PROD, staging\) needs separate owner approval\./);
+    expect(R11).toMatch(/^-- 20270301090000_competition_r11_approval_override_scope\.sql\n-- [-=]+\n-- NOT APPLIED ANYWHERE\. DRAFT\. Applying this migration to ANY hosted environment \(DEV, PROD, staging\) needs separate owner approval\./);
     expect(R11).toMatch(/if md5\(v_def\) = v_post then[\s\S]*?return;/);
     expect(R11).toMatch(/if md5\(v_def\) <> v_pre then/);
     expect(R11).toContain("does not contain each anchor exactly once");

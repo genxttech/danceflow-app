@@ -62,7 +62,7 @@ Both were assessed against legitimate internal callers and are **not** in this m
 
 ## 6. Slot table (migration timestamp)
 
-Base head migration: `20270218090000`. Slots proposed in open PRs (migration files, from `ghapp pr list --json files`, 2026-11-24): 844 `20270219090000`; 800 `20270221090100`; 793 `20270222190000`; 820 and 797 `20270223090000`; 811 and 796 `20270223091000`; 817 `20270223100000`; 819 `20270223110000`; 823 `20270223120000`; 824 `20270223130000`; 831 `20270223140000`; the older stacked PRs 375/441/445 re-use existing (already merged) names. **Chosen: `20270224090000`** (later than the base and than every slot above; free). Rollback: `rollback/20270224090000_competition_r11_approval_override_scope_rollback.sql`.
+Base head migration: `20270218090000`. Slots proposed in open PRs (migration files, from `ghapp pr list --json files`, 2026-11-24): 844 `20270219090000`; 800 `20270221090100`; 793 `20270222190000`; 820 and 797 `20270223090000`; 811 and 796 `20270223091000`; 817 `20270223100000`; 819 `20270223110000`; 823 `20270223120000`; 824 `20270223130000`; 831 `20270223140000`; the older stacked PRs 375/441/445 re-use existing (already merged) names. **Chosen: `20270301090000`**, allocated by the Competition coordinator (remediation block; S3 `20270301100000`, S4 `20270301110000`, S5 `20270301120000` belong to other PRs; a second file here would use `20270301091000`). The function text and md5 pins do not depend on the timestamp (first drafted as `20270224090000`; the local runs below executed that same content under the earlier name). Rollback: `rollback/20270301090000_competition_r11_approval_override_scope_rollback.sql`.
 
 ## 7. Tests
 
@@ -85,7 +85,7 @@ Runner `scripts/qa/r11/run-r11.sh` (local isolated container only; requires the 
 
 ## 8. Rollback
 
-`rollback/20270224090000_competition_r11_approval_override_scope_rollback.sql`: refuses unless the installed text is the post-migration text (md5 pinned), reverses the three fragments, asserts the restored text is byte-identical to the pinned pre-migration text (`3cf63c3b...`, i.e. the F2 + A3 + PV-1 text; no CRs; reproduced offline), `CREATE OR REPLACE` with identical signature, owner and ACL, re-asserts security definer / search_path / grants, and is a no-op when already rolled back. No object other migrations depend on is dropped. Restoring it **re-opens RB-11.1 and RB-11.2**. Audit rows written under the new text keep their extra `refs.initial` key (schemas are unchanged).
+`rollback/20270301090000_competition_r11_approval_override_scope_rollback.sql`: refuses unless the installed text is the post-migration text (md5 pinned), reverses the three fragments, asserts the restored text is byte-identical to the pinned pre-migration text (`3cf63c3b...`, i.e. the F2 + A3 + PV-1 text; no CRs; reproduced offline), `CREATE OR REPLACE` with identical signature, owner and ACL, re-asserts security definer / search_path / grants, and is a no-op when already rolled back. No object other migrations depend on is dropped. Restoring it **re-opens RB-11.1 and RB-11.2**. Audit rows written under the new text keep their extra `refs.initial` key (schemas are unchanged).
 
 ## 9. Independent security review and execution log
 
@@ -122,3 +122,13 @@ Not examined by the review and not claimed: hosted data. Approvals recorded unde
 ## 10. Register
 
 `RELEASE-BLOCKERS.md` in this folder records RB-11.1 and RB-11.2 as **OPEN Studio/Custom release blockers** until this correction is independently reviewed, tested and APPLIED to the authorized release environment. PR 859's `it.fails` markers flip only after the migration is applied AND the markers are re-pointed (see section 5); this PR does not edit 859's files.
+
+## 11. OWNER REVIEW PACKAGE
+
+* **PR / head:** PR 865 (draft), branch `claude/r11-correction-migration`, head SHA stated in the PR description at hand-off. Base `release/website-embeds`.
+* **Dependencies:** none unmerged; needs F2, A3, PV-1 and A7 (`event_competition_correction_causes`) in the target database (the migration refuses otherwise). It redefines only `approve_competition_round_result`; other remediation PRs (S3/S4/S5) touch other functions. Later migrations that pin the approve md5 (OD-07, composed sets) must pin the new successor md5.
+* **Independent review:** section 9 (no blocker; one should-fix hardening applied; ops/policy notes).
+* **CI status:** read from the PR checks at hand-off (see the PR description); CI does not run SQL suites.
+* **Executed vs PENDING:** section 9 (local isolated Postgres PASS; a4 minimum, a6, F2 race scripts, full composed chain, hosted: PENDING).
+* **Remaining gaps:** RB-11.1 and RB-11.2 stay OPEN; `service_role` and verified-email items are separate findings; UI follow-ups (section 5); hosted data check for old self-approved corrections; sole-manager corrections have no approver (OD-07).
+* **Approval requested:** approval to REVIEW and MERGE THE DRAFT. Applying the migration to any hosted environment is NOT requested.

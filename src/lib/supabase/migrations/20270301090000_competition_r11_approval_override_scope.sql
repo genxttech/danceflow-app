@@ -1,4 +1,4 @@
--- 20270224090000_competition_r11_approval_override_scope.sql
+-- 20270301090000_competition_r11_approval_override_scope.sql
 -- ============================================================================================================================================
 -- NOT APPLIED ANYWHERE. DRAFT. Applying this migration to ANY hosted environment (DEV, PROD, staging) needs separate owner approval.
 -- It has not been run against any database in the form committed here (see docs/competition/governance/audit/R-11-CORRECTION-MIGRATION.md
@@ -48,7 +48,7 @@
 -- verified-email requirement for the approving manager. See the compatibility assessment in the report document.
 --
 -- Order: SQL before app; the app needs no change to keep working (COMP_SECOND_APPROVER_REQUIRED, used for the initial path, is already mapped; the new corrected-path code falls back to the generic message). Not applied anywhere.
--- Rollback: rollback/20270224090000_competition_r11_approval_override_scope_rollback.sql (restores the exact pinned pre-migration text, md5 3cf63c3b...).
+-- Rollback: rollback/20270301090000_competition_r11_approval_override_scope_rollback.sql (restores the exact pinned pre-migration text, md5 3cf63c3b...).
 
 begin;
 

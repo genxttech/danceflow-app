@@ -1,6 +1,6 @@
 -- Competition R-11 correction -- approval override scope and reason standard regression suite.
 --
--- Covers 20270224090000_competition_r11_approval_override_scope.sql (RB-11.1 substantive override reason, RB-11.2 no self-approval of a corrected
+-- Covers 20270301090000_competition_r11_approval_override_scope.sql (RB-11.1 substantive override reason, RB-11.2 no self-approval of a corrected
 -- result) on top of the composed competition chain through PV-1 / OJ-1. NOT RUN IN CI. Run as a SUPERUSER on a LOCAL QA DATABASE ONLY, e.g.
 -- through scripts/qa/r11/run-r11.sh. One transaction, synthetic fixtures only (UUID block ...-b11ff4XXXXXX). The final block ALWAYS raises, so
 -- nothing persists:   "COMPETITION R11 SQL SUITE PASS (<n> checks)"  or  "COMPETITION R11 SQL SUITE FAIL: <failures>".

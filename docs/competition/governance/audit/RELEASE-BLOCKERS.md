@@ -6,7 +6,7 @@ rows are added by the PR that finds or corrects the blocker.
 
 | ID | Severity | Finding | Correction | Status |
 |---|---|---|---|---|
-| RB-11.1 | Studio/Custom release blocker | `approve_competition_round_result` accepted a one-character override reason | `20270224090000_competition_r11_approval_override_scope.sql` (reuses `_cf1_reason_is_substantive`); details in [R-11-CORRECTION-MIGRATION.md](R-11-CORRECTION-MIGRATION.md) | **OPEN.** Correction drafted in a NOT-APPLIED draft PR; not yet independently reviewed to closure, not executed in a hosted environment, not applied |
+| RB-11.1 | Studio/Custom release blocker | `approve_competition_round_result` accepted a one-character override reason | `20270301090000_competition_r11_approval_override_scope.sql` (reuses `_cf1_reason_is_substantive`); details in [R-11-CORRECTION-MIGRATION.md](R-11-CORRECTION-MIGRATION.md) | **OPEN.** Correction drafted in a NOT-APPLIED draft PR; not yet independently reviewed to closure, not executed in a hosted environment, not applied |
 | RB-11.2 | Studio/Custom release blocker | the D3 self-approval override was reachable for corrected result versions | same migration (initial vs corrected from append-only history; calculator and correction opener cannot approve a correction) | **OPEN.** Same status as RB-11.1 |
 
 Not blockers, reported separately (need their own authorization): revoking `service_role` EXECUTE on approve and calculate (RF-11.1), a verified-email requirement
