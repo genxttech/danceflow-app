@@ -1,0 +1,33 @@
+{
+  "id": "OD23-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, original marking sheets",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.16 (p.21)",
+    "quote_free_summary": "Only the Chairman of Adjudicators and the Scrutineer have direct access to the original copies of the judges' marking sheets until the end of the competition."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Original judges' marking sheets (ballots) stay restricted to the Chairman and Scrutineer until the end of the competition; published scrutineer sheets (OD22-NDCA-0001) are a separate, tabulated artifact produced from authorized scoring records, never by exposing restricted ballots.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "The text treats 'original copies of the judges' marking sheets' (III.D.16) and 'digital copies of the scrutineer sheets' (III.D.17) as different items but does not define 'scrutineer sheets'. Section IV also speaks of 'the scrutineers' marking sheet' where disqualifications must be noted, and of 'blank scrutineer sheets'. What a scrutineer sheet contains, whether it shows per-judge marks, and when after a day it may be uploaded relative to finalization are UNRESOLVED. Confidentiality rules also tie to OD-10 (PR 842).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-23 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A required for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-23-result-reports-and-judge-visibility.md",
+    "OD-22",
+    "OD-10 (PR 842)",
+    "OD-24 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

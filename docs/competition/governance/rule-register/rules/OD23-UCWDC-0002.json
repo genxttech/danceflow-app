@@ -1,0 +1,33 @@
+{
+  "id": "OD23-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, judge names in raw-score columns",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Rule #3, item 4 (p.3)",
+    "quote_free_summary": "In the raw-score order each judge's name is included ('so revealed')."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A UCWDC profile must show judge names in the raw-score columns it produces; this contrasts with Studio's hidden-judge default and WSDC's optional anonymity.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Who sees the raw-score columns (public, contestants, officials) is not stated in this sentence; the DSA paragraph lists some viewers. Not resolved, so no public judge-name display is specified.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-23 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A required for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-23-result-reports-and-judge-visibility.md",
+    "OD-22",
+    "OD-10 (PR 842)",
+    "OD-24 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

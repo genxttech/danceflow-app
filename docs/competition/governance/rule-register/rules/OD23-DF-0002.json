@@ -1,0 +1,25 @@
+{
+  "id": "OD23-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: report disclosure text",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "SPEC (text only): Studio/Custom result reports must state that they do not provide governing-body-certified scoring analyses, scrutineer sheets or official awards reports. Wording and surfaces are in the OD-23 record, section 2. No UI or export change authorized.",
+  "implementation": [],
+  "enforcement_point": "None. To be labelled later after separate owner approval.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Disclosure not implemented. Reuses the wording rules of the OD-13 disclosure spec.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-23 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A required for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-23-result-reports-and-judge-visibility.md",
+    "OD-22",
+    "OD-10 (PR 842)",
+    "OD-24 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

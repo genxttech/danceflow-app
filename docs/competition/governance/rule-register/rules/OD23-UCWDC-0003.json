@@ -1,0 +1,33 @@
+{
+  "id": "OD23-UCWDC-0003",
+  "governing_body": "UCWDC",
+  "format": "UCWDC events, awards reports",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Awards paragraph (p.8)",
+    "quote_free_summary": "The hired Scoring System must produce awards reports to be read to the public, and only this report can be used for Awards; results cannot be re-written to another document to unveil placements."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A UCWDC profile must produce the awards report from the sanctioned scoring system; DanceFlow Studio output must never be offered as the official awards report.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "'Hired Scoring Systems, vetted to use UCWDC Majority Rules' is a UCWDC authorization DanceFlow does not hold. Manually produced external reports are NOT an automatic compliance bypass: any external-report workflow needs separate documented verification and authorization.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-23 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A required for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-23-result-reports-and-judge-visibility.md",
+    "OD-22",
+    "OD-10 (PR 842)",
+    "OD-24 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
