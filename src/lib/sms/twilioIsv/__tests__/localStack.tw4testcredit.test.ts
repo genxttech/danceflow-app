@@ -20,6 +20,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { TestCreditStatus } from "../testCreditStore";
 import { seedPriceIfMissing } from "./priceFixture";
 import { pilotExceptionArgs } from "./rflEvidenceHelper";
 
@@ -93,8 +94,7 @@ const grantErr = (entity: string, cents: number, approval = ref("g"), o: Ev = {}
 const setBudget = (entity: string, cents: number, approval = ref("b"), o: Ev = {}) => call<{ budget_cents: number; replayed: boolean }>("tw4_credit_test_budget_set", ...budgetArgs(entity, cents, approval, o));
 const budgetErr = (entity: string, cents: number, approval = ref("b"), o: Ev = {}, actor = P) => callErr("tw4_credit_test_budget_set", ...budgetArgs(entity, cents, approval, o, actor));
 const switchTo = (on: boolean) => call("tw4_credit_test_set_switch", on, P, `fixture: switch ${on ? "on" : "off"} for the suite`);
-type Status = { switch_enabled: boolean; is_pilot: boolean; budget_cents: number; granted_cents: number; budget_left_cents: number; consumed_cents: number; restored_cents: number;
-  reversed_cents: number; forfeited_cents: number; unused_cents: number; balance_cents: number; reserved_cents: number; non_test_available_cents: number; grants: number; ok: boolean };
+type Status = TestCreditStatus;
 const status = (entity: string) => call<Status>("tw4_credit_test_status", entity);
 const count = (sql: string) => Number(psql(sql));
 const grantsOf = (entity: string) => count(`select count(*) from public.studio_sms_test_credit_grants where legal_entity_id = '${entity}'`);
