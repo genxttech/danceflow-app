@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded: OD-25
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-25 | **Option B now:** preserve Studio/Custom heat planning (configurable capacity, default 8 as a DanceFlow product default, not a sanctioning rule; deterministic first-fit floor planner); no seeded randomization this release. **Option A for future body profiles.** | 2026-11-23 | Docs only: [OD-25 record](../heating/OD-25-heat-planning-and-body-heating-rules.md); register OD25-*. | **FINDING (open): the readiness heat planner already uses a recorded random seed (OD25-DF-0002); needs owner/coordinator decision.** NDCA III.D.34 Pro/Am floor limits NOT IMPLEMENTED (not the Final cap). UCWDC Heating Rules: randomization and contiguous order mandatory and NOT IMPLEMENTED (blockers); size, smaller-first and balancing advisory (tracked, not hard blockers). WSDC 3.4.8 random partner/music selection NOT IMPLEMENTED; WSDC heat size/randomization NOT SPECIFIED IN PROVIDED SOURCE. OD-26 placeholder. OD-01 (PR 832) preserved. |

@@ -1,0 +1,35 @@
+{
+  "id": "OD25-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, Jack and Jill random and unbiased selection",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4 item 8 (p.20); Section 6 items 6-7 (p.23)",
+    "quote_free_summary": "Jack and Jill contests 'must maintain the integrity of random and unbiased selection (i.e., rotating partners, pairing of partners, and music selection)'; partner rotation in prelims and partner selection in finals 'should be random'; a computerized scoring system 'should' randomly assign partners and place paired competitors in random dance order."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A WSDC profile must keep partner rotation, pairing and music selection random and unbiased; this concerns partners and music, NOT heat sizing or grouping.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body's scoring profile. Docs-only record; no compliance claimed. Not authorized: planner, SQL, UI changes.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The overarching duty is 'must'; the examples ('should be random') and Section 6 items ('should') are softer. The text does not tie this to heat size, balance or grouping of competitors into heats. Partner rotation is not modelled in DanceFlow at all.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

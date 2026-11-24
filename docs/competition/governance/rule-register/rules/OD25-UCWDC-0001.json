@@ -1,0 +1,35 @@
+{
+  "id": "OD25-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, randomization of each division's contestants",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Heating Rules item 1 (p.1)",
+    "quote_free_summary": "Each division's contestants 'must be randomized by the scoring system' to ensure fairness in access to the arena floor; contestants staying on the floor between heats should retire to the back and await entry from the randomized list."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A UCWDC profile must randomize each division's contestants in the scoring system, with a reproducible record: recorded seed, algorithm version, final assigned order and audit evidence (coordinate with OD-10 and OD-07 evidence rules).",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body's scoring profile. Docs-only record; no compliance claimed. Not authorized: planner, SQL, UI changes.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "'must be randomized' is mandatory; the retire-to-the-back instruction is 'should', advisory and operational (Emcee), not a system requirement. Reproducible randomization design: record seed and algorithm version at generation, store the final order, treat any re-draw as an audited new version, and never shuffle after publication. The existing heatPlanner records a seed and engine version but is not a UCWDC implementation (OD25-DF-0002).",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

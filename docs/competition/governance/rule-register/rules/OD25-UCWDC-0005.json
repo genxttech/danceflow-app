@@ -1,0 +1,35 @@
+{
+  "id": "OD25-UCWDC-0005",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, smaller heat first",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Heating Rules item 4 (p.1)",
+    "quote_free_summary": "Whenever possible, for multiple heats of varied sizes the smaller heat 'shall precede' the greater, to help scratches be re-balanced."
+  },
+  "rule_class": "recommended",
+  "requirement": "A UCWDC profile should place smaller heats first where possible.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Advisory/conditional language: tracked as a compliance gap, NOT a mandatory hard blocker, and must not be enforced as one. Docs-only record; no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "'shall' is qualified by 'Whenever possible', so it is treated as conditional/advisory, not an unconditional hard blocker; confirm with the owner whether any form is mandatory before activation.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

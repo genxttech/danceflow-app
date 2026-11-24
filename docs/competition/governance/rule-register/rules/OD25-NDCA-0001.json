@@ -1,0 +1,35 @@
+{
+  "id": "OD25-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned Pro/Am events, multiple competitions on the floor",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.34, 34.a, 34.b, 34.c (p.23)",
+    "quote_free_summary": "In Pro/Am events with multiple competitions danced at the same time, at most eight couples may be judged at once; a floor may be split into 'ballrooms' each judged separately with a maximum of eight couples, no ballroom smaller than 1,080 square feet; after a late registration or entry change that would exceed eight, up to ten couples may be on the floor if at least two entries are uncontested."
+  },
+  "rule_class": "mandatory",
+  "requirement": "An NDCA Pro/Am profile must enforce the eight-couples-judged-at-once limit, the split-floor conditions and the late-entry exception, scoped to Pro/Am events with multiple competitions danced at the same time.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body's scoring profile. Docs-only record; no compliance claimed. Not authorized: planner, SQL, UI changes.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "This is a floor and judging-load rule for Pro/Am, NOT the Final cap in IV.C.2 ('No more than eight (8) couples shall dance in any Final Round'); the IV.C.1.f / IV.C.2 conflict stays UNRESOLVED in PR 839 (OD09-NDCA-0004). Studio's default capacity of 8 coincides numerically but is a product default (OD25-DF-0001) and does not implement the split-floor area condition or the late-entry exception. 'Uncontested' is not defined in the text read; see OD-21 (PR 847) for single-couple handling.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
