@@ -73,6 +73,10 @@ done
 log "migrations applied: $applied ($(grep -c FAIL "$OUT/migrations-applied.txt") failed)"
 "${PSQL[@]}" -At < "$OUT/probe.sql" > "$OUT/state-after.txt"
 
+# 4b. catalog dumps (same queries as the hosted read-only runs; compare local vs DEV vs PROD)
+Q="$REPO/docs/competition/governance/audit/guarded-baseline/queries"
+for q in q2_heat_entry_objects q4_tables_with_disqualified_checks q5_u18_postflight_from_pr492 q6_jc1_postflight_from_pr492 q7_guard_catalog_both_tables; do "${PSQL[@]}" -At < "$Q/$q.sql" > "$OUT/catalog-$q.json" 2>&1; done
+
 # 5. suites: guards first, then regression suites for the audited behaviours
 SUITES="${ONLY_SUITES:-test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_od31_guarded_baseline_negative test_T_competition_jc1_inactive_judge_absent \
 test_T_competition_cf1_a5_exclusion test_T_competition_ns1_no_show test_T_competition_hl1_heat_guards test_T_competition_cf1_a6_withdrawal test_T_competition_r2_entry_refunds \

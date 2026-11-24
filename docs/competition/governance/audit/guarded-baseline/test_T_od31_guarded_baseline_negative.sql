@@ -178,6 +178,37 @@ select pg_temp.chk('A6 INSERT ... ON CONFLICT (id) DO UPDATE cannot set danced o
     on conflict (id) do update set status = excluded.status$q$) like '%COMP_U18_HEAT_ENTRY_STATUS_WRITER%'
   or (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1031900006') <> 'danced');
 
+-- D. S6 matrix: direct PARENT-entry status writes by a client manager (SET ROLE authenticated, i.e. what PostgREST executes), one fresh entry per status value.
+-- Observed per value: outcome, audit row written by audit_competition_entry_change, effect on the heat entry, R2 participation class, ballot/results heat set membership.
+set local session_replication_role = replica;
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+select ('00000000-0000-0000-0000-cf1031810' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1031e00001', '00000000-0000-0000-0000-cf1031001001', '00000000-0000-0000-0000-cf1031003001', 's' || i, 'confirmed', 'eligible', '80' || i from generate_series(1, 6) i;
+insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+select ('00000000-0000-0000-0000-cf1031910' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1031e00001', '00000000-0000-0000-0000-cf1031003001', '00000000-0000-0000-0000-cf1031d00001', ('00000000-0000-0000-0000-cf1031810' || lpad(i::text, 3, '0'))::uuid, 20 + i, 'scheduled' from generate_series(1, 6) i;
+set local session_replication_role = origin;
+select set_config('app.competition_entry_change_type', '', true), set_config('app.competition_entry_change_reason', '', true), set_config('app.competition_entry_fee_handling', '', true);
+create temp table t_s6 (ord int, status text, outcome text, audit_type text, audit_reason text, audit_by_manager boolean, heat_entry_status text, r2_class text, in_heat_set boolean);
+grant all on t_s6 to authenticated;
+do $s6$
+declare v_statuses text[] := array['disqualified', 'scratched', 'withdrawn', 'complete', 'waitlisted', 'pending'];
+  i int; v_eid uuid; v_out text;
+begin
+  for i in 1..array_length(v_statuses, 1) loop
+    v_eid := ('00000000-0000-0000-0000-cf1031810' || lpad(i::text, 3, '0'))::uuid;
+    v_out := pg_temp.try_as('authenticated', format('update public.event_competition_entries set status = %L where id = %L', v_statuses[i], v_eid));
+    insert into t_s6 values (i, v_statuses[i], v_out,
+      (select c.change_type from public.event_competition_entry_changes c where c.entry_id = v_eid order by c.performed_at desc limit 1),
+      (select c.reason from public.event_competition_entry_changes c where c.entry_id = v_eid order by c.performed_at desc limit 1),
+      (select c.performed_by = '00000000-0000-0000-0000-cf1031000001' from public.event_competition_entry_changes c where c.entry_id = v_eid order by c.performed_at desc limit 1),
+      (select h.status from public.event_competition_heat_entries h where h.entry_id = v_eid),
+      (select public._r2_entry_participation_class(v_eid)),
+      v_eid = any (public._compe2_heat_entries('00000000-0000-0000-0000-cf1031d00001'::uuid)));
+  end loop;
+end $s6$;
+select pg_temp.chk('D1 S6 matrix collected for six direct parent-entry status writes (rows printed below; no assertion on the findings themselves)', (select count(*) from t_s6) = 6);
+select * from t_s6 order by ord;
+select name, ok, detail from t_results;
+
 do $$
 declare v_fail text; v_n integer;
 begin
