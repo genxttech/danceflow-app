@@ -17,7 +17,7 @@
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6C): _compoc_blockers_panel_size / _compoc_panel_rules for the declared body. Not built.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "Advisory (\"if possible\", \"should\"); never a blocker. The chair currently counts as a voting judge in E1 and E2. NOT IMPLEMENTED (design only, PR-A section 6C): a BLOCKER to activating this body profile; no test; no compliance claimed. Hard blocker if mandatory, warning if advisory.",
+  "interpretation_notes": "Advisory (\"if possible\", \"should\") outside formation events; never a blocker there. For formation events XII.L.1/XII.M.4 are mandatory (OD16-NDCA-0004). The chair currently counts as a voting judge in E1 and E2. NOT IMPLEMENTED (design only, PR-A section 6C): a BLOCKER to activating this body profile; no test; no compliance claimed. Hard blocker if mandatory, warning if advisory.",
   "applicable_event_versions": [
     "June 2026, Master v1"
   ],

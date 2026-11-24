@@ -474,11 +474,13 @@ its internal panel-minimum inconsistency** (Option B); future body profiles carr
 | NDCA III.B.1.c (p.14) | same | Professional and Adult Amateur Championship events: at least seven adjudicators. | mandatory |
 | NDCA III.B.1.d (p.14) | same | Open multiple-dance Pro/Am Championship events: at least five adjudicators. | mandatory |
 | NDCA III.B.4 (p.16) | same | "If possible, the Chairman should be a non-voting Chairman." | **advisory** |
+| NDCA XII.L.1 and XII.M.4 (p.51) | same | For formation events a **non-voting** Chairman of the Board of Adjudicators must be appointed (and must attend rehearsals). Unlike III.B.4 this is not "if possible". | **mandatory** (formation only) |
+| NDCA Team Match definition (p.3) | same | A Team Match has a maximum of three adjudicators. A maximum, not a minimum; recorded, not modelled. | mandatory (cap; formation/team) |
 | NDCA XII.N.1 (p.51) | same | Formation events are judged by at least three adjudicators qualified and certified in the style. | mandatory |
-| WSDC 3.4.7.a, a.i (p.20) | WSDC v2026.1C | Preliminary Jack and Jill: at least four judges **per role** plus the Chief Judge; exception: in Tiers 1-3 an event may have judges score both roles, still four scores per role; five per role in Tier 5-6 preliminaries is strongly recommended. | mandatory; the five-per-role is **advisory** |
+| WSDC 3.4.7.a, a.i (p.20) | WSDC v2026.1C | Preliminary Jack and Jill: at least four judges **per role** plus the Chief Judge; exception: in Tiers 1-3 an event may have judges score both roles, still four scores per role; five per role in larger Tier 5-6 preliminaries is strongly recommended. | mandatory; the five-per-role is **advisory** |
 | WSDC 3.4.7.b (p.20) | same | Finals: at least five judges plus the Chief Judge; an even number of judges shall not be used; seven judges are required for Tier 5-6 finals. | mandatory |
 | WSDC 3.4.7.c, d (p.20) | same | The Chief Judge may join the general panel only on an unforeseen or unavoidable shortage of general judges; virtual judging is not permitted. | mandatory (narrow exception) |
-| UCWDC-SF Rule #3, item 4 (p.3) | UCWDC Scoring Format v16.9b | The majority mark is the middle mark with an odd number of judges; an even number may be used "for contingency or emergency purposes", and then the majority mark is one mark more than half. | odd is the norm; even is a permitted contingency; **no minimum count is stated** |
+| UCWDC-SF Rule #3, item 4 (p.3) | UCWDC Scoring Format v16.9b | The majority mark is the middle mark with an odd number of judges; an even number may be used "for contingency or emergency purposes", and then the majority mark is one mark more than half. | odd is the norm; even is a permitted contingency; **no minimum count is stated**; odd-panel preference beyond "the norm" is not stated either |
 
 NOT SPECIFIED IN PROVIDED SOURCE: any UCWDC minimum panel size, and any UCWDC chair or non-voting-chair requirement. Do not invent one. The UCWDC Judge Certification
 Code of Conduct (not provided) remains an open source gap. NDCA III.B.1.a-d use the word "adjudicators"; the DanceFlow mapping of "adjudicator" to a voting judge (the chair
@@ -492,13 +494,13 @@ counting or not) is an interpretation, not stated in the rule.
 | Profile | Blockers (mandatory) | Warnings (advisory) | Inputs DanceFlow does not record today |
 |---|---|---|---|
 | Studio / Custom (DanceFlow policy, K1 X-3) | ordinal and callback: at least 3 present judges, odd; proficiency: at least 1 | none | none |
-| NDCA | III.B.1.a (3; 5 when the prize threshold applies), III.B.1.c (7), III.B.1.d (5), XII.N.1 (3), III.B.1.b (a qualified Chairman exists) | III.B.4 non-voting Chairman | event classification (Non-Championship / Professional / Adult Amateur Championship / open multiple-dance Pro/Am Championship), first-place prize money of professional events, formation flag, qualified-Chairman credential (OD-15) |
+| NDCA | III.B.1.a (3; 5 when the prize threshold applies), III.B.1.c (7), III.B.1.d (5), XII.N.1 (3), XII.L.1 and XII.M.4 (formation: a non-voting Chairman must be appointed), III.B.1.b (a qualified Chairman exists) | III.B.4 non-voting Chairman outside formation events | event classification (Non-Championship / Professional / Adult Amateur Championship / open multiple-dance Pro/Am Championship), first-place prize money of professional events, formation flag, qualified-Chairman credential (OD-15) |
 | WSDC | 3.4.7.a per-role minimum 4 plus Chief Judge (a.i narrow exception for Tiers 1-3), 3.4.7.b finals minimum 5 plus Chief Judge, odd, 7 for Tier 5-6, 3.4.7.c Chief Judge joins panel only with a recorded shortage, 3.4.7.d no virtual judging | five per role in Tier 5-6 preliminaries | contest type (Jack and Jill prelim/final), tier, per-role judging, judging mode (in person/virtual), recorded shortage reason |
 | UCWDC | none stated | odd panel preferred (even only for contingency/emergency) | none |
 
 ### 6C.3 Roles, voting, shortage exception
 
-- A **non-voting chair** (NDCA III.B.4, advisory) is a per-round option, a warning when absent, never a blocker; it changes whether the chair's ballot counts, so engine and ballot
+- A **non-voting chair**: NDCA III.B.4 is advisory ("if possible"), so outside formation events it is a per-round option and a warning when absent, never a blocker. **For NDCA formation events XII.L.1 and XII.M.4 make it mandatory**, so it is a hard blocker there (the missing input is the formation flag, which fails closed). It changes whether the chair's ballot counts, so engine and ballot
   rules must support it first. **Not designed in detail here; no engine change.**
 - **WSDC Chief Judge joining the panel** (3.4.7.c) is a documented resolution (same mechanism as OD-05 slice 3 and OD-06 6A): recorded reason of an unforeseen or unavoidable shortage,
   who decided, when; never automatic, and it does not satisfy the "separate Chief Judge" requirement of 3.4.7.a-b for counting purposes unless the owner says so (Q16).
@@ -515,7 +517,7 @@ judging mode) is itself a blocker for a declared-body profile, never defaulted (
 
 | Profile | Not implemented (each is a blocker to activating that profile) |
 |---|---|
-| NDCA | adjudicator count rules III.B.1.a/c/d; qualified Chairman III.B.1.b; formation minimum XII.N.1; event classification and prize inputs; non-voting chair (advisory); family-definition source conflict (OD-05) |
+| NDCA | adjudicator count rules III.B.1.a/c/d; qualified Chairman III.B.1.b; formation minimum XII.N.1 and the mandatory non-voting Chairman of formation events (XII.L.1, XII.M.4); event classification and prize inputs; non-voting chair (advisory); family-definition source conflict (OD-05) |
 | WSDC | per-role judge counts 3.4.7.a; finals minimum, odd, Tier 5-6 count 3.4.7.b; Chief Judge shortage exception 3.4.7.c; virtual-judging flag 3.4.7.d; per-role scoring in the engines |
 | UCWDC | nothing mandatory to count (no minimum stated); contingency even-panel handling must follow Rule #3.4's majority mark (one more than half), which the Studio engines do not implement (they fail closed on even panels) |
 | Studio/Custom | the internal inconsistency in the defect document must be fixed before initial activation |
@@ -529,6 +531,8 @@ OD-05: a recusal shrinks a panel; the shared aggregator evaluates conflicts firs
 must not contradict: a Chief Judge who joins the panel under 3.4.7.c is an explicit resolution, never silently permitted by role. OD-15: the qualified-Chairman requirement
 (III.B.1.b) is the OD-15 credential side of the same item. **OD-17 (panel appointment, publication, substitution) is not yet decided: placeholder only**; substitution would
 interact with panel minimums and the frozen panel; nothing is designed here.
+
+Dependency on OD-17: when NDCA III.B.6 lets the remaining officials act because no substitute is found, the panel minimum above must be met or the round does not run; the emergency path of section 6D is the only audited way to change the panel.
 
 New question **Q16**: when the Chief Judge joins the panel under WSDC 3.4.7.c, do they count toward the 3.4.7 minimum or must the minimum be met without them (the text says "plus the Chief Judge")?
 
