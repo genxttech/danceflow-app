@@ -4,7 +4,8 @@
 -- Signature, grants (authenticated only), security attribute (DEFINER), search_path and the audit mechanics are unchanged. Four behaviour changes, each of which can be reviewed on its own:
 --   1. Placed entries are refused: an entry with a danced or disqualified heat entry, or in a heat that is active or complete, is refused (the R2 participation class locked/certified),
 --      in addition to the existing refusal for locked or certified heats. (Before: only lock_state was checked.)
---   2. Idempotent: scratching an entry that is already scratched (or withdrawing one already withdrawn) returns without writing a second audit row or bumping lifecycle_version.
+--   2. Idempotent: scratching an entry that is already scratched (or withdrawing one already withdrawn) writes no second audit row and does not bump lifecycle_version; it still completes the
+--      heat-entry cascade (scheduled/checked_in heat entries become scratched), so a repeat call repairs an entry whose heat entries were left behind.
 --   3. Serialized: the entry row is locked FOR UPDATE after the authorization check and the decision uses the status read under that lock, so two concurrent submits cannot both pass.
 --   4. Source states: only pending, confirmed and waitlisted entries can be scratched or withdrawn through this RPC; scratched <-> withdrawn and disqualified/complete are refused with
 --      COMP_ENTRY_LIFECYCLE_STATE. (Before: any current status was accepted, e.g. disqualified -> scratched.) A scratched entry cannot be un-scratched here (as before; no un-scratch exists).
@@ -54,7 +55,12 @@ begin
   -- serialize concurrent submits on the entry row (same lock order as before: entry row first, heat entries after) and decide on the state read under the lock
   select status into v_current from public.event_competition_entries where id = selected_entry_id for update;
   if v_current = selected_status then
-    return; -- already in the requested state: no second audit row, no lifecycle_version bump
+    -- already in the requested state: no second audit row, no lifecycle_version bump; the heat-entry cascade is still (idempotently) completed,
+    -- so an entry scratched earlier whose heat entries were left scheduled can be repaired by repeating the call
+    update public.event_competition_heat_entries
+    set status = 'scratched', updated_at = now()
+    where entry_id = selected_entry_id and status in ('scheduled', 'checked_in');
+    return;
   end if;
   if v_current not in ('pending', 'confirmed', 'waitlisted') then
     raise exception 'COMP_ENTRY_LIFECYCLE_STATE: an entry that is % cannot be %.', v_current, selected_status;
@@ -97,7 +103,7 @@ do $$
 declare v_oid oid := to_regprocedure('public.change_competition_entry_lifecycle(uuid, text, text, text)');
 begin
   if not (select prosecdef from pg_proc where oid = v_oid)
-     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'e50181fa049cea40dc031495409130bd'
+     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'bd596f383184a17b097a0fce6a00ffa5'
      or has_function_privilege('anon', v_oid, 'execute') or has_function_privilege('service_role', v_oid, 'execute')
      or not has_function_privilege('authenticated', v_oid, 'execute') then
     raise exception 'S6 hardening postflight failed.';

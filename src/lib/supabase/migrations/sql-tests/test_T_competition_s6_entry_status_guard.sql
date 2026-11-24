@@ -231,6 +231,20 @@ select pg_temp.chk('H1 repeat scratch is a silent no-op: same lifecycle_version,
   (select r from t_h where k = 'repeat_scratch') = 'OK'
   and (select lifecycle_version from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032800001') = (select ver from t_h1)
   and pg_temp.aud('00000000-0000-0000-0000-cf1032800001') = (select aud from t_h1) and pg_temp.es('001') = 'scratched');
+-- H1b repair: an entry scratched earlier whose heat entry was left scheduled (owner-written state) is repaired by repeating the call: heat entry scratched, still no new audit row or version bump
+set local session_replication_role = replica;
+update public.event_competition_heats set lock_state = 'open' where id = '00000000-0000-0000-0000-cf1032d00001';
+update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1032810003';
+insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+values ('00000000-0000-0000-0000-cf1032900071', '00000000-0000-0000-0000-cf1032e00001', '00000000-0000-0000-0000-cf1032003001', '00000000-0000-0000-0000-cf1032d00001', '00000000-0000-0000-0000-cf1032810003', 71, 'scheduled');
+set local session_replication_role = origin;
+create temp table t_h1b (ver bigint, aud bigint);
+insert into t_h1b select lifecycle_version, pg_temp.aud(id) from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810003';
+select pg_temp.chk('H1b repeat call on an already scratched entry completes the heat-entry cascade without a new audit row or version bump',
+  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032810003', 'scratched', 'repair', 'not_applicable')$q$) = 'OK'
+  and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1032900071') = 'scratched'
+  and (select lifecycle_version from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810003') = (select ver from t_h1b)
+  and pg_temp.aud('00000000-0000-0000-0000-cf1032810003') = (select aud from t_h1b));
 -- H2 a scratched entry cannot be withdrawn through the RPC (and not the other way); the refusal changes nothing
 select pg_temp.chk('H2 scratched -> withdrawn through the RPC is refused with COMP_ENTRY_LIFECYCLE_STATE and changes nothing',
   pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032800001', 'withdrawn', 'x', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_STATE%'
