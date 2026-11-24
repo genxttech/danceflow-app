@@ -45,8 +45,8 @@
 -- Authorization: the new functions are not callable by public, anon or authenticated; the two predicates are executable by service_role (preflight and
 -- tooling). Triggers execute as the function owner regardless.
 -- Rollback: rollback/20270301120000_competition_s5_participant_age_guard_rollback.sql (restores the previous _comp10c_resolve_competitor body byte for byte).
--- Rollback ORDER with S4 (R-15): S4 gates/guard (20270301112000, 20270301111000) FIRST, then this file, then S4 core (20270301110000). This is the reverse of the RELEASE order
--- (core, app, S5, gates, guard), not plain reverse timestamp order: the rollback of this file REFUSES while the S4 gates are installed. There is no S5 stub in any migration
+-- Rollback ORDER with S4 (R-15): S4 write guard 20270301131000 and gates 20270301130000 (renumbered to sort AFTER this file) FIRST, then this file, then S4 core (20270301110000). This is the reverse of the RELEASE order
+-- (core 110000, app, S5 120000, gates 130000, guard 131000: timestamp order = release order, so rollback = plain reverse timestamp order): the rollback of this file REFUSES while the S4 gates are installed. There is no S5 stub in any migration
 -- (S4 uses a test-only stand-in inside its SQL suite, rolled back with the suite); S4's own rollbacks never drop S5 objects.
 
 begin;
