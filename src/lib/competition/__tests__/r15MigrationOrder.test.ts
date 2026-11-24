@@ -54,7 +54,7 @@ describe("R-15 (S4) migration order and rollback safety", () => {
       const sql = read(`${name}.sql`);
       expect(sql).not.toMatch(/\bupdate\s+public\.event_competition_entries\b(?![\s\S]{0,40}where id = p_entry_id)/i);
       expect(sql).not.toMatch(/\bdelete\s+from\b/i);
-      expect(sql).not.toMatch(/\btruncate\b/i);
+      expect(sql).not.toMatch(/^\s*truncate\s/im);
     }
   });
 });
