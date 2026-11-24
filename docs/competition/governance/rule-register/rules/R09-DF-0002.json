@@ -22,8 +22,8 @@
       "name": "the SQL recompute port uses exactly the label the TypeScript engine emits"
     }
   ],
-  "verification_status": "verified_compliant",
-  "interpretation_notes": "Verified statically (executed vitest reads the SQL text): three occurrences agree. The claim that a different submitted label produces MISMATCH is by inspection of the whole-output compare; no executed SQL test tampers the label (gap).",
+  "verification_status": "unverified",
+  "interpretation_notes": "Executed (static, reads SQL text): the label literal appears exactly twice in the PV-1 SQL and equals the TypeScript constant. NOT verified: that a changed label produces COMP_RESULT_RECOMPUTE_MISMATCH. That follows from the whole-output comparison by inspection only; no executed test tampers the label (needs a scratch database).",
   "applicable_event_versions": [
     "DanceFlow policy"
   ],

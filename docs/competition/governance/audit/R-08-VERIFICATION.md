@@ -35,8 +35,7 @@ result at all.** Valid results from the unaffected dances are therefore **not pr
   supersedes the old; ballot rows are immutable (`_compe2_guard_mark_insert`, `COMP_BALLOT_IMMUTABLE`), and a mark for a scratched/no-show entry is refused
   (`COMP_BALLOT_UNKNOWN_ENTRY`).
 - A heat whose entries are all scratched/no-show drops out of `_compe2_round_heats`; its ballots are void, not stale.
-- Timing: a no-show can be marked only while the round is `active`; after `ballots_locked` the round must be reopened first. A scratch after lock is limited by
-  the lifecycle RPC's `locked`/`certified` heat refusal.
+- Timing: a no-show can be marked only while the round is `active`; after `ballots_locked` the round must be reopened first. A scratch after round `ballots_locked` is limited only by the lifecycle RPC's heat `lock_state` (`locked`/`certified`) refusal; between round lock and heat lock a scratch appears allowed and then makes ballots stale, which `_compe2_round_blockers` catches at calculate.
 
 ## 3. Engine behavior (EXECUTED-TS, existing tests)
 

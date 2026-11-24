@@ -16,10 +16,15 @@ describe("R-09: the not-called-back label is persisted engine output", () => {
     for (const l of labels) expect(l).toBe(NOT_CALLED_BACK_LABEL);
   });
 
-  it("the PV-1 verifier compares the whole output object, so a different stored label is a mismatch", () => {
-    expect(sql).toMatch(/COMP_RESULT_RECOMPUTE_MISMATCH/);
-    expect(sql).toMatch(/'output'/);
-    expect(sql).toMatch(/is distinct from/);
+  it("the verifier function body compares the rebuilt output object with is distinct from (presence check scoped to _comppv1_verify; not a behavioral proof)", () => {
+    const s = sql.indexOf("function public._comppv1_verify");
+    const end = sql.indexOf("$$;", s + 100);
+    expect(s).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(s);
+    const body = sql.slice(s, end);
+    expect(body).toMatch(/COMP_RESULT_RECOMPUTE_MISMATCH/);
+    expect(body).toMatch(/'output'/);
+    expect(body).toMatch(/is distinct from/);
   });
 
   it("PV-1 helper functions are not callable by API roles", () => {

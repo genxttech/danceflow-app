@@ -9,8 +9,7 @@ result (input hash must match current ballots); a chair cannot override a manage
 
 ## 1. `approve_competition_round_result` (INSPECTED)
 
-Created in `20270114090000` (F2); patched in place by exact-text md5-pinned replacements: `20270120093000` (A3: `_cf1_require_roster_eligible(..., 'approve')` before the
-write) and `20270215090000` (PV-1: `_comppv1_verify` after the stale-hash check). Grants: revoked from public and anon, granted to `authenticated`.
+Created in `20270114090000` (F2); patched in place by exact-text md5-pinned replacements: `20270120093000` (A3: `_cf1_require_roster_eligible(..., 'approve')`; per its header the check runs after the certification loop and just before the status write, so after the override audit event, approvals insert and heat certification; the call is atomic; `20270120105000` (OD-17) also carries md5-pinned approve patch lines and was not traced here) and `20270215090000` (PV-1: `_comppv1_verify` after the stale-hash check). Grants: revoked from public and anon, granted to `authenticated`.
 
 | Clause | Enforcement | Override path? | Existing tests (SQL NOT RUN) | Gap |
 |---|---|---|---|---|

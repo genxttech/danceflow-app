@@ -4,7 +4,7 @@
 The display label change for the not-called-back label is a separate workstream (`od19-relabel-custom`); this report does not touch it.
 **Policy ratified vs implementation verified are kept separate.** Base `origin/release/website-embeds` @ `49dbaee1b`. Evidence labels as in
 [R-07-VERIFICATION.md](R-07-VERIFICATION.md). **All SQL claims are INSPECTED; no SQL suite was run** (heavy-lock queue). The only executed evidence is the
-static test `src/lib/competition/results/__tests__/r09.label.static.test.ts` (reads migration text; 3 tests pass).
+static test `src/lib/competition/results/__tests__/r09.label.static.test.ts` (reads migration text; 3 tests pass; the verifier-body test is a presence check scoped to `_comppv1_verify`, not behavioral proof).
 
 ## 1. calculate_competition_round and PV-1 (INSPECTED)
 
@@ -17,10 +17,10 @@ trace hash and row shape -> **`_comppv1_verify`** -> insert. Unlocked ballots ne
 | Question | Behavior |
 |---|---|
 | What is compared | the database runs its own port of the engine over the evidence and compares, with `is distinct from`, the caller's rows rebuilt as `entry_id`, `placement`, `tie_group`, `advanced`, `rating_band` and the **whole `output` object**, plus the warnings. An extra key in `output` is a MISMATCH |
-| `COMP_RESULT_RECOMPUTE_UNSUPPORTED` | engine is not `studio_callback_tally@1`/`studio_ordinal_majority@1`, or the SQL port itself refuses the round (input caps, profile outside the allow-list, `x3_option_unsupported`, even panel, `target_unset`, `target_invalid`, `callback_count`, `judge_without_ballot`, `mark_not_in_scheme`, callback `multi_dance_unsupported`, ordinal `multi_heat_combination_unspecified`) |
+| `COMP_RESULT_RECOMPUTE_UNSUPPORTED` | engine is not `studio_callback_tally@1`/`studio_ordinal_majority@1`, or the SQL port itself refuses the round (input caps, profile outside the allow-list, `x3_option_unsupported`, even panel, `target_unset`, `target_invalid`, `callback_count`, `judge_without_ballot`, `mark_not_in_scheme`, `multi_dance_unsupported` (both engines), ordinal `multi_heat_combination_unspecified`, and other port refusals such as `duplicate_*`, `panel_size`, `heat_panel_mismatch`; the list is not exhaustive) |
 | `COMP_RESULT_RECOMPUTE_MISMATCH` | the port succeeds and rows or warnings differ |
 | Tie at the cut over capacity | the port returns every row with `advanced = null`, `placement = null`, a tie status and the warning `advancement_unresolved_tie_over_capacity`; the unresolved result is storable (it equals the recompute); a forged resolution is a MISMATCH; approval is then blocked by trigger `cf1_guard_advancement_approval` with `COMP_ADVANCEMENT_BLOCKED` (even for a superuser), and the advancement preview/apply RPCs refuse it. `blocked_tie_over_capacity` is only a trace outcome in `studioCallbackTally.ts`, not a SQL error code (OD-14 hard block preserved) |
-| Who may call | `calculate_competition_round`: SECURITY DEFINER, `authenticated` only, manager or assigned scorer inside. `_comppv1_*`: revoked from public, anon, authenticated and service_role |
+| Who may call | `calculate_competition_round`: SECURITY DEFINER; revoked from public and anon only (as for approve, `service_role` keeps EXECUTE by default but `auth.uid()` is null so the call returns `COMP_FORBIDDEN`, see RF-11.1); manager or assigned scorer inside. `_comppv1_*`: revoked from public, anon, authenticated and service_role |
 | Approval | `approve_competition_round_result` re-runs `_comppv1_verify` on the stored version, so versions stored before PV-1 are re-verified |
 
 ## 2. The "Semi-final" label (INSPECTED + executed static test)
@@ -41,7 +41,7 @@ Final-only divisions, non-callback programs and rounds without a successor Final
 
 | Case | Enforcement |
 |---|---|
-| T < 2 | refused by the trigger in guarded scope; the UI parser accepts T = 1 (its own comment says so) |
+| T < 2 | refused by the trigger in guarded scope; the UI parser requires only a positive integer (its comment states the minimum of two is enforced by the database guard for guarded rounds only) |
 | T above Final capacity | `COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY` (trigger, lock, capacity RPC) |
 | T unset | `COMPO1_CALLBACK_TARGET_UNSET` raised only at `start_competition_round`; readiness blocks earlier in the app; in calculate the engine returns `target_unset` -> UNSUPPORTED |
 | T changed after ballots | `_compe2_guard_round_config` raises `COMP_ROUND_CONFIG_FROZEN` once the round is not draft/scheduled (T is deliberately not frozen by program lock, SS1) |
