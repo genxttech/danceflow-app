@@ -199,3 +199,6 @@ Independent review of NSI_I3_2_DB_Spec.md rev 1: **NO-GO for SQL**, conditional 
 
 ## 18. M16a APPLIED TO DEV (2026-11-24)
 M16a (staff attestation of a guardian; sha256 57c83291…46dd) applied to shared DEV via sb.sh; DEV catalog fingerprint now **63e82e902ac004b406195a9164b944b2|807** (was 3fc0eea4…|776), assert_catalog ok, Gate A closed, 0 rows, DEV-safe suites PASS (I1 113, level-10 9, level-11 5, level-12 4). Independent code review GO; P2 test follow-ups in NSI_I3_2_M16a_Notes.md (before Gate A). Report: rehearsal/d12_dev_m16a/D12_report_2026-11-24.md. M16b needs another spec round (rev 3 section 10.3) and depends on I3-4 session-bound save; M16c waits on owner decision O4. PROD untouched.
+
+## 19. M16b spec (2026-11-24)
+NSI_I3_2_M16b_DB_Spec.md rev 1 was reviewed: NO-GO as written (P0: the database bound the stored hash, not the address the code is sent to), CONDITIONAL GO once rev 2 is in. Rev 2 (section 9) adds send-to hash parameters on issue, immediate revocation on re-request, purge-safe invitation exclusion, exact finalize preconditions, full schema rollback, submit in the I3-4 dependency, and the P2s. A diff-check against the review list is enough before M16b SQL; activation stays blocked on I3-4 (session-bound guardian save and submit) and email delivery. M16c waits on O4.
