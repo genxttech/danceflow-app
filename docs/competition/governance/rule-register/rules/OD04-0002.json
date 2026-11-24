@@ -1,0 +1,28 @@
+{
+  "id": "OD04-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events (post-event availability of results)",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.1 item 9 (p.12)",
+    "quote_free_summary": "Results (rounds, placements and score reports) must be posted at the event and stay open to competitors for at least thirty days; inaccurate results must be corrected by posting corrected results."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Published results and their score evidence must not be removable while a posting duty may still apply. This change only keeps the evidence (results, publications, ballots) from being hard-deleted with the event. Posting for at least 30 days, withdrawal and correction handling are OD-22 and OD-23 and are NOT implemented here.",
+  "implementation": [
+    { "path": "src/lib/supabase/migrations/20270219090000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "_compod04_evidence_tables (result versions, rows, events, approvals, publications)" }
+  ],
+  "enforcement_point": "Database BEFORE DELETE trigger on public.events; not applied to any hosted database yet.",
+  "tests": [
+    { "path": "src/lib/competition/__tests__/eventDeleteGuard.od04.test.ts", "name": "OD-04 migration list, preflight list and SQL suite list name exactly the same tables" }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Partial coverage only: the 30-day posting duty itself (visibility, withdrawal vs posting, score reports, anonymous judge labels) is open under OD-22/OD-23. The 30 days is a minimum posting duration and is not a DanceFlow deletion trigger; nothing deletes after 30 days.",
+  "applicable_event_versions": ["Version 2026.1C (page footers; the file name says 2026.1B)"],
+  "decision_refs": ["OD-04 (owner decision 2026-11-23, Option A)", "OD-22", "OD-23"],
+  "last_reviewed": "2026-11-23"
+}

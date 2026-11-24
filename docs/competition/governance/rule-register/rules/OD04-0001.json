@@ -1,0 +1,28 @@
+{
+  "id": "OD04-0001",
+  "governing_body": "NDCA",
+  "format": "Ballroom competitions (organizer duty after the event)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.E After the Event, item 2 (printed p.25)",
+    "quote_free_summary": "The organizer must keep the adjudicators' original score sheets for at least thirty days after the event closes, for use if the scrutineers' final markings are in doubt."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS must not destroy the recorded judge ballots of an event (the digital counterpart of the score sheets) during or shortly after the event. A minimum duration only: DanceFlow retains them while the event row exists and never deletes them on a timer.",
+  "implementation": [
+    { "path": "src/lib/supabase/migrations/20270219090000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "a00_compod04_events_delete_guard / _compod04_evidence_tables (ballots, marks, ballot events, corrections, attendance)" }
+  ],
+  "enforcement_point": "Database BEFORE DELETE trigger on public.events (also reached by studio cascades); not applied to any hosted database yet.",
+  "tests": [
+    { "path": "src/lib/competition/__tests__/eventDeleteGuard.od04.test.ts", "name": "OD-04 migration installs ENABLE ALWAYS delete and truncate guards on public.events" }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Open points for the owner: (1) the rule names paper score sheets; whether the digital ballot rows satisfy it, and who keeps any paper original, is not decided. (2) The guard only prevents deletion of the event row; it is not applied to DEV or PROD yet, so nothing is enforced hosted. (3) A superuser can still disable the trigger. Behavior is proven by the local SQL suite (test_T_competition_od04_event_delete_guard.sql), recorded in the PR; status stays requires_interpretation until the owner accepts (1).",
+  "applicable_event_versions": ["June 2026, Master v1"],
+  "decision_refs": ["OD-04 (owner decision 2026-11-23, Option A)", "audit row X-18"],
+  "last_reviewed": "2026-11-23"
+}
