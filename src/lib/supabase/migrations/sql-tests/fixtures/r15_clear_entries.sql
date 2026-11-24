@@ -1,3 +1,4 @@
+-- WARNING: test-only. Plants a stand-in for the S5 age predicate in schema public when S5 is absent. Run ONLY on an isolated local Postgres inside a suite transaction that always rolls back; never on DEV/PROD or any database that persists.
 -- Test-only fixture helper (never part of a migration). After 20270301111000 predicate P requires eligibility CLEARANCE, so every existing Competition suite that
 -- seeds `eligible`/`waived` entries directly must also seed their clearance. Load this AFTER the fixture rows exist and call it before the first gated step:
 --

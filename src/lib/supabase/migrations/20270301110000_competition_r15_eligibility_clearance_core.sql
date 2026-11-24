@@ -19,7 +19,7 @@
 -- Clearance of an entry (all must hold): status is eligible or waived; the LATEST determination row equals that status; its fingerprint equals the live
 -- fingerprint (division, age/skill/role labels, participant competitor+role set: a roster substitution or label change makes it stale); an `eligible`
 -- determination lists every required criterion; a `waived` determination has a waiver category, the entry needs no age/status/level criterion and the event
--- declares no UCWDC/NDCA/WSDC sanctioning; the S5 age state is 'allowed'. Existing eligible/waived rows without a determination are PROVISIONAL, never promoted.
+-- declares no sanctioning at all (none, not even 'other'); the S5 age state is 'allowed'. Existing eligible/waived rows without a determination are PROVISIONAL, never promoted.
 --
 -- Rollback: rollback/20270301110000_competition_r15_eligibility_clearance_core_rollback.sql (refuses while any determination exists).
 -- Order: this file, then the app switch to the RPC, then 111000 (gates), then 112000 (write guard).
@@ -129,7 +129,9 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_have boolean := to_regprocedure('public._comp_participant_age_clearance(uuid)') is not null;
+  v_fn regprocedure := to_regprocedure('public._comp_participant_age_clearance(uuid)');
+  -- The S5 function must be owned by the same role that owns this function: a stub planted by another role cannot declare competitors adult.
+  v_have boolean := v_fn is not null and (select p.proowner from pg_proc p where p.oid = v_fn) = (select p.proowner from pg_proc p where p.oid = 'public._r15_age_state(uuid)'::regprocedure);
   v_p record;
   v_r text;
   v_n integer := 0;
@@ -181,11 +183,10 @@ stable
 security definer
 set search_path = public, pg_temp
 as $$
-  select encode(sha256(convert_to(
-    e.division_id::text || '|' || coalesce(d.age_label, '') || '|' || coalesce(d.skill_label, '') || '|' || coalesce(d.role_label, '') || '|' ||
-    coalesce((select string_agg(coalesce(p.competitor_id::text, 'none') || ':' || p.participant_role, ',' order by coalesce(p.competitor_id::text, 'none'), p.participant_role)
-              from public.event_competition_entry_participants p where p.entry_id = e.id), ''),
-    'UTF8')), 'hex')
+  select encode(sha256(convert_to(jsonb_build_array(
+    e.id, e.created_at, e.division_id, d.age_label, d.skill_label, d.role_label,
+    coalesce((select jsonb_agg(jsonb_build_array(p.competitor_id, p.participant_role, p.dance_role) order by p.competitor_id, p.participant_role, p.dance_role)
+              from public.event_competition_entry_participants p where p.entry_id = e.id), '[]'::jsonb))::text, 'UTF8')), 'hex')
   from public.event_competition_entries e
   left join public.event_competition_divisions d on d.id = e.division_id
   where e.id = p_entry_id;
@@ -246,14 +247,14 @@ begin
   if e.eligibility_status = 'needs_review' then return 'entry_provisional_needs_review'; end if;
   select * into d from public.event_competition_eligibility_determinations x where x.entry_id = p_entry_id order by x.seq desc limit 1;
   if not found then return 'entry_determination_missing'; end if;
-  if d.outcome is distinct from e.eligibility_status then return 'entry_determination_mismatch'; end if;
+  if d.outcome is distinct from e.eligibility_status or d.event_id is distinct from e.event_id then return 'entry_determination_mismatch'; end if;
   if d.fingerprint is distinct from public._r15_entry_fingerprint(p_entry_id) then return 'entry_determination_stale'; end if;
   v_req := public._r15_required_criteria(p_entry_id);
   if e.eligibility_status = 'eligible' then
     if not (v_req <@ d.criteria) then return 'entry_criteria_missing'; end if;
   else
     if cardinality(v_req) > 0
-       or exists (select 1 from public.events ev where ev.id = e.event_id and ev.competition_sanctioning in ('ucwdc', 'ndca', 'wsdc')) then
+       or exists (select 1 from public.events ev where ev.id = e.event_id and ev.competition_sanctioning <> 'none') then
       return 'entry_waiver_not_allowed';
     end if;
     if d.waiver_category is null then return 'entry_waiver_basis_missing'; end if;
@@ -341,10 +342,16 @@ begin
     if v_prior.entry_id is distinct from p_entry_id then
       raise exception 'COMP_R15_DETERMINATION_INVALID: this request id was already used for a different entry.' using errcode = '23505';
     end if;
+    if v_prior.decided_by is distinct from v_uid or v_prior.outcome is distinct from p_outcome or v_prior.reason_code is distinct from p_reason_code then
+      raise exception 'COMP_R15_DETERMINATION_INVALID: this request id was already used for a different decision.' using errcode = '23505';
+    end if;
     return jsonb_build_object('replayed', true, 'determination_id', v_prior.id, 'entry_id', p_entry_id, 'outcome', v_prior.outcome);
   end if;
   if e.status in ('withdrawn', 'scratched', 'disqualified', 'complete') then
     raise exception 'COMP_R15_DETERMINATION_INVALID: a % entry cannot be given an eligibility decision.', e.status using errcode = '23514';
+  end if;
+  if p_reason_code is null then
+    raise exception 'COMP_R15_DETERMINATION_INVALID: a reason code is required.' using errcode = '23514';
   end if;
   if p_outcome is null or p_outcome not in ('unverified', 'eligible', 'needs_review', 'ineligible', 'waived') then
     raise exception 'COMP_R15_DETERMINATION_INVALID: a valid eligibility outcome is required.' using errcode = '23514';
@@ -375,8 +382,8 @@ begin
     if cardinality(v_req) > 0 then
       raise exception 'COMP_R15_DETERMINATION_INVALID: a waiver cannot be used for a division with age, status or level criteria.' using errcode = '23514';
     end if;
-    if exists (select 1 from public.events ev where ev.id = e.event_id and ev.competition_sanctioning in ('ucwdc', 'ndca', 'wsdc')) then
-      raise exception 'COMP_R15_DETERMINATION_INVALID: a waiver cannot be used for an event that declares a governing-body sanction.' using errcode = '23514';
+    if exists (select 1 from public.events ev where ev.id = e.event_id and ev.competition_sanctioning <> 'none') then
+      raise exception 'COMP_R15_DETERMINATION_INVALID: a waiver cannot be used for an event that declares any sanctioning.' using errcode = '23514';
     end if;
     v_waiver := p_reason_code;
   else
@@ -388,7 +395,7 @@ begin
 
   select usr.role into v_role
   from public.user_studio_roles usr join public.events ev on ev.studio_id = usr.studio_id
-  where usr.user_id = v_uid and ev.id = e.event_id and usr.active limit 1;
+  where usr.user_id = v_uid and ev.id = e.event_id and usr.active order by usr.role limit 1;
 
   insert into public.event_competition_eligibility_determinations (
     event_id, entry_id, outcome, reason_code, waiver_category, criteria, fingerprint, decided_by, decided_role, request_id

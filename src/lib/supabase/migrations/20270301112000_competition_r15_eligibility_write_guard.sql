@@ -51,6 +51,7 @@ create trigger r15_guard_entry_eligibility_write
   after insert or update on public.event_competition_entries
   for each row execute function public.r15_guard_entry_eligibility_write();
 
+alter table public.event_competition_entries enable always trigger r15_guard_entry_eligibility_write;
 revoke trigger on public.event_competition_entries from anon, authenticated;
 
 do $$

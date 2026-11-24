@@ -46,9 +46,10 @@ declare
   v_new constant text := 'public._cf1_entry_unavailable_reason(new.entry_id)';
 begin
   v_def := replace(pg_get_functiondef('public.cf1_od17_guard_heat_entry()'::regprocedure), E'\r', '');
-  if (length(v_def) - length(replace(v_def, v_old, ''))) / length(v_old) = 1 then
-    execute replace(v_def, v_old, v_new);
+  if (length(v_def) - length(replace(v_def, v_old, ''))) / length(v_old) <> 1 then
+    raise exception 'R15 gates rollback refused: cf1_od17_guard_heat_entry does not contain exactly one %; nothing was changed.', v_old;
   end if;
+  execute replace(v_def, v_old, v_new);
 end $$;
 
 commit;

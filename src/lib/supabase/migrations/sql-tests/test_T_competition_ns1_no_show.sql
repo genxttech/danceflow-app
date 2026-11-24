@@ -334,6 +334,7 @@ select pg_temp.expect_msg('a scratched entry cannot be a no-show', format($q$sel
 select pg_temp.expect_msg('ballots locked round is outside the window (correction path)', format($q$select public.mark_competition_heat_no_show(%L, 'x', %L)$q$, pg_temp.he('00d012', '008024'), pg_temp.u('f30032')), 'COMP_NO_SHOW_WINDOW');
 select pg_temp.expect_ok('a complete heat of an active round is inside the window', format($q$select public.mark_competition_heat_no_show(%L, 'Left before the heat ended', %L)$q$, pg_temp.he('00d008', '008019'), pg_temp.u('f30033')));
 reset role;
+select pg_temp.r15_clear_entries();
 update public.event_competition_heat_entries set status = 'danced' where id = pg_temp.he('00d001', '008001');
 select pg_temp.chk('a danced entry exists for the state test', (select status from public.event_competition_heat_entries where id = pg_temp.he('00d001', '008001')) = 'danced');
 set role authenticated;

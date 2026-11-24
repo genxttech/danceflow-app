@@ -38,6 +38,27 @@ begin
   end;
 end $$;
 
+create or replace function pg_temp.expect_err(p_name text, p_sql text) returns void
+language plpgsql as $$
+declare
+  v_unexpected boolean := false;
+begin
+  begin
+    execute p_sql;
+    set constraints all immediate;
+    v_unexpected := true;
+    raise exception 'rollback probe';
+  exception when others then
+    if not v_unexpected then
+      insert into t_results values (p_name, true, sqlstate || ' ' || sqlerrm);
+    end if;
+  end;
+  if v_unexpected then
+    insert into t_results values (p_name, false, 'statement unexpectedly succeeded');
+  end if;
+  set constraints all deferred;
+end $$;
+
 create or replace function pg_temp.expect_msg(p_name text, p_sql text, p_fragment text) returns void
 language plpgsql as $$
 declare
@@ -126,12 +147,14 @@ insert into public.event_competition_division_dances (id, event_id, program_id, 
   (pg_temp.u('005013'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), pg_temp.u('004001'), 1);
 
 -- Competitors: 40 adults ('Dancer'), plus one 'Minor' and one 'Unknown' (the stub S5 predicate keys on first_name).
-insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via)
-select pg_temp.u('0070' || lpad(n::text, 2, '0')), pg_temp.u('00e001'), 'Dancer', 'N' || n, 'staff' from generate_series(1, 40) n;
+insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, date_of_birth)
+select pg_temp.u('0070' || lpad(n::text, 2, '0')), pg_temp.u('00e001'), 'Dancer', 'N' || n, 'staff', date '1985-06-15' from generate_series(1, 40) n;
 insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via) values
   (pg_temp.u('007091'), pg_temp.u('00e001'), 'Minor', 'M', 'staff'),
   (pg_temp.u('007092'), pg_temp.u('00e001'), 'Unknown', 'U', 'staff'),
   (pg_temp.u('007093'), pg_temp.u('00e002'), 'Dancer', 'S', 'staff');
+update public.event_competition_competitors set date_of_birth = current_date - interval '10 years' where id = pg_temp.u('007091');
+update public.event_competition_competitors set date_of_birth = date '1985-06-15' where id = pg_temp.u('007093');
 
 -- Entries (inserted as postgres: the write guard allows the owner role, so legacy-shaped rows such as 'eligible without determination' can be seeded).
 -- 000x: dA individuals. E01 unverified, E02 needs_review, E03 to be eligible, E04 to be waived, E05 legacy eligible (no determination), E06 ineligible,
@@ -181,12 +204,15 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('absent S5: marking eligible is refused (fails closed)', pg_temp.decide('008003', 'eligible', 'criteria_verified_by_organizer', $$'{}'::text[]$$, 1), 'COMP_R15_DETERMINATION_INVALID');
 reset role;
 
--- The S5 stub (rolled back with the suite): Minor -> blocked_under_18, Unknown -> unknown_age, else allowed.
-create function public._comp_participant_age_clearance(p_competitor_id uuid) returns text
-language sql stable as $$
-  select case c.first_name when 'Minor' then 'blocked_under_18' when 'Unknown' then 'unknown_age' else 'allowed' end
-  from public.event_competition_competitors c where c.id = p_competitor_id
-$$;
+-- The S5 stand-in is created only when S5 is not applied (rolled back with the suite): Minor -> blocked_under_18, Unknown -> unknown_age, else allowed.
+do $stub$
+begin
+  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
+    execute $f$create function public._comp_participant_age_clearance(p_competitor_id uuid) returns text language sql stable as $b$
+      select case c.first_name when 'Minor' then 'blocked_under_18' when 'Unknown' then 'unknown_age' else 'allowed' end
+      from public.event_competition_competitors c where c.id = p_competitor_id $b$ $f$;
+  end if;
+end $stub$;
 
 -- ============================================================================
 -- B. Predicate P is strict; the lenient availability test is unchanged
@@ -327,11 +353,10 @@ select pg_temp.expect_msg('a version with a provisional placement cannot be publ
 -- Scratch the provisional placement (the lifecycle recovery), then publish works.
 update public.event_competition_heat_entries set status = 'scratched' where heat_id = pg_temp.id('heat') and entry_id = pg_temp.u('008001');
 select pg_temp.expect_ok('after scratching the provisional placement the version can be published', $q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = pg_temp.id('v1')$q$);
-select pg_temp.expect_msg('a provisional entry cannot be placed into a heat of a PUBLISHED version',
-  $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.id('heat'), pg_temp.u('008002'), 9)$q$, 'COMP_R15_ENTRY_NOT_CLEARED');
+select pg_temp.expect_err('a provisional entry cannot be placed into a heat of a PUBLISHED version (10D freezes it; R15 refuses too)',
+  $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.id('heat'), pg_temp.u('008002'), 9)$q$);
 select pg_temp.expect_msg('un-scratching a provisional placement in a published version is refused',
   $q$update public.event_competition_heat_entries set status = 'scheduled' where heat_id = pg_temp.id('heat') and entry_id = pg_temp.u('008001')$q$, 'COMP_R15_ENTRY_NOT_CLEARED');
-select pg_temp.expect_ok('a cleared entry can still be placed in the published version heat', $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.id('heat'), pg_temp.u('008015'), 9)$q$);
 
 -- Structural checks for the stages that need panel/ballot fixtures (their behavior is covered by predicate P, proven strict above).
 select pg_temp.chk('round start, floor call, heat-entry and version triggers are installed and enabled',

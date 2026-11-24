@@ -23,6 +23,11 @@ begin
   if to_regprocedure('public._r15_entry_clearance_reason(uuid)') is null or to_regprocedure('public._r15_entry_availability_reason(uuid)') is null then
     raise exception 'R15 gates preflight: 20270301110000 (core) is not applied.';
   end if;
+  -- Without the S5 age predicate no entry can be age-cleared, so the strict gates would freeze every competition. S5 (20270301120000) must be
+  -- applied BEFORE this file even though its timestamp is later: hosted SQL is applied file by file through the ops runner, not by timestamp order.
+  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
+    raise exception 'R15 gates preflight: the S5 age predicate (20270301120000) is not applied; apply it first.';
+  end if;
   if to_regprocedure('public.cf1_od17_guard_heat_entry()') is null or to_regprocedure('public._compe2_round_entries(uuid)') is null
      or to_regprocedure('public._cf1_entry_unavailable(uuid)') is null then
     raise exception 'R15 gates preflight: CF1/E2 objects are missing.';
@@ -173,6 +178,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_ids uuid[];
+  v_detail text;
 begin
   select coalesce(array_agg(distinct he.entry_id), '{}'::uuid[]) into v_ids
   from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
@@ -180,9 +186,10 @@ begin
   begin
     perform public.r15_raise_not_cleared('publish_schedule', v_ids, jsonb_build_object('schedule_version_id', new.id));
   exception when sqlstate 'P0001' then
+    get stacked diagnostics v_detail = pg_exception_detail;
     if sqlerrm like 'COMP_R15_ENTRY_NOT_CLEARED:%' then
       raise exception 'COMP_R15_PROVISIONAL_ASSIGNMENT: the running order holds entries that are not cleared; clear, withdraw or scratch them before publishing.'
-        using errcode = 'P0001';
+        using errcode = 'P0001', detail = v_detail;
     end if;
     raise;
   end;
@@ -211,7 +218,7 @@ begin
   end if;
   if tg_op = 'UPDATE' then
     v_changed := new.entry_id is distinct from old.entry_id or new.heat_id is distinct from old.heat_id or old.status = 'scratched'
-                 or (new.status in ('checked_in', 'danced', 'disqualified') and new.status is distinct from old.status);
+                 or (new.status in ('checked_in', 'danced') and new.status is distinct from old.status);
     if not v_changed then
       return new;
     end if;
@@ -219,7 +226,7 @@ begin
   if public._r15_entry_clearance_reason(new.entry_id) is null then
     return new;
   end if;
-  if new.status in ('checked_in', 'danced', 'disqualified') then
+  if new.status in ('checked_in', 'danced') then
     perform public.r15_raise_not_cleared('floor_state', array[new.entry_id], jsonb_build_object('heat_id', new.heat_id));
   end if;
   select h.status as heat_status, r.status as round_status, v.status as version_status into v_ctx
@@ -241,6 +248,11 @@ revoke all on function public.r15_guard_heat_entry_clearance() from public, anon
 create trigger r15_guard_heat_entry_clearance
   before insert or update of entry_id, heat_id, status on public.event_competition_heat_entries
   for each row execute function public.r15_guard_heat_entry_clearance();
+
+alter table public.event_competition_rounds enable always trigger r15_guard_round_start;
+alter table public.event_competition_heats enable always trigger r15_guard_heat_status;
+alter table public.event_competition_schedule_versions enable always trigger r15_guard_version_publish;
+alter table public.event_competition_heat_entries enable always trigger r15_guard_heat_entry_clearance;
 
 -- Postflight
 do $$

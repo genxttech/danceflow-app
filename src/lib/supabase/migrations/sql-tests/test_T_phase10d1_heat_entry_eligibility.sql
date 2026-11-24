@@ -134,6 +134,9 @@ insert into public.event_competition_entry_dances (event_id, entry_id, division_
 select e.event_id, e.id, case when e.division_id = pg_temp.u('003001') then pg_temp.u('005011') else pg_temp.u('005021') end, 'offering', 'Offering'
 from public.event_competition_entries e where e.id::text like '00000000-0000-0000-0000-0c10d1%';
 
+-- S4/R-15: predicate P now requires clearance for day-of floor states; seed it (load sql-tests/fixtures/r15_clear_entries.sql before this suite).
+select pg_temp.r15_clear_entries(pg_temp.u('00e001'));
+
 -- ============================================================================
 -- Planner apply still works (regression) -- creates Heat 1 Two Step and Heat 2 Waltz
 -- ============================================================================
@@ -203,7 +206,7 @@ select pg_temp.expect_ok('day-of status updates on placements stay allowed',
 reset role;
 select pg_temp.chk('the rule lives in the existing 10D integrity function (no second validator)',
   position('COMP10D_ENTRY_NOT_SCHEDULABLE' in pg_get_functiondef('public._comp10d_check_floor_heat_integrity()'::regprocedure)) > 0
-  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgenabled <> 'D' and tgname in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'r15_guard_heat_entry_clearance', 'set_event_competition_updated_at')) = 4
+  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgenabled <> 'D' and tgname in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'r15_guard_heat_entry_clearance', 'set_event_competition_updated_at')) = 5
   and not exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname not in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'r15_guard_heat_entry_clearance', 'set_event_competition_updated_at') and tgname !~ '^cf1_'));
 select pg_temp.chk('the integrity function is not callable by API roles',
   not has_function_privilege('authenticated', 'public._comp10d_check_floor_heat_integrity()', 'EXECUTE')
