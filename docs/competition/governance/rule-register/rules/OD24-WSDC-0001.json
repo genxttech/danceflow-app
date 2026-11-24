@@ -1,0 +1,28 @@
+{
+  "id": "OD24-WSDC-0001",
+  "governing_body": "WSDC",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.9, 3.4.9.c (p.21), Section 5 (pp.22-23)",
+    "quote_free_summary": "WSDC Jack and Jill preliminaries use the WSDC-approved Callback system: Yes 10, Alternates 4.5/4.3/4.2, No 0, at most three Alternate levels, outcome is the sum, and the Chief Judge's unique raw scores break a tie only after the original calculation."
+  },
+  "format": "WSDC Jack and Jill preliminary callbacks",
+  "rule_class": "mandatory",
+  "requirement": "Not built and not claimed. The Studio callback tally (yes-only, by entry) is DanceFlow policy and is not WSDC callback scoring. A future WSDC profile would need alternates, No values, per-role panels and the Chief Judge raw-score tie-break, verified separately.",
+  "implementation": [],
+  "enforcement_point": "None. OD-01 (PR 832) blocks approval and publication of Studio-scored results for a declared WSDC event.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The callback system is defined by the pinned text; gaps (unmarked judges, direction of the raw-score tie-break, missing Chief Judge score, rounding, the missing 'Appendix') are listed in docs/competition/governance/scoring-sources/OD-24-scoring-source-candidates.md section 4. Algorithm correctness, rule compliance and WSDC approval are separate (see OD24-WSDC-0002).",
+  "applicable_event_versions": [
+    "Version 2026.1C"
+  ],
+  "decision_refs": [
+    "OD-24 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
