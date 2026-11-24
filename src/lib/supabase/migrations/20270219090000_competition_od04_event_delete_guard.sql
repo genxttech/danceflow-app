@@ -14,7 +14,7 @@
 -- WHAT THIS DOES.
 --   * BEFORE DELETE trigger on public.events (row level): refuses the delete when ANY row exists in the "scoring evidence" tables listed in
 --     _compod04_evidence_tables() for that event. The check runs BEFORE any cascade starts, so no evidence row is ever touched. It covers
---     every path that deletes an events row: a direct delete, the cascade of a studio / organizer / owner delete, a bulk delete.
+--     every path that deletes an events row: a direct delete, the cascade of an organizer delete (events.organizer_id is ON DELETE CASCADE; events.studio_id is NO ACTION, so a studio delete cannot reach events), a bulk delete.
 --     Studio and Custom programs are covered the same way: the test is "evidence rows exist", not a body/format/profile.
 --   * BEFORE TRUNCATE trigger on public.events (statement level): refuses while evidence exists for ANY event.
 --   * Both triggers are ENABLE ALWAYS, so `session_replication_role = replica` does not bypass them.
@@ -28,7 +28,7 @@
 --   * It does not archive, hide or time-limit anything and it deletes nothing automatically. There is NO "30 days then delete" behavior:
 --     NDCA III.E item 2 (retain original adjudicators' score sheets 30 days after the event closes) and WSDC Registry Event Rules 3.1 item 9
 --     (results open to competitors at least 30 days) are minimum durations; this guard keeps the evidence for as long as the event row exists.
---   * It does not stop a database superuser from `alter table ... disable trigger` or from dropping the trigger (accepted residual risk, same
+--   * It does not stop a role that owns public.events (the migration role, or a superuser) from `alter table ... disable trigger` or from dropping the trigger (accepted residual risk, same
 --     class as the other Competition OS guards), and it does not govern deletes of individual child rows (those are the existing append-only
 --     triggers and state guards).
 --

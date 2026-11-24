@@ -18,7 +18,7 @@ Rollback: `rollback/20270219090000_competition_od04_event_delete_guard_rollback.
 
 Concurrency: PostgreSQL locks the event row before it fires a BEFORE ROW delete trigger, so a concurrent evidence writer (which holds FOR KEY SHARE on
 the event row through its foreign key) is waited for and then seen. The guard also takes the row lock explicitly (defense in depth). The race
-script proves both orders; note that it passes with or without the explicit lock for this reason, so the explicit lock is not independently proven.
+script: race 1 (writer first, delete refused) is the meaningful one; race 2 (delete first) only confirms PostgreSQL FK locking and would pass without the guard. Race 1 passes with or without the explicit lock for this reason, so the explicit lock is not independently proven.
 
 ## Per-table decision (what "protected evidence" means)
 All 21 listed tables reference `events` with ON DELETE CASCADE (checked by the suite), so the event delete was the cascade path.
@@ -63,7 +63,7 @@ OD04-0001, OD04-0002, OD04-0003.
 - E2E/QA fixtures that delete events (`e2e/helpers/competitionFixture.ts`, `competitionFullEventFixture.ts`, `stripeTestModeFixture.ts`) will be
   refused on a database where the guard is applied and the event holds ballots/results. Clean up by an operator who disables the trigger, or leave the
   fixture events; no bypass is built in on purpose.
-- A database superuser can still disable or drop the trigger (accepted residual risk).
+- Any role that owns `public.events` (the migration role on hosted Supabase, or a superuser) can still disable or drop the trigger; ENABLE ALWAYS only defeats `session_replication_role`. Accepted residual risk, not tested.
 - SQL test suites from other packages that delete events holding evidence need the same treatment if they run after this migration.
 
 ## SQL approval package (for the owner; nothing applied)
@@ -78,3 +78,9 @@ PROD apply needs separate owner approval; this PR authorizes none.
 SQL suite 158 checks PASS; race script 6 checks PASS (run twice); ordinary-event deletion output identical with the guard, after rollback and after
 re-apply; rollback run with committed evidence present left the evidence intact and re-apply worked; static vitest 11 tests PASS.
 The independent review is recorded in the PR description.
+
+## Known limits (from the independent review)
+- Cost: every event delete (including ordinary events) now runs 21 `exists` probes. `event_competition_marks` has no `event_id` index in the repository migrations, so a probe may scan it; check `pg_indexes` before apply and bulk fixture cleanups. Not changed here.
+- If a later migration drops or renames one of the 21 tables, every event delete fails ("relation does not exist") until `_compod04_evidence_tables()` is updated (fails closed).
+- Suite check C1 records a pass on any error from the direct row delete, not only the append-only message; it shows each table refuses, not why.
+- Race 2 cannot fail without the guard (see above); only race 1 exercises it.

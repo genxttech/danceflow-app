@@ -31,7 +31,6 @@ START=$(date +%s)
 SU -c "delete from public.events where id='$E1'" > "$OUT/d1.txt" 2>&1; echo "d1rc=$?" >> "$OUT/d1.txt"
 END=$(date +%s)
 wait $W1
-" " ") d1=$(cat $OUT/d1.txt) dur=$((END-START)) ev=$(SU -c "select count(*) from public.events where id='$E1'") rows=$(SU -c "select count(*) from public.event_competition_ballot_events where event_id='$E1'")"
 ok "race1: the writer committed its evidence row" $([ "$(SU -c "select count(*) from public.event_competition_ballot_events where event_id='$E1'")" = "1" ] && echo 1 || echo 0)
 ok "race1: the delete waited for the writer (>= 2 s)" $([ $((END-START)) -ge 2 ] && echo 1 || echo 0)
 ok "race1: the delete was refused with COMP_EVENT_HAS_SCORING_EVIDENCE" $(grep -q "COMP_EVENT_HAS_SCORING_EVIDENCE" "$OUT/d1.txt" && echo 1 || echo 0)

@@ -16,7 +16,7 @@
   "implementation": [
     { "path": "src/lib/supabase/migrations/20270219090000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "a00_compod04_events_delete_guard / _compod04_evidence_tables (ballots, marks, ballot events, corrections, attendance)" }
   ],
-  "enforcement_point": "Database BEFORE DELETE trigger on public.events (also reached by studio cascades); not applied to any hosted database yet.",
+  "enforcement_point": "Database BEFORE DELETE trigger on public.events (also reached by organizer-delete cascades); not applied to any hosted database yet.",
   "tests": [
     { "path": "src/lib/competition/__tests__/eventDeleteGuard.od04.test.ts", "name": "OD-04 migration installs ENABLE ALWAYS delete and truncate guards on public.events" }
   ],
