@@ -9,6 +9,10 @@
  *   7. Reversal of unused credit (bounded, idempotent, allowed with the switch off); hold / negative-balance refusals; direct writes refused (also in replica mode).
  *   8. Concurrency: two grants racing for the last of the budget; the same grant twice.
  *   9. Rollback refuses while rows exist; on a schema-only scratch copy it restores and re-applies cleanly.
+ *  10. D4 (charged inbound may use test credit): explicit accounting and controlled exhaustion through the REAL tw4_inbound_record.
+ *      These tests assume the inbound price is the fixture's 2 cents per segment (provider cost 1), published by seedPriceIfMissing in beforeAll: a database that already
+ *      has another active 'sms_inbound' price keeps it and the expected amounts do not hold. Run them only on a DEDICATED, fresh QA database (the iso-qa harness gives
+ *      each run its own), never on a shared stack.
  * Synthetic fixtures; nothing reaches Twilio, Stripe or any SMS path.
  *
  * LOCAL QA ONLY: an isolated Postgres with migrations through 20270223091000 and the local-QA marker table (ISO_QA_MARKER=1):
@@ -518,7 +522,8 @@ commit;`);
       resetPilot(0);
       setBudget(EP, status(EP).granted_cents + 3);
       grant(EP, 3);
-      const absorbed0 = Number(psql(`select public._tw4ia_absorbed_cents('${EP}', '-infinity'::timestamptz)`));
+      const absorbedNow = () => Number(psql(`select public._tw4ia_absorbed_cents('${EP}', '-infinity'::timestamptz)`));
+      const absorbed0 = absorbedNow();
       // 2 segments = 4 cents billable, 3 available: charged 3 (all the test credit), 1 uncollected; never below zero, never more than the test credit
       const t1 = inbound(2);
       expect([t1.recorded, t1.charged_cents, t1.uncollected_cents]).toEqual([true, 3, 1]);
@@ -528,6 +533,12 @@ commit;`);
       const t2 = inbound(1);
       expect([t2.recorded, t2.charged_cents, t2.uncollected_cents]).toEqual([true, 0, 2]);
       expect(psql(`select count(*) from public.studio_sms_credit_ledger where idempotency_key = 'usage:in:${t2.sid}'`)).toBe("0");
+      // the absorbed-inbound alert input grows by exactly the UNCOLLECTED share of the two ordinary texts: ceil(est provider cost x uncollected / billable) each
+      // (no reply was sent). With the fixture price (2 cents, cost 1 per segment): t1 = ceil(2 x 1 / 4) = 1, t2 = ceil(1 x 2 / 2) = 1.
+      const share = (sid: string) => Number(psql(`select ceil(est_provider_cost_cents::numeric * uncollected_cents / nullif(billable_cents, 0)) from public.studio_sms_inbound_usage where provider_sid = '${sid}'`));
+      expect([share(t1.sid), share(t2.sid)]).toEqual([1, 1]);
+      const absorbed1 = absorbedNow();
+      expect(absorbed1 - absorbed0).toBe(share(t1.sid) + share(t2.sid));
       // STOP / START / HELP (compliance) are recorded and never charged
       const stop = inbound(1, "compliance");
       expect([stop.recorded, stop.charged_cents, stop.uncollected_cents]).toEqual([true, 0, 0]);
@@ -537,8 +548,9 @@ commit;`);
       const again = call<{ replayed: boolean; charged_cents: number; uncollected_cents: number }>("tw4_inbound_record", SP,
         psql(`select twilio_account_sid from public.studio_sms_twilio_accounts where legal_entity_id = '${EP}' and status = 'active'`), t1.sid, 2, 0, "ordinary", null, null, "webhook");
       expect([again.replayed, again.charged_cents, again.uncollected_cents]).toEqual([true, 3, 1]);
-      // the absorbed cost is readable state and feeds the existing pilot absorbed-inbound alert (no new alert kind)
-      expect(Number(psql(`select public._tw4ia_absorbed_cents('${EP}', '-infinity'::timestamptz)`))).toBeGreaterThan(absorbed0);
+      // the STOP text adds only its own provider cost (never charged, so fully DanceFlow's), kept apart from the uncollected amounts above; the redelivery adds nothing
+      const stopCost = Number(psql(`select coalesce(est_provider_cost_cents, 0) from public.studio_sms_inbound_usage where provider_sid = '${stop.sid}'`));
+      expect(absorbedNow() - absorbed1).toBe(stopCost);
     });
 
     it("the studio view shows test credit separately and the $500 purchase ceiling ignores it (owner's own session)", () => {
