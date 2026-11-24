@@ -62,7 +62,7 @@ TypeScript registry, not database execution. The body requirements named in R-07
 | 3. `proficiency_rating@1` rejected; all else fails closed | holds | E4, E9-E11, R07-DF-0003 |
 | 4. `majority_rules` is not UCWDC Majority Rules; no silent reinterpretation | holds: not in the legacy map (TS and SQL seed identical), never resolves to a method | E5, R07-DF-0004 |
 | 5. Unsupported mapping -> explicit error, no fallback | holds: `COMP_METHOD_LEGACY_UNMAPPED`; an unavailable explicit selection does not fall through to the legacy map | E5, E8 |
-| 6. One independent result per dance, no combined placement | holds (X-6, EXECUTED-TS) | E13, R07-DF-0005 |
+| 6. One independent result per dance, no combined placement | engine refusal of several/zero dances holds (X-6, EXECUTED-TS); per-dance result storage for multi-dance rounds is NOT verified here (open semantics) | E13, R07-DF-0005 |
 | 7. Disclosure that DanceFlow does not calculate official aggregate Multi-Dance results | **specified as text only; not shown in any UI** | [R-07-MULTI-DANCE-DISCLOSURE-SPEC.md](R-07-MULTI-DANCE-DISCLOSURE-SPEC.md) |
 | 8. UCWDC medal ballots, overall Multi-Dance, tiebreakers recorded NOT IMPLEMENTED | recorded | R07-UCWDC-0001, -0002 |
 | 9. NDCA Skating System and multi-dance aggregate NOT IMPLEMENTED | recorded; citations re-read in the pinned PDF (below) | R07-NDCA-0001, -0002 |
@@ -117,3 +117,7 @@ No finding allows an unapproved method or ballot format to be selected-and-used.
 
 Test-only: `src/lib/competition/scoring/__tests__/r07.failclosed.test.ts`. Docs: this report, the disclosure spec, ten register entries
 (`R07-DF-0001..0005`, `R07-UCWDC-0001..0002`, `R07-NDCA-0001..0002`, `R07-WSDC-0001`) and one TRACKER line. No source, SQL or migration file changed.
+
+## 10. Independent review (subagent, did not see these conclusions)
+
+No bypass found. Confirmed F-2 (engine and ballot format come from different columns; SQL checks each is approved but not that they agree), F-3, F-4, F-1. Corrections applied: R07-DF-0005 wording narrowed to engine refusal; one test title corrected (seed rows compare key/version/status, not engine ids). Acknowledged weaknesses, not fixed: two static-SQL string tests are presence checks only; parity reads the original migrations (a later `create or replace` would not be seen; none exists in 2027*); missing negative cases for readiness on locked programs and `calculateRound` unavailable-engine paths. Not verified by the reviewer or by me: SQL runtime behavior, whether the publish RPC enforces readiness in the database, direct RLS manager updates.

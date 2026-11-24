@@ -4,7 +4,7 @@
   "format": "Multi-Dance (Studio/Custom)",
   "source": null,
   "rule_class": "dance_flow_policy",
-  "requirement": "DanceFlow policy: each dance is calculated independently and yields its own result; no combined championship placement exists, and an engine run covering none or several dances fails closed (COMP_ENGINE_UNSPECIFIED_CASE, multi_dance_unsupported, X-6). DanceFlow never infers an overall winner.",
+  "requirement": "DanceFlow policy: an engine run covers exactly one dance; a run covering none or several dances fails closed (COMP_ENGINE_UNSPECIFIED_CASE, multi_dance_unsupported, X-6), so DanceFlow calculates no combined championship placement and never infers an overall winner.",
   "implementation": [
     {
       "path": "src/lib/competition/results/engines/common.ts",
@@ -15,7 +15,7 @@
       "symbol_or_migration": "multi_dance_unsupported"
     }
   ],
-  "enforcement_point": "Both Studio engines refuse danceIds.length != 1 (X-6); results are stored per round and dance with no aggregate column or reader.",
+  "enforcement_point": "Both Studio engines refuse danceIds.length != 1 (X-6). Verified scope: engine refusal and absence of aggregate fields in engine output. NOT verified here: the database schema and readers (no aggregate column/reader was searched exhaustively); per-dance result storage for multi-dance rounds is not claimed.",
   "tests": [
     {
       "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
@@ -31,7 +31,7 @@
     }
   ],
   "verification_status": "verified_compliant",
-  "interpretation_notes": "R-07(6). Enforced inside the pure engines, which F2 runs for every calculation; verified by executed vitest. The disclosure text (R-07(7)) is specified in docs/competition/governance/audit/R-07-MULTI-DANCE-DISCLOSURE-SPEC.md; it is NOT yet shown in any UI.",
+  "interpretation_notes": "R-07(6). Status covers engine refusal only (executed vitest). How a multi-dance round yields one result per dance is NOT verified in this slice and is an open Multi-Dance semantics question. Disclosure text (R-07(7)) is specified in R-07-MULTI-DANCE-DISCLOSURE-SPEC.md; it is NOT shown in any UI.",
   "applicable_event_versions": [
     "DanceFlow policy"
   ],

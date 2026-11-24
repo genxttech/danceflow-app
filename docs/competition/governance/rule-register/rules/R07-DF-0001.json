@@ -39,7 +39,7 @@
     }
   ],
   "verification_status": "unverified",
-  "interpretation_notes": "R-07(1). Verified at the application layer by executed tests and by static parity of the SQL seed rows. Application-layer behavior and static SQL parity are verified by EXECUTED tests (r07.failclosed.test.ts); the SQL runtime suites (sql-tests/test_T_competition_scoring_registry.sql, test_T_competition_e2_ballots.sql) were NOT RUN in this slice (heavy-lock queue), so the status stays unverified until their results are attached.",
+  "interpretation_notes": "R-07(1). Verified at the application layer by executed tests and by static parity of the SQL seed rows. Application-layer behavior and static SQL parity are verified by EXECUTED tests (r07.failclosed.test.ts); the SQL runtime suites (sql-tests/test_T_competition_scoring_registry.sql, test_T_competition_e2_ballots.sql) were NOT RUN in this slice (heavy-lock queue), so the status stays unverified until their results are attached. Known gap in depth (F-2): the ballot format follows the legacy round.scoring_method while the engine follows the pin (override/division/legacy); SQL does not cross-check them, only the app readiness blocker COMP_SCORING_LEGACY_MISMATCH does.",
   "applicable_event_versions": [
     "DanceFlow policy"
   ],

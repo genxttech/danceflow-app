@@ -159,7 +159,7 @@ describe("SQL mirror parity (static: reads the migration text; does NOT execute 
     expect(rows.some(([legacy]) => legacy === "majority_rules")).toBe(false);
   });
 
-  it("competition_scoring_methods seed rows carry the same statuses and engine ids as SCORING_REGISTRY", () => {
+  it("competition_scoring_methods seed rows carry the same key, version and status as SCORING_REGISTRY", () => {
     const seed = /insert into public\.competition_scoring_methods[\s\S]*?values([\s\S]*?);\s*\n\s*\n/i.exec(reg)?.[1] ?? "";
     const sqlRows = [...seed.matchAll(/\(\s*'([a-z_]+)'\s*,\s*'([^']+)'\s*,\s*'(approved|draft|unavailable|rejected)'/g)].map((m) => `${m[1]}@${m[2]}=${m[3]}`);
     const tsRows = SCORING_REGISTRY.map((e) => `${e.key}@${e.version}=${e.status}`);
