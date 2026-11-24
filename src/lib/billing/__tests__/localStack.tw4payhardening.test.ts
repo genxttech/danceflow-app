@@ -67,6 +67,16 @@ const psqlError = (sql: string): string => {
 };
 const count = (sql: string) => Number(psql(sql));
 
+// refund/dispute property: 60 orders in 4 chunks of 15. Budget per order: 8 s (observed on the 2-CPU dev host in a container: median ~2.3 s, slowest 4.9 s,
+// 60 orders 110-156 s, which overran the former single 90 s test), plus 30 s for the chunk's own settle/verify and scheduling slack.
+const PROPERTY_RUNS = 60;
+const PROPERTY_CHUNK_SIZE = 15;
+const PROPERTY_ORDER_BUDGET_MS = 8_000;
+const PROPERTY_CHUNK_TIMEOUT_MS = PROPERTY_CHUNK_SIZE * PROPERTY_ORDER_BUDGET_MS + 30_000;
+const PROPERTY_CHUNKS = Array.from({ length: PROPERTY_RUNS / PROPERTY_CHUNK_SIZE }, (_, c) => Array.from({ length: PROPERTY_CHUNK_SIZE }, (_, i) => c * PROPERTY_CHUNK_SIZE + i));
+/** The current property chunk (settled or rejected, never throws): awaited by the next chunk, the webhook tests and the cleanup. */
+let propertyInFlight: Promise<unknown> = Promise.resolve();
+
 // the route reads the signature through next/headers and the Stripe client through getStripe(): both are replaced; the signature check itself is the real one
 let signatureHeader: string | null = null;
 vi.mock("next/headers", () => ({ headers: async () => ({ get: (name: string) => (name === "stripe-signature" ? signatureHeader : null) }) }));
@@ -175,7 +185,8 @@ describe.skipIf(!enabled)("prepaid credit integrity: hold enforcement, refund/di
     credits = new SupabaseCreditStore(admin);
     psqlFile(FIXTURES);
   });
-  afterAll(() => {
+  afterAll(async () => {
+    await propertyInFlight; // never delete the fixtures under an order that is still stopping
     try {
       psqlFile(CLEANUP);
     } catch {
@@ -419,9 +430,17 @@ describe.skipIf(!enabled)("prepaid credit integrity: hold enforcement, refund/di
       }
     });
 
-    it("property: for 60 random orders of refunds, disputes, wins, duplicates and retries, the credit retained never exceeds the payment minus refunds minus the disputes that were not won", async () => {
-      const rng = (seed: number) => () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
-      for (let run = 0; run < 60; run += 1) {
+    // The property runs 60 deterministic orders (seed 1000 + run * 7919, run = 0..59). They are split into PROPERTY_CHUNKS consecutive tests so each has a timeout
+    // proportionate to its own work: the orders, their seeds, their sequence and every assertion are exactly those of the former single 60-run test (the union
+    // of the chunks is pinned below). A chunk that is aborted (vitest timeout) stops before its next order and its next event, and the next chunk and the webhook
+    // tests wait for it, so a slow chunk fails ALONE instead of moving EA's balance under the tests that follow it.
+    const rng = (seed: number) => () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
+    const propertyOrder = async (run: number, signal: AbortSignal) => {
+      const stopIfAborted = () => {
+        if (signal.aborted) throw new Error(`property aborted before finishing order ${run} (the test timed out): no further events are sent`);
+      };
+      stopIfAborted();
+      {
         const rand = rng(1000 + run * 7919);
         const amount = [2_500, 5_000, 10_000][Math.floor(rand() * 3)];
         const { ref, pi } = await settled(EA, PA2, amount);
@@ -441,6 +460,7 @@ describe.skipIf(!enabled)("prepaid credit integrity: hold enforcement, refund/di
         const sequence = pool.map((op) => ({ op, k: rand() })).sort((a, b) => a.k - b.k).map((x) => x.op);
         const failed: Op[] = [];
         for (const op of sequence) {
+          stopIfAborted();
           try {
             await op();
           } catch {
@@ -448,6 +468,7 @@ describe.skipIf(!enabled)("prepaid credit integrity: hold enforcement, refund/di
           }
         }
         for (const op of failed) {
+          stopIfAborted();
           try {
             await op();
           } catch {
@@ -465,13 +486,33 @@ describe.skipIf(!enabled)("prepaid credit integrity: hold enforcement, refund/di
         expect(retained, `run ${run}: amount ${amount}, refund ${refund}, disputes ${JSON.stringify(disputes)}, row ${row.join(":")}`).toBeLessThanOrEqual(ceilingOnRetained + wonButRefundedSlack(disputes, amount, refund));
         expect(invariants(EA)).toBe("t");
       }
-      expect((await credits.verify(EA)).ok).toBe(true);
+    };
+
+    it("the property chunks cover runs 0..59 exactly once, in order", () => {
+      expect(PROPERTY_CHUNKS.flat()).toEqual(Array.from({ length: PROPERTY_RUNS }, (_, run) => run));
     });
+
+    for (const runs of PROPERTY_CHUNKS) {
+      it(
+        `property: for 60 random orders of refunds, disputes, wins, duplicates and retries, the credit retained never exceeds the payment minus refunds minus the disputes that were not won (orders ${runs[0]}-${runs[runs.length - 1]} of ${PROPERTY_RUNS})`,
+        async ({ signal }) => {
+          await propertyInFlight; // a previous chunk that timed out has stopped sending events
+          const work = (async () => {
+            for (const run of runs) await propertyOrder(run, signal);
+            expect((await credits.verify(EA)).ok).toBe(true); // after every chunk; the last chunk's check is the former single check after all 60 orders
+          })();
+          propertyInFlight = work.catch(() => undefined);
+          await work;
+        },
+        PROPERTY_CHUNK_TIMEOUT_MS,
+      );
+    }
   });
 
   describe("webhook replay through the real route", () => {
     let POST: (request: Request) => Promise<Response>;
     beforeAll(async () => {
+      await propertyInFlight; // these tests measure EA's balance: no property order may still be running
       process.env.NEXT_PUBLIC_SUPABASE_URL = URL_;
       process.env.SUPABASE_SERVICE_ROLE_KEY = serviceKey();
       process.env.STRIPE_WEBHOOK_SECRET = WEBHOOK_SECRET;
