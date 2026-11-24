@@ -7,6 +7,11 @@ begin;
 
 do $$
 begin
+  -- Reverse RELEASE order: S4 gates (20270301112000, 20270301111000) come off BEFORE this file. S4's gates reach the age predicate through
+  -- _r15_age_state, which fails closed when the predicate is absent: dropping it while the gates are installed would freeze Competition operations.
+  if exists (select 1 from pg_trigger where tgname in ('r15_guard_round_start', 'r15_guard_heat_status', 'r15_guard_heat_entry_clearance', 'r15_guard_version_publish', 'r15_guard_entry_eligibility_write') and not tgisinternal) then
+    raise exception 'S5 rollback refused: the S4 (R-15) gates or write guard are still installed; roll back 20270301112000 and 20270301111000 first. Nothing was changed.';
+  end if;
   if md5(replace((select p.prosrc from pg_proc p where p.oid = 'public._comp10c_resolve_competitor(uuid, uuid, uuid, uuid, text, text, text, date, text, jsonb, text, uuid)'::regprocedure), E'\r', '')) <> '3e80dd88a91cfaa6c5e8aff30cb41055' then
     raise exception 'S5 rollback: public._comp10c_resolve_competitor is not the S5 definition; reconcile before rolling back';
   end if;

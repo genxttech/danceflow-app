@@ -45,6 +45,9 @@
 -- Authorization: the new functions are not callable by public, anon or authenticated; the two predicates are executable by service_role (preflight and
 -- tooling). Triggers execute as the function owner regardless.
 -- Rollback: rollback/20270301120000_competition_s5_participant_age_guard_rollback.sql (restores the previous _comp10c_resolve_competitor body byte for byte).
+-- Rollback ORDER with S4 (R-15): S4 gates/guard (20270301112000, 20270301111000) FIRST, then this file, then S4 core (20270301110000). This is the reverse of the RELEASE order
+-- (core, app, S5, gates, guard), not plain reverse timestamp order: the rollback of this file REFUSES while the S4 gates are installed. There is no S5 stub in any migration
+-- (S4 uses a test-only stand-in inside its SQL suite, rolled back with the suite); S4's own rollbacks never drop S5 objects.
 
 begin;
 
@@ -287,6 +290,17 @@ begin
     into v_under, v_unknown, v_total
   from public.event_competition_entry_participants p;
   raise notice 'S5 preflight (counts only): % participant rows, % under 18, % unknown age. Existing rows are left unchanged and are never deleted; they stay readable and keep working until the competitor or event on the row is changed.', v_total, v_under, v_unknown;
+end $$;
+
+-- S4 interplay (R-15): when S4 core (20270301110000) is already installed, its bridge _r15_age_state only trusts this predicate if it has the SAME OWNER as the bridge
+-- (a function planted by another role must not declare competitors adult). Refuse here rather than leave the strict gates permanently fail-closed.
+do $$
+begin
+  if to_regprocedure('public._r15_age_state(uuid)') is not null
+     and (select p.proowner from pg_proc p where p.oid = 'public._comp_participant_age_clearance(uuid)'::regprocedure)
+         is distinct from (select p.proowner from pg_proc p where p.oid = 'public._r15_age_state(uuid)'::regprocedure) then
+    raise exception '20270301120000: _comp_participant_age_clearance and S4 _r15_age_state have different owners; apply both as the same role';
+  end if;
 end $$;
 
 notify pgrst, 'reload schema';

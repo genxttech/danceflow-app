@@ -63,6 +63,17 @@ describe("S5 database participant age guard (static checks; the executing suite 
     expect(outsideResolve).not.toMatch(/\binsert\s+into\b/i);
   });
 
+  it("S4 interplay: owner-equality precondition on apply, and the rollback refuses while the S4 gates are installed", () => {
+    expect(forward).toContain("_r15_age_state");
+    expect(forward).toContain("have different owners");
+    expect(rollback).toContain("S5 rollback refused: the S4 (R-15) gates or write guard are still installed");
+    for (const trigger of ["r15_guard_round_start", "r15_guard_heat_status", "r15_guard_heat_entry_clearance", "r15_guard_version_publish", "r15_guard_entry_eligibility_write"]) expect(rollback).toContain(trigger);
+    // the refusal comes before anything is dropped
+    expect(rollback.indexOf("S5 rollback refused")).toBeLessThan(rollback.indexOf("drop trigger if exists"));
+    // no stub function is created by the migration (S4's stand-in lives only in its SQL suite)
+    expect(forward).not.toMatch(/stub/i.source ? /create function public\._comp_participant_age_clearance/ : /x/);
+  });
+
   it("has no CRLF in either file", () => {
     expect(forward).not.toContain("\r");
     expect(rollback).not.toContain("\r");
