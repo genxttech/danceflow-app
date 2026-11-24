@@ -17,7 +17,7 @@
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6D): _compoc_blockers_panel_change and panel-change records for NDCA-declared events. Not built.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "DanceFlow publishes no officials list today (audit J-23). Posting on the competition website cannot be verified by DanceFlow. NOT IMPLEMENTED (design only, PR-A section 6D): a BLOCKER to activating an NDCA profile; no test; no compliance claimed. Organizer-entered references are attested, not verified by DanceFlow or NDCA. III.B.6 calls it the proposed list; the complete-list requirement is OD17-NDCA-0009 (III.D.9).",
+  "interpretation_notes": "DanceFlow publishes no officials list today (audit J-23). Posting on the competition website cannot be verified by DanceFlow. NOT IMPLEMENTED (design only, PR-A section 6D): a BLOCKER to activating an NDCA profile; no test; no compliance claimed. Organizer-entered references are attested, not verified by DanceFlow or NDCA. III.B.6 calls it the proposed list; the complete-list requirement is OD17-NDCA-0009 (III.C.9).",
   "applicable_event_versions": [
     "June 2026, Master v1"
   ],
