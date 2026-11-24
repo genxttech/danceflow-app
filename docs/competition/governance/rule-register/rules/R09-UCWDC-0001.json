@@ -1,0 +1,28 @@
+{
+  "id": "R09-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC rounds and advancement",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Rules #1-#2 (PDF pp.1-2), Rule #2.3",
+    "quote_free_summary": "Rounds (preliminaries, semi-finals, finals) and promotion between them follow the Majority Rules format under a certified Contest Coordinator with a vetted authorized scoring system."
+  },
+  "rule_class": "mandatory",
+  "requirement": "UCWDC round structures, promotion and the authorized-system requirement are NOT IMPLEMENTED for a future UCWDC profile; PV-1 does not satisfy the authorized-system requirement.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Section references from the coordinator's request and the audit inventory; Rule #2.3 not re-read in this slice. Cross-reference PR 839 (OD-09) entries; not duplicated.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "R-09 (owner ratification 2026-11-23); R-09 verification (docs/competition/governance/audit/R-09-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

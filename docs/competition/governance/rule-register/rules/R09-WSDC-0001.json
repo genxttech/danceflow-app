@@ -1,0 +1,28 @@
+{
+  "id": "R09-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC callback authority and advancement",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.9 (pp.20-21); Section 5 (pp.22-23); Definitions: Chief Judge",
+    "quote_free_summary": "WSDC contests use the approved Callback system with fixed callback values; the Chief Judge oversees the contests, and chief-judge scores break ties only after the original calculation; a computerized system is required."
+  },
+  "rule_class": "mandatory",
+  "requirement": "WSDC Chief Judge authority over callbacks, callback values and the computerized-system requirement (3.4.9.b) are NOT IMPLEMENTED for a future WSDC profile; Studio callback tally is not a WSDC callback system and PV-1 does not satisfy 3.4.9.b.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Chief Judge definition confirmed in the pinned text (Definitions); page number not confirmed (coordinator cites p.3).",
+  "applicable_event_versions": [
+    "Version 2026.1C"
+  ],
+  "decision_refs": [
+    "R-09 (owner ratification 2026-11-23); R-09 verification (docs/competition/governance/audit/R-09-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

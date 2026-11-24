@@ -1,0 +1,34 @@
+{
+  "id": "R09-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio callback result integrity (PV-1)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow result-integrity safeguard, NOT body approval, certification or compliance: calculate_competition_round recomputes the Studio callback/ordinal result in SQL and refuses rows or warnings that differ (COMP_RESULT_RECOMPUTE_MISMATCH) or a round it cannot verify (COMP_RESULT_RECOMPUTE_UNSUPPORTED). It does not satisfy UCWDC's vetted authorized scoring system requirement or WSDC 3.4.9.b.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270215090000_competition_pv1_result_recompute.sql",
+      "symbol_or_migration": "_comppv1_verify"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270114090000_competition_f2_results_lifecycle.sql",
+      "symbol_or_migration": "calculate_competition_round"
+    }
+  ],
+  "enforcement_point": "PV-1 verifier inside calculate_competition_round (and re-run at approval); _comppv1_* functions are not executable by any API role.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/__tests__/r09.label.static.test.ts",
+      "name": "the SQL recompute port uses exactly the label the TypeScript engine emits"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Inspected: compare is a whole-document match of rows (entry_id, placement, tie_group, advanced, rating_band, whole output object) and warnings. SQL suite test_T_competition_pv1_recompute.sql (C4-C9, F1-F5, O3, O5, U1-U3, W1-W6) NOT RUN. Gaps: no test tampers output.label; F4/F5 assert the port reason not the error code; no UNSUPPORTED test for target_unset/target_invalid; no real client-path calculate with fabricated rows.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-09 (owner ratification 2026-11-23); R-09 verification (docs/competition/governance/audit/R-09-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}
