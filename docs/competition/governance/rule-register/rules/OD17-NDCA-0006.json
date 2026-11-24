@@ -9,10 +9,10 @@
     "effective_to": null,
     "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
     "section": "IV.C.8 (p.27)",
-    "quote_free_summary": "The Chairman may excuse an adjudicator from officiating when the Chairman feels the adjudicator's sound judgment may be impaired."
+    "quote_free_summary": "Among the Chairman's duties is excusing an adjudicator from officiating when the Chairman feels the adjudicator's sound judgment may be impaired (a Chairman duty with a discretionary trigger)."
   },
   "rule_class": "organizer_discretion",
-  "requirement": "Excusal record by the designated Chairman (OD-06 designation, OD-15 credential) with reason, scope and time; never by a generic manager.",
+  "requirement": "Excusal record by the designated Chairman (OD-06 designation, OD-15 credential) with reason, scope and time; never by a generic manager. \"Never by a generic manager\" is DanceFlow policy, not NDCA text.",
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6D): _compoc_blockers_panel_change and panel-change records for NDCA-declared events. Not built.",
   "tests": [],

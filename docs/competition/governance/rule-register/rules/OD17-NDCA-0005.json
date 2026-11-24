@@ -9,10 +9,10 @@
     "effective_to": null,
     "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
     "section": "III.D.1 (p.19)",
-    "quote_free_summary": "Organizers must appoint all adjudicating panels before the event commences; panels are strictly adhered to except in emergencies."
+    "quote_free_summary": "Organizers must appoint all adjudicating panels before the event commences."
   },
   "rule_class": "mandatory",
-  "requirement": "An NDCA-declared round cannot start with an unappointed or unapproved panel; later changes follow the emergency path with a reason.",
+  "requirement": "An NDCA-declared round cannot start with an unappointed or unapproved panel. (The adherence half of III.D.1 is a separate recommended entry, OD17-NDCA-0010.)",
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6D): _compoc_blockers_panel_change and panel-change records for NDCA-declared events. Not built.",
   "tests": [],
