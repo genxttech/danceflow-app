@@ -487,6 +487,14 @@ Each entry: **Issue**, **Governing sources**, **Today**, **Options**, **Recommen
 - **Blast radius.** Code/docs only; none.
 - **Decision.** Approve the batch?
 
+**OD-32 DECIDED 2026-11-23 (owner), policy-resolved; implementation verification remains open where noted.** Owner decision recorded vs implementation verified, per item:
+- **Item 1 (AE-08), ACCEPTED, OWNER DECISION RECORDED, implementation NOT yet verified.** Wording-only clarification documenting UCWDC Couples II.D.3.b (Masters adults except where an Adult dances with a partner 16 or above), stating that DanceFlow's OD-02 under-18 restriction makes the exception unavailable in the initial Studio/Custom release; no UCWDC compliance implied, no enforcement of UCWDC eligibility, no age-gate or registration change; coordinated with the OD-19 relabelling workstream.
+- **Items S-32U2 and S-32W, COVERED BY OD-24, OWNER DECISION RECORDED.** The OD-24 draft PR #851 contains a wording-only commit (`scoringReference.ts`: WSDC 3.4.9.c/3.4.9.d page cites, UCWDC Rule #2.4 "plus ties" wording). Coordinator inspection of the diff found it wording-only and consistent with the pinned PDF; independent review was recorded by the PR author; typecheck and tests NOT RUN; PR is a draft and not merged, so the corrections are NOT implemented on any release line.
+- **Item W-01, COVERED BY OD-20, OWNER DECISION RECORDED, implementation NOT verified** (stacked OD-19/OD-20 PR pending).
+- **Item J-17W, CLOSED with no code action:** WSDC 3.4.6.a.i bias avoidance is advisory; mandatory conflicts are enforced through OD-05.
+- **Item J-05W, COVERED BY OD-15:** the January 1, 2027 WSDC certification launch and anticipated 30-50% guidelines stay future, unverified requirements; anticipated percentages are not confirmed thresholds; verify the finalized applicable requirements before enforcement.
+Authorized: bounded documentation and wording changes with targeted tests and independent review. Not authorized: SQL, migrations, further age-rule implementation, merge, deployment, activation.
+
 ---
 
 ## 4. Rows classified unsupported: summary and DanceFlow-policy ratifications
