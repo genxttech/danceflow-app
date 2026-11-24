@@ -544,7 +544,7 @@ commit;`);
       }
       // source: no function this migration adds touches the ledger, the balance, an adjustment or a charge; the account update only sets the hold
       expect(psql(`select coalesce(bool_or(p.prosrc ~* '_tw4c_post|studio_sms_credit_ledger|balance_cents|reserved_cents|tw4_credit_adjust|tw4_credit_debit|usage_charge|studio_sms_credit_topups'), false)
-        from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('_tw4dh_on_withdrawn', '_tw4dh_on_reinstated', '_tw4dh_est_provider_fee_cents', '_tw4dh_auto_hold_on', '_tw4dh_record_on', '_tw4dh_switch_on', 'tw4_credit_dispute_hold_release', 'tw4_credit_dispute_holds_list', 'tw4_dispute_hold_switch_set', 'tw4_dispute_record_switch_set', '_tw4dh_guard')`)).toBe("f");
+        from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('_tw4dh_on_withdrawn', '_tw4dh_on_reinstated', '_tw4dh_est_provider_fee_cents', '_tw4dh_auto_hold_on', '_tw4dh_record_on', '_tw4dh_switch_on', 'tw4_credit_dispute_hold_release', 'tw4_credit_dispute_holds_list', 'tw4_dispute_hold_switch_set', 'tw4_dispute_record_switch_set', '_tw4dh_guard', 'tw4_credit_set_hold')`)).toBe("f");
       expect(psql("select prosrc ~ 'update public.studio_sms_credit_accounts set hold = true, hold_reason = ''dispute'' where' from pg_proc where proname = '_tw4dh_on_withdrawn' and pronamespace = 'public'::regnamespace")).toBe("t");
       // privileges: no API role can write the fee record or call a hook directly
       for (const role of ["anon", "authenticated", "service_role"]) {
