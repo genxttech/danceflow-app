@@ -807,6 +807,7 @@ rollback;`).split("\n");
       expect(psql("select to_regprocedure('public.tw4_rfl_funding_exposure_check()') is null and to_regprocedure('public._tw4fx_exposure_rows()') is null")).toBe("t");
       expect(psql("select left(md5(replace(prosrc, chr(13), '')), 12) from pg_proc where oid = 'public.tw4_act_exposure(uuid)'::regprocedure")).toBe("86f81f72241d");
       expect(psql("select left(md5(replace(prosrc, chr(13), '')), 12) from pg_proc where oid = 'public.tw4_rfl_health(uuid)'::regprocedure")).toBe("eb5aaef9b251");   // the 20261211 body
+      expect(psql("select left(md5(replace(prosrc, chr(13), '')), 12) from pg_proc where oid = 'public.tw4_rfl_alerts_claim(integer)'::regprocedure")).toBe("57a31605b369");   // the 20261211 claim order
       expect(call<Record<string, unknown>>("tw4_rfl_health", P)).not.toHaveProperty("exposure_unattributed_locations");
       expect(psql("select pg_get_constraintdef(oid) from pg_constraint where conname = 'studio_sms_provider_alerts_kind_check'")).not.toContain("funding_exposure_");
       expect(psqlError(file(RB))).toMatch(/not applied/);   // a second rollback refuses
