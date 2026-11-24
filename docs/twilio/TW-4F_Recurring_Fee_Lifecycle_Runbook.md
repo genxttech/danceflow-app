@@ -77,16 +77,17 @@ What each alert means for DanceFlow: Twilio bills the parent account for every l
 | `exposureUnattributed` > 0 in the route counts | A listed location has no legal business link, so no alert can be addressed. | Find it (`tw4_act_exposure(actor)`) and fix the link or the onboarding state. |
 
 **The 72-hour grace warning, exactly.**
-- *What it detects.* A live recurring-fee resource (number or campaign) whose current or previous business month is not covered by any owner act, and whose 7-day grace (`_tw4rfl_due_from`) ends within the next 72 hours (`_tw4fx_grace_warning()`). The same grace already drives the exposure record and the sending suspension.
+- *What it detects.* A live recurring-fee resource (number or campaign) whose current or previous business month is not covered (by a charge under the owner's recurring authorization, the authorization's first-month set-aside, or, for the pilot, a written approval an administrator recorded with `tw4_rfl_pilot_cover`), and whose 7-day grace (`_tw4rfl_due_from`) ends within the next 72 hours (`_tw4fx_grace_warning()`). The same grace already drives the exposure record and the sending suspension.
 - *Who is notified.* Platform administrators only, as `funding_exposure_grace_ending` (warning). The owner is never sent this alert; owners get their own `next_period_uncovered` and authorization notices.
-- *Dedupe.* One alert per resource and period (`fx-grace:<resource>:<period>`). It has its own kind, and the outbox is unique on kind plus key, so it can never take the place of another alert or block it.
+- *Dedupe.* One alert per resource and period (`fx-grace:<resource>:<period>`). It has its own kind, and the outbox is unique on kind plus key. A grace-warning row therefore never blocks the insertion of an alert of another kind, even one with the same key, and the reverse also holds.
+- *Delivery order.* `tw4_rfl_alerts_claim` sorts grace warnings strictly after every other claimable alert. Grace warnings, including failed ones waiting for a retry, never take a slot of the per-pass claim cap while any other alert is waiting. Other alerts keep their oldest-first order, attempt count and 15-minute re-claim.
 - *What it does NOT do.*
   - It does not extend, shorten or delay the grace.
-  - It does not delay, replace or suppress any other alert: `exposure_open`, `next_period_uncovered`, `pilot_approval_needed`, `negative_balance`, `account_on_hold`, the owner notices, escalation (`owner_unresponsive`, `alert_delivery_exhausted`), and the other `funding_exposure_*` alerts including the thresholds.
+  - It does not delay (at creation or at delivery), replace or suppress any other alert: `exposure_open`, `next_period_uncovered`, `pilot_approval_needed`, `negative_balance`, `account_on_hold`, the owner notices, escalation (`owner_unresponsive`, `alert_delivery_exhausted`), and the other `funding_exposure_*` alerts including the thresholds.
   - It does not delay or prevent the sending suspension or any credit hold.
   - It writes nothing but its own alert row.
 
-  The tw4fx suite proves this by running the full pass with and without the warning on the same fixtures and comparing every other alert, sending state and hold.
+  The tw4fx suite proves this in two ways. It runs the full pass with and without the warning on the same fixtures and compares every other alert (kind, key, summary, audience), scan result, sending state, hold and escalation. It also claims an outbox in which grace warnings are older than urgent alerts: the urgent alerts come out first, in their usual order.
 
 **No kill switch of its own.** The check runs in every scan pass. It stops only when the whole scan stops (`SMS_FEE_LIFECYCLE_SCAN` unset, or the database `scan` switch off), or when the application is rolled back to a build that does not call it. Alert delivery follows the existing `SMS_FEE_LIFECYCLE_DELIVERY` flag and `delivery` switch. **Rollback is forward-fix only after the first alert.** The SQL rollback is refused once any `funding_exposure_*` alert row exists, and alert history is never deleted.
 
