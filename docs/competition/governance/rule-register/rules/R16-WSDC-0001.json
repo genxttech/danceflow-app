@@ -1,0 +1,28 @@
+{
+  "id": "R16-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC results posting",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.1 item 9 (PDF p.12)",
+    "quote_free_summary": "Registry Events post results at the event, open to all competitors for at least 30 days, including rounds, placements and score reports; judges may be anonymous on the score report at the Event Director/Owner/Chief Judge's discretion; corrected results must be posted."
+  },
+  "rule_class": "mandatory",
+  "requirement": "The 30-day competitor access, score reports and corrected-result posting are NOT IMPLEMENTED for a future WSDC profile. Judge anonymity is a body-specific event-level choice; no global anonymity policy is set.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for the corresponding future governing-body profile. The Studio/Custom entrants default is not applied to body profiles.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Text re-read in the pinned PDF. Cross-reference OD-22 (PR 849); this id differs from R16-WSDC entries elsewhere.",
+  "applicable_event_versions": [
+    "Version 2026.1C"
+  ],
+  "decision_refs": [
+    "R-16 (owner ratification 2026-11-24); R-16 verification (docs/competition/governance/audit/R-16-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

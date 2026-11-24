@@ -1,0 +1,28 @@
+{
+  "id": "R16-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA scrutineer-sheet publication",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.17 (printed p.21, PDF p.28)",
+    "quote_free_summary": "Digital copies of the scrutineer sheets must be publicly accessible online, uploaded at least after each day of competition, and posted only for events that have been completed with results announced."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Public scrutineer-sheet posting is NOT IMPLEMENTED for a future NDCA profile (Studio publishes placements only). Cross-reference OD-22/OD-23 entries (PR 849).",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for the corresponding future governing-body profile. The Studio/Custom entrants default is not applied to body profiles.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Text re-read in the pinned PDF. Confidentiality of original marking sheets stays under OD-10.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-16 (owner ratification 2026-11-24); R-16 verification (docs/competition/governance/audit/R-16-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}
