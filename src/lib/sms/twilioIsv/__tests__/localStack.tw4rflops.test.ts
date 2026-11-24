@@ -1292,7 +1292,9 @@ commit;`);
         expect(dbMd5(n), n).toBe(md5(prosrcOf(evid && n === "tw4_rfl_pilot_cover" ? evidtext : d5replaced ? d5text : replaced ? integration : prev, n)));
       }
       for (const n of ["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize", "tw4_rfl_admin_overview"]) {
-        expect(dbMd5(n), n).toBe(md5(prosrcOf(ops, n)));
+        // 20270223 (funding-exposure alerts) replaces tw4_rfl_alerts_claim once more (grace warnings sort last): on a database that carries it the body must match THAT text
+        const fx = n === "tw4_rfl_alerts_claim" && psql("select to_regprocedure('public._tw4fx_exposure_rows()') is not null") === "t";
+        expect(dbMd5(n), n).toBe(md5(prosrcOf(fx ? readFileSync(join(dir, "20270223090000_twilio_funding_exposure_alerts.sql"), "utf8") : ops, n)));
         expect(dbMd5(n), n).not.toBe(md5(prosrcOf(prev, n)));
       }
     });
