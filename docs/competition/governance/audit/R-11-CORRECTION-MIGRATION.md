@@ -60,6 +60,22 @@ Both were assessed against legitimate internal callers and are **not** in this m
 * **Coordination with other open PRs:** OD-07 (PR 838, post-completion corrections design) and OD-26/OD-31 compositions that pin the approve md5 need to pin the successor `5adf8f16...` when they land after this. PR 859's two `it.fails` markers (`r11.approval.static.test.ts`) read only the F2 migration file and will keep "failing as expected" after this lands; they should be re-pointed to this migration's text (assert the `_cf1_reason_is_substantive` and `v_initial` fragments here) by 859 or a follow-up. This PR does not edit 859's files.
 * **Operational note (sole-manager and two-manager studios):** a corrected result needs a manager who is neither calculator nor opener. With two managers it works if the opener also recalculates (A opens, A recalculates, B approves). With one manager a corrected result can no longer be approved at all (owner policy R-11(4): corrections follow OD-07's independent correction-approval workflow, which is where a fallback, if any, belongs). A deadlock (opener A, calculator B, nobody else) is recoverable by a new correction opened by anyone and recalculated by the opener.
 
+### 5a. Hosted pin check (READ-ONLY, 2026-11-24 10:25-10:27Z, `sb.sh dev-read` / `prod-read`, nothing written)
+
+| Object | PROD | DEV | Pinned |
+|---|---|---|---|
+| `approve_competition_round_result` md5 (CRs removed) | `3cf63c3b...` | `ac33e456...` | pre-migration pin `3cf63c3b...` (post A3 + PV-1) |
+| `calculate_competition_round` md5 | `167529ba...` (post-PV-1) | `bc3cc439...` (pre-PV-1) | |
+| `_comppv1_verify` exists | yes | **no** | |
+| `event_competition_correction_causes` (A7) exists | yes | yes | |
+| `_cf1_reason_is_substantive` md5 | `0d6c2936...` | `0d6c2936...` | identical |
+| `service_role` EXECUTE on approve | yes (coordinator read) | yes (coordinator read) | RF-11.1 confirmed on hosted |
+
+* **PROD: the fail-closed pin matches** the pre-migration text, so the migration would apply there (not requested).
+* **DEV: the pin refuses, correctly, and the reason is known, not drift.** DEV approve md5 `ac33e456...` is exactly the post-A3, pre-PV-1 text (the A3 pin reproduced offline in `r11.migration.static.test.ts`). DEV simply has not had PV-1 (`20270215090000`) applied: no `_comppv1_verify`, `calculate` still at its pre-PV-1 md5, approve without the PV-1 verify block. It is therefore a **lagging** DEV, not a variant.
+* **Does DEV have RB-11.1 / RB-11.2? Yes.** The DEV text is the F2 override block unchanged (one-character reason accepted, no initial/corrected notion); PV-1 does not touch that block.
+* **Handling for DEV, without weakening the pin:** reconcile DEV first by applying the already-merged PV-1 (and OJ-1) in order, then this migration matches exactly. No DEV-specific pin, no relaxed md5, no pin list: a single pre-pin keeps the guarantee that the function is the known text. (Applying anything to DEV is a separate step; this PR requests none.)
+
 ## 6. Slot table (migration timestamp)
 
 Base head migration: `20270218090000`. Slots proposed in open PRs (migration files, from `ghapp pr list --json files`, 2026-11-24): 844 `20270219090000`; 800 `20270221090100`; 793 `20270222190000`; 820 and 797 `20270223090000`; 811 and 796 `20270223091000`; 817 `20270223100000`; 819 `20270223110000`; 823 `20270223120000`; 824 `20270223130000`; 831 `20270223140000`; the older stacked PRs 375/441/445 re-use existing (already merged) names. **Chosen: `20270301090000`**, allocated by the Competition coordinator (remediation block; S3 `20270301100000`, S4 `20270301110000`, S5 `20270301120000` belong to other PRs; a second file here would use `20270301091000`). The function text and md5 pins do not depend on the timestamp (first drafted as `20270224090000`; the local runs below executed that same content under the earlier name). Rollback: `rollback/20270301090000_competition_r11_approval_override_scope_rollback.sql`.
@@ -128,7 +144,8 @@ Not examined by the review and not claimed: hosted data. Approvals recorded unde
 * **PR / head:** PR 865 (draft), branch `claude/r11-correction-migration`, head SHA stated in the PR description at hand-off. Base `release/website-embeds`.
 * **Dependencies:** none unmerged; needs F2, A3, PV-1 and A7 (`event_competition_correction_causes`) in the target database (the migration refuses otherwise). It redefines only `approve_competition_round_result`; other remediation PRs (S3/S4/S5) touch other functions. Later migrations that pin the approve md5 (OD-07, composed sets) must pin the new successor md5.
 * **Independent review:** section 9 (no blocker; one should-fix hardening applied; ops/policy notes).
-* **CI status:** read from the PR checks at hand-off (see the PR description); CI does not run SQL suites.
-* **Executed vs PENDING:** section 9 (local isolated Postgres PASS; a4 minimum, a6, F2 race scripts, full composed chain, hosted: PENDING).
+* **CI status:** only Vercel checks exist on this PR (preview comments pass; qfem deploy pending/unreported; main app build canceled by the Ignored Build Step). **No repository CI job runs the SQL suites**, so the SQL evidence below is the local run only.
+* **Hosted pin table (read-only):** PROD matches the pre-pin; DEV refuses because PV-1 has not been applied there (section 5a).
+* **Executed vs PENDING:** section 9. The SQL suites were executed on the content of this PR under its earlier file name (`20270224090000`); after the slot rename only filenames and references changed. **A re-run on the final head is PENDING** (heavy-lock queue: three tickets ahead; to be re-run and recorded when a slot is available). The offline md5 test was re-run after the rename (PASS, 12). (local isolated Postgres PASS; a4 minimum, a6, F2 race scripts, full composed chain, hosted: PENDING).
 * **Remaining gaps:** RB-11.1 and RB-11.2 stay OPEN; `service_role` and verified-email items are separate findings; UI follow-ups (section 5); hosted data check for old self-approved corrections; sole-manager corrections have no approver (OD-07).
 * **Approval requested:** approval to REVIEW and MERGE THE DRAFT. Applying the migration to any hosted environment is NOT requested.
