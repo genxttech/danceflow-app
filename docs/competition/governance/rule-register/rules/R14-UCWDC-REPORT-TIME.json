@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "last_reviewed": "2026-11-24",
+  "decision_refs": [
+    "R-14",
+    "OD-01"
+  ],
+  "id": "R14-UCWDC-REPORT-TIME",
+  "governing_body": "UCWDC",
+  "format": "UCWDC competitor reporting time (advisory)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.P.1 (printed p14)",
+    "quote_free_summary": "For heated divisions competitors should report to the Floor Coordinator thirty minutes before a division's first heat, unless the contest size warrants earlier."
+  },
+  "rule_class": "recommended",
+  "requirement": "Advisory ('should'); the missed-call consequence is the separate mandatory II.P.3.a recorded in OD20-UCWDC-MISSED-CALL-COUPLES.",
+  "enforcement_point": "NOT IMPLEMENTED.  DanceFlow does not verify or fulfill it; it remains the organizer's responsibility (R-14) unless DanceFlow explicitly implements and verifies it in a future body profile. It must not block eligible Studio/Custom competitions.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "Re-read 2026-11-24.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ]
+}

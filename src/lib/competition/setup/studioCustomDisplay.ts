@@ -106,7 +106,18 @@ export const STUDIO_PARTNERSHIP_DISPLAY: Readonly<Record<string, CustomFormatDis
   studio_professional: { entryFormat: "professional", label: "Studio/Custom: Professional couples", description: "Two professionals compete as a couple, as a DanceFlow Studio/Custom format." },
   studio_jack_and_jill: { entryFormat: "random_partner", label: "Studio/Custom: Jack & Jill", description: "Dancers enter alone and are paired with a random partner, as a DanceFlow Studio/Custom format." },
   studio_solo: { entryFormat: "solo", label: "Studio/Custom: Solo", description: "One dancer performs a routine, as a DanceFlow Studio/Custom format." },
-  solo: { entryFormat: "solo", label: "Studio/Custom: Solo routine", description: "One dancer performs a routine, as a DanceFlow Studio/Custom format." },
+  // R-05: Country Solo is DanceFlow's own format. It follows no governing body's Solo Medley or Showdance rules.
+  solo: { entryFormat: "solo", label: "Studio/Custom: Solo routine", description: "One dancer performs a routine, as a DanceFlow Studio/Custom format. It does not follow any governing body's Solo Medley or Showdance rules." },
+  // R-03 (ratified 2026-11-23): one Studio Open division, no body division, partnership or registration rules.
+  ndca_mixed_amateur: { entryFormat: "mixed_amateur", label: "Studio/Custom: Mixed partnership", description: "Two dancers, one of whom may be the other's teacher, dance together. DanceFlow does not check amateur status, the teaching relationship or who a dancer's regular partner is." },
+  ndca_mixed_professional: { entryFormat: "professional", label: "Studio/Custom: Mixed professional couples", description: "Two professionals dance together. DanceFlow does not check who a professional's regular partner is." },
+  ndca_pro_am_theatrical: { entryFormat: "pro_am", label: "Studio/Custom: Pro-Am theatrical", description: "A Pro-Am theatrical division you define. DanceFlow applies no governing-body theatrical rules, including any lift rules." },
+  ndca_pro_am_exhibition: { entryFormat: "pro_am", label: "Studio/Custom: Pro-Am exhibition", description: "A Pro-Am exhibition division you define. Couples are not required to dance a fixed set of dances. DanceFlow applies no governing-body exhibition rules." },
+  // R-05: the Multi-Dance minimum of two dances is DanceFlow Studio policy, not a universal requirement. The names stay
+  // (they describe real governing-body style formats); only the organizer-facing description changes and the profile's
+  // eligibility note is kept.
+  ndca_pro_am_multi: { entryFormat: "pro_am", label: "Pro/Am Multi-Dance", eligibilityNote: "DanceFlow does not check amateur status, proficiency level, age or registration for this format.", description: "A professional and their student dance one entry made of a prescribed set of one style's dances. DanceFlow Studio policy: a Multi-Dance entry needs at least two dances. Nine- and ten-dance events are not currently supported by DanceFlow." },
+  ndca_amateur_multi: { entryFormat: "couple", label: "Amateur Multi-Dance", eligibilityNote: "DanceFlow does not check amateur status, proficiency level, age or registration for this format.", description: "Two dancers dance one entry made of a prescribed set of one style's dances. DanceFlow Studio policy: a Multi-Dance entry needs at least two dances. Nine- and ten-dance events are not currently supported by DanceFlow." },
 };
 
 /**
@@ -115,13 +126,16 @@ export const STUDIO_PARTNERSHIP_DISPLAY: Readonly<Record<string, CustomFormatDis
  * Studio age terms (Youth, Adult, Senior) carry no thresholds and do not map to any governing-body class (audit AE-26,
  * FD-26, FD-37). The UCWDC Masters/Open under-18 partner exception is NOT available under OD-02 (audit AE-08).
  */
-export const STUDIO_DIVISION_DISPLAY: Readonly<Record<string, { note?: string; axes?: Record<string, { append?: string; replace?: string }> }>> = {
+export const STUDIO_DIVISION_DISPLAY: Readonly<Record<string, { note?: string; axes?: Record<string, { append?: string; replace?: string; hideValues?: string[] }> }>> = {
   studio_wcs: { note: "Studio/Custom levels for the DanceFlow Studio/Custom West Coast Swing formats." },
   studio_generic: {
     axes: {
       age_group: {
         replace:
-          "Studio/Custom age labels: Youth, Adult and Senior carry no age thresholds in DanceFlow and do not correspond to any governing-body class. DanceFlow does not check age against these labels, and DanceFlow's initial-release policy (OD-02) is that all competitors must be 18 or older whatever the label. Define your own labels if you prefer.",
+          "Age groups here are classifications you define, not governing-body age divisions. They carry no age thresholds, correspond to no governing-body class, and DanceFlow does not automatically validate any age range against them. DanceFlow's initial-release policy (OD-02) is that all competitors must be 18 or older whatever the label.",
+        // R-03: Youth is not offered while OD-02 prohibits under-18 competitors. A saved configuration that already
+        // contains it still loads (the value is then treated as an organizer-defined one) and OD-02 still applies.
+        hideValues: ["Youth"],
       },
     },
   },
@@ -171,7 +185,8 @@ export function withStudioCustomDisplayLabels(profile: SetupProfileDefaults): Se
         if (!change) return axis;
         const base = change.replace ?? axis.note ?? "";
         const note = change.append && !base.includes(change.append) ? `${base} ${change.append}`.trim() : base;
-        return { ...axis, note };
+        const values = change.hideValues ? axis.values.filter((value) => !change.hideValues?.includes(value.label)) : axis.values;
+        return { ...axis, values, note };
       }),
     };
   }

@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "last_reviewed": "2026-11-24",
+  "decision_refs": [
+    "R-14",
+    "OD-01"
+  ],
+  "id": "R14-WSDC-VENUE",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Event venue",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "Definitions, 'Venue' item 1 (printed p2)",
+    "quote_free_summary": "Registry Events must be held in an approved venue whose competition dance floors are at least 150 square meters (1600 square feet) and suitable for dancing."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future WSDC profile must verify the venue.",
+  "enforcement_point": "NOT IMPLEMENTED.  DanceFlow does not verify or fulfill it; it remains the organizer's responsibility (R-14) unless DanceFlow explicitly implements and verifies it in a future body profile. It must not block eligible Studio/Custom competitions.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "WSDC: effective_from 2026-01-17 is taken from the file name (Updated Jan17 2026); the footers read Version 2026.1C and the file name says 2026.1B (registry note). Re-read 2026-11-24. BLOCKER for a WSDC profile.",
+  "applicable_event_versions": [
+    "Version 2026.1C"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "implementation": [],
+  "tests": [],
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R05-UCWDC-SOLO-MEDLEY-SHOWDANCE",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Solo Medley and Showdance (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.A.20-21 (p2)",
+    "quote_free_summary": "Solo Medley is a musically mixed, multi-dance Showcase category with a medley choreographed to music of the competitors' choice; Showdance is a single dance choreographed to music of the competitors' choice."
+  },
+  "rule_class": "mandatory",
+  "requirement": "DanceFlow's Country Solo is its own format and is neither UCWDC Solo Medley nor Showdance. A future UCWDC profile must model both separately.",
+  "enforcement_point": "NOT IMPLEMENTED. Future: UCWDC profile. The generic Studio/Custom model must not carry it, and it must NOT block eligible Studio/Custom competitions; it belongs to a future body profile.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "Re-read 2026-11-23 (both definitions appear on page 2 of 17).",
+  "decision_refs": [
+    "R-05"
+  ]
+}

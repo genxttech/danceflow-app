@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R03-NDCA-MIXED-PROFESSIONAL",
+  "governing_body": "NDCA",
+  "format": "NDCA Mixed Professional (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.B.2 (p6)",
+    "quote_free_summary": "Mixed Professional competitions are confined to professionals partnering other than their regular professional partner."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must check the regular-partner condition. Studio/Custom 'Mixed professional couples' checks none.",
+  "enforcement_point": "NOT IMPLEMENTED. Future: NDCA partnership checks. The generic Studio/Custom model must not carry it, and it must NOT block eligible Studio/Custom competitions; it belongs to a future body profile.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-23. BLOCKER for an NDCA profile.",
+  "decision_refs": [
+    "R-03",
+    "OD-18"
+  ]
+}

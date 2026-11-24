@@ -1,0 +1,34 @@
+{
+  "implementation": [
+    {
+      "path": "src/lib/competition/participantRoles.ts",
+      "symbol_or_migration": "DANCEFLOW_ROLE_NOTE"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
+      "name": "identifier arrays and the allowed roles per entry format are unchanged"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
+      "name": "the registration validation messages are unchanged"
+    }
+  ],
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R04-DANCEFLOW-ROLE-VOCABULARY",
+  "governing_body": "dance_flow_policy",
+  "format": "DanceFlow person types and relationship roles",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "The seven person types and relationship roles (dancer, student, professional, instructor, team_member, alternate, other) are DanceFlow roster vocabulary. They stay distinct from entry relationship roles, actual dance roles (leader/follower) and governing-body eligibility statuses. 'Instructor' establishes no credential; 'Alternate' is a roster classification, not the NDCA formation reserve rule (XII.C.7, NOT IMPLEMENTED).",
+  "enforcement_point": "Wording constant; not yet shown in the public registration builder (that file is changed by the OD-02/OD-03 PRs). Identifiers, validation and pricing are untouched.",
+  "verification_status": "unverified",
+  "interpretation_notes": "Unverified: the note is not rendered anywhere yet.",
+  "decision_refs": [
+    "R-04"
+  ]
+}

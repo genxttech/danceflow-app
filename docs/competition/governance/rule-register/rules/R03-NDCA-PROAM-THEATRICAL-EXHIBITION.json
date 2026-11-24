@@ -1,0 +1,28 @@
+{
+  "implementation": [],
+  "tests": [],
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R03-NDCA-PROAM-THEATRICAL-EXHIBITION",
+  "governing_body": "NDCA",
+  "format": "NDCA Pro/Am Theatrical and Pro/Am Exhibition (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.B.7.c (p7); IX lifts and dangerous movements (1) (p39); IX.A.1 (p38)",
+    "quote_free_summary": "Pro/Am competitions may offer divisions including THEATRICAL and EXHIBITION; lifts are allowed in the Theatrical, Showdance, Grand Championship and Exhibition/Cabaret dance categories only; every couple must dance all dances except in Exhibition/Cabaret."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "Nothing more than the three statements is recorded. The Rule Book text read does not define what a Pro/Am Theatrical or Pro/Am Exhibition division is beyond these statements, so DanceFlow infers no definition; Studio/Custom 'Pro-Am theatrical' and 'Pro-Am exhibition' are organizer-defined divisions with no lift or dance rules.",
+  "enforcement_point": "NOT IMPLEMENTED. Future: NDCA profile, if the owner decides what these divisions require. The generic Studio/Custom model must not carry it, and it must NOT block eligible Studio/Custom competitions; it belongs to a future body profile.",
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-23 in the pinned PDF. Exact short phrases: 'PRO/AM competitions may offer any or all of the following divisions' (II.B.7.c, printed p7, listing THEATRICAL; EXHIBITION); 'Lifts are allowed in the Theatrical, Showdance, Grand Championship and Exhibition/Cabaret' (IX, printed p39); 'with the exception of Exhibition/Cabaret, all couples must dance all dances' (IX.A.1, printed p38). The profile's earlier descriptions ('lifts allowed', 'not required to dance all dances') were readings of these statements.",
+  "decision_refs": [
+    "R-03"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/resultLabels.ts",
+      "symbol_or_migration": "displayResultLabel"
+    },
+    {
+      "path": "src/lib/competition/results/viewer.ts",
+      "symbol_or_migration": "NOT_CALLED_BACK_DISPLAY"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
+      "name": "the stored label and the engine constant are unchanged; the display maps it"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
+      "name": "the PV-1 recompute still writes and compares the stored label (SQL and engine untouched)"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
+      "name": "rows that did not advance read 'Not called back' in a non-final round (organizer page: callback preliminary), and never carry a placement"
+    }
+  ],
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R09-NOT-CALLED-BACK-DISPLAY",
+  "governing_body": "dance_flow_policy",
+  "format": "Callback tally preliminary result wording",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "An unsuccessful preliminary callback is shown as 'Not called back' with no placement; it is never described as participation in a Semi-final. Display only: the stored engine label ('Semi-final'), the PV-1 recompute and all stored results are unchanged. Preliminary callback scores do not carry into the Final.",
+  "enforcement_point": "Public results viewer (placementLabel) and the organizer round page. No current surface renders the stored output.label, and no export exists; any future surface that does must pass it through displayResultLabel.",
+  "verification_status": "unverified",
+  "interpretation_notes": "Unverified: the rendered pages are covered by source-text checks, not browser tests.",
+  "decision_refs": [
+    "R-09"
+  ]
+}

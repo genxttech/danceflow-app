@@ -1,0 +1,35 @@
+{
+  "implementation": [
+    {
+      "path": "src/lib/competition/setup/studioCustomDisplay.ts",
+      "symbol_or_migration": "hideValues"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
+      "name": "the Studio age axis is organizer-defined, discloses no age validation, and no longer offers Youth"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/relabel.r03r04r05r09.test.ts",
+      "name": "a saved configuration that already contains Youth still loads and derives"
+    }
+  ],
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R03-DANCEFLOW-STUDIO-AGE-CATEGORIES",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom age categories",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Studio age categories (Adult, Senior and any the organizer adds) are organizer-defined classifications, not governing-body age divisions: no thresholds, no automatic age-range validation (disclosed beside the age axis), and no correspondence to any body class. Studio 'Youth' is not offered while OD-02 prohibits under-18 competitors; saved configurations that contain it still load and OD-02 still applies.",
+  "enforcement_point": "Display layer (axis note, offered values). OD-02 enforcement is PR 835. The age axis still allows organizer-typed custom values, so a typed 'Youth' is possible; OD-02 refuses under-18 competitors regardless.",
+  "verification_status": "unverified",
+  "interpretation_notes": "Design opportunity (NOT implemented, separate review needed): organizer-configurable age ranges would need explicit thresholds, validation, audit history and a compatibility review of saved configurations. Other age values offered by non-Studio schemes (Country Junior, Ballroom Pre-Teen/Junior/Youth, WCS Juniors) are outside this change and still list under-18 divisions.",
+  "decision_refs": [
+    "R-03",
+    "OD-02"
+  ]
+}

@@ -195,6 +195,10 @@ describe("sanctioning disclosure", () => {
     expect(d.declared).toBe(true);
     expect(d.verifiedByDanceFlow).toBe(false);
     expect(d.text).toMatch(/not verified/);
+    // R-14: the declaration always carries the operational-requirements disclosure.
+    expect(d.text).toContain("does not currently verify or fulfill the applicable governing-body operational and reporting requirements");
+    expect(d.text).toContain("does not lift any restriction");
+    expect(sanctioningDisclosure("none").text).not.toContain("operational");
     // Declaring UCWDC does not make the UCWDC method available.
     expect(resolveMethod("ucwdc_majority_rules", "v16.9b").ok).toBe(false);
   });

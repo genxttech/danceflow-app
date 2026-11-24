@@ -73,7 +73,7 @@ export default async function CompetitionResultsPage({ params }: { params: Param
                 <tbody className="divide-y divide-slate-200">
                   {round.rows.map((row) => (
                     <tr key={row.entryNumber} className={row.mine ? "bg-emerald-50 font-semibold text-emerald-950" : "text-slate-800"}>
-                      <td className="py-2 pr-3">{placementLabel(row)}</td>
+                      <td className="py-2 pr-3">{placementLabel(row, round.roundType)}</td>
                       <td className="py-2 pr-3">{row.entryNumber}</td>
                       <td className="py-2">{row.displayName ?? "-"}{row.mine ? " (you)" : ""}</td>
                     </tr>

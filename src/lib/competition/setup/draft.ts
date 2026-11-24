@@ -686,7 +686,7 @@ export function formatRunNote(profile: SetupProfileDefaults, key: ProgramKey, fo
   const source = definition.music_source.value;
   const music = source === "profile_defined" ? (definition.uses_dances ? "Set music for each dance" : "Preselected music, the same for every couple")
     : source === "entry_selected" ? "Music chosen by the dancers"
-    : source === "not_specified" ? "Music not specified by the source" : "Event music";
+    : source === "not_specified" ? "Music not specified" : "Event music";
   const boundary = profile.programs[key]?.programming.special_boundary.value;
   const where = boundary === "style" ? "runs after its style block" : boundary === "contest_format" ? "runs as its own contest block" : "runs after each age group's dances";
   const duration = definition.duration?.value;
