@@ -1,0 +1,25 @@
+{
+  "id": "OD28-TEAM-PER-MEMBER-MINORS",
+  "governing_body": "dance_flow_policy",
+  "format": "Team entries: OD-02 under-18 restriction per team member",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Every individual team member must be evaluated under the OD-02 adult-only launch policy at team creation, registration, substitution and roster change; team-level validation is not sufficient.",
+  "implementation": [],
+  "enforcement_point": "Not on this base (OD-02 is PR 835, OD-03/OD-18 are separate PRs). Per those branches, the public checkout route evaluates every participant in participantIds individually, so team members are covered at registration, and OD-03 re-reads the stored date of birth of every participant at confirmation and in operational checks (readiness, floor plan, eligibility decisions), where a missing date of birth fails as not adult-verified. Open gap: there is no database-level guard. An organizer or studio manager (can_manage_event_competition) can write event_competition_entry_participants, event_competition_entries and event_competition_heat_entries through the table API (competition_manage, all operations); a staff-inserted participant without a competitor gets a competitor with a NULL date of birth, and a linked existing competitor may have no adult date of birth on file. OD-03 would catch these at its operational layer, but direct writes to heat entries and to entry status or eligibility_status skip the TypeScript gate. A SQL guard needs a separate approval.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Evidence read from origin/od02-minors-restriction and origin/od03-age-eligibility-gate; those branches are not on this base, so no per-member test can run here. The date of birth is supplied in the registration draft and is self-declared, not verified.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-28",
+    "OD-02",
+    "OD-03",
+    "OD-18",
+    "OD-19",
+    "OD-01"
+  ]
+}

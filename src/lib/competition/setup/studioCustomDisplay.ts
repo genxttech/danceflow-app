@@ -1,4 +1,4 @@
-// OD-19 (owner decision 2026-11-23, Option C): display-label layer for the Studio / Custom `custom` formats.
+// OD-19 (owner decision 2026-11-23, Option C): display-label layer for the Studio / Custom `custom` and (OD-28) team formats.
 //
 // The seeded profile studio_simple@3 is IMMUTABLE once a program references it (see studioCustomV3.ts and the
 // profile SQL it mirrors, guarded by a drift test), so the format names there ("Student/Student", "Spotlight",
@@ -66,6 +66,28 @@ export const STUDIO_CUSTOM_DISPLAY: Readonly<Record<string, CustomFormatDisplay>
     description:
       "All couples dance at the same time to the same preselected music. DanceFlow does not check lift content or any other performance rule.",
   },
+  // OD-28 (owner decision 2026-11-23, Option B): team offerings are DanceFlow Studio/Custom formats too. Team size
+  // (2 to 100), pricing, identifiers and scoring selection are unchanged; no governing-body team rules are applied.
+  team: {
+    entryFormat: "team",
+    label: "Studio/Custom: Team",
+    description: "A group performs a routine together. DanceFlow applies no governing-body team rules; scoring follows the judging method you choose for the style.",
+  },
+  ndca_formation: {
+    entryFormat: "team",
+    label: "Studio/Custom: Formation team",
+    description: "A team performs a formation routine. DanceFlow applies no governing-body formation rules (team size, couple make-up, ages); scoring follows the judging method you choose for the style.",
+  },
+  ndca_team_match: {
+    entryFormat: "team",
+    label: "Studio/Custom: Team match",
+    description: "Teams compete against each other. DanceFlow applies no governing-body team match rules; scoring follows the judging method you choose for the style.",
+  },
+  studio_team: {
+    entryFormat: "team",
+    label: "Studio/Custom: Team",
+    description: "A group performs a routine together. Scoring follows the judging method you choose for the style.",
+  },
   custom_routine: {
     label: "Studio/Custom: Choreographed routine",
     description: "A routine you define, for studios whose terms differ from governing-body names.",
@@ -119,7 +141,8 @@ export const STUDIO_PARTNERSHIP_DISPLAY_KEYS = Object.keys(STUDIO_PARTNERSHIP_DI
 
 /**
  * Returns the profile with DanceFlow Studio/Custom display wording on the listed `custom` formats. Idempotent,
- * pure, and a no-op for any format that is missing from the profile or whose entry_format differs from the one its display entry names ("custom" by default). Applies only to the Studio / Custom profile.
+ * pure, and a no-op for any format that is missing from the profile or whose entry_format differs from the one its
+ * display entry names ("custom" by default, "team" for the OD-28 team formats). Applies only to the Studio / Custom profile.
  */
 export function withStudioCustomDisplayLabels(profile: SetupProfileDefaults): SetupProfileDefaults {
   // Only the Studio / Custom profile: a future governing-body profile reusing generic keys must never be relabelled.

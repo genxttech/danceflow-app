@@ -1,0 +1,33 @@
+{
+  "id": "OD28-NDCA-TEAM-MATCH",
+  "governing_body": "NDCA",
+  "format": "NDCA Team Match (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "I.G.1.e (Studio Showcases & Team Matches) and the Team Match definition that follows",
+    "quote_free_summary": "A Team Match arranges entrants into teams of one school's students and teachers who dance simultaneously and are scored relative to each other; at most five teams per event; it uses a cumulative point system and places the whole team; at most three adjudicators; not part of a series."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must model one-school teams, the five-team cap, three adjudicators, cumulative-point team placement and exclusion from series. Studio/Custom 'Team match' implements none of this.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: NDCA profile. The generic Studio/Custom team model (2 to 100 members, no body rules) must not carry it (OD-28 item 9); it belongs to a future body profile.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-23. The exact I.G.1.e paragraph numbering is as cited by the audit; the definition text is under the 'Studio Showcases & Team Matches' item. BLOCKER for an NDCA profile.",
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-28",
+    "OD-02",
+    "OD-03",
+    "OD-18",
+    "OD-19",
+    "OD-01"
+  ]
+}

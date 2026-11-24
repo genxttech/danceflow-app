@@ -1,0 +1,33 @@
+{
+  "id": "OD28-UCWDC-TEAMS-DIVISIONS",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Teams and ShowTime (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Teams_V_1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "7e71fdce55b0eade037c9c6df2a041a3f8a8390b4fc6274a0552e09d25cdb41a",
+    "section": "II.E (p3); II.C.1-2; II.D.1",
+    "quote_free_summary": "Team divisions are offered for teams of three or more competing members (Team Line Dance Classic Country and Open, Team Partner Dance Classic Country and Open, Team Combo, Team Cabaret, Team International), while ShowTime has any number of members. Teams may have any gender mix, a team couple is leader and follower without gender restriction, and there are no age requirements in team divisions."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future UCWDC profile must distinguish ordinary Teams (3 or more members, listed divisions) from ShowTime (any number). Studio/Custom 'Team' (2 to 100) matches neither exactly: ordinary Teams need 3 or more, and ShowTime has no ordinary-team division structure. UCWDC's 'no age requirements' does not override DanceFlow's OD-02 adult-only launch policy.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: UCWDC profile. The generic Studio/Custom team model (2 to 100 members, no body rules) must not carry it (OD-28 item 9); it belongs to a future body profile.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Re-read 2026-11-23 (II.E.1.a-g, II.E.2, II.C, II.D.1). BLOCKER for a UCWDC Teams profile.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-28",
+    "OD-02",
+    "OD-03",
+    "OD-18",
+    "OD-19",
+    "OD-01"
+  ]
+}

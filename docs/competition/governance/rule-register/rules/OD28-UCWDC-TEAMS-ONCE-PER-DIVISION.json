@@ -1,0 +1,33 @@
+{
+  "id": "OD28-UCWDC-TEAMS-ONCE-PER-DIVISION",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Teams participation (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Teams_V_1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "7e71fdce55b0eade037c9c6df2a041a3f8a8390b4fc6274a0552e09d25cdb41a",
+    "section": "II.F.1.a; II.G.1.a-d (p3)",
+    "quote_free_summary": "Each team member may dance only once in any specific division at each event; a team may enter separate divisions under one Team Name with different songs and choreography but compete once per division; an individual may dance in any team division under any Team Name but not in a division more than once; teams list their competing members when registering."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future UCWDC profile must enforce once-per-division per member across Team Names at an event, and require the member list at registration. Studio/Custom enforces no cross-entry member limit.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: UCWDC profile, cross-entry member check. The generic Studio/Custom team model (2 to 100 members, no body rules) must not carry it (OD-28 item 9); it belongs to a future body profile.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Re-read 2026-11-23. BLOCKER for a UCWDC Teams profile.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-28",
+    "OD-02",
+    "OD-03",
+    "OD-18",
+    "OD-19",
+    "OD-01"
+  ]
+}

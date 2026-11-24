@@ -30,3 +30,7 @@ owner decision on a migration or render-time mapping).
 ## OD-20 follow-ups (organizer exclusion only)
 
 OD-20 decided 2026-11-23 (Option A, organizer exclusion only for initial activation); see [od20-organizer-exclusion-wording.md](../../od20-organizer-exclusion-wording.md). Register entries `OD20-*` record UCWDC missed-call disqualification, UCWDC exclusion and Judge Review Board, NDCA D rule and eligibility-dispute routing as NOT IMPLEMENTED blockers for future body profiles. Open: the `disqualified` heat-entry status is directly writable by a manager on release/website-embeds (U18 guard not on this line; needs a separately approved SQL change).
+
+## OD-28 follow-ups (team offerings)
+
+OD-28 decided 2026-11-23 (Option B); see [od28-team-offerings-relabel.md](../../od28-team-offerings-relabel.md). `OD28-*` entries record NDCA Formation/Team Match and UCWDC Teams/ShowTime rules as NOT IMPLEMENTED; XII.D vs II.A.7.a (CL-11) stays unresolved. Open: team offerings can be chosen whose scoring fails closed (Country Medal Marks, Studio Ratings); per-member age enforcement has a table-API gap for roster changes (needs a separately approved SQL guard).
