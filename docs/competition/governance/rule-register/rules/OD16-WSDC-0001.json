@@ -1,0 +1,28 @@
+{
+  "id": "OD16-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Jack and Jill: judges per contest",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.7.a, 3.4.7.a.i, 3.4.7.b (p.20)",
+    "quote_free_summary": "Preliminaries need at least four judges per role plus the Chief Judge (Tiers 1-3 may have judges score both roles, still four scores per role); finals need at least five judges plus the Chief Judge, never an even number, and seven for Tier 5-6 finals."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Hard blocker for WSDC-declared Jack and Jill contests once tier, contest type and per-role scoring exist.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6C): _compoc_blockers_panel_size / _compoc_panel_rules for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The Studio engines do not score roles separately (they fail closed), so per-role counts cannot be validated today. Tier is not recorded. NOT IMPLEMENTED (design only, PR-A section 6C): a BLOCKER to activating this body profile; no test; no compliance claimed. Hard blocker if mandatory, warning if advisory.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-16 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

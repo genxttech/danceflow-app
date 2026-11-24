@@ -1,15 +1,17 @@
-# Judging-integrity design: OD-05 conflicts and recusal (slices 1-4) and OD-06 WSDC role separation, with OD-15 qualifications design and an OD-16 placeholder
+# Judging-integrity design: OD-05 conflicts and recusal (slices 1-4) and OD-06 WSDC role separation, with OD-15 qualifications and OD-16 panel design (OD-17 placeholder)
 
 **Status: DESIGN ONLY (PR-A, docs).** No SQL, no code, nothing applied, merged, deployed or activated. Competition OS is dark.
 Governed by [RULEBOOK_GOVERNANCE.md](../../RULEBOOK_GOVERNANCE.md). Owner decision OD-05 (2026-11-23, Option D, BLOCK, with panel-level
 safeguards) is recorded in the audit owner-decision list (PR #795, `OWNER-DECISIONS.md`, branch `claude/comp-audit-owner-decisions`).
+
+**OD-16 was decided on 2026-11-23 (owner): Option B now (Studio/Custom model kept, subject to fixing its internal panel-minimum inconsistency), Option A for future body profiles** (section 6C and the separate defect document).
 
 **OD-15 was decided on 2026-11-23 (owner): Option B now (organizer attestation), Option A for future body profiles** (section 6B, design only, no credential SQL).
 
 **OD-06 was decided on 2026-11-23 (owner): Option A, enforce WSDC separation of duties** for WSDC-declared events, with explicit event-level
 designations (section 6A). It is designed here in the same coordinated block as OD-05.
 
-**What this document does not do:** it invents no rule, claims no body compliance, and does not decide OD-16.
+**What this document does not do:** it invents no rule, claims no body compliance, and does not decide OD-17.
 Those two are **not yet decided: design placeholder only** wherever they appear below. Where a source is silent or conflicting
 the text says so and the behavior is labelled DanceFlow policy.
 
@@ -216,19 +218,19 @@ One new `BEFORE UPDATE OF status` trigger on `event_competition_rounds` (`compoc
    panel relations (once Q4 is resolved); unresolved REVIEW findings if Q1 = block.
 2. `_compoc_blockers_roles`: **OD-06 (decided: Option A)**, WSDC-declared events only. Missing or unverified designations; a designated owner/director/family member or chief judge seated in a restricted function; chair and scorer the same account; see section 6A.
 3. `_compoc_blockers_qualifications`: **OD-15 (decided: Option B now, A later; section 6B).** Declared-body events only: lists each mandatory body credential requirement as unverified (attestation never clears it); with a future profile, missing/expired credentials for restricted body roles.
-4. `_compoc_blockers_panel_size`: **OD-16 placeholder, not yet decided.** Per-body minimum panel, chair requirement, non-voting chair.
+4. `_compoc_blockers_panel_size`: **OD-16 (decided: Option B now, A later; section 6C).** Studio X-3 rule now (single source of truth with the corrected E1/E2 readiness); per-body minimums later, hard blockers for mandatory provisions, warnings for advisory.
 
 Validators 2-4 ship as functions returning `[]` until their decisions land, so the guard point, its error (`COMP_PANEL_BLOCKED` with the jsonb list)
 and the readiness UI contract are fixed once and the three later decisions plug in without a second trigger, a second error vocabulary
 or contradictory ordering. E1's `competition_round_panel_status/ready` are read by the UI beside this list and are not modified.
 
-## 6. OD-06 / OD-15 / OD-16 touchpoints (OD-06 and OD-15 decided; OD-16 placeholder only)
+## 6. OD-06 / OD-15 / OD-16 touchpoints (OD-06, OD-15 and OD-16 decided; OD-17 placeholder)
 
 | Decision | Status | Touchpoint with OD-05 | Reserved |
 |---|---|---|---|
 | OD-06 role separation | **decided 2026-11-23, Option A**; designed in section 6A | event-level designations replace guessing; the WSDC tier-2 list in OD-05 reads them. | designations table; `_compoc_blockers_roles` |
 | OD-15 qualifications | **decided 2026-11-23** (Option B now, Option A for future profiles); designed in section 6B | attestation table and `qualification_attester` designation reuse the OD-06 tables; no column on `event_competition_officials`; UCWDC judge tiers wait for the Code of Conduct (open gap). | attestation migration slot; `_compoc_blockers_qualifications` |
-| OD-16 panel size / chair | **not yet decided, design placeholder only** | heat-scope recusal (Q3) shrinks a heat's judge count and must satisfy OD-16 minimums; the chief-judge substitution (WSDC 3.4.6.b.iv) belongs here, not in OD-05. | migration slot; `_compoc_blockers_panel_size` |
+| OD-16 panel size / chair | **decided 2026-11-23** (Option B now, Option A for future profiles); designed in section 6C | heat-scope recusal (Q3) shrinks a heat's judge count and must satisfy the Studio X-3 rule and later body rules; the chief-judge substitution (WSDC 3.4.6.b.iv) and 3.4.7.c shortage are documented resolutions. | `_compoc_blockers_panel_size` |
 | OD-17 appointment / substitution | outside this task | a chair "excuse" (NDCA IV.C.8) would be a resolution kind; the panel freeze (`COMP_PANEL_FROZEN`) interacts with late recusal. Flagged only. | none |
 
 ## 6A. OD-06: WSDC separation of duties (decided: Option A)
@@ -455,6 +457,79 @@ The reviewer re-read every cited passage and confirmed them except where fixed i
 
 New question **Q15**: retention and deletion period for credential evidence and identifiers.
 
+## 6C. OD-16: panel size, chair requirement, non-voting chair (decided 2026-11-23: Option B now, Option A for future body profiles)
+
+**Docs and design only.** No panel SQL, no engine change, no migration file. Decision: keep the Studio/Custom judging model for initial activation **subject to fixing
+its internal panel-minimum inconsistency** (Option B); future body profiles carry body-specific panel models (Option A). The Studio defect is investigated read-only in
+[OD-16-studio-panel-minimum-defect.md](OD-16-studio-panel-minimum-defect.md), with a bounded correction recommendation (not implemented).
+
+### 6C.1 Rule evidence (re-read in the pinned PDFs on 2026-11-23)
+
+| Ref | Document / edition | What it says (own words) | Class |
+|---|---|---|---|
+| NDCA III.B.1.a (p.14) | Rule Book June 2026 | Non-Championship events: at least three adjudicators; if the first-place prize money for a Non-Championship professional event is $1,000 or more, five must officiate. | mandatory |
+| NDCA III.B.1.b (p.14) | same | At least one qualified Chairman of Adjudicators at every sanctioned event. | mandatory (qualification side: OD-15) |
+| NDCA III.B.1.c (p.14) | same | Professional and Adult Amateur Championship events: at least seven adjudicators. | mandatory |
+| NDCA III.B.1.d (p.14) | same | Open multiple-dance Pro/Am Championship events: at least five adjudicators. | mandatory |
+| NDCA III.B.4 (p.16) | same | "If possible, the Chairman should be a non-voting Chairman." | **advisory** |
+| NDCA XII.N.1 (p.51) | same | Formation events are judged by at least three adjudicators qualified and certified in the style. | mandatory |
+| WSDC 3.4.7.a, a.i (p.20) | WSDC v2026.1C | Preliminary Jack and Jill: at least four judges **per role** plus the Chief Judge; exception: in Tiers 1-3 an event may have judges score both roles, still four scores per role; five per role in Tier 5-6 preliminaries is strongly recommended. | mandatory; the five-per-role is **advisory** |
+| WSDC 3.4.7.b (p.20) | same | Finals: at least five judges plus the Chief Judge; an even number of judges shall not be used; seven judges are required for Tier 5-6 finals. | mandatory |
+| WSDC 3.4.7.c, d (p.20) | same | The Chief Judge may join the general panel only on an unforeseen or unavoidable shortage of general judges; virtual judging is not permitted. | mandatory (narrow exception) |
+| UCWDC-SF Rule #3, item 4 (p.3) | UCWDC Scoring Format v16.9b | The majority mark is the middle mark with an odd number of judges; an even number may be used "for contingency or emergency purposes", and then the majority mark is one mark more than half. | odd is the norm; even is a permitted contingency; **no minimum count is stated** |
+
+NOT SPECIFIED IN PROVIDED SOURCE: any UCWDC minimum panel size, and any UCWDC chair or non-voting-chair requirement. Do not invent one. The UCWDC Judge Certification
+Code of Conduct (not provided) remains an open source gap. NDCA III.B.1.a-d use the word "adjudicators"; the DanceFlow mapping of "adjudicator" to a voting judge (the chair
+counting or not) is an interpretation, not stated in the rule.
+
+### 6C.2 Model: separate panel rule sets, never one blended rule
+
+`_compoc_panel_rules(p_profile text, p_inputs jsonb) returns jsonb` (versioned, code, not organizer-editable) returns, per body profile, a list of
+`{requirement_code, severity, minimum, parity, source_ref}`. Severity is data: **`blocker`** for mandatory provisions, **`warning`** for advisory ones.
+
+| Profile | Blockers (mandatory) | Warnings (advisory) | Inputs DanceFlow does not record today |
+|---|---|---|---|
+| Studio / Custom (DanceFlow policy, K1 X-3) | ordinal and callback: at least 3 present judges, odd; proficiency: at least 1 | none | none |
+| NDCA | III.B.1.a (3; 5 when the prize threshold applies), III.B.1.c (7), III.B.1.d (5), XII.N.1 (3), III.B.1.b (a qualified Chairman exists) | III.B.4 non-voting Chairman | event classification (Non-Championship / Professional / Adult Amateur Championship / open multiple-dance Pro/Am Championship), first-place prize money of professional events, formation flag, qualified-Chairman credential (OD-15) |
+| WSDC | 3.4.7.a per-role minimum 4 plus Chief Judge (a.i narrow exception for Tiers 1-3), 3.4.7.b finals minimum 5 plus Chief Judge, odd, 7 for Tier 5-6, 3.4.7.c Chief Judge joins panel only with a recorded shortage, 3.4.7.d no virtual judging | five per role in Tier 5-6 preliminaries | contest type (Jack and Jill prelim/final), tier, per-role judging, judging mode (in person/virtual), recorded shortage reason |
+| UCWDC | none stated | odd panel preferred (even only for contingency/emergency) | none |
+
+### 6C.3 Roles, voting, shortage exception
+
+- A **non-voting chair** (NDCA III.B.4, advisory) is a per-round option, a warning when absent, never a blocker; it changes whether the chair's ballot counts, so engine and ballot
+  rules must support it first. **Not designed in detail here; no engine change.**
+- **WSDC Chief Judge joining the panel** (3.4.7.c) is a documented resolution (same mechanism as OD-05 slice 3 and OD-06 6A): recorded reason of an unforeseen or unavoidable shortage,
+  who decided, when; never automatic, and it does not satisfy the "separate Chief Judge" requirement of 3.4.7.a-b for counting purposes unless the owner says so (Q16).
+- **Per-role counts (WSDC)**: the Studio engines do not score roles separately (`scoreRolesSeparately` fails closed, X-3 flags), so the WSDC per-role requirement **cannot be satisfied or validated today**.
+
+### 6C.4 Enforcement design (future; hard blockers and warnings)
+
+Plugs into the shared panel-lock guard of section 5: `_compoc_blockers_panel_size` (reserved OD-16 slot, section 7) calls `_compoc_panel_rules` for the event's declared body and
+the round's inputs, and emits items with `severity`. **Hard blockers block round start and ballot lock** with `COMP_PANEL_BLOCKED`; **warnings** are shown, never block. For Studio/Custom
+the function delegates to the corrected E1/E2 rule so there is one source of truth for the X-3 minimum (defect doc, section 4). Every missing input (classification, prize, tier,
+judging mode) is itself a blocker for a declared-body profile, never defaulted (fail closed); a profile that is not implemented keeps its body requirements as BLOCKERS to that profile's activation.
+
+### 6C.5 NOT IMPLEMENTED: blockers to each body profile's activation
+
+| Profile | Not implemented (each is a blocker to activating that profile) |
+|---|---|
+| NDCA | adjudicator count rules III.B.1.a/c/d; qualified Chairman III.B.1.b; formation minimum XII.N.1; event classification and prize inputs; non-voting chair (advisory); family-definition source conflict (OD-05) |
+| WSDC | per-role judge counts 3.4.7.a; finals minimum, odd, Tier 5-6 count 3.4.7.b; Chief Judge shortage exception 3.4.7.c; virtual-judging flag 3.4.7.d; per-role scoring in the engines |
+| UCWDC | nothing mandatory to count (no minimum stated); contingency even-panel handling must follow Rule #3.4's majority mark (one more than half), which the Studio engines do not implement (they fail closed on even panels) |
+| Studio/Custom | the internal inconsistency in the defect document must be fixed before initial activation |
+
+OD-01 (PR #832) is unchanged: declared-body results approval and publication stay blocked. These blockers are also recorded in the rule register (`OD16-*`, status
+`unsupported`) and in the registry "Known gaps". The audit TRACKER is deliberately **not** edited here to avoid a merge overlap with PR #832; the coordinator can add a pointer row.
+
+### 6C.6 Interaction with the other decisions
+
+OD-05: a recusal shrinks a panel; the shared aggregator evaluates conflicts first, then panel size. OD-06: Chief Judge separation (3.4.3) and the OD-16 shortage resolution
+must not contradict: a Chief Judge who joins the panel under 3.4.7.c is an explicit resolution, never silently permitted by role. OD-15: the qualified-Chairman requirement
+(III.B.1.b) is the OD-15 credential side of the same item. **OD-17 (panel appointment, publication, substitution) is not yet decided: placeholder only**; substitution would
+interact with panel minimums and the frozen panel; nothing is designed here.
+
+New question **Q16**: when the Chief Judge joins the panel under WSDC 3.4.7.c, do they count toward the 3.4.7 minimum or must the minimum be met without them (the text says "plus the Chief Judge")?
+
 ## 7. Migration block, ordering, rollback
 
 Latest migration on `origin/release/website-embeds` is `20270218090000`. Proposed block for the coordinator to confirm
@@ -471,7 +546,7 @@ LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight f
 | `20270220094000` | `competition_oc_s4_panel_lock` | OD-05 s4 | no (trigger on rounds, aggregator, stub validators 2-4 return `[]`; s5 and the reserved OD-16 slot later redefine stubs, md5-pinned) |
 | `20270220095000` | `competition_oc_s5_wsdc_separation_guards` | OD-06 enforcement | no (G1-G7 triggers on officials, designations, result versions; REDEFINES the s4 stub `_compoc_blockers_roles`, md5-pinned) |
 | `20270220096000` | `competition_oc_s6_official_attestations` (OD-15, design only) | OD-15 Option B | no (new attestation table and events kinds; adds designation kind `qualification_attester`; REDEFINES the s4 stub `_compoc_blockers_qualifications`, md5-pinned) |
-| `20270220097000` | reserved OD-16 | placeholder | fills `_compoc_blockers_panel_size` |
+| `20270220097000` | reserved OD-16 (`competition_oc_s8_panel_rules`, design only) | OD-16 | REDEFINES the s4 stub `_compoc_blockers_panel_size`, md5-pinned; adds `_compoc_panel_rules`. The Studio E1/E2 readiness correction is a **separate** bounded change (defect document), not part of this block |
 | `20270220098000` | reserved OD-15 Option A: `competition_oc_s7_credential_records` | future, **not before a body profile exists** | REDEFINES `_compoc_blockers_qualifications` again, md5-pinned (credential table, rule-set catalog) |
 
 Order rationale: designations (s0) must exist before the OD-05 tier-2 lookup reads them (s1); enforcement of OD-06 (s5) comes after the shared guard
@@ -515,6 +590,7 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
 - **Q4:** NDCA IV.A.2 needs division classification and the family definition (source conflict). Confirm NDCA panel relatedness stays
   unimplemented, and not relied on for an NDCA-declared event, until both exist.
 - **Q5 (closed by OD-06):** WSDC roles come from explicit event-level designations (6A), not from DanceFlow roles.
+- **Q16 (OD-16):** does the Chief Judge count toward the WSDC 3.4.7 judge minimum when joining the panel under 3.4.7.c, or must the minimum be met without them?
 - **Q6:** confirm migration block `20270220090000`-`20270220098000` is free.
 - **Q7 (OD-06):** who may attest the designation set (6A.3)? Recommended: a manager other than the last designator; for a one-manager event an explicit, recorded single-person acknowledgement.
 - **Q8 (OD-06):** is the chief judge's finalist-review record (3.4.4) a hard start blocker for WSDC-declared final rounds (recommended: yes, it is mandatory text) or advisory?

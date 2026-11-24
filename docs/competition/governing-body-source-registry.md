@@ -43,6 +43,8 @@ A profile version is immutable once a program references it; a correction is pub
 
 - **Missing UCWDC Judge Certification Code of Conduct** (website, `www.ucwdc.org/judge-certification`; referenced by UCWDC-C II.N.3, p.13, and the UCWDC-PA/-L/-T equivalents). Not provided. UCWDC has no general judge conflict-of-interest rule in the supplied rules, so any UCWDC conflict behavior is organizer policy until it is supplied. Whether to request it is the owner's decision; nobody has been contacted (OD-05, OD-15).
 
+- **Body panel-size and chair rules are NOT IMPLEMENTED** (OD-16): NDCA III.B.1.a-d, XII.N.1; WSDC 3.4.7; UCWDC states no minimum (Scoring Format Rule #3.4). Each mandatory provision is a blocker to activating that body's profile; advisory ones (NDCA III.B.4 non-voting chair, WSDC five per role in Tier 5-6 preliminaries) are warnings. Register entries `OD16-*`.
+
 ## Source conflicts
 
 Recorded per rule 3 below. Each one that affects eligibility or integrity fails closed until the owner resolves it.

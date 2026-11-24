@@ -1,0 +1,29 @@
+{
+  "id": "OD16-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom: panel size for ordinal and callback methods",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (K1 X-3, not a body rule): ordinal and callback scoring need at least 3 present judges and an odd panel; proficiency needs at least 1. Round readiness (E1), ballot lock (E2) and the engines must apply the same rule.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql",
+      "symbol_or_migration": "_compe2_panel_rule"
+    },
+    {
+      "path": "src/lib/competition/results/engines/common.ts",
+      "symbol_or_migration": "at least 3 judges and an odd panel (X-3)"
+    }
+  ],
+  "enforcement_point": "E2 lock_competition_round_ballots and the engines enforce it; E1 round readiness does NOT (defect: docs/competition/governance/judging-integrity/OD-16-studio-panel-minimum-defect.md).",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "INTERNAL INCONSISTENCY: E1 readiness defaults to a minimum of 1 and ignores parity, so a round can start and then fail to lock; the panel is frozen after start. Correction recommended, not implemented. DanceFlow policy, never presented as a governing-body rule.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-16 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "OD16-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA Chairman of Adjudicators: voting",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.B.4 (p.16)",
+    "quote_free_summary": "If possible the Chairman should be a non-voting Chairman."
+  },
+  "rule_class": "recommended",
+  "requirement": "Warning only; optional non-voting chair per round once ballots and engines support it.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6C): _compoc_blockers_panel_size / _compoc_panel_rules for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Advisory (\"if possible\", \"should\"); never a blocker. The chair currently counts as a voting judge in E1 and E2. NOT IMPLEMENTED (design only, PR-A section 6C): a BLOCKER to activating this body profile; no test; no compliance claimed. Hard blocker if mandatory, warning if advisory.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-16 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

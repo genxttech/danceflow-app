@@ -1,0 +1,28 @@
+{
+  "id": "OD16-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests: panel parity",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Rule #3, item 4 (p.3)",
+    "quote_free_summary": "The majority mark is the middle mark with an odd number of judges; an even number may be used for contingency or emergency purposes, with the majority mark one more than half the marks. No minimum number of judges is stated."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "Odd panel preferred (warning); even panel permitted as a contingency using the stated majority mark. No minimum is invented.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6C): _compoc_blockers_panel_size / _compoc_panel_rules for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT SPECIFIED IN PROVIDED SOURCE: any UCWDC minimum panel size or chair requirement. The Studio engines fail closed on even panels, so the contingency case is unsupported. NOT IMPLEMENTED (design only, PR-A section 6C): a BLOCKER to activating this body profile; no test; no compliance claimed. Hard blocker if mandatory, warning if advisory.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-16 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
