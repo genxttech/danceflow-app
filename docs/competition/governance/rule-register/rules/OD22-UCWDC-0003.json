@@ -1,0 +1,33 @@
+{
+  "id": "OD22-UCWDC-0003",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Scoring Format, internal scoring-error step",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Rule #8, item 1 (p.4); similar wording in items 2 and 6",
+    "quote_free_summary": "If tied contestants' re-ordered marks are not identical at Rule #8, 'a scoring error has occurred, and the previous rules must be re-calculated.'"
+  },
+  "rule_class": "mandatory",
+  "requirement": "A UCWDC engine must treat this as an internal scoring-error recalculation step, not as a post-publication correction procedure.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "It is a check inside the tie-break algorithm. It says nothing about correcting published results, who may correct, or notice. Do not cite it as correction authority.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-22 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A for future WSDC support, with UCWDC correction-authority restrictions; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-22-published-result-visibility-and-corrections.md",
+    "OD-04 (PR 844)",
+    "OD-07 (PR 838)",
+    "OD-10 (PR 842)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

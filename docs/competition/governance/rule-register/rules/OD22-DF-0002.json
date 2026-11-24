@@ -1,0 +1,25 @@
+{
+  "id": "OD22-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: 'Under review' presentation for entrants",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DESIGN REQUIREMENT, NOT IMPLEMENTED: where practical, show entrants of Studio/Custom events an 'Under review' status for a result that was published and is now hidden, instead of silently removing it, without revealing the reason or the corrected values before republication.",
+  "implementation": [],
+  "enforcement_point": "None. No implementation authorized; see the OD-22 record for states and wording.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Unimplemented scope. Today the public round reader returns a generic under_review notice; the entrant reader does not. No claim of body compliance.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-22 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A for future WSDC support, with UCWDC correction-authority restrictions; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-22-published-result-visibility-and-corrections.md",
+    "OD-04 (PR 844)",
+    "OD-07 (PR 838)",
+    "OD-10 (PR 842)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

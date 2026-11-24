@@ -1,0 +1,33 @@
+{
+  "id": "OD22-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples, challenges to panel or results",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.N.3 (p.13)",
+    "quote_free_summary": "A complaint or challenge to a judging panel's composition or results must be made post-event and goes to the Judge Review Board."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Challenges to judging decisions are handled by the UCWDC Judge Review Board, outside DanceFlow; DanceFlow must not present itself as adjudicating them or allow in-event reversal as a challenge outcome.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The Judge Certification Code of Conduct referenced by this rule is not in the provided sources (open gap, see OD-05/OD-15). The text names no procedure for DanceFlow to follow and no time limit.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-22 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A for future WSDC support, with UCWDC correction-authority restrictions; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-22-published-result-visibility-and-corrections.md",
+    "OD-04 (PR 844)",
+    "OD-07 (PR 838)",
+    "OD-10 (PR 842)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

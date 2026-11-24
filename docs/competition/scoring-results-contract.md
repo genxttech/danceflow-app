@@ -96,7 +96,7 @@ soon as the correction opens (INT5-SECFIX P2-2: readers require a live publicati
 correction, version approved and latest; the public reader answers the generic under-review notice), without withdrawing the
 publication row; the corrected result reappears as the superseding publication. A manager can also withdraw explicitly
 (`withdraw_competition_round_result`, reason required), which hides it from all non-manager readers immediately.
-*(Supersedes the earlier K0 wording that a correction did not hide the published result; flagged for owner confirmation.)*
+*(Supersedes the earlier K0 wording that a correction did not hide the published result. **Owner confirmed on 2026-11-23 (OD-22, Option B for initial Studio/Custom):** a published result may be temporarily hidden during an authorized correction; hiding never deletes or overwrites anything (all versions, ballots, evidence, audit records and publications are preserved), completed rounds need the controlled correction authorization (OD-07), and the corrected result publishes as a new linked version. This is DanceFlow policy, not a governing-body rule; see governance/publication/OD-22-published-result-visibility-and-corrections.md.)*
 
 **Invalidation.** Any new ballot version after calculation makes every unpublished result version of that round
 stale: `approve` and `publish` refuse when the stored `input_hash` no longer matches the canonical input built from

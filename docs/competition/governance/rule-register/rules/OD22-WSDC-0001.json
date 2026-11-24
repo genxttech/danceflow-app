@@ -1,0 +1,33 @@
+{
+  "id": "OD22-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, result posting and corrections",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.1 item 9 (p.12)",
+    "quote_free_summary": "Registry Events must post contest results at the event, open to all competitors for at least 30 days; results include contest rounds, placements and score reports (judges may be listed anonymously); if results are inaccurate, corrected results must be posted."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A WSDC profile must keep results (rounds, placements, score reports) open to all competitors for a minimum of 30 days and must post corrected results when results are inaccurate.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The text does NOT address temporarily removing a posted result while it is investigated, so permission to hide is NOT assumed. A WSDC profile needs a clearly marked under-review presentation that preserves the required access (for example the original score report remains visible but flagged) and this REQUIRES INDEPENDENT VERIFICATION before WSDC profile activation. Also not stated: who may judge a result inaccurate, a deadline for corrected results, and whether a hidden-then-corrected result satisfies the 30 days.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-22 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A for future WSDC support, with UCWDC correction-authority restrictions; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-22-published-result-visibility-and-corrections.md",
+    "OD-04 (PR 844)",
+    "OD-07 (PR 838)",
+    "OD-10 (PR 842)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
