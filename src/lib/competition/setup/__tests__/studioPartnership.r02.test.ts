@@ -70,11 +70,15 @@ describe("Studio age terminology (AE-26, FD-26, FD-37)", () => {
 
   it("Youth, Adult and Senior stay plain labels with no thresholds and the note says they map to no body class", () => {
     expect(ageAxis(P).values.map((v) => v.label)).toEqual(["Youth", "Adult", "Senior"]);
+    // R-03: Youth is not among the offered choices while OD-02 prohibits under-18 competitors.
+    expect(ageAxis(D).values.map((v) => v.label)).toEqual(["Adult", "Senior"]);
     for (const value of ageAxis(D).values) expect(Object.keys(value).filter((k) => /age|min|max|threshold|from|to/i.test(k)), value.label).toEqual([]);
-    expect(ageAxis(D).values).toEqual(ageAxis(P).values);
+    expect(ageAxis(D).values).toEqual(ageAxis(P).values.filter((v) => v.label !== "Youth")); // R-03: Youth is not offered
     const note = ageAxis(D).note ?? "";
     expect(note).toMatch(/no age thresholds/);
-    expect(note).toMatch(/do not correspond to any governing-body class/);
+    expect(note).toMatch(/correspond to no governing-body class/);
+    expect(note).toMatch(/classifications you define/);
+    expect(note).toMatch(/does not automatically validate any age range/);
     expect(note).toMatch(/18 or older whatever the label/);
     expect(note).not.toMatch(/NDCA|Senior I|UCWDC|WSDC/);
   });

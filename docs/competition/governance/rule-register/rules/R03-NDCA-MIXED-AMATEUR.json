@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R03-NDCA-MIXED-AMATEUR",
+  "governing_body": "NDCA",
+  "format": "NDCA Mixed Amateur (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.A.5.a (p5)",
+    "quote_free_summary": "Mixed Amateur is confined to amateurs partnering other than their regular amateur partner: an advanced amateur competitor/teacher partnering an amateur who is their student; both must be registered Amateur Competitors."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must check the regular-partner and teacher/student relationship and amateur registration. Studio/Custom 'Mixed partnership' checks none of it.",
+  "enforcement_point": "NOT IMPLEMENTED. Future: NDCA partnership and registration checks. The generic Studio/Custom model must not carry it, and it must NOT block eligible Studio/Custom competitions; it belongs to a future body profile.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-23. Coordinate with OD-18 (PR 846) and audit rows CL-07, CL-08, FD-10, FD-13. BLOCKER for an NDCA profile.",
+  "decision_refs": [
+    "R-03",
+    "OD-18"
+  ]
+}

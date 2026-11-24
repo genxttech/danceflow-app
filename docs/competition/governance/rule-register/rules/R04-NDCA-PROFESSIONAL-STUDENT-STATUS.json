@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "id": "R04-NDCA-PROFESSIONAL-STUDENT-STATUS",
+  "governing_body": "NDCA",
+  "format": "NDCA professional and Pro/Am Student Competitor status (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.A.1 (p4); II.A.4 (p4-5)",
+    "quote_free_summary": "A professional is anyone meeting listed conditions, such as being registered as a Professional with the NDCA or partnering a Pro/Am Student Competitor; a Pro/Am Student Competitor is a registered student of a registered professional and has further conditions."
+  },
+  "rule_class": "mandatory",
+  "requirement": "DanceFlow's Professional and Student person types do NOT establish NDCA professional registration or Pro/Am Student status. A future NDCA profile must verify them from registration data.",
+  "enforcement_point": "NOT IMPLEMENTED. Future: NDCA profile verification. The generic Studio/Custom model must not carry it, and it must NOT block eligible Studio/Custom competitions; it belongs to a future body profile.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-23 (II.A.1.a: 'Registered as a Professional with the NDCA'). Governing bodies do not define these terms as DanceFlow uses them; they do have their own professional, student and substitution classifications (NDCA II.A.1, II.A.4, XII.C.7), which are separate and not implemented.",
+  "decision_refs": [
+    "R-04",
+    "OD-18"
+  ]
+}

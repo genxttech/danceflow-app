@@ -39,7 +39,14 @@ describe("OD-19 Studio/Custom display labels", () => {
     expect(restAfter).toEqual(restBefore);
     // Division schemes: only notes differ; axes, values (division names) and combination are identical.
     const stripNotes = (schemes: typeof P.divisionSchemes) => JSON.parse(JSON.stringify(schemes, (k, v) => (k === "note" ? undefined : v)));
-    expect(stripNotes(schemesAfter)).toEqual(stripNotes(schemesBefore));
+    // R-03: the Studio age value "Youth" is no longer offered (availability), everything else is identical.
+    const withoutYouth = (schemes: ReturnType<typeof stripNotes>) => {
+      const copy = JSON.parse(JSON.stringify(schemes));
+      const age = copy.studio_generic.axes.find((a: { key: string }) => a.key === "age_group");
+      age.values = age.values.filter((v: { label: string }) => v.label !== "Youth");
+      return copy;
+    };
+    expect(stripNotes(schemesAfter)).toEqual(withoutYouth(stripNotes(schemesBefore)));
     // Format ids per style, enum-like fields and the persisted profile identity are byte-identical.
     expect(Object.fromEntries(Object.entries(D.programs).map(([k, v]) => [k, v.formats]))).toEqual(Object.fromEntries(Object.entries(P.programs).map(([k, v]) => [k, v.formats])));
     expect(Object.fromEntries(Object.entries(D.categoryTypes).map(([k, v]) => [k, [v.entry_format, v.contest_type]]))).toEqual(

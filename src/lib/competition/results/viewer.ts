@@ -5,6 +5,8 @@
  * named on the public path. This module only parses the payloads defensively (malformed rows are dropped, never guessed) and merges the two views.
  */
 
+import { NOT_CALLED_BACK_DISPLAY } from "./resultLabels";
+
 export type ViewerRow = {
   entryNumber: string;
   displayName: string | null;
@@ -88,7 +90,8 @@ export function mergeViewerRounds(mine: ViewerRound[], publicRounds: ViewerRound
   return [...mine, ...publicRounds.filter((r) => !seen.has(r.publicationId))];
 }
 
-export function placementLabel(row: ViewerRow): string {
-  if (row.placement === null) return row.advanced === true ? "Advanced" : row.advanced === false ? "Not advanced" : "No placement";
+export function placementLabel(row: ViewerRow, roundType?: string): string {
+  // R-09: a non-final round with advanced === false is an unsuccessful callback (callback scores only exist in preliminaries).
+  if (row.placement === null) return row.advanced === true ? "Advanced" : row.advanced === false ? (roundType && roundType !== "final" ? NOT_CALLED_BACK_DISPLAY : "Not advanced") : "No placement";
   return row.tieGroup ? `${row.placement} (tie)` : String(row.placement);
 }

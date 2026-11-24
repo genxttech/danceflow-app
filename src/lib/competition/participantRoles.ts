@@ -157,3 +157,13 @@ export function describeParticipantRole(participantRole: string | null | undefin
   if (!lead) return relationship;
   return relationship === "Dancer" ? (danceRole === "leader" ? "Leader" : "Follower") : `${relationship} · ${lead}`;
 }
+
+/**
+ * R-04 (owner ratified 2026-11-23): the seven person types / relationship roles are DanceFlow vocabulary. Wording only; no
+ * identifier, validation or pricing depends on this text. Not yet wired into the public registration builder because that file
+ * is being changed by the OD-02/OD-03 PRs: show it next to the person-type picker once they land.
+ * Keep four things distinct in copy: person type (roster classification), entry relationship role, dance role (leader/follower)
+ * and any governing-body eligibility status.
+ */
+export const DANCEFLOW_ROLE_NOTE =
+  "Dancer, Student, Professional, Instructor, Team member, Alternate and Other are DanceFlow roster classifications. They do not establish a governing-body professional registration, Pro/Am Student status, instructor credential or any other body eligibility. An Alternate is a DanceFlow roster entry, not a governing-body substitution or reserve procedure.";

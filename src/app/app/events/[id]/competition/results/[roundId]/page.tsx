@@ -9,6 +9,7 @@ import { parseReviewExcluded } from "@/lib/competition/results/reviewTypes";
 import { correctionCosignPanel, parseCorrectionState } from "@/lib/competition/results/correction";
 import { approveRoundResultAction, cosignCorrectionAction, calculateRoundResultAction, completeRoundAction, openRoundCorrectionAction, publishRoundResultAction, withdrawRoundResultAction } from "../actions";
 import { parsePublications, publicationControls } from "@/lib/competition/results/publication";
+import { NOT_CALLED_BACK_DISPLAY } from "@/lib/competition/results/resultLabels";
 import { deriveUnresolvedTie, type UnresolvedTie } from "@/lib/competition/results/unresolvedTie";
 import { AdvancementSection, UnresolvedTiePanel, ExcludedSection, ExclusionPanel, WithdrawalPanel, type Candidate } from "./CallbackPanels";
 
@@ -231,7 +232,7 @@ export default async function CompetitionRoundResultsPage({
                         {row.display_name ?? "Entry"}
                       </td>
                       <td className="py-1 pr-3 text-xs text-slate-600">
-                        {[row.tie_group ? `tie ${row.tie_group}` : null, row.advanced === null ? null : row.advanced ? "advances" : "does not advance", row.rating_band]
+                        {[row.tie_group ? `tie ${row.tie_group}` : null, row.advanced === null ? null : row.advanced ? "advances" : isCallbackPreliminary ? NOT_CALLED_BACK_DISPLAY : "does not advance", row.rating_band]
                           .filter(Boolean)
                           .join(" - ")}
                       </td>
