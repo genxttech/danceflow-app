@@ -47,6 +47,8 @@ A profile version is immutable once a program references it; a correction is pub
 
 - **NDCA officials-list publication, change control and emergency substitution are NOT IMPLEMENTED** (OD-17): III.B.6 (30-day posting, NDCA approval of changes, Observer-approved substitute, ten-day written explanation), III.D.1, IV.C.8, III.C.6. Each is a blocker to activating an NDCA profile. UCWDC and WSDC: rulebook-silent in the supplied text (searched 2026-11-23). Register entries `OD17-*`.
 
+- **Judging devices and location (OD-29):** NDCA IV.B.9, IV.D.1.a(3), IV.A.12 restrict "unauthorized" electronic devices but define no authorized device or approval path; WSDC 3.4.7.d forbids virtual judging while 3.4.9.a permits electronic scoring; UCWDC: no text found. Compatibility of the DanceFlow browser ballot with NDCA is UNVERIFIED and a blocker to an NDCA profile. The WSDC Appendix (computerized scoring system requirements, referenced by 3.4.9.d-e) is not in the supplied PDF. Register entries `OD29-*`.
+
 ## Source conflicts
 
 Recorded per rule 3 below. Each one that affects eligibility or integrity fails closed until the owner resolves it.

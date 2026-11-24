@@ -1,0 +1,20 @@
+{
+  "id": "OD29-NDCA-0006",
+  "governing_body": "silent",
+  "format": "NDCA Sanctioned events: what makes a device \"authorized\"",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. The rule book uses \"unauthorized electronic devices\" (IV.B.9, IV.D.1.a(3)) but defines no authorized device, no authority that approves one and no electronic-ballot allowance. Terms searched: cell phone, electronic, earbud, tablet, laptop, smartphone, mobile, iPad, device, unauthorized, authoriz*, e-ballot, electronic ballot, scoring system, remote, virtual, paper, score card.",
+  "implementation": [],
+  "enforcement_point": "None. No DanceFlow behavior may assume organizer authorization of a device.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Open interpretation question (design Q20, Q21). No one has been contacted. NOT IMPLEMENTED (design only, PR-A section 6E): a BLOCKER to activating this body profile; no test; no compliance claimed. A declaration is a self-attestation, never a verification.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

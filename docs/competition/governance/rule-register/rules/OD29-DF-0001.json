@@ -1,0 +1,20 @@
+{
+  "id": "OD29-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom: judging devices and location",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (owner decision OD-29 Option A): Studio/Custom judging-device flexibility is preserved for initial activation; judges score through authenticated DanceFlow accounts (K0 P8) on any device and location; no device or location restriction and no declaration is required.",
+  "implementation": [],
+  "enforcement_point": "None (unchanged).",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "DanceFlow policy, never presented as a governing-body rule. Design only (PR-A section 6E).",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

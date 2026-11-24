@@ -1,0 +1,20 @@
+{
+  "id": "OD29-UCWDC-0001",
+  "governing_body": "silent",
+  "format": "UCWDC events: judging devices, electronic ballots, remote judging",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. No device, electronic-ballot or remote-judging text in UCWDC Couples, Pro/Pro-Pro/Am, Line Dance, Teams or the Scoring Format (2026). Terms searched: cell phone, electronic device, unauthorized, earbud, virtual judging, remote judging, online judging, tablet, mobile, smartphone, device, in person, virtual.",
+  "implementation": [],
+  "enforcement_point": "None.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "No hits in any of the five files. Any UCWDC device or location policy is organizer policy, labelled so; the Judge Certification Code of Conduct (not provided) may govern. Design only.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

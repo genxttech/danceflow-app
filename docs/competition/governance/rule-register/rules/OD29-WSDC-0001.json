@@ -1,0 +1,28 @@
+{
+  "id": "OD29-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events: location of judging",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.7.d (p.20)",
+    "quote_free_summary": "Virtual judging is not permitted."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Authorized organizer declaration of on-site judging arrangements; a declared remote-judging arrangement fails readiness. The software cannot prove physical presence.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6E): judging-arrangement declaration and _compoc_blockers_judging_arrangement for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The text read does not define virtual judging (searched virtual, remote, device, electronic). Declaration is a self-attestation only. NOT IMPLEMENTED (design only, PR-A section 6E): a BLOCKER to activating this body profile; no test; no compliance claimed. A declaration is a self-attestation, never a verification.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

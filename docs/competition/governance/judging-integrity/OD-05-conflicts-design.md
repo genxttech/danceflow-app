@@ -4,6 +4,8 @@
 Governed by [RULEBOOK_GOVERNANCE.md](../../RULEBOOK_GOVERNANCE.md). Owner decision OD-05 (2026-11-23, Option D, BLOCK, with panel-level
 safeguards) is recorded in the audit owner-decision list (PR #795, `OWNER-DECISIONS.md`, branch `claude/comp-audit-owner-decisions`).
 
+**OD-29 was decided on 2026-11-23 (owner): Option A, body-specific judging-device and location attestation, design only** (section 6E).
+
 **OD-17 was decided on 2026-11-23 (owner): Option B now (Studio/Custom panel behavior unchanged), Option A required for a future NDCA profile** (section 6D, design only).
 
 **OD-16 was decided on 2026-11-23 (owner): Option B now (Studio/Custom model kept, subject to fixing its internal panel-minimum inconsistency), Option A for future body profiles** (section 6C and the separate defect document).
@@ -14,7 +16,7 @@ safeguards) is recorded in the audit owner-decision list (PR #795, `OWNER-DECISI
 designations (section 6A). It is designed here in the same coordinated block as OD-05.
 
 **What this document does not do:** it invents no rule, claims no body compliance, and decides nothing beyond the owner decisions it records.
-OD-05, OD-06, OD-15, OD-16 and OD-17 are all decided by the owner (sections 6A-6D); the Studio panel defect is a recommendation only. Page numbers are **printed** page numbers (see the registry page convention; the Scoring Format page is flagged where unconfirmed). Where a source is silent or conflicting
+OD-05, OD-06, OD-15, OD-16, OD-17 and OD-29 are all decided by the owner (sections 6A-6D); the Studio panel defect is a recommendation only. Page numbers are **printed** page numbers (see the registry page convention; the Scoring Format page is flagged where unconfirmed). Where a source is silent or conflicting
 the text says so and the behavior is labelled DanceFlow policy.
 
 ## 1. Rule evidence (re-read in the pinned PDFs on 2026-11-23)
@@ -222,8 +224,9 @@ One new `BEFORE UPDATE OF status` trigger on `event_competition_rounds` (`compoc
 3. `_compoc_blockers_qualifications`: **OD-15 (decided: Option B now, A later; section 6B).** Declared-body events only: lists each mandatory body credential requirement as unverified (attestation never clears it); with a future profile, missing/expired credentials for restricted body roles.
 4. `_compoc_blockers_panel_size`: **OD-16 (decided: Option B now, A later; section 6C).** Studio X-3 rule now (single source of truth with the corrected E1/E2 readiness); per-body minimums later, hard blockers for mandatory provisions, warnings for advisory.
 5. `_compoc_blockers_panel_change`: **OD-17 (decided; section 6D).** NDCA-declared events only: officials list published and approved, post-approval change authorization, emergency-substitution records. Stub returning `[]` until the future NDCA profile slot.
+6. `_compoc_blockers_judging_arrangement`: **OD-29 (decided; section 6E).** Declared-body events only: declared remote judging (WSDC 3.4.7.d) fails readiness; NDCA ballot-device compatibility is an unverified blocker. Stub returning `[]` until the profile slot.
 
-Validators 2-5 ship as functions returning `[]` until their decisions land, so the guard point, its error (`COMP_PANEL_BLOCKED` with the jsonb list)
+Validators 2-6 ship as functions returning `[]` until their decisions land, so the guard point, its error (`COMP_PANEL_BLOCKED` with the jsonb list)
 and the readiness UI contract are fixed once and the later decisions (OD-06, OD-15, OD-16, OD-17) plug in without a second trigger, a second error vocabulary
 or contradictory ordering. E1's `competition_round_panel_status/ready` are read by the UI beside this list. The OD-05 aggregator does not modify them; the **Studio readiness correction** (defect document) is a separate named step that redefines `competition_round_panel_status` (section 7, `20270220089000`) and ships before the OD-16 slot (s7), which delegates to it.
 
@@ -454,7 +457,7 @@ The reviewer re-read every cited passage and confirmed them except where fixed i
 - **Pre-profile default (R6).** Recommended default, for owner decision in Q12: before body profiles exist, unverified mandatory requirements for an official **declared to act in a body role** are shown as **warnings** on panel lock, not blockers, because OD-01 already blocks approval and publication of Studio-scored results and body-role designations are unavailable. The attestation stores the body role the organizer **claims** for the official as its own field (`claimed_body_role`, labelled "claimed by organizer" everywhere); it is never derived from the DanceFlow role, and a generic `judge`/`chair`/`scorer` is not a body role (`COMP_BODY_ROLE_UNAVAILABLE`). The Option A restricted list also includes **NDCA Adjudicator** (IV.A.6 licence, III.B.3 roster) and **UCWDC Judge** (II.B.1.b membership). If the owner chooses "blocker", every declared-body event is locked out of panel lock until profiles exist, which is stated as the consequence.
 - **Immutability and status (R7).** The attestation table has **no mutable status column**. Withdrawal and supersession are rows in the events table (kinds `attestation_withdrawn` with a reason of 1-500 characters, `attestation_superseded`), and "current" is the latest by a unique successor chain (as for ballots). Credential `verification_status` gains `attested_unverified`.
 - **Privacy (R8).** `identifier_ref` and uploaded evidence are personal data: restricted columns, excluded from exports and general views, private tenant-scoped storage, reviewer access only through audited tenant-scoped RPCs, retention rule is Q15. `body_source` is used only when a governing body itself publishes or confirms the credential; a DanceFlow reviewer checking an organizer-supplied extract stays `platform_review`. The credential row is bound to the official's account and stores the name on the document; the reviewer attests the match, nothing is matched automatically.
-- **Stubs (R9).** s4 creates `_compoc_blockers_conflicts` (real) and stubs `_compoc_blockers_roles`, `_compoc_blockers_qualifications`, `_compoc_blockers_panel_size` and `_compoc_blockers_panel_change` returning `[]`. s5 redefines roles, s6 redefines qualifications (attestation list), the future s8 (credential records) redefines qualifications again, the OD-16 slot (s7) redefines panel size; each redefinition is md5-pinned. Between s4 and s6 a declared-body event shows an empty qualification list; nothing is active (Competition OS is dark).
+- **Stubs (R9).** s4 creates `_compoc_blockers_conflicts` (real) and stubs `_compoc_blockers_roles`, `_compoc_blockers_qualifications`, `_compoc_blockers_panel_size`, `_compoc_blockers_panel_change` and `_compoc_blockers_judging_arrangement` returning `[]`. s5 redefines roles, s6 redefines qualifications (attestation list), the future s8 (credential records) redefines qualifications again, the OD-16 slot (s7) redefines panel size; each redefinition is md5-pinned. Between s4 and s6 a declared-body event shows an empty qualification list; nothing is active (Competition OS is dark).
 - **Register (R10).** `OD15-DF-0001` is reworded to DanceFlow policy only; NDCA/UCWDC `requirement` fields are labelled DanceFlow's implementation requirement for the body rule; `OD15-UCWDC-0003` cites I.A.4 (p.1).
 
 New question **Q15**: retention and deletion period for credential evidence and identifiers.
@@ -622,10 +625,81 @@ N1-N7 above are each **NOT IMPLEMENTED and a blocker to activating an NDCA profi
 
 New questions: **Q17** is "within ten days" calendar days, and from what instant (incident or event end)? **Q18** who acts as NDCA Observer when the Chairman is also the organizer (the text read is silent)? **Q19** may a substitute or excusal be modelled after ballots exist, and if so with which per-heat panel semantics (depends on Q3/OD-16)?
 
+## 6E. OD-29: judging devices and judging location (decided 2026-11-23: Option A, body-specific attestation, design only)
+
+**Docs and design only.** No SQL, no migration file, no device restriction, no judging UI change. Studio/Custom judging-device flexibility is preserved for initial activation. Future
+body profiles carry a body-specific declaration that reuses the OD-15 attestation model (6B). OD-01 (PR #832) and all release gates are unchanged.
+
+### 6E.1 Rule evidence (re-read in the pinned PDFs on 2026-11-23; printed page numbers)
+
+| Ref | Document / edition | What it says (own words; short quotes only) | Class |
+|---|---|---|---|
+| NDCA IV.B.9 (p.26) | Rule Book June 2026 | Adjudicators other than invigilators "may not use cell phones or any other unauthorized electronic devices" during the periods in which they are officiating. | mandatory |
+| NDCA IV.D.1.a(3) (p.28) | same | Judges may not wear, hold or use "any unauthorized electronic devices" while judging; this includes mobile phones, earbuds, pagers. | mandatory |
+| NDCA IV.A.12 (p.26; the coordinator's note said p.25: the footer shows p.26) | same | While performing adjudicator duties, adjudicators may not wear or use any electronic or other device that will transmit video or images related to the judging process. | mandatory |
+| NDCA III.C.3.b(1)(m)(iii) (p.18; not III.B.1) | same | An on-duty invigilator may use personal electronic devices "only for invigilation purposes". | permitted use (invigilators only) |
+| NDCA IV.D.1.a(4) (p.28) | same | Contracted officials may not post on social media comments associated with any couple or individual dancing in the event they are contracted for. | mandatory (communication, not a device rule) |
+| NDCA III.D.12 (p.21), IV.B.6 (p.26), IV.D.1.a(10) (p.29), III.E.2 (p.25) | same | Each adjudicator marks and signs a score card for each heat judged; a steward collects the cards and delivers them to the Scrutineer; cards are marked and signed in ink (bring your own pen); the organizer retains the original adjudicators' score sheets for thirty days. | mandatory; **the rule book assumes paper score cards** |
+| NDCA sanction rules, items d-e (p.13; item numbering not captured) | same | "Virtual events/competitions are not Sanctioned by the NDCA", and none may be attached to a sanctioned event. | mandatory |
+| WSDC 3.4.7.d (p.20) | WSDC v2026.1C | "Virtual judging is not permitted." The text read does not define virtual judging. | mandatory |
+| WSDC 3.4.9.a (p.20) | same | "Judges are allowed to use paper or an electronic system." Electronic scoring is permitted; on-site electronic ballots must not be prohibited. | permitted |
+| WSDC Section 6, items 9-10 (p.23) | same | A computerized scoring system should give limited access to authorized users only and prevent tampering by unauthorized users. | recommended wording ("should") |
+| UCWDC (Couples, Pro/Pro-Pro/Am, Line Dance, Teams, Scoring Format) | 2026 | No device, electronic-ballot or remote-judging text found. | NOT SPECIFIED IN PROVIDED SOURCE |
+
+**Search record (what was looked for).** NDCA rule book terms: cell phone, electronic, earbud, tablet, laptop, smartphone, mobile, iPad, device, unauthorized, authoriz*, e-ballot, electronic ballot, scoring system, video, remote, virtual, paper, score sheet, score card. NDCA hits: only the items above (the word "authorized" appears in the device rules only as "unauthorized"; other "authorized" hits concern board resolutions, education institutions and agenda items, not devices). **No definition of an authorized device and no approval path exists** (who authorizes, by what test, for what purpose). No electronic ballot, scoring tablet or electronic-judging allowance exists; computers appear only for scrutineering files (III.E.1, CMPMGR/Premier). WSDC terms: virtual, remote, device, electronic, paper, computer, tablet, laptop: hits only at 3.4.7.d, 3.4.9.a-b and Section 6; the Appendix referenced by 3.4.9.d-e is **not in the supplied PDF** (open source gap for computerized-system requirements). UCWDC terms: cell phone, electronic device, unauthorized, earbud, virtual judging, remote judging, online judging, tablet, mobile, smartphone, device, in person, virtual: **no hits in any of the five UCWDC files**.
+
+### 6E.2 What the NDCA text supports (decision: the earlier assumption was wrong)
+
+- **No electronic judging-device exception is supported by the text read.** The two device rules are phrased against "unauthorized" devices, but the rule book never says who authorizes a device or what makes one authorized.
+- Therefore **organizer authorization does not, on this text, make personal mobile phones permissible**. A statement that an organizer may authorize personal phones is **unsupported** and must not appear in any copy or design.
+- Whether a dedicated, organizer- or NDCA-supplied judging device could be "authorized" is `requires_interpretation` and not specified. DanceFlow does not decide it, and no outside party is contacted (the owner's call).
+- The NDCA rule book's own procedure is paper score cards signed in ink, collected by a steward and delivered to the Scrutineer (III.D.12, IV.B.6): the paper path is the best-supported alternative.
+
+### 6E.3 DanceFlow facts (read-only)
+
+Judges score through authenticated DanceFlow accounts in the browser ballot pages (`src/app/app/events/[id]/competition/ballots/`; access resolved by `src/lib/competition/officials/judgingAccess.ts`; E2 ballot RPCs); K0 P8 (`docs/competition/scoring-results-contract.md`): "Judges use authenticated DanceFlow accounts; a scorer may enter paper ballots; no anonymous or tablet links in v1." A scorer can enter paper ballots (E2 `source = 'scorer_paper'`, `entered_by_official_id`). The platform records no device policy, no judging location and no declaration, and cannot see what device or place a judge uses.
+
+### 6E.4 Compatibility with NDCA: UNVERIFIED and a BLOCKER to a future NDCA profile
+
+Whether the browser-based ballot is compatible with IV.B.9, IV.D.1.a(3) and IV.A.12 is **UNVERIFIED**: it may be a personal phone, laptop or tablet, and the rule book defines no authorized device. It is recorded as a **blocker to activating an NDCA profile** (register `OD29-NDCA-0007`). Design-level alternatives, none implemented:
+
+| Alternative | NDCA text support | DanceFlow effect |
+|---|---|---|
+| Paper score cards, scorer enters them (`scorer_paper`) | supported by III.D.12 / IV.B.6 | needs transcription verification (OD-12, PR #845) and the chain from steward to scrutineer; paper-transfer audit also appears in WSDC 3.4.9.b.i |
+| Dedicated device supplied by the organizer | only if "authorized" is defined (not specified) | interpretation required; no DanceFlow change decided; tablets-links are excluded by P8 today |
+| Judge's personal phone or laptop | **not supported** | would be blocked for an NDCA profile |
+
+### 6E.5 Declaration model (Option A, future; reuses the OD-15 attestation model)
+
+Table `event_competition_judging_arrangements` (immutable evidence, same conventions as 6B.3): `id, event_id, declared_by, declarant_capacity ('organizer'|'authorized_administrator', derived server-side), declared_at, applicable_body (the event's sanctioning declaration at that time), rulebook_registry_document, rulebook_edition, device_policy_code (closed set: studio_unrestricted, paper_only, organizer_supplied_dedicated, participant_devices_declared), location_code ('on_site'|'remote_declared'), declaration_code, declaration_version, copy_hash, request_id`, plus a link table `event_competition_judging_arrangement_officials(arrangement_id, official_id)` naming the designated officials it covers. Supersession and withdrawal are events rows (OD-15 R7 pattern). The attester kind reuses the OD-06/OD-15 designation mechanism (a `judging_arrangement_attester` kind added to the s0 closed set); independence rules as 6B.9 R4. Visible to managers and the designated chair/Chairman only; judges see only their own coverage; competitors and other staff nothing (coordinate with OD-10, PR #842: ballot confidentiality and role-specific permissions; this table holds no marks).
+
+Three evidence levels, never blended in copy:
+1. **Self-attested**: the organizer's declaration. Copy: "Declared by organizer, not verified by DanceFlow or any governing body."
+2. **Technically enforced**: a control the software itself applies (none exists for devices or location; the software cannot independently prove physical presence or what device is in a judge's hand).
+3. **Independently verified**: confirmed by a source other than the organizer (none exists).
+A declaration alone never produces "certified", "verified", "compliant" or "approved" wording.
+
+### 6E.6 Enforcement by profile (future)
+
+| Profile | Device | Location |
+|---|---|---|
+| Studio / Custom / `other` | **flexible, unchanged for initial activation; no declaration required** (optional organizer note labelled organizer policy) | unchanged |
+| NDCA | blocker: ballot compatibility unverified (`OD29-NDCA-0007`); with a profile, a `paper_only` (or an interpreted authorized dedicated-device) declaration is required and never overrides the personal-device prohibition | NDCA does not sanction virtual events (not a judging-location rule for in-person events) |
+| WSDC | **electronic scoring on site is permitted (3.4.9.a)**; paper or electronic both allowed; no device blocker | authorized organizer declaration of on-site judging arrangements is required; **a declared remote-judging arrangement FAILS readiness** (3.4.7.d, hard blocker); the declaration is an attestation only |
+| UCWDC | none found: no UCWDC claim; any device or location policy is organizer policy, labelled so | none found |
+
+Panel-lock aggregator: this adds **`_compoc_blockers_judging_arrangement`** as a sixth stub validator in s4 (returns `[]` until the profile slot; s10 redefines it, md5-pinned).
+
+### 6E.7 NOT IMPLEMENTED: blockers to future profiles
+
+NDCA: ballot-device compatibility with IV.B.9 / IV.D.1.a(3) / IV.A.12 (UNVERIFIED); an interpretation of "authorized" (no source); paper-card chain and transcription verification (OD-12). WSDC: on-site judging declaration and failing a declared remote arrangement (3.4.7.d); the Appendix computerized-scoring requirements (not supplied). UCWDC: nothing to implement (silent). All recorded as `OD29-*` register entries.
+
+New questions: **Q20** may the owner or a body clarify what NDCA means by an "authorized" device (the platform will not ask)? **Q21** until then, is the NDCA profile paper-only by design? **Q22** is a judge's personal device for the DanceFlow ballot acceptable for WSDC events (permitted by 3.4.9.a) without any declaration beyond the on-site arrangement?
+
 ## 7. Migration block, ordering, rollback
 
 Latest migration on `origin/release/website-embeds` is `20270218090000`. Proposed block for the coordinator to confirm
-(Q6): **`20270220090000` to `20270220099000`**, one file per step, applied strictly in order, each with
+(Q6): **`20270220090000` to `20270220100000` (plus the separate `20270220089000` Studio readiness fix)**, one file per step, applied strictly in order, each with
 `rollback/<name>_rollback.sql`, a header stating **"PROD apply needs separate owner approval; not applied to any database"**,
 LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight for anything redefined.
 
@@ -635,16 +709,17 @@ LF-only function bodies (Phase 10D CRLF lesson), and an md5 pin plus preflight f
 | `20270220091000` | `competition_oc_s1_identity_guard` | OD-05 s1 | no (new triggers, functions, findings and events tables) |
 | `20270220092000` | `competition_oc_s2_declarations` | OD-05 s2 | no |
 | `20270220093000` | `competition_oc_s3_enforcement_resolutions` | OD-05 s3 | REDEFINES the s1 stub of `_compoc_conflict_state` inside this block (md5-pinned) |
-| `20270220094000` | `competition_oc_s4_panel_lock` | OD-05 s4 | no (trigger on rounds, aggregator, stub validators 2-5 (roles, qualifications, panel size, panel change) return `[]`; s5 and the reserved OD-16 slot later redefine stubs, md5-pinned) |
+| `20270220094000` | `competition_oc_s4_panel_lock` | OD-05 s4 | no (trigger on rounds, aggregator, stub validators 2-6 (roles, qualifications, panel size, panel change, judging arrangement) return `[]`; s5 and the reserved OD-16 slot later redefine stubs, md5-pinned) |
 | `20270220095000` | `competition_oc_s5_wsdc_separation_guards` | OD-06 enforcement | no (G1-G7 triggers on officials, designations, result versions; REDEFINES the s4 stub `_compoc_blockers_roles`, md5-pinned) |
 | `20270220096000` | `competition_oc_s6_official_attestations` (OD-15, design only) | OD-15 Option B | no (new attestation table and events kinds; adds designation kind `qualification_attester`; REDEFINES the s4 stub `_compoc_blockers_qualifications`, md5-pinned) |
 | `20270220089000` | `competition_studio_panel_readiness_fix` (Studio defect, separate from the OD-05..17 designs; **ships before s7**) | Studio X-3 | REDEFINES `competition_round_panel_status`, md5-pinned (defect document, steps 1 and 5; steps 2-4 optional) |
 | `20270220097000` | reserved OD-16 (`competition_oc_s7_panel_rules`, design only) | OD-16 | REDEFINES the s4 stub `_compoc_blockers_panel_size`, md5-pinned; adds `_compoc_panel_rules`. The Studio E1/E2 readiness correction is a **separate** bounded change (defect document), not part of this block |
 | `20270220098000` | reserved OD-15 Option A: `competition_oc_s8_credential_records` | future, **not before a body profile exists** | REDEFINES `_compoc_blockers_qualifications` again, md5-pinned (credential table, rule-set catalog) |
 | `20270220099000` | reserved OD-17 Option A: `competition_oc_s9_ndca_panel_change_control` | future, **NDCA profile only, not before a profile exists** | no (list records, panel changes, applications, follow-ups; new assignment trigger; REDEFINES the s4 stub `_compoc_blockers_panel_change`, md5-pinned) |
+| `20270220100000` | reserved OD-29: `competition_oc_s10_judging_arrangements` | future, **body profiles only, not before a profile exists** | REDEFINES `_compoc_blockers_judging_arrangement`, md5-pinned (arrangement and officials-link tables, designation kind `judging_arrangement_attester` already in the s0 closed set) |
 
 Order rationale: designations (s0) must exist before the OD-05 tier-2 lookup reads them (s1); enforcement of OD-06 (s5) comes after the shared guard
-point (s4) it plugs into. The block is now `20270220090000` to `20270220099000`.
+point (s4) it plugs into. The block is now `20270220090000` to `20270220100000` (plus the separate `20270220089000` Studio readiness fix).
 
 No overlap with other sessions: OD-05 redefines none of `submit_competition_ballot`, `assign_competition_panel_member`,
 `add_competition_official`, `_compe2_guard_*` or the scoring/results functions (OD-01 in PR #832 is app-layer). Everything attaches by
@@ -666,7 +741,7 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
   unrelated judge and unrelated round unaffected.
 - Slice 2: scope CHECKs; judge declares own only; read isolation per matrix; withdrawal audited; no relationship text in list RPC.
 - Slice 3: exception codes validated by sanctioning; subject cannot resolve self; NDCA tier-2 match cannot be cleared; resolutions immutable.
-- Slice 4: guard fires only on the activation edge; blocker order stable; the stub validators (roles, qualifications, panel size, panel change) return `[]`.
+- Slice 4: guard fires only on the activation edge; blocker order stable; the stub validators (roles, qualifications, panel size, panel change, judging arrangement) return `[]`.
 - OD-15: attestation row records actor, event, official, role, time, declaration version and copy hash; attester cannot be the attestee; Studio/Custom has no obligation; declared-body events list mandatory requirements as unverified and attestation never clears one; the mandatory copy strings appear verbatim on every surface; no governing-body wording ("certified", "licensed") without a body-source verification method; credential expiry evaluated at the event date (future Option A).
 - OD-06: G1-G7 each with a negative test and a positive control (chief judge CAN approve and review finalists but CANNOT calculate; owner CANNOT be judge, chair or scorer; family CAN be an ordinary judge, CANNOT be chair or scorer; chair and scorer cannot be one account; NDCA, UCWDC, Studio and Custom events never get these blocks; WSDC event without a valid attestation refuses official add, ballot and calculation but still allows registration, scheduling and payments; a designation change invalidates the attestation; exception resolutions require body reference and Board authorization reference where 3.4.2.b applies).
 - Cross-cutting: rollback verification; `ruleRegister.integrity.test.ts`; privilege test that no new function is executable by `anon`/`public`.
@@ -686,7 +761,8 @@ apply all, run the suite, roll back in reverse order, assert the schema fingerpr
 - **Q5 (closed by OD-06):** WSDC roles come from explicit event-level designations (6A), not from DanceFlow roles.
 - **Q16 (OD-16):** does the Chief Judge count toward the WSDC 3.4.7 judge minimum when joining the panel under 3.4.7.c, or must the minimum be met without them?
 - **Q17-Q19 (OD-17):** see section 6D.8 (ten-day count; Observer when the Chairman is the organizer; modelling after ballots exist).
-- **Q6:** confirm migration block `20270220090000`-`20270220099000` is free.
+- **Q20-Q22 (OD-29):** see section 6E.7 (what "authorized device" means in NDCA; NDCA paper-only by design; personal devices for WSDC).
+- **Q6:** confirm migration block `20270220090000`-`20270220100000` is free.
 - **Q7 (OD-06):** who may attest the designation set (6A.3)? Recommended: a manager other than the last designator; for a one-manager event an explicit, recorded single-person acknowledgement.
 - **Q8 (OD-06):** is the chief judge's finalist-review record (3.4.4) a hard start blocker for WSDC-declared final rounds (recommended: yes, it is mandatory text) or advisory?
 - **Q9 (OD-06):** G4 lets an attested-undesignated manager calculate results. Confirm that reading (6A.5) of 3.4.1/3.4.3, versus requiring a designated scoring operator for every calculation.

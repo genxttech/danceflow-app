@@ -1,0 +1,28 @@
+{
+  "id": "OD29-NDCA-0007",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: DanceFlow browser judge ballot",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.B.9 (p.26), IV.D.1.a(3) (p.28)",
+    "quote_free_summary": "Adjudicators may not use unauthorized electronic devices while officiating or judging."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Compatibility of the authenticated browser ballot (E2 ballot pages, judgingAccess.ts, K0 P8) with the NDCA device rules is UNVERIFIED and a BLOCKER to an NDCA profile.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6E): judging-arrangement declaration and _compoc_blockers_judging_arrangement for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "The ballot runs on whatever device the judge uses; the platform records no device policy. UNVERIFIED blocker. NOT IMPLEMENTED (design only, PR-A section 6E): a BLOCKER to activating this body profile; no test; no compliance claimed. A declaration is a self-attestation, never a verification.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

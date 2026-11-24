@@ -1,0 +1,28 @@
+{
+  "id": "OD29-NDCA-0004",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: invigilator devices",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.C.3.b(1)(m)(iii) (p.18)",
+    "quote_free_summary": "An on-duty invigilator may use personal electronic devices only for invigilation purposes."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "The invigilator allowance does not extend to adjudicators, scrutineers or the Chairman.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6E): judging-arrangement declaration and _compoc_blockers_judging_arrangement for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Citation corrected: the clause is under III.C.3.b(1)(m), not III.B.1. NOT IMPLEMENTED (design only, PR-A section 6E): a BLOCKER to activating this body profile; no test; no compliance claimed. A declaration is a self-attestation, never a verification.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
