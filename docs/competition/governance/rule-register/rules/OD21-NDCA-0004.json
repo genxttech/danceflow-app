@@ -1,0 +1,34 @@
+{
+  "id": "OD21-NDCA-0004",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, replacement of a withdrawn couple between rounds",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.31 (p.23)",
+    "quote_free_summary": "If a couple withdraws after any round and before the next round starts, the chairman may at his discretion replace it with the next eligible couple."
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "A future NDCA profile may offer a Chairman-controlled replacement workflow: verify the next eligible couple, preserve historical rounds and ballots, and audit the Chairman's decision. Never automatic.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI. Studio never replaces a withdrawn finalist.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Discretionary (may), Chairman-controlled. Needs the event-level Chairman designation (OD-06/OD-17, PR 834), correction and versioning rules (OD-07, PR 838) and withdrawal handling (OD-08, PR 840, where OD08-NDCA-0002 records III.D.31 as requires_interpretation; this entry is the OD-21 implementation requirement). PR 840 reports no wording difference in III.D.31 between June and July 2026; that report was read but not independently re-verified here.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-21 (owner decision 2026-11-23, Option A: preserve Studio/Custom minimum-participation and withdrawal rules for initial activation; retrospective audit PR #795)",
+    "docs/competition/governance/participation/OD-21-minimum-participation-and-withdrawal.md",
+    "OD-15 A and OD-18 A (2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-07 (PR 838)",
+    "OD-08 (PR 840)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

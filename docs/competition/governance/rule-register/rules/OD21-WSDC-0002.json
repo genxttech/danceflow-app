@@ -1,0 +1,34 @@
+{
+  "id": "OD21-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, event-level minimums",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "1.2 item 6, sub-items a-c (p.5)",
+    "quote_free_summary": "Each Registry Event must offer at least two skill-level Jack and Jill contests and have at least 150 competitor entries (80 entries and 100 attendees in a Growth Region); falling short is a probation matter, results are still posted and points awarded."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Record the event-level contest and entry minimums separately from the finals minimum; they are Registry Event status conditions, not conditions on running a contest.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "1.2.6.b: below the minimum, results are posted and Registry Points awarded but the event goes on probation for a year; 1.2.6.c: a shortfall during the probation year loses Registry Event status. So this does not stop contests from running. A WSDC event profile does not exist in DanceFlow.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-21 (owner decision 2026-11-23, Option A: preserve Studio/Custom minimum-participation and withdrawal rules for initial activation; retrospective audit PR #795)",
+    "docs/competition/governance/participation/OD-21-minimum-participation-and-withdrawal.md",
+    "OD-15 A and OD-18 A (2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-07 (PR 838)",
+    "OD-08 (PR 840)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
