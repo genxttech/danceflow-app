@@ -1,4 +1,4 @@
--- Rollback of 20270223090000_twilio_funding_exposure_alerts.sql: restores the 20261208090000 body of tw4_act_exposure and the 20261211090000 body of tw4_rfl_health, drops the check and its helpers, and
+-- Rollback of 20270223090000_twilio_funding_exposure_alerts.sql: restores the 20261208090000 body of tw4_act_exposure and the 20261211090000 bodies of tw4_rfl_alerts_claim and tw4_rfl_health, drops the check and its helpers, and
 -- restores the alert-kind constraint WITHOUT the four kinds this migration added.
 -- REFUSES (55000) while any alert row uses one of those kinds (history is never deleted or rewritten), when the live constraint does not carry exactly them,
 -- or when tw4_act_exposure is no longer the body this migration installed (a later change would be lost).
@@ -16,6 +16,9 @@ begin
   end if;
   if (select replace(p.prosrc, chr(13), '') from pg_proc p where p.oid = 'public.tw4_act_exposure(uuid)'::regprocedure) not like '%public._tw4fx_exposure_rows()%' then
     raise exception 'funding exposure alert rollback refused: tw4_act_exposure was changed after 20270223090000' using errcode = '55000';
+  end if;
+  if (select replace(p.prosrc, chr(13), '') from pg_proc p where p.oid = 'public.tw4_rfl_alerts_claim(integer)'::regprocedure) not like '%(x.kind = ''funding_exposure_grace_ending''), x.created_at, x.id%' then
+    raise exception 'funding exposure alert rollback refused: tw4_rfl_alerts_claim was changed after 20270223090000' using errcode = '55000';
   end if;
   if (select replace(p.prosrc, chr(13), '') from pg_proc p where p.oid = 'public.tw4_rfl_health(uuid)'::regprocedure) not like '%public._tw4fx_unattributed_locations()%' then
     raise exception 'funding exposure alert rollback refused: tw4_rfl_health was changed after 20270223090000' using errcode = '55000';
@@ -77,6 +80,28 @@ begin
 end $$;
 revoke all on function public.tw4_act_exposure(uuid) from public, anon, authenticated;
 grant execute on function public.tw4_act_exposure(uuid) to service_role;
+
+-- the 20261211090000 body of tw4_rfl_alerts_claim, verbatim
+create or replace function public.tw4_rfl_alerts_claim(p_limit int)
+returns table (alert_id uuid, claim_token uuid, legal_entity_id uuid, studio_id uuid, kind text, audience text, severity text, summary text)
+language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_token uuid := gen_random_uuid();
+begin
+  if not public.tw4_rfl_switch_enabled('delivery') then
+    return;   -- 20261211: delivery is a kill switch (default OFF, fail closed): nothing is claimed while it is off
+  end if;
+  return query
+  with c as (
+    select x.id from public.studio_sms_provider_alerts x
+     where (x.status in ('pending', 'failed') or (x.status = 'sending' and x.claimed_at < now() - interval '15 minutes')) and x.attempts < 5
+     order by x.created_at, x.id limit least(greatest(coalesce(p_limit, 20), 1), 100) for update skip locked),
+  u as (
+    update public.studio_sms_provider_alerts a set status = 'sending', attempts = a.attempts + 1, claim_token = v_token, claimed_at = now()
+     from c where a.id = c.id returning a.*)
+  select u.id, u.claim_token, u.legal_entity_id, u.studio_id, u.kind, u.audience, u.severity, u.summary from u;
+end $$;
 
 -- the 20261211090000 body of tw4_rfl_health, verbatim
 create or replace function public.tw4_rfl_health(p_actor uuid)

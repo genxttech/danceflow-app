@@ -30,6 +30,8 @@
 --
 -- NOT TOUCHED: STOP/START/HELP handling, inbound recording, sending, any balance, reservation, ceiling, authorization, charge, resource or exposure row. No
 -- Twilio call is possible from SQL. Requires 20261208090000, 20261209090000, 20261211090000 and 20261231140000 (the alert-kind constraint they extend).
+-- DELIVERY ORDER: tw4_rfl_alerts_claim (20261211 body plus one sort key) claims funding_exposure_grace_ending rows strictly after every other claimable alert,
+-- so grace warnings never consume the per-pass claim cap ahead of, or delay the delivery of, any other alert.
 -- NO KILL SWITCH OF ITS OWN: the check runs whenever the scan pass runs (SMS_FEE_LIFECYCLE_SCAN + the database scan switch). To stop it alone, roll back the
 -- application. The SQL rollback is REFUSED once any funding_exposure_* alert exists: from the first alert on, this is forward-fix only.
 -- ORDER: apply this SQL before the app that calls tw4_rfl_funding_exposure_check (until then the scan counts the missing function as an error, fail-loud).
@@ -60,6 +62,10 @@ begin
   -- the body this migration moves must be the 20261208 one (a later change would be silently replaced otherwise)
   if (select left(md5(replace(p.prosrc, chr(13), '')), 12) from pg_proc p where p.oid = 'public.tw4_act_exposure(uuid)'::regprocedure) is distinct from '86f81f72241d' then
     raise exception 'funding exposure alert precondition failed: tw4_act_exposure is not the 20261208090000 body';
+  end if;
+  -- tw4_rfl_alerts_claim gains one sort key below (grace warnings last): it must still be the 20261211 body
+  if (select left(md5(replace(p.prosrc, chr(13), '')), 12) from pg_proc p where p.oid = 'public.tw4_rfl_alerts_claim(integer)'::regprocedure) is distinct from '57a31605b369' then
+    raise exception 'funding exposure alert precondition failed: tw4_rfl_alerts_claim is not the 20261211090000 body';
   end if;
   -- tw4_rfl_health gains one count below: it must still be the 20261211 body
   if (select left(md5(replace(p.prosrc, chr(13), '')), 12) from pg_proc p where p.oid = 'public.tw4_rfl_health(uuid)'::regprocedure) is distinct from 'eb5aaef9b251' then
@@ -297,6 +303,30 @@ begin
     'open_exposure_count', (select count(*) from public.studio_sms_provider_exposure e where e.state = 'open'),
     'open_cancel_operations', (select count(*) from public.studio_sms_provider_cancel_ops o where o.status in ('authorized', 'in_flight', 'unknown_outcome')),
     'exposure_unattributed_locations', public._tw4fx_unattributed_locations());
+end $$;
+
+-- delivery order (owner rule: the grace warning never delays any other alert): the 20261211090000 body with ONE change, the grace warning sorts last
+create or replace function public.tw4_rfl_alerts_claim(p_limit int)
+returns table (alert_id uuid, claim_token uuid, legal_entity_id uuid, studio_id uuid, kind text, audience text, severity text, summary text)
+language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $$
+declare v_token uuid := gen_random_uuid();
+begin
+  if not public.tw4_rfl_switch_enabled('delivery') then
+    return;   -- 20261211: delivery is a kill switch (default OFF, fail closed): nothing is claimed while it is off
+  end if;
+  return query
+  with c as (
+    select x.id from public.studio_sms_provider_alerts x
+     where (x.status in ('pending', 'failed') or (x.status = 'sending' and x.claimed_at < now() - interval '15 minutes')) and x.attempts < 5
+     -- 20270223: a grace warning sorts strictly AFTER every other alert, so it can never take a slot of the claim cap (or delay delivery) while any other
+     -- alert is claimable; everything else (eligibility, attempts, the 15-minute re-claim, skip locked, the cap) is unchanged
+     order by (x.kind = 'funding_exposure_grace_ending'), x.created_at, x.id limit least(greatest(coalesce(p_limit, 20), 1), 100) for update skip locked),
+  u as (
+    update public.studio_sms_provider_alerts a set status = 'sending', attempts = a.attempts + 1, claim_token = v_token, claimed_at = now()
+     from c where a.id = c.id returning a.*)
+  select u.id, u.claim_token, u.legal_entity_id, u.studio_id, u.kind, u.audience, u.severity, u.summary from u;
 end $$;
 
 revoke all on function public._tw4fx_unattributed_locations() from public, anon, authenticated, service_role;
