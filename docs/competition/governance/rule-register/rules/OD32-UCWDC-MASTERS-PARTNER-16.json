@@ -1,0 +1,29 @@
+{
+  "id": "OD32-UCWDC-MASTERS-PARTNER-16",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples Open and Masters age divisions (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.D.3.a-b (p3)",
+    "quote_free_summary": "Open and Masters competitors must be adults, except in couples where an adult may dance with a partner aged 16 or above."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "The partner-aged-16-or-above exception is NOT available in the initial Studio/Custom release: DanceFlow's OD-02 launch restriction prohibits all competitors under 18. The setup wizard states this next to the Masters/Open age divisions. A future UCWDC profile that lifts OD-02 must model the exception deliberately.",
+  "implementation": [],
+  "enforcement_point": "Wording only (division axis note). Enforcement of the under-18 refusal is OD-02 (PR 835), not part of this change; DanceFlow does not enforce UCWDC age eligibility.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Re-read 2026-11-23 in the pinned PDF (II.D.3, page 3 of 17): 'Masters division competitors must be Adults, except in couples where an Adult may dance with a partner who is 16 years of age or above.' II.D.3.a says the same for Open. Not implemented, by owner decision OD-32 (AE-08).",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-32",
+    "OD-02"
+  ]
+}
