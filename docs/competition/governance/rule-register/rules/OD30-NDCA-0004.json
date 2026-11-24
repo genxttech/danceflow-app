@@ -17,7 +17,7 @@
   "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
   "tests": [],
   "verification_status": "requires_interpretation",
-  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). The June 2026 PDF states no publication date; the July 2026 candidate has no change log (PR #840). Edition effectivity cannot be established from the provided sources.",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). The June 2026 PDF states no publication date. Edition effectivity cannot be established from the provided sources.",
   "applicable_event_versions": [
     "June 2026, Master v1"
   ],

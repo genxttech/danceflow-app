@@ -21,7 +21,7 @@ edition. Quotes are short phrases only.
 | Item | Section / page | What the rule book says (short) | Status of our reading |
 |---|---|---|---|
 | Classes take effect on the birthday | X.A.1, p.42 | Classes "a" through "e" and "g" "will become effective on the individual's actual birthday". | Verified wording. |
-| 60-day window | X.A.1, p.42 | A competitor moving up "may make this change anytime during a 60-day period that begins 30 days prior to their birthday and ends 30 days following their birthday". | Verified. The text is a permission to change, not a computed result; whether the change is a per-event election that must be recorded is **not specified** (see unresolved U-N1). |
+| 60-day window | X.A.1, p.42 | A competitor moving up "may make this change" during a 60-day period that begins 30 days before and ends 30 days after the birthday. | Verified. The text is a permission to change, not a computed result; whether the change is a per-event election that must be recorded is **not specified** (see unresolved U-N1). |
 | Multi-day extension | X.A.1, p.42 | For Multi-Day Competitions and Championships, if the 30-day mark falls after competitive events have begun, the 30-day rule extends to the last day of the Sanctioned multi-day competition. | Verified. "Competitive events have begun" is not defined (U-N2). |
 | Under 21 has no grace | X.A.1, p.42 | Class "f" (Under 21) "does not have a 60-day grace period". | Verified. |
 | Under 21 reference | X.A.1.f, p.42 | "On the day of the competition" one partner has reached 16 and neither has reached 21. This is a **different** reference (the competition day) from the birthday rule for the other classes. | Verified. "Day of the competition" for a multi-day event is not defined (U-N2). |
@@ -30,7 +30,10 @@ edition. Quotes are short phrases only.
 | Couple age | X.A.6, p.43 | The older partner's age defines the class for Pre-Teen I through Youth and Adult; the younger partner's age for Senior. | Verified. |
 | Combining / extra categories | X.A.2-3, p.42 | Organizers may combine listed classes and may offer additional age categories. | Verified. The extra-category rule means an organizer-defined division has no body reference rule (audit row FD-39): it is **organizer policy**. |
 | Dancing up/down, age gap | X.A.4-5, pp.42-43; II.B.8.d, p.8 | Dance-up limits and a two-classification age-gap limit with written permission from the NDCA Ballroom Department. | Verified exist; **permissions come from NDCA, not the organizer** (not modelled here). |
-| Pro/Am Student age divisions | II.B.7.f, p.7 | Divisions A 19+, B 36+, C 51+, S1 61+, S2 71+, S3 76+, S4 81+; June: "shall be as listed below". | Verified in June. **Changed in July** (see section 4). |
+| Youth high-school extension | X.A.5.f, p.43 | Youth who turn 19 while enrolled in their final year of high school may still dance as Youth until they finish that year. | Verified. **Modifies the Youth/Adult boundary above**; "enrolled" is organizer-verifiable, not DOB-derivable (U-N4). |
+| Pre-Teen/Junior Adult bars | X.A.5.d-e, p.43 | No Pre-Teen I/II or Junior I in Adult; Junior II not generally until 15 and then by application to the Ballroom Department. | Verified. Permission sits with NDCA. |
+| Pro/Am Student, Pre-Teen/Junior/Youth | II.B.8.a, p.8 | Age divisions "must be those" in the amateur rules section. | Verified. So `pro_am_student_age_divisions` is **not** only the A-S4 list: junior-age Pro/Am Student events use the X.A classes. Whose age counts there is U-N3. |
+| Pro/Am Student age divisions | II.B.7.f, pp.7-8 (items (1)-(2) on p.7, (3)-(7) on p.8) | Divisions A 19+, B 36+, C 51+, S1 61+, S2 71+, S3 76+, S4 81+; June: "shall be as listed below". | Verified in June. **Changed in July** (see section 4). |
 | Pro/Am window | II.B.7.g, p.8 | Same 60-day window (30 before, 30 after birthday) for Pro/Am competitors moving to the next classification. | Verified. Separate rule from X.A.1, same shape. |
 | Amateur/professional status date | II.A.1.d, p.4 | Status "should be determined as of the closing date for entries". | **A status reference, not an age reference.** Recorded to prevent confusing the two (an event can have an entry-closing reference for status and a different one for age). |
 | Effective date of the edition | Introduction, section F "Application of Competition Rules", p.2 | Amendments "shall take effect upon publication". | Verified wording. The **publication date of the June edition is not stated in the PDF** (cover says only "June 2026 EDITION"), so the effective date is **UNKNOWN**. |
@@ -39,6 +42,7 @@ Unresolved (NDCA):
 
 - **U-N1.** Whether the 60-day window is a competitor's per-event election that must be recorded, or an automatic acceptance of either class. Not specified.
 - **U-N2.** "Competitive events have begun" and "the day of the competition" for multi-day Sanctioned events. Not defined.
+- **U-N4.** Whether "enrolled in their final year of High School" (X.A.5.f) can be established by DanceFlow at all; organizer attestation only.
 - **U-N3.** The Pro/Am Student rules (II.B.7) name ages but not whose age counts when the Pro/Am couple has different ages; X.A.6 is written for amateur couples. Whether X.A.6 applies to Pro/Am Student partnerships is an interpretation (shares AE-16).
 
 ## 2. UCWDC (2026 rules, pinned)
@@ -49,7 +53,7 @@ Unresolved (NDCA):
 | Dance Season | II.A.4 (Couples p.1; ProPro/ProAm p.2) | A year beginning January 16th and continuing up to January 15th of the following year. | Verified. Which season an **event** belongs to is a DanceFlow derivation from the event date; it is not stated, and a multi-day event spanning January 15-16 is unresolved (U-U1). |
 | Juniors | II.D.2, p.3 | Less than 18 years of age; Primary under 10, Youth 10 to under 14, Teen 14 to under 18. | Verified. |
 | Junior couples | Couples II.D.2.a, p.3 | "All Junior Couples must dance in the older partner's age group". | Verified for **Couples only**; the ProPro/ProAm document has no such sub-item. |
-| Open / Masters adult exception | Couples II.D.3.a-b, p.3 | Adults, "except in couples where an Adult may dance with a partner who is 16 years of age or above". | Verified for **Couples only**; ProPro/ProAm II.D.3.a has no exception. |
+| Open / Masters adult exception | Couples II.D.3.a-b, p.3 | Adults, with an exception for couples where an Adult dances with a partner aged 16 or above. | Verified for **Couples only**; ProPro/ProAm II.D.3.a has no exception. |
 | Age-restricted minimums | II.D.3.c (Couples, p.3) / II.D.3.b (ProPro/ProAm, pp.3-4) | Per-division minimum ages (Crystal 30, Diamond 40, Silver 50, Gold 60, Platinum 70, and others). | Verified. The lists differ between the two documents (Couples adds Masters Plus, Crown, Crown Plus; ProPro/ProAm adds Pearl 80). Per-document, per-division. |
 | Whose age counts in ProAm | ProPro/ProAm II.D | **Not specified.** The section speaks of "a competitor's age" and says nothing about a ProAm student-teacher pair. | `NOT SPECIFIED IN PROVIDED SOURCE`. **AE-16 stays unresolved.** |
 | Whose age counts in Couples (non-Junior) | Couples II.D | Only the Junior older-partner rule (II.D.2.a) and the 16+ partner exceptions (II.D.3.a-b) are stated. For Age-Restricted divisions the text says competitors "must be at least" the minimum and does not say whether both partners must qualify. | Unresolved (U-U2). |
@@ -78,8 +82,8 @@ bytes, matching the PR 840 record) and only text-extracted; nothing in it was ex
 
 | | June 2026 Master v1 (pinned, authoritative) | July 2026 Master v3 (CANDIDATE, unreviewed) |
 |---|---|---|
-| Location | II.B.7.f, printed p.7 | II.B.7.f, printed p.7 |
-| Wording | divisions "shall be as listed below" | divisions "are listed below, although an organizer is not required to offer all of the age divisions that are listed" |
+| Location | II.B.7.f, printed pp.7-8 | II.B.7.f, printed p.7 |
+| Wording | divisions "shall be as listed below" | divisions listed, and the organizer "is not required to offer all" of them |
 | Age thresholds (A 19+, B 36+, C 51+, S1 61+, S2 71+, S3 76+, S4 81+) | as above | **identical** |
 | Modal effect | mandatory list | the list stays the only permitted set of divisions, but **offering each division becomes organizer discretion** |
 | 60-day window II.B.7.g | present | present, unchanged |

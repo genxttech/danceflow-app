@@ -9,7 +9,7 @@
   "enforcement_point": "Not built. Each gap blocks automatic determination (docs/competition/governance/editions/OD-30-rulebook-editions-design.md).",
   "tests": [],
   "verification_status": "requires_interpretation",
-  "interpretation_notes": "Blocks any date-window evaluation for a body-declared event; the July 2026 NDCA candidate has the same gap.",
+  "interpretation_notes": "Blocks any date-window evaluation for a body-declared event.",
   "applicable_event_versions": [
     "Editions pinned in the source registry (2026)"
   ],

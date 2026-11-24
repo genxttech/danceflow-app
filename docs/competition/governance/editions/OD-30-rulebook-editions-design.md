@@ -1,7 +1,7 @@
 # OD-30: versioned rulebook editions, effective dates and body-specific age rules (design only)
 
 **Status: DESIGN ONLY, draft.** Owner decision OD-30, 2026-11-23, **Option A** (full text in
-[OWNER-DECISIONS.md](../audit/OWNER-DECISIONS.md), PR #795). Authorized: design, rule-register documentation, source
+`docs/competition/governance/audit/OWNER-DECISIONS.md` in PR #795; not yet on this base). Authorized: design, rule-register documentation, source
 comparison, independent review. **Not authorized and not done:** SQL, migration files, implementation, merge,
 deployment, activation, outreach. Every table, column, function and test below is **proposed**; none exists. No
 migration number is reserved by this document (section 8).
@@ -68,7 +68,7 @@ Child tables, all append-only:
   difference-analysis hash and counts, compatibility assessment, outcome, timestamps.
 - `competition_rulebook_edition_applicability`: per `(edition, body-format)`: `applicability_status in
   (verified_applicable, verified_not_applicable, unknown)`, `valid_from`/`valid_to` (nullable, only with
-  `verified_applicable`), `evidence_ref`, reviewer. A missing row is `unknown`.
+  `verified_applicable` and a publisher-statement `evidence_ref`; an applicability window, **not** an effective date and never a substitute for one), `evidence_ref`, reviewer. A missing row is `unknown`.
 - `competition_rulebook_edition_approvals`: admission decisions (`admitted`, `status_changed`, `withdrawn`) by the
   platform owner, with reason; the approval history OD-30 item 6 asks for.
 
@@ -80,13 +80,13 @@ formula that has not been independently verified.
 
 | Field | Values / notes |
 |---|---|
-| `category_key` | the body's age category or division group (for example NDCA `amateur_age_classes`, `pro_am_student_age_divisions`; UCWDC `junior`, `adult_open_masters`, `adult_age_restricted`; WSDC `age_based_jack_and_jill`). Organizer-defined divisions (NDCA X.A.3) have **no** body basis: they are `organizer_policy` and carry `basis_kind = organizer_defined`. |
+| `category_key` | the body's age category or division group (for example NDCA `amateur_age_classes`, `pro_am_student_age_divisions`; NDCA `under_21` (its own category: different reference from the other amateur classes); UCWDC `junior`, `adult_open_masters`, `adult_age_restricted`; WSDC `age_based_jack_and_jill`). Organizer-defined divisions (NDCA X.A.3) have **no** body basis: they are `organizer_policy` and carry `basis_kind = organizer_defined`. |
 | `basis_kind` | `birthday_with_window` (NDCA X.A.1), `competition_day` (NDCA X.A.1.f), `dance_season_end` (UCWDC II.D.1), `close_of_event` (WSDC Definitions), `organizer_defined`, `unresolved`. Extensible; no universal default. |
 | `parameters` | only values the source states: NDCA `window_days_before = 30`, `window_days_after = 30`, `under_21_grace = none`, `multi_day_extension = true`; UCWDC season boundaries (Jan 16 - Jan 15); WSDC thresholds (<18, 35+, 50+). |
-| `subject_rule` | whose age counts: `each_participant`, `older_partner`, `younger_partner`, `both_partners_thresholds` (NDCA Senior), `junior_older_partner` (UCWDC Couples II.D.2.a), `UNRESOLVED` (UCWDC ProAm/ProPro AE-16; UCWDC non-Junior Couples). |
+| `subject_rule` | whose age counts: `each_participant`, `older_partner`, `younger_partner`, `both_partners_thresholds` (NDCA Senior), `partnership_thresholds` (NDCA Under 21: one partner reached 16, neither 21), `junior_older_partner` (UCWDC Couples II.D.2.a), `UNRESOLVED` (UCWDC ProAm/ProPro AE-16; UCWDC non-Junior Couples). |
 | `interpretation_status` | `verified_text`, `requires_interpretation`, `unresolved`. Anything not `verified_text` blocks automatic determination. |
 | `source_refs`, `register_entry_ids` | section/page and `OD30-*` entries. |
-| `exceptions` | listed, not computed: NDCA dance-up/age-gap permissions (X.A.4-5; granted by the NDCA Ballroom Department, not the organizer), UCWDC 16+ partner exception (Couples II.D.3.a-b). |
+| `exceptions` | listed, not computed: NDCA dance-up/age-gap permissions (X.A.4-5; granted by the NDCA Ballroom Department, not the organizer), the NDCA Youth high-school extension (X.A.5.f) and the Pre-Teen/Junior Adult bars (X.A.5.d-e), the NDCA rule that Pre-Teen/Junior/Youth Pro/Am Student events use the amateur age divisions (II.B.8.a), UCWDC 16+ partner exception (Couples II.D.3.a-b). |
 
 Resolved facts and unresolved questions per body are in [age-basis-source-notes.md](age-basis-source-notes.md).
 **Not specified here:** any calculation, rounding, time-zone or leap-day handling, or what instant "close of the
@@ -130,7 +130,7 @@ the binding, not the profile, carries the edition.
 | Exceptional correction (after competition activity begins) | event manager request + platform owner authorization + independent confirmer | separate RPC; Q3 |
 | Read editions, applicability, bindings | editions/applicability: any authenticated user (public registry data); bindings, amendments, exceptions: event managers (as `event_competition_program_locks`) | RLS select policies |
 
-**Organizer choice never overrides a mandatory body rule.** The edition selection chooses *which text applies*; it
+**Binding a body edition requires `verified_applicable` with publisher evidence for the event's body/format; an unknown effective date alone does not block, but with today's sources no applicability is verified, so no body edition is bindable at all (only `studio_custom`).** **Organizer choice never overrides a mandatory body rule.** The edition selection chooses *which text applies*; it
 never disables a mandatory rule of that text, and a body-declared event with no verified applicability cannot be
 bound at all.
 
@@ -140,9 +140,21 @@ bound at all.
 
 | Phase | Definition (existing signals) | Edition change |
 |---|---|---|
-| P0: registration not yet opened | `event_competition_programs.registration_opened_at is null` | **Ordinary selection/correction**, each with an audit row (`ordinary_correction`). |
+| P0: registration not yet opened (before publish, or published but `registration_opened_at is null`) | `event_competition_programs.registration_opened_at is null` | **Ordinary selection/correction**, each with an audit row (`ordinary_correction`). |
 | P1: registrations have begun, no competition activity | registration opened at least once, and no activity signal below | **Controlled amendment only** (section 5.2). |
-| P2: competition activity begun | **any** of: a round has left `draft`/`scheduled`; a heat has been checked in or generated for scoring; a ballot, mark or judge attendance row exists; a `scoring_pins`, `result_versions`, `approvals` or `publications` row exists; a result has been published | **No ordinary switching.** Only an exceptional correction (section 5.3). |
+| P2: competition activity begun | **any** of: a round has left `draft`/`scheduled`; a heat has been checked in or generated for scoring; a ballot, mark or judge attendance row exists; a `result_versions`, `approvals` or `publications` row exists; a result has been published | **No ordinary switching.** Only an exceptional correction (section 5.3). |
+
+**Publish-time pins are not activity.** Today `pin_competition_program_scoring` writes a `scoring_pins` row for every
+round when the program is published (`profile_locked_at` set), and `pin_competition_late_round` pins rounds added later;
+pins are append-only (`protect_competition_scoring_pin`). A pin therefore exists long before registration opens and
+**must not** be a P2 signal, and the design **does not stamp or re-pin pins**: the edition reference is a separate
+dimension from the scoring-method pin and is stamped on the **result version** (section 6), so a P0/P1 change never
+needs to touch a pin and no program mixes editions across rounds before activity.
+
+**Binding versus publish.** A current binding must exist **before publish** (a Studio/Custom program gets
+`studio_custom` automatically). The frozen lock snapshot (`event_competition_program_locks.snapshot.edition`) records the
+binding **at publish** as publish-time evidence only; it is never "the current edition". Later P0 corrections and P1
+amendments are recorded in the bindings history; the snapshot is not rewritten.
 
 One SQL function, `competition_edition_activity_started(event_id)`, is the single definition; the application never
 re-implements it. Whether this activity list is complete is Q2.
@@ -163,9 +175,10 @@ Not available as an ordinary action. A separately authorized, versioned process:
 platform-owner authorization → independent confirmation → a new binding of kind `exceptional_correction` **only
 for future operations**. The original binding, every result version, publication and pin made under it keep their
 original edition references and are **never recalculated, restated or re-labelled**. If a past result is wrong, the
-OD-07 controlled-correction workflow produces a new linked result version; whether the corrected version uses the
-original edition or the new one is part of the exception record, never a silent recomputation. (Q3 asks the owner who
-authorizes.)
+OD-07 controlled-correction workflow produces a new linked result version, which **inherits the superseded version's
+edition references** by default (section 6). A different edition for a corrected version is possible only if the
+exception record names it explicitly and the extra authorization is recorded; it is never a silent recomputation.
+(Q3 asks the owner who authorizes.)
 
 ### 5.4 No automatic upgrade (item 3), as invariants
 
@@ -182,8 +195,8 @@ authorizes.)
 | `event_competition_programs.rules_profile_key/version`, `profile_locked_at`, `protect_competition_program_profile` | profile locked at publish | No column change. Publish function additionally requires a current binding (section 6.1). |
 | `event_competition_program_locks.snapshot` (`protect_competition_program_lock`) | frozen JSON at publish | `snapshot` gains an `edition` object (binding id, edition id, sha256, effective status, age_basis versions). Additive; the existing snapshot CHECK only constrains `profile.key/version`. |
 | `events.competition_sanctioning` (`protect_competition_sanctioning`, OD-01 PR #832) | unverified `none/ucwdc/ndca/wsdc/other` | **Unchanged and still a declaration.** The binding is separate: a declared body without a verified `body_edition` binding keeps OD-01's block. OD-30 never turns the declaration into verification. |
-| `event_competition_scoring_pins` (`protect_competition_scoring_pin`, `pin_competition_*`) | method key/version, `sanctioning` | add nullable `edition_binding_id`, `rulebook_edition_id`, `scoring_policy_ref jsonb` (method key/version, engine key/version, panel rule, registry status), stamped by trigger from the program's current binding at pin time. |
-| `event_competition_result_versions` (F2) | `engine_key/version`, `rules_profile_key/version`, `input_hash`, `trace_hash` | add the same three columns, stamped `BEFORE INSERT` from the round's scoring pin; immutable. Corrected versions (OD-07) **inherit** the superseded version's references. |
+| `event_competition_scoring_pins` (`protect_competition_scoring_pin`, `pin_competition_program_scoring`, `pin_competition_late_round`) | method key/version, `sanctioning`; written at publish, append-only | **No change.** Pins stay a method-only record; they carry no edition (see section 5.1). |
+| `event_competition_result_versions` (F2; `_compf2_guard_version_update` allows only `status` to change) | `engine_key/version`, `rules_profile_key/version`, `input_hash`, `trace_hash` | add `edition_ref_kind text not null default 'legacy_unrecorded'` (`body_edition`, `studio_custom`, `legacy_unrecorded`), nullable `edition_binding_id`, `rulebook_edition_id`, and `scoring_policy_ref jsonb` (method key/version from the round's pin **when one exists**, engine key/version from the row, panel rule, registry status). A `BEFORE INSERT` trigger stamps them from the program's current binding **at calculation time**; immutable afterwards. Corrected versions (OD-07) **inherit** the superseded version's references. Existing rows get the column default through `ADD COLUMN ... DEFAULT` (no UPDATE, so the immutability guard is not touched). |
 | `event_competition_result_approvals`, `event_competition_result_publications` (F3) | FK to `result_versions` | **No column.** Evidence is transitive through `result_version_id`; a read view `competition_result_edition_evidence` joins pin → version → approval → publication. |
 | `event_competition_entries` eligibility metadata (`parseEligibilityDetermination`, OD-03/OD-18) | organizer determination, no edition | the determination JSON gains `rulebook_edition_ref` and `age_basis_ref` (ids or `studio_custom`); no birthdate, no age. |
 | `governing-body-source-registry.md` / register | date required; no UNKNOWN | proposal in section 11 (F-1). |
@@ -195,17 +208,27 @@ corrections, OD-22/23) need no coordination with this one: every writer is stamp
 
 - A body-declared program cannot be published (`publish_competition_program`) without a current `body_edition` binding
   whose applicability is `verified_applicable` for the body/format. `unknown` blocks.
-- A scoring pin or result version cannot be written for a program with no binding (Studio/Custom gets `studio_custom`
-  at P0 automatically, as an explicit value, so existing and future Studio events behave as today).
-- Rows created before OD-30 are stamped `legacy_unrecorded` by a one-time backfill that does **not** infer an
-  edition. They are never presented as bound to an edition.
+- A result version cannot be written for a program with no current binding. New Studio/Custom programs get an
+  explicit `studio_custom` binding at publish; the migration **inserts** (never updates) a `studio_custom` binding
+  with `change_kind = initial` for each existing program whose rules profile is `studio_simple` (a DanceFlow profile
+  with no governing body, so nothing is inferred). No existing program uses a body profile; if one is ever found it
+  gets no binding and its calculations stay refused until the owner decides.
+- Result versions that exist before the migration keep `edition_ref_kind = 'legacy_unrecorded'` from the column
+  default (an `ADD COLUMN` default, not an UPDATE). They are never presented as bound to an edition, and no edition is
+  inferred for them. Result versions of rounds without a pin (programs locked before the scoring registry) are stamped
+  the same way from the program binding; `scoring_policy_ref.method` is then null, never guessed.
+- Ballots, marks and check-ins carry no edition column; they are covered transitively because the binding cannot change
+  after the first of them exists (P2), and the bindings history timestamps any exceptional change.
+- **Authorization boundary.** The OD-02 adult-only gate is verified at the application layer only (PR #835's own
+  entry says the database RPCs still accept any date of birth). No new RPC in this design (binding, amendment,
+  exception) accepts, derives or returns an eligibility or age result.
 
 ## 7. Audit reference for every operation (OD-30 item 14)
 
 | Operation | Edition reference retained in | Scoring-policy reference retained in |
 |---|---|---|
 | Event created / profile published | `event_competition_program_locks.snapshot.edition`; bindings history | profile key/version in the lock |
-| Scoring method pinned for a round | `scoring_pins.edition_binding_id`, `rulebook_edition_id` | `scoring_pins.scoring_policy_ref`, existing `method_key/method_version` |
+| Scoring method pinned for a round | none (the pin is method-only; the program binding is already in the bindings history and the publish snapshot) | existing `scoring_pins.method_key/method_version` |
 | Result calculated | `result_versions.edition_binding_id`, `rulebook_edition_id` | `result_versions.scoring_policy_ref`, existing `engine_key/version` |
 | Result approved / published | through `result_version_id` (view) | same |
 | Eligibility determination (OD-03/OD-18) | determination JSON `rulebook_edition_ref`, `age_basis_ref` | not applicable |
@@ -227,10 +250,16 @@ claim found is `20270223130000`). Proposed order inside the block:
 
 1. `…090000` editions + reviews + applicability + approvals + `age_basis` tables and guards (no existing table touched).
 2. `…091000` bindings, amendments, exceptions, compat table, `competition_edition_activity_started`.
-3. `…092000` additive nullable columns on `scoring_pins` and `result_versions` + stamp triggers + backfill of
-   `legacy_unrecorded` + evidence view.
-4. `…093000` publish/pin guard: `publish_competition_program` and pin writers require a binding (fail closed), enabled
-   last and behind a database setting so activation is a separate approved step.
+3. `…092000` additive columns on `result_versions` (defaults, no UPDATE) + stamp trigger + `studio_custom` binding
+   inserts for existing Studio programs + evidence view.
+4. `…093000` publish guard: `publish_competition_program` and result-version stamping require a binding (fail closed).
+   Installed **disabled by default** behind a database setting: this is intentional, because no body profile exists and
+   OD-01 already blocks body-declared publication; enabling it is a separate approved activation step and the
+   activation checklist must verify it is on.
+
+Other open designs overlap each other (not OD-30's collision, noted for the coordinator): #845 claims
+`20270223090000`-`20270223092000`, which collide with Twilio #797 and #796/#811, and #842's `20270220098000` sits inside
+#834's block.
 
 Sequencing against other designs: nothing in OD-04/05/06/07/10/11/12/22/23 needs these tables to exist, because
 stamping is by trigger. If the coordinator prefers OD-30 to land **before** OD-07's migration, only the timestamp
@@ -253,8 +282,9 @@ changes, not the design. Any PROD apply is owner-gated (existing process). Rollb
 
 - Existing Studio/Custom programs keep working with automatic `studio_custom` bindings; `studio_simple@1`,`@2`,`@3`
   remain immutable and selectable as today.
-- Existing `scoring_pins`, `result_versions` and publications read identically (no column becomes required); backfill
-  marks `legacy_unrecorded` and invents nothing.
+- Existing `scoring_pins`, `result_versions` and publications read identically (no column becomes required); the column
+  default marks `legacy_unrecorded` and invents nothing; the result-version immutability guard still rejects every
+  UPDATE except status.
 - PV-1 recompute (`_comppv1_verify`) and the registry guards are unchanged by the new columns.
 - OD-01 block (PR #832), OD-02 adult-only gate (PR #835), OD-03/OD-18 organizer determination (PRs #837, #846) behave
   identically with and without bindings for Studio/Custom events.
@@ -278,7 +308,13 @@ item; exceptional correction without platform-owner authorization or independent
 after activity touching any pin, result version, approval or publication (all stay as written).
 
 History: UPDATE/DELETE/TRUNCATE on bindings, amendments, exceptions, pins and result versions' reference columns;
-a result version whose edition columns differ from its pin; a corrected (OD-07) version that does not inherit; a
+a result version whose edition columns differ from the binding in force at calculation; a declared
+`competition_sanctioning` that does not match the bound edition's body (either direction, including a declaration
+changed after binding and before publish); a race between applying an amendment or exception and the first activity
+signal (the apply locks the program row, as `protect_competition_sanctioning` locks with `for share`, and re-checks the
+phase); a `superseded` edition selected for an event that does not already name it unless its verified applicability
+window covers the event date; any new RPC that returns or accepts an eligibility result; the activation checklist run
+with the publish guard still disabled; a corrected (OD-07) version that does not inherit; a
 recompute that changes stored references; legacy rows presented as bound.
 
 Authorization: anon/authenticated direct writes; organizer of another event; reviewer admitting their own review.
