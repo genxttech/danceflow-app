@@ -1,0 +1,44 @@
+{
+  "id": "DFPOL-OD18-ORGANIZER-STATUS-LEVEL-VERIFICATION",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom divisions (all Competition OS event types for the gate)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Studio / Custom eligibility (age division, amateur or professional status, level) is determined by the organizer. An entry in a division that uses a classification is not ready until an authorized event manager records a determination (user id, actor role, timestamp, outcome, reason code, criteria confirmed; no sensitive detail). Divisions that use no classification require none. Waivers cover event-policy matters only and never override age, status, level, membership, registration or the OD-02 under-18 restriction. Copy never claims DanceFlow verified NDCA registration, UCWDC membership or WSDC Points Registry eligibility.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/eligibilityGate.ts",
+      "symbol_or_migration": "evaluateEntryOperationalGate"
+    },
+    {
+      "path": "src/lib/competition/eligibilityGateServer.ts",
+      "symbol_or_migration": "loadEntryRequiredCriteria"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/registrations/actions.ts",
+      "symbol_or_migration": "validateEligibilityDecision"
+    }
+  ],
+  "enforcement_point": "Server: updateCompetitionEntryEligibilityAction (authorized event managers only; required criteria derived from stored division labels and participant roles) and loadEntryOperationalGates in heat generation, floor planning and readiness.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od18.test.ts",
+      "name": "combination sweep: ready only when ALL of adult, applicable criteria and a permitted decision hold"
+    },
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od18.test.ts",
+      "name": "every prohibited override subject is refused by a gate"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Partially implemented, so not marked verified; the OD-03 gaps apply (entry confirmation inside the finalize SQL is not gated, check-in still uses the older test, determinations live in entries.metadata with no append-only history). Status applicability is derived from participant roles professional/student; level from the division skill label; both are DanceFlow organizer policy, not body definitions. Criteria are self-attested by the organizer; DanceFlow checks only that the organizer confirmed every applicable criterion. The 'authorized organizer or designated official' is any event manager (studio owner/admin, organizer owner/admin/staff, platform admin); no finer 'designated official' role exists.",
+  "applicable_event_versions": [
+    "all"
+  ],
+  "decision_refs": [
+    "OD-18",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

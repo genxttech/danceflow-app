@@ -4,7 +4,7 @@
   "format": "All Competition OS event types",
   "source": null,
   "rule_class": "dance_flow_policy",
-  "requirement": "Before an entry in an age-restricted division is counted ready, heat-planned or floor-scheduled, the organizer must record an eligibility determination (user id, timestamp, outcome, reason code; no birthdates) with outcome eligible and reason 'age division verified by organizer'. A waiver never clears an age-restricted entry, and no status or waiver lifts the OD-02 adult-only check, which is re-verified from the competitors' stored dates of birth (fails closed). Copy states that DanceFlow does not yet automatically verify governing-body age divisions.",
+  "requirement": "Before an entry in an age-restricted division is counted ready, heat-planned or floor-scheduled, the organizer must record an eligibility determination (user id, timestamp, outcome, reason code; no birthdates) with outcome eligible and reason 'criteria verified by organizer' (every applicable criterion confirmed: age division, amateur/professional status, level; applicability is per division). A waiver never clears an age-restricted entry, and no status or waiver lifts the OD-02 adult-only check, which is re-verified from the competitors' stored dates of birth (fails closed). Copy states that DanceFlow does not yet automatically verify governing-body age divisions.",
   "implementation": [
     {
       "path": "src/lib/competition/eligibilityGate.ts",
