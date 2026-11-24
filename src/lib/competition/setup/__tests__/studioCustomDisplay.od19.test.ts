@@ -2,7 +2,7 @@
 // Relabelling must not change identifiers, scoring, roles or any other behavior.
 import { describe, expect, it } from "vitest";
 import { STUDIO_CUSTOM_V3_DEFAULTS as P } from "../studioCustomV3";
-import { STUDIO_CUSTOM_DISPLAY, STUDIO_CUSTOM_DISPLAY_KEYS, withStudioCustomDisplayLabels } from "../studioCustomDisplay";
+import { STUDIO_CUSTOM_DISPLAY, STUDIO_CUSTOM_DISPLAY_KEYS, STUDIO_PARTNERSHIP_DISPLAY_KEYS, withStudioCustomDisplayLabels } from "../studioCustomDisplay";
 import { chooseAdjudication, chooseStyle, choosePurpose, deriveDraft, initialAnswers, updateFormat, setPricing } from "../draft";
 import { allowedRolesForFormat } from "../../participantRoles";
 import { TEST_EVENT, withDivisions, withOfferings } from "./divisionTestHelpers";
@@ -31,9 +31,12 @@ describe("OD-19 Studio/Custom display labels", () => {
       };
       expect(strip(after), key).toEqual(strip(before));
     }
-    const { categoryTypes: _a, ...restAfter } = D;
-    const { categoryTypes: _b, ...restBefore } = P;
+    const { categoryTypes: _a, divisionSchemes: schemesAfter, ...restAfter } = D;
+    const { categoryTypes: _b, divisionSchemes: schemesBefore, ...restBefore } = P;
     expect(restAfter).toEqual(restBefore);
+    // Division schemes: only notes differ; axes, values (division names) and combination are identical.
+    const stripNotes = (schemes: typeof P.divisionSchemes) => JSON.parse(JSON.stringify(schemes, (k, v) => (k === "note" ? undefined : v)));
+    expect(stripNotes(schemesAfter)).toEqual(stripNotes(schemesBefore));
     // Format ids per style, enum-like fields and the persisted profile identity are byte-identical.
     expect(Object.fromEntries(Object.entries(D.programs).map(([k, v]) => [k, v.formats]))).toEqual(Object.fromEntries(Object.entries(P.programs).map(([k, v]) => [k, v.formats])));
     expect(Object.fromEntries(Object.entries(D.categoryTypes).map(([k, v]) => [k, [v.entry_format, v.contest_type]]))).toEqual(
@@ -62,7 +65,7 @@ describe("OD-19 Studio/Custom display labels", () => {
   });
 
   it("leaves non-custom formats (real role-enforced formats) untouched", () => {
-    for (const key of Object.keys(P.categoryTypes).filter((k) => !customKeys.includes(k))) expect(D.categoryTypes[key]).toBe(P.categoryTypes[key]);
+    for (const key of Object.keys(P.categoryTypes).filter((k) => !customKeys.includes(k) && !STUDIO_PARTNERSHIP_DISPLAY_KEYS.includes(k))) expect(D.categoryTypes[key]).toBe(P.categoryTypes[key]);
     expect(D.categoryTypes.ndca_pro_am.label).toBe("Pro/Am Single-Dance");
   });
 
@@ -70,7 +73,7 @@ describe("OD-19 Studio/Custom display labels", () => {
     expect(D.sanction).toEqual({ status: "none", claimable: false });
     expect(D.judging).toBe(P.judging);
     expect(D.adjudication).toBe(P.adjudication);
-    expect(D.divisionSchemes).toBe(P.divisionSchemes);
+    expect(Object.keys(D.divisionSchemes)).toEqual(Object.keys(P.divisionSchemes));
   });
 
   it("keeps the flexible Studio/Custom participant-role behavior", () => {
