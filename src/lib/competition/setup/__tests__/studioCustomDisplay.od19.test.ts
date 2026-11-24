@@ -12,12 +12,15 @@ const CONTEXT = { eventName: "Spring Classic", profileKey: "studio_simple", prof
 const BODY_NAMES = /\b(NDCA|UCWDC|WSDC|WDC|USDC)\b|Student\/Student|Pro\/Am Student Competitor/i;
 const DISPLAY_FIELDS = ["label", "description", "eligibility_note"] as const;
 
-const customKeys = Object.entries(P.categoryTypes).filter(([, d]) => d.entry_format === "custom").map(([k]) => k);
+const TEAM_KEYS = ["team", "ndca_formation", "ndca_team_match", "studio_team"];
+const customKeys = Object.entries(P.categoryTypes).filter(([k, d]) => d.entry_format === "custom" || TEAM_KEYS.includes(k)).map(([k]) => k);
 
 describe("OD-19 Studio/Custom display labels", () => {
   it("covers exactly the custom entry formats (a new custom format must be reviewed here)", () => {
     expect([...STUDIO_CUSTOM_DISPLAY_KEYS].sort()).toEqual([...customKeys].sort());
-    expect(customKeys.sort()).toEqual(["custom_routine", "ndca_cabaret", "ndca_showdance", "ndca_student_student", "ndca_theatre_arts", "routine", "showcase", "spotlight"]);
+    expect(customKeys.sort()).toEqual(["custom_routine", "ndca_cabaret", "ndca_formation", "ndca_showdance", "ndca_student_student", "ndca_team_match", "ndca_theatre_arts", "routine", "showcase", "spotlight", "studio_team", "team"]);
+    // OD-28: the team formats are every team entry format in the profile.
+    expect(Object.entries(P.categoryTypes).filter(([, d]) => d.entry_format === "team").map(([k]) => k).sort()).toEqual([...TEAM_KEYS].sort());
   });
 
   it("persisted ids and every non-display field are unchanged (before/after snapshot)", () => {

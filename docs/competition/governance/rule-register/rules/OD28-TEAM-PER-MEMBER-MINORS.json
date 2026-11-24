@@ -1,0 +1,25 @@
+{
+  "id": "OD28-TEAM-PER-MEMBER-MINORS",
+  "governing_body": "dance_flow_policy",
+  "format": "Team entries: OD-02 under-18 restriction per team member",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Every individual team member must be evaluated under the OD-02 adult-only launch policy at team creation, registration, substitution and roster change; team-level validation is not sufficient.",
+  "implementation": [],
+  "enforcement_point": "Not on this base (OD-02 is PR 835, OD-03/OD-18 are separate PRs). Per the PR 835 and OD-03 code, the public checkout route evaluates every participant in participantIds individually, so team members are covered at registration, and OD-03 covers every participant at confirmation. Gap: no application route changes a team roster after registration, but a studio manager can insert or update event_competition_entry_participants through the table API (competition_manage policy, all operations) with no age check; a roster substitution or staff-created entry therefore bypasses the gate. Needs a SQL guard (separate approval).",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Evidence read from origin/od02-minors-restriction and origin/od03-age-eligibility-gate; those branches are not on this base, so no per-member test can run here. The date of birth is supplied in the registration draft and is self-declared, not verified.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-28",
+    "OD-02",
+    "OD-03",
+    "OD-18",
+    "OD-19",
+    "OD-01"
+  ]
+}

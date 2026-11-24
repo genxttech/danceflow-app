@@ -14,6 +14,8 @@
 import type { EntryFormatDefinition, SetupProfileDefaults } from "./types";
 
 export type CustomFormatDisplay = {
+  /** The persisted entry_format the profile must carry for the override to apply (default "custom"; OD-28 adds "team"). */
+  entryFormat?: string;
   label: string;
   description: string;
   /** Replaces the profile's eligibility_note for the format (when omitted the profile note is removed: a stale body-rule note must not survive). */
@@ -61,6 +63,28 @@ export const STUDIO_CUSTOM_DISPLAY: Readonly<Record<string, CustomFormatDisplay>
     description:
       "All couples dance at the same time to the same preselected music. DanceFlow does not check lift content or any other performance rule.",
   },
+  // OD-28 (owner decision 2026-11-23, Option B): team offerings are DanceFlow Studio/Custom formats too. Team size
+  // (2 to 100), pricing, identifiers and scoring selection are unchanged; no governing-body team rules are applied.
+  team: {
+    entryFormat: "team",
+    label: "Studio/Custom: Team",
+    description: "A group performs a routine together. DanceFlow applies no governing-body team rules; scoring follows the judging method you choose for the style.",
+  },
+  ndca_formation: {
+    entryFormat: "team",
+    label: "Studio/Custom: Formation team",
+    description: "A team performs a formation routine. DanceFlow applies no governing-body formation rules (team size, couple make-up, ages); scoring follows the judging method you choose for the style.",
+  },
+  ndca_team_match: {
+    entryFormat: "team",
+    label: "Studio/Custom: Team match",
+    description: "Teams compete against each other. DanceFlow applies no governing-body team match rules; scoring follows the judging method you choose for the style.",
+  },
+  studio_team: {
+    entryFormat: "team",
+    label: "Studio/Custom: Team",
+    description: "A group performs a routine together. Scoring follows the judging method you choose for the style.",
+  },
   custom_routine: {
     label: "Studio/Custom: Choreographed routine",
     description: "A routine you define, for studios whose terms differ from governing-body names.",
@@ -78,7 +102,7 @@ export function withStudioCustomDisplayLabels(profile: SetupProfileDefaults): Se
   const categoryTypes: Record<string, EntryFormatDefinition> = { ...profile.categoryTypes };
   for (const [key, display] of Object.entries(STUDIO_CUSTOM_DISPLAY)) {
     const definition = categoryTypes[key];
-    if (!definition || definition.entry_format !== "custom") continue;
+    if (!definition || definition.entry_format !== (display.entryFormat ?? "custom")) continue;
     const next: EntryFormatDefinition = { ...definition, label: display.label, description: display.description };
     if (display.eligibilityNote !== undefined) next.eligibility_note = display.eligibilityNote;
     else delete next.eligibility_note;

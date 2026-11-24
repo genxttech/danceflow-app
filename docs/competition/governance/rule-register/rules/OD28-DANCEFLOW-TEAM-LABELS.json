@@ -1,0 +1,43 @@
+{
+  "id": "OD28-DANCEFLOW-TEAM-LABELS",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom team offerings (Team, Formation team, Team match, Studio team)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Team offerings are DanceFlow Studio/Custom formats named 'Studio/Custom: ...' with no governing-body name or compliance implication; team size 2 to 100, pricing, identifiers and scoring selection are unchanged.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/setup/studioCustomDisplay.ts",
+      "symbol_or_migration": "ndca_formation"
+    }
+  ],
+  "enforcement_point": "TypeScript display layer (see OD19-STUDIO-CUSTOM-FORMAT-LABELS). Known gap: the category name saved for new setups is built by public.create_competition_draft from the immutable SQL profile and still reads 'Formation' / 'Team Match' / 'Team'.",
+  "tests": [
+    {
+      "path": "src/lib/competition/setup/__tests__/teamDisplay.od28.test.ts",
+      "name": "labels carry no governing-body name and keep the persisted ids"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/teamDisplay.od28.test.ts",
+      "name": "team size 2 to 100, roles, pairing, pricing models and every non-display field are unchanged"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/teamDisplay.od28.test.ts",
+      "name": "pricing derives identically and the payload carries ids only"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Unverified for the same reason as OD19-STUDIO-CUSTOM-FORMAT-LABELS (persisted names). Scoring finding: team offerings inherit the style's judging; Ballroom Formation and Team Match resolve to the Studio ordinal majority engine (Placements), Country Team (Medal Marks, legacy 'custom') and a Studio team judged by Ratings fail closed with no calculable result. No NDCA cumulative-point scoring exists.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-28",
+    "OD-02",
+    "OD-03",
+    "OD-18",
+    "OD-19",
+    "OD-01"
+  ]
+}
