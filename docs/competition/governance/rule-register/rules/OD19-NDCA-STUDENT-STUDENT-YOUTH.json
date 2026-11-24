@@ -14,7 +14,7 @@
   "rule_class": "mandatory",
   "requirement": "Youth Student/Student is not offered. The two NDCA sections conflict (source conflict ndca_student_student_youth). OD-02 prohibits under-18 competitors at first activation regardless.",
   "implementation": [],
-  "enforcement_point": "NOT IMPLEMENTED. Fail closed: no youth Student/Student offering exists in the Studio/Custom profile or any body profile.",
+  "enforcement_point": "Youth Student/Student is fail-closed today (no such format exists in the Studio/Custom profile; source conflict ndca_student_student_youth unresolved). Any future offering is NOT IMPLEMENTED.",
   "tests": [],
   "verification_status": "requires_interpretation",
   "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed before activation. Unresolved source conflict (II.A.6.b adult-only versus II.B.8.a Pre-Teen/Junior/Youth). A written owner or NDCA reading is required before any youth offering. Re-read in the pinned PDF on 2026-11-23.",

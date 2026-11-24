@@ -35,6 +35,8 @@ scoring, divisions, pricing, sanction handling and the OD-01 restrictions are un
   (for example "Student/Student — American Smooth") on registration, schedule and results pages. Closing it takes
   either a separately reviewed migration (profile `studio_simple@4` plus a function change, owner-gated PROD SQL)
   or render-time mapping at every read site using `configuration.simple.category_type`. No migration is written here.
+- Server-side `raise exception` messages (PROD SQL) also use the legacy profile label, e.g. via the friendly() error path; TypeScript validation normally catches these first.
+- Content edits besides names: Cabaret now says a couple's performance (was "solo"); Theatre Arts drops the "Compulsory" name and the 50%-lift sentence; Spotlight keeps its 2½–4 minute default length as a Studio setting; the Student pair note no longer says adults only (the adult-only division scheme `ballroom_adult_open` is unchanged).
 - Existing saved contests and historical data are not rewritten.
 - Program/style names (Country, Ballroom), the Ballroom dance style names, division scheme names and the
   governing-body-named non-custom formats (for example "Pro/Am Single-Dance") are out of scope for OD-19.

@@ -99,10 +99,12 @@ describe("OD-19 Studio/Custom display labels", () => {
     expect(fromSeed.errors).toEqual({});
     expect(fromSeed.payload).not.toBeNull();
     expect(fromSeed.payload).toEqual(fromDisplay.payload);
+    // The payload carries ids only: no display wording leaks into what is persisted by the wizard.
+    expect(JSON.stringify(fromSeed.payload)).not.toMatch(new RegExp("Studio/Custom:|Student/Student"));
     expect(fromSeed.payload?.programs[0].categories.map((c) => c.type)).toEqual(
       expect.arrayContaining(["ndca_pro_am", "ndca_student_student", "ndca_showdance", "ndca_cabaret", "ndca_theatre_arts"]),
     );
-    const labels = fromSeed.programs[0].categories.map((c) => c.label) ?? [];
+    const labels = fromSeed.programs[0].categories.map((c) => c.label);
     expect(labels.some((l) => l.startsWith("Studio/Custom: Student pair"))).toBe(true);
     expect(labels.join(" | ")).not.toMatch(/Student\/Student/);
     expect(labels.some((l) => l.startsWith("Pro/Am Single-Dance"))).toBe(true);

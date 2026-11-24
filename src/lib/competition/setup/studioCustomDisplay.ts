@@ -16,15 +16,11 @@ import type { EntryFormatDefinition, SetupProfileDefaults } from "./types";
 export type CustomFormatDisplay = {
   label: string;
   description: string;
-  /** Replaces the profile's eligibility_note for the format (always set: a stale body-rule note must not survive). */
+  /** Replaces the profile's eligibility_note for the format (when omitted the profile note is removed: a stale body-rule note must not survive). */
   eligibilityNote?: string;
   /** Replaces music_source.note when the profile's note names a governing body. */
   musicNote?: string;
 };
-
-/** Shown wherever a Studio/Custom format has no stricter wording of its own. */
-export const STUDIO_CUSTOM_NO_BODY_NOTE =
-  "Studio/Custom format: you decide who may enter and which rules apply. It is not a governing-body division.";
 
 /** Keyed by the persisted category-type id. These ids are part of saved configurations: never rename them. */
 export const STUDIO_CUSTOM_DISPLAY: Readonly<Record<string, CustomFormatDisplay>> = {
@@ -53,7 +49,7 @@ export const STUDIO_CUSTOM_DISPLAY: Readonly<Record<string, CustomFormatDisplay>
   ndca_showdance: {
     label: "Studio/Custom: Showdance",
     description: "A choreographed show in one style, up to 4 minutes, using that style's regular dances.",
-    eligibilityNote: "Studio/Custom format: DanceFlow applies no governing-body showdance rules; you set the rules.",
+    eligibilityNote: "DanceFlow applies no governing-body showdance rules to this format; you decide who may enter and which rules apply.",
   },
   ndca_cabaret: {
     label: "Studio/Custom: Cabaret",
