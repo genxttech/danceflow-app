@@ -8,16 +8,16 @@
     "effective_from": "2026-01-26",
     "effective_to": null,
     "sha256": "7e71fdce55b0eade037c9c6df2a041a3f8a8390b4fc6274a0552e09d25cdb41a",
-    "section": "II.C.1 and II.C.2 (p.3)",
-    "quote_free_summary": "A Team may compete with any number and combination of genders; a Team 'Couple' must portray a leader who leads and a follower who follows, with no gender restriction on those roles."
+    "section": "II.C.1 (p.3)",
+    "quote_free_summary": "A Team may compete with any number and combination of genders."
   },
   "rule_class": "permitted_exception",
-  "requirement": "A future UCWDC Teams profile must accept any gender combination and, where a Team Couple is modelled, a leader and a follower with no gender restriction.",
+  "requirement": "A future UCWDC Teams profile must accept any gender combination in a Team.",
   "implementation": [],
   "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: gender collection, columns, migrations, role-lock enforcement, UI.",
   "tests": [],
-  "verification_status": "requires_interpretation",
-  "interpretation_notes": "Studio's team entries 'do not use lead or follow' (participantShapeErrors), so a Team Couple role cannot be recorded today; whether UCWDC requires the Team Couple role to be recorded by the system or only portrayed on the floor is not stated.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "Permission only (II.C.1). Studio collects no gender, so nothing in Studio restricts team composition. The Team Couple role rule is the separate mandatory entry OD27-UCWDC-0006.",
   "applicable_event_versions": [
     "2026 (v1-26-2026)"
   ],

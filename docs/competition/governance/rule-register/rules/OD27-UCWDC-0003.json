@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: gender collection, columns, migrations, role-lock enforcement, UI.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "Studio's ProAm shape requires one student, one professional and opposite lead/follow in either order, which is compatible with Mixed-Role but not with the traditional-division rule, which needs gender data. The clause is worded around a student and their pro for both ProAm and ProPro; how a ProPro pair (two professionals) maps to it is unclear in the text read, so no interpretation is chosen.",
+  "interpretation_notes": "Studio's ProAm shape requires one student, one professional and opposite lead/follow in either order, which is compatible with Mixed-Role but not with the traditional-division rule, which needs gender data. The clause is worded around a student and their pro for both ProAm and ProPro; how a ProPro pair (two professionals) maps to it is unclear in the text read, so no interpretation is chosen. Also relevant: ProAm/ProPro II.K item 8 (printed p.10 of 18) says competitor-selected music must differ for each division 'unless they are switching roles', so a competitor may hold different roles in different divisions; this is not a gender or role requirement but shows a cross-entry role-consistency check cannot be assumed to apply across divisions, and the 'Dance Category' scope of the Mixed-Role rule remains undefined here.",
   "applicable_event_versions": [
     "2026 (v1-26-2026)"
   ],

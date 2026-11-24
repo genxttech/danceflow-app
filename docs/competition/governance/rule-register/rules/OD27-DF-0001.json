@@ -4,7 +4,7 @@
   "format": "Studio / Custom events: leader/follower role flexibility",
   "source": null,
   "rule_class": "dance_flow_policy",
-  "requirement": "DanceFlow policy (not a body rule): a couple-style entry needs exactly one leader and one follower (any people); the dance role is stored per participant per entry (dance_role: leader | follower); relationship role (student, professional, ...) is a separate dimension; Studio Country division schemes use only skill-level and age-group axes. No gender is collected or inferred, and no role-lock is enforced. Preserved unchanged by OD-27 Option B for initial activation.",
+  "requirement": "DanceFlow policy (not a body rule): a couple-style entry needs exactly one leader and one follower (any people; line dance partnerships may omit both, Jack and Jill is one person with one role, team entries use neither); the dance role is stored per participant per entry (dance_role: leader | follower); relationship role (student, professional, ...) is a separate dimension; Studio Country division schemes (country_proam, country_propro, country_couples) use only skill-level and age-group axes, and country_routine uses age group only. No gender is collected or inferred, and no role-lock is enforced. Preserved unchanged by OD-27 Option B for initial activation.",
   "implementation": [
     {
       "path": "src/lib/competition/participantRoles.ts",
@@ -27,7 +27,7 @@
     }
   ],
   "verification_status": "requires_interpretation",
-  "interpretation_notes": "Approved behavior and tested as written (the 10C.4 migration header states the intent: NDCA treats every couple as a leader plus a follower regardless of gender), but: (a) the role is per entry, so nothing checks that the same partnership keeps its roles across different entries or Dance Categories; (b) the studioCustomV3 scheme note cites UCWDC II.A.7 yet models only skill level and age group, not the Mixed-Role dimension that II.A.7 names; (c) no user-facing disclosure exists; (d) tests were not run for this docs-only entry; (e) the client and profile tables were not audited for gender fields. Not any body's rule.",
+  "interpretation_notes": "Approved behavior and tested as written (the 10C.4 migration header states the intent: NDCA treats every couple as a leader plus a follower regardless of gender), but: (a) the role is per entry, so nothing checks that the same partnership keeps its roles across different entries or Dance Categories; (b) the country_proam scheme note in studioCustomV3 cites UCWDC II.A.7 but describes a division as a level in an age division and models no Mixed-Role dimension, which II.A.7 names; (c) no user-facing disclosure exists; (d) tests were not run for this docs-only entry; (e) the client and profile tables were not audited for gender fields. Not any body's rule. dance_role also exists on event_competition_registration_cart_entry_people and may be NULL. A search of src found no gender or sex field, no cross-entry role-consistency check and no role lock (only a comment in the 10C.4 migration header). Source effective_from dates are placeholders by sibling convention (NDCA states only 'June 2026 EDITION').",
   "applicable_event_versions": [
     "studio_simple@3"
   ],

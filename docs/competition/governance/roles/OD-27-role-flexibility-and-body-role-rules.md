@@ -6,16 +6,16 @@ here claims NDCA, UCWDC or WSDC compliance.
 
 ## 1. Preserved Studio/Custom behavior (`OD27-DF-0001`)
 
-- A couple-style entry needs exactly one leader and one follower (`participantShapeErrors`, `src/lib/competition/participantRoles.ts`,
+- A couple-style entry needs exactly one leader and one follower (line dance partnerships may omit both, Jack and Jill is one person with one role, team entries use neither) (`participantShapeErrors`, `src/lib/competition/participantRoles.ts`,
   mirrored in SQL by `_comp10c4_participant_shape_errors`); the people can be any people.
-- The dance role is stored per participant per entry (`event_competition_entry_participants.dance_role`: leader or follower), separate
+- The dance role is stored per participant per entry (`event_competition_entry_participants.dance_role`: leader or follower; it may be empty, and the registration cart table `event_competition_registration_cart_entry_people` also carries it), separate
   from the relationship role (student, professional, instructor, ...).
 - Studio/Custom division schemes for the Country formats use only the **skill-level and age-group axes**
-  (`studioCustomV3.ts`, `divisionSchemes.country_proam`, `country_propro`, `country_couples`; `country_routine` adds contest type).
+  (`studioCustomV3.ts`, `divisionSchemes.country_proam`, `country_propro`, `country_couples`; `country_routine` has an age-group axis only).
 - Organizer-managed eligibility is preserved. **No gender is collected, no column or migration is added, and no role lock is
   enforced** for initial activation.
 - Observations: the role is per entry, so nothing checks that one partnership keeps its roles across different entries; and the
-  `studioCustomV3` scheme note cites UCWDC II.A.7 while modelling no Mixed-Role dimension.
+  `country_proam` scheme note in `studioCustomV3` cites UCWDC II.A.7 but describes a division as a level in an age division, with no Mixed-Role dimension.
 
 ## 2. Dance role is not gender (`OD27-DF-0002`)
 
@@ -38,7 +38,7 @@ A separate privacy and data-minimization decision, not part of OD-27. Answer all
 
 ## 3. UCWDC (rules v1-26-2026; printed pages)
 
-Each body requirement below is NOT IMPLEMENTED and a profile-activation blocker.
+Each body requirement below is NOT IMPLEMENTED and a profile-activation blocker (the Teams II.C.1 permission and the discretionary NDCA II.B.7.c are not mandatory requirements).
 
 | Rule | Text (short) | Register |
 |---|---|---|
@@ -47,7 +47,9 @@ Each body requirement below is NOT IMPLEMENTED and a profile-activation blocker.
 | Couples II.C.2 (p.3) | In Mixed-Role divisions a pair is "one (1) follower and one (1) leader of any gender"; both "must retain their roles throughout each Dance Category" | `OD27-UCWDC-0002` |
 | ProAm/ProPro II.C.1-2 (p.3) | Same structure with a student and their pro; Mixed-Role allows "any gender" | `OD27-UCWDC-0003` |
 | Line Dance II.C.1-2 (p.3) | The division registered for "is the gender they are and must be throughout a Dance Season"; gender-specific and non-gender-specific divisions both exist | `OD27-UCWDC-0004` |
-| Teams II.C.1-2 (p.3) | A Team may use "any number and combination of genders"; a Team "Couple" must portray a leader and a follower, with "no gender restriction" | `OD27-UCWDC-0005` |
+| Teams II.C.1 (p.3) | A Team may use "any number and combination of genders" (permission) | `OD27-UCWDC-0005` |
+| Teams II.C.2 (p.3) | A Team "Couple" must portray a leader and a follower, with "no gender restriction" (mandatory) | `OD27-UCWDC-0006` |
+| ProAm/ProPro II.K item 8 (p.10) | competitor-selected music differs per division "unless they are switching roles": a competitor may hold different roles in different divisions (not a gender rule) | noted in `OD27-UCWDC-0003` |
 
 **Mixed-Role modelling, and what existing data does and does not cover.** A future profile models one leader and one follower of any
 gender with role consistency throughout each Dance Category.
@@ -88,5 +90,5 @@ approval: the setup wizard (format and division step), the registration builder,
 OD-02/OD-03 (age and eligibility), OD-18 and OD-19 (relabelling) are being handled in sibling PRs; OD-28 is a placeholder. OD-01 (PR 832) is
 preserved. Every body requirement above is a profile-activation blocker.
 
-Not verified: tests (docs only); the client and profile tables for gender fields (none found in the competition TypeScript); WSDC rules; how
+Not verified: tests (docs only); a search of `src` found no gender or sex field, cross-entry role check or role lock outside a migration comment, but database data and non-code configuration were not audited; the NDCA `effective_from` date is a placeholder (the rule book states only "June 2026 EDITION", OD-30); WSDC rules; how
 UCWDC "Dance Category" maps to DanceFlow dances; the sibling PRs' contents.

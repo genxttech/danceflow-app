@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: gender collection, columns, migrations, role-lock enforcement, UI.",
   "tests": [],
   "verification_status": "requires_interpretation",
-  "interpretation_notes": "Consistent with Studio's role model, which needs no gender. Not a requirement to collect gender. The relation to II.B.7.c (OD27-NDCA-0003) is a question for the owner.",
+  "interpretation_notes": "Consistent with Studio's role model, which needs no gender. Not a requirement to collect gender. The relation to II.B.7.c (OD27-NDCA-0003) is a question for the owner. NDCA effective_from 2026-06-01 is a placeholder convention shared with sibling entries; the rule book states only 'June 2026 EDITION' (OD-30), so the effective date is not verified.",
   "applicable_event_versions": [
     "June 2026, Master v1"
   ],
