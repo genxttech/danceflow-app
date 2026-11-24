@@ -8,13 +8,15 @@ import { Screen } from "@/components/Screen";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StateMessage } from "@/components/StateMessage";
-import { formatDayHeading, personName, shiftDate } from "@/lib/format";
+import { formatDayHeading, formatTime, personName, shiftDate } from "@/lib/format";
+import { nextUp } from "@/lib/nextUp";
+import { NextUpCard } from "@/components/NextUpCard";
 import { isStaffFeatureEnabled } from "@/lib/features";
 import { shouldKeepStale } from "@/lib/stale";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import { StaleBanner } from "@/components/StaleBanner";
 import type { StaffStudioDay, StudioAppointment } from "@/lib/staffApi";
-import { AppointmentRow } from "@/screens/TodayScreen";
+import { appointmentHeadline, AppointmentRow } from "@/screens/TodayScreen";
 import { colors, radius, space } from "@/theme";
 
 type LoadState =
@@ -108,6 +110,11 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
   }
 
   const day = state.status === "ready" ? state.day : null;
+  // The one obvious next action, for today only (a past or future day has no "next").
+  const next =
+    day && date === null
+      ? nextUp(day.appointments, Date.now(), { oneToOne: isStaffFeatureEnabled("appointmentAttendance"), classes: isStaffFeatureEnabled("attendance") })
+      : null;
 
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load("refresh")} tintColor={colors.plum} />}>
@@ -147,6 +154,16 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
           testID="studio-empty"
           title={date === null ? "Nothing on the studio schedule today" : "Nothing on the studio schedule"}
           body="Lessons, classes and rentals at this studio appear here."
+        />
+      ) : null}
+
+      {day && next ? (
+        <NextUpCard
+          kind={next.kind}
+          start={formatTime(next.appointment.startsAt, day.timeZone)}
+          headline={appointmentHeadline(next.appointment)}
+          behind={next.behind}
+          onOpen={() => open(next.appointment, day.timeZone)}
         />
       ) : null}
 
