@@ -71,6 +71,7 @@ create or replace function pg_temp.ref() returns date language sql stable as $$ 
 -- ============================================================================
 -- users: 1 owner of studio A (event manager), 2 unrelated verified user
 insert into auth.users (id, email) values (pg_temp.id('user', 1), 't-s5-owner@example.test'), (pg_temp.id('user', 2), 't-s5-nobody@example.test');
+insert into public.profiles (id, email, full_name) select id, email, 'S5 ' || split_part(email, '@', 1) from auth.users where id in (pg_temp.id('user', 1), pg_temp.id('user', 2));
 insert into public.studios (id, name, slug) values (pg_temp.id('studio', 1), 'S5 Studio A', 't-s5-a');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values (pg_temp.id('user', 1), pg_temp.id('studio', 1), 'studio_owner', true);
 insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required)

@@ -86,14 +86,6 @@ for f in $(ls "$CHAIN/base" | sort); do
 done
 log "base chain: $(grep -c '^OK   base' "$OUT/steps.txt") ok, $(grep -c '^FAIL base' "$OUT/steps.txt") failed"
 
-# 5. new migrations in RELEASE order: S1/S2, S3, S4 core, S5, then S4 gates and guard (timestamp order once S4 renumbers its gates after S5).
-S4_CORE=$(ls "$CHAIN/new" | grep -E '^20270301[0-9]{6}_competition_r15_eligibility_clearance_core' | head -1)
-S4_REST=$(ls "$CHAIN/new" | grep -E 'competition_r15_' | grep -v 'clearance_core' | sort)
-ORDER="$(ls "$CHAIN/new" | grep -E '^20270301090000_') $(ls "$CHAIN/new" | grep -E '^2027030110[0-2]000_' | sort) $S4_CORE $(ls "$CHAIN/new" | grep -E '^20270301120000_') $S4_REST"
-echo "$ORDER" | tr ' ' '\n' | grep . > "$OUT/release-order.txt"
-for f in $ORDER; do apply "$CHAIN/new" "$f" new; done
-log "new migrations: $(grep -c '^OK   new' "$OUT/steps.txt") ok, $(grep -c '^FAIL new' "$OUT/steps.txt") failed"
-
 # 6. suites (each ends by raising, so nothing persists). Order: new PR suites, pinned suites the PRs touched, OD-31 negative, S5-affected suites (informational: fixtures without dates of birth)
 SUITES="${ONLY_SUITES:-test_T_competition_s5_participant_age_guard test_T_competition_r11_approval_override_scope test_T_competition_r10_s3_panel_readiness test_T_competition_r15_eligibility_clearance \
 test_T_competition_cf1_a3_results test_T_competition_pv1_recompute test_T_competition_e1_officials test_T_competition_ns1_no_show test_T_phase10d1_heat_entry_eligibility test_T_od31_guarded_baseline_negative \
@@ -109,6 +101,25 @@ run_suites(){ # <tag>
     printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$OUT/suites-$1.tsv"; log "[$1] $s: $res"
   done
 }
+
+# 4b. BASELINE: the base chain alone (attributes failures: anything failing here is not caused by the new migrations)
+BASE_SUITES="test_T_competition_cf1_a3_results test_T_competition_pv1_recompute test_T_competition_e1_officials test_T_competition_ns1_no_show test_T_phase10d1_heat_entry_eligibility test_T_od31_guarded_baseline_negative test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_r2_entry_refunds test_T_competition_o1_day_of test_T_competition_cf1_f3_publication test_T_phase10d_floor_schedule test_T_competition_r2_refund_write_gate test_T_phase10c_competitor_registration test_T_phase10c4_participant_roles"
+ALL_SUITES="$SUITES"; SUITES="$BASE_SUITES"; run_suites baseline
+# 4c. S5 ONLY on top of the base chain: the S5 suite and every suite that inserts participants (isolates the S5 effect)
+S5F=$(ls "$CHAIN/new" | grep -E '^20270301120000_')
+apply "$CHAIN/new" "$S5F" s5only
+SUITES="test_T_competition_s5_participant_age_guard $BASE_SUITES"; run_suites s5only
+if "${PSQL[@]}" -1 < "$CHAIN/rollback/${S5F%.sql}_rollback.sql" > "$OUT/rb-s5only.log" 2>&1; then log "S5-only rollback ok"; else log "S5-only rollback FAILED"; fi
+SUITES="$ALL_SUITES"
+
+# 5. new migrations in RELEASE order: S1/S2, S3, S4 core, S5, then S4 gates and guard (timestamp order once S4 renumbers its gates after S5).
+S4_CORE=$(ls "$CHAIN/new" | grep -E '^20270301[0-9]{6}_competition_r15_eligibility_clearance_core' | head -1)
+S4_REST=$(ls "$CHAIN/new" | grep -E 'competition_r15_' | grep -v 'clearance_core' | sort)
+ORDER="$(ls "$CHAIN/new" | grep -E '^20270301090000_') $(ls "$CHAIN/new" | grep -E '^2027030110[0-2]000_' | sort) $S4_CORE $(ls "$CHAIN/new" | grep -E '^20270301120000_') $S4_REST"
+echo "$ORDER" | tr ' ' '\n' | grep . > "$OUT/release-order.txt"
+for f in $ORDER; do apply "$CHAIN/new" "$f" new; done
+log "new migrations: $(grep -c '^OK   new' "$OUT/steps.txt") ok, $(grep -c '^FAIL new' "$OUT/steps.txt") failed"
+
 run_suites forward
 
 # 7. rollback chain in reverse RELEASE order, then verify, then re-apply
