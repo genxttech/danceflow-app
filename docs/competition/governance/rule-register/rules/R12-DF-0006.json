@@ -26,8 +26,8 @@
       "name": "refuses cancelled/complete, any publication and a heat on the floor"
     }
   ],
-  "verification_status": "unverified",
-  "interpretation_notes": "Inspected: can_manage_event_competition gate, reason validation, refusal for cancelled/complete, publication (status or any publication row) and staging/active heats; only draft/scheduled open heats are cancelled, complete heats stay. NDCA III.D.3 is NOT implemented as a body control: see R12-NDCA-0001. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue).",
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Inspected: can_manage_event_competition gate, reason validation, refusal for cancelled/complete, publication (status or any publication row) and staging/active heats; only draft/scheduled open heats are cancelled, complete heats stay. NDCA III.D.3 is NOT implemented as a body control: see R12-NDCA-0001. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue). Independent review: R12-F8 (cancel clears an open correction without U66 blockers).",
   "decision_refs": [
     "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
     "docs/competition/governance/r12-operational-verification.md",

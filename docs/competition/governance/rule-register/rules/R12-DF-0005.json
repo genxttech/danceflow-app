@@ -26,8 +26,8 @@
       "name": "has no override/force/skip parameter"
     }
   ],
-  "verification_status": "unverified",
-  "interpretation_notes": "Inspected: signature has no override parameter; five refusals (stale hash, undecided tie, advancement mismatch, round-scoped refund exception, roster eligibility); wrong shape fails closed, deadlocks propagate. Separate, owner-approved D3 behavior: the calculator may approve their own result with a recorded reason (not one of the five holds; the stale-hash check runs first). OD-14 over-capacity tie policy: see the OD register. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue).",
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Inspected: signature has no override parameter; five refusals (stale hash, undecided tie, advancement mismatch, round-scoped refund exception, roster eligibility); wrong shape fails closed, deadlocks propagate. Separate, owner-approved D3 behavior: the calculator may approve their own result with a recorded reason (not one of the five holds; the stale-hash check runs first). OD-14 over-capacity tie policy: see the OD register. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue). Independent review: R12-F7 (tie check only with a callback Final) and R12-F6 (reversal of a fee-only refund can block publication).",
   "decision_refs": [
     "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
     "docs/competition/governance/r12-operational-verification.md",

@@ -26,8 +26,8 @@
       "name": "only a manager requests an exclusion or a reversal"
     }
   ],
-  "verification_status": "unverified",
-  "interpretation_notes": "Inspected: requester manager-only, co-signer manager or chair, never the requester or a replacement-ballot filer, window active/ballots_locked, refused once a publication exists, ballots and marks never written. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue). The ranking effect is exercised by the A5/A3 suites, not re-executed here. OD-20 label wording: PR 853.",
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Inspected: requester manager-only, co-signer manager or chair, never the requester or a replacement-ballot filer, window active/ballots_locked, refused once a publication exists, ballots and marks never written. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue). The ranking effect is exercised by the A5/A3 suites, not re-executed here. OD-20 label wording: PR 853. Independent review reported R12-F3 (high: direct heat-entry status update can drop a danced couple from the ranking without co-sign or audit) and R12-F4 (exclusion makes existing ballots stale): see the verification report.",
   "decision_refs": [
     "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
     "docs/competition/governance/r12-operational-verification.md",
