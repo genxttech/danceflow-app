@@ -100,7 +100,7 @@ describe("CF1 B review fixes (static)", () => {
   });
 
   it("P3: ExcludedSection shows the reason and the requester / co-signer identity to managers only", () => {
-    expect(panels).toMatch(/isManager \? excludedCoupleLabel\(couple\) : "Excluded from the ranking"/);
+    expect(panels).toMatch(/isManager \? excludedCoupleLabel\(couple\) : EXCLUDED_LABEL/);
     expect(panels).toMatch(/\{isManager \? \(\s*<span className="block text-xs text-slate-600">\s*Requested by/);
   });
 

@@ -1,0 +1,31 @@
+{
+  "id": "OD20-NDCA-ELIGIBILITY-DISPUTE-CHAIRMAN",
+  "governing_body": "NDCA",
+  "format": "NDCA eligibility dispute at the event (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.9 (printed p27)",
+    "quote_free_summary": "If an eligibility dispute about a competitor's level or age category is unresolved, the Chairman refers it to the NDCA Ballroom Department for resolution after the event."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must provide a referral record for unresolved eligibility disputes and must not resolve them in-event by exclusion.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: NDCA profile. No DanceFlow action, status or workflow models it; the existing 'Excluded (organizer decision)' action (CF1 A5) is organizer policy and is never a substitute.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-23: 'refer the dispute to the NDCA Ballroom Department for resolution, to be dealt with after the conclusion of the event'. BLOCKER for an NDCA profile.",
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-20",
+    "OD-01",
+    "OD-07",
+    "OD-04"
+  ]
+}

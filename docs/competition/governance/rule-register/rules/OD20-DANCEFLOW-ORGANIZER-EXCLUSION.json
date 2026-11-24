@@ -1,0 +1,49 @@
+{
+  "id": "OD20-DANCEFLOW-ORGANIZER-EXCLUSION",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom organizer exclusion (CF1 A5)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "An organizer exclusion (request plus a second person's co-sign, with a recorded reason) is shown everywhere as 'Excluded (organizer decision)'. It is never worded as a governing-body disqualification. Scratch, No-show, Excluded and Disqualified stay distinct; the status 'disqualified' is not a supported DanceFlow disciplinary action.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/reviewTypes.ts",
+      "symbol_or_migration": "EXCLUDED_LABEL"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/results/[roundId]/CallbackPanels.tsx",
+      "symbol_or_migration": "EXCLUDED_LABEL"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/results/actions.ts",
+      "symbol_or_migration": "Exclusion (organizer decision) co-signed."
+    }
+  ],
+  "enforcement_point": "Wording in the results review UI and action notices; behavior stays in the CF1 A5 database functions (migration 20270120094000), unchanged.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/__tests__/exclusionWording.od20.test.ts",
+      "name": "the label is 'Excluded (organizer decision)' and is used for managers and everyone else"
+    },
+    {
+      "path": "src/lib/competition/results/__tests__/exclusionWording.od20.test.ts",
+      "name": "no user-facing exclusion surface says disqualified / DQ / disqualification (except the explicit disclaimer)"
+    },
+    {
+      "path": "src/lib/competition/results/__tests__/exclusionWording.od20.test.ts",
+      "name": "exclusion state machine"
+    }
+  ],
+  "verification_status": "verified_compliant",
+  "interpretation_notes": "Wording only. The public results page still shows 'Not placed' for scratched, no-show and excluded couples together (the public reader does not expose the kind); see OD20-DISQUALIFIED-STATUS-REACHABILITY for the separate status gap.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-20",
+    "OD-01",
+    "OD-07",
+    "OD-04"
+  ]
+}

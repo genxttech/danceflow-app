@@ -13,7 +13,7 @@ import {
 } from "@/lib/competition/results/advancement";
 import { resultErrorMessage } from "@/lib/competition/results/messages";
 import { unresolvedTieSummary, type UnresolvedTie } from "@/lib/competition/results/unresolvedTie";
-import { excludedCoupleLabel, type ReviewExcludedCouple } from "@/lib/competition/results/reviewTypes";
+import { EXCLUDED_LABEL, excludedCoupleLabel, type ReviewExcludedCouple } from "@/lib/competition/results/reviewTypes";
 import {
   applyAdvancementAction,
   cosignExclusionAction,
@@ -53,8 +53,8 @@ export function ExcludedSection({ excluded, isManager }: { excluded: readonly Re
   if (excluded.length === 0) return null;
   return (
     <section className="space-y-2 rounded border border-amber-300 bg-amber-50 p-4" aria-label="Excluded couples">
-      <h3 className="text-sm font-semibold text-slate-950">Excluded from the ranking</h3>
-      <p className="text-xs text-slate-700">These couples danced but are not ranked. Their heat entries, ballots and marks are kept.</p>
+      <h3 className="text-sm font-semibold text-slate-950">{EXCLUDED_LABEL}</h3>
+      <p className="text-xs text-slate-700">These couples danced but are not ranked. This is an organizer decision recorded in DanceFlow, not a governing-body disqualification. Their heat entries, ballots and marks are kept.</p>
       <ul className="space-y-1 text-sm">
         {excluded.map((couple) => (
           <li key={couple.exclusion_id}>
@@ -62,7 +62,7 @@ export function ExcludedSection({ excluded, isManager }: { excluded: readonly Re
               {couple.entry_number ? `#${couple.entry_number} ` : ""}
               {couple.display_name ?? "Entry"}
             </span>{" "}
-            - {isManager ? excludedCoupleLabel(couple) : "Excluded from the ranking"}
+            - {isManager ? excludedCoupleLabel(couple) : EXCLUDED_LABEL}
             {isManager ? (
               <span className="block text-xs text-slate-600">
                 Requested by {couple.requested_by_name || "a manager"}

@@ -1,0 +1,31 @@
+{
+  "id": "OD20-UCWDC-MISSED-CALL-COUPLES",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.P.3.a (p14); also II.G.1.c (Two Step entry)",
+    "quote_free_summary": "A competitor who does not report to the Floor Coordinator on time, or does not answer the Floor Coordinator's calls for a heat, is disqualified from that dance category. II.G.1.c separately states that failing to enter and dance Two Step brings disqualification in that division."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future UCWDC body profile must model the missed-call disqualification (and keep it distinct from Scratch, No-show and organizer Exclusion). Studio/Custom never presents a no-show or exclusion as this rule.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: a UCWDC profile floor-check-in rule. No DanceFlow action, status or workflow models it; the existing 'Excluded (organizer decision)' action (CF1 A5) is organizer policy and is never a substitute.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Exact short phrase re-read 2026-11-23 (line 'will be disqualified from that dance category'). DanceFlow NS1 no-show: marked by staff, entry excluded from the round, NOT placed last and NOT a disqualification; do not conflate. Whether UCWDC's rule is automatic or needs a ruling is not stated. BLOCKER for a UCWDC profile.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-20",
+    "OD-01",
+    "OD-07",
+    "OD-04"
+  ]
+}

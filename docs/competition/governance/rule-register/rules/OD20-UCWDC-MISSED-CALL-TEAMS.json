@@ -1,0 +1,31 @@
+{
+  "id": "OD20-UCWDC-MISSED-CALL-TEAMS",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Teams (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Teams_V_1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "7e71fdce55b0eade037c9c6df2a041a3f8a8390b4fc6274a0552e09d25cdb41a",
+    "section": "II.O.2.a",
+    "quote_free_summary": "A team that does not report to the Floor Coordinator on time or answer the calls for a heat is scratched, with the document adding the word disqualified in brackets."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Same intent as the other UCWDC missed-call rules; the Teams document words it as 'scratched (disqualified)'.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: UCWDC profile. No DanceFlow action, status or workflow models it; the existing 'Excluded (organizer decision)' action (CF1 A5) is organizer policy and is never a substitute.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Re-read 2026-11-23: 'will be scratched (disqualified) from that dance category'. The Teams text treats scratch and disqualification as the same outcome, unlike Couples; how DanceFlow's distinct Scratch status maps to it needs an interpretation. BLOCKER for a UCWDC Teams profile.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-20",
+    "OD-01",
+    "OD-07",
+    "OD-04"
+  ]
+}
