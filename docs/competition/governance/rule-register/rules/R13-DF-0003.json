@@ -1,0 +1,31 @@
+{
+  "id": "R13-DF-0003",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom: platform application fee on competition refunds",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Intended platform fee retention is preserved; any statement that fees are retained must be supported by the provider flow and disclosed.",
+  "implementation": [
+    {
+      "path": "src/lib/payments/competitionRefunds.ts",
+      "symbol_or_migration": "buildCompetitionStripeRefundParams"
+    },
+    {
+      "path": "src/lib/competition/registrationCheckout.ts",
+      "symbol_or_migration": "direct charge with application_fee_amount"
+    }
+  ],
+  "enforcement_point": "Stripe refund created on the connected account with payment_intent and amount only.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "R13-F7: the code sets neither refund_application_fee nor reverse_transfer, so retention rests on Stripe default behavior that was not verified live (QA I12 NOT RUN) and the ledger does not record the fee outcome. Disclosure is generic (terms, refund policy page); nothing competition-specific (R13-F8). Do not claim fees are always retained. DanceFlow policy, never a governing-body requirement. Read-only inspection; the SQL suites named were NOT executed by this session (PENDING).",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "R-13 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r13-finance-authorization-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule"
+  ],
+  "last_reviewed": "2026-11-24"
+}

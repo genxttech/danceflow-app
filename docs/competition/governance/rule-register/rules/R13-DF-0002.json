@@ -1,0 +1,32 @@
+{
+  "id": "R13-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom: refund limits and over-refund prevention",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Refunds are capped per entry line (net of discounts) and per order; fee lines are refundable separately; repeated and concurrent requests cannot exceed the caps; requests are idempotent.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270103090000_competition_r2_entry_refunds.sql",
+      "symbol_or_migration": "_r2_order_line_caps, _r2_validate_lines, request_competition_order_refund (event_orders FOR UPDATE), unique refund_request_id and stripe_refund_id"
+    }
+  ],
+  "enforcement_point": "Database ledger, row lock on the order, Stripe idempotency key comp-refund:<requestId>.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_r2_entry_refunds.sql",
+      "name": "line cap and requested holds its cap"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Inspected: held amounts (requested, pending, requires_action, succeeded) count against line and order caps under an order row lock. No two-session concurrency test for the request RPC; Dashboard refunds are recorded without a cap check (R13-F6); stale requested rows hold caps (R13-F5). DanceFlow policy, never a governing-body requirement. Read-only inspection; the SQL suites named were NOT executed by this session (PENDING).",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "R-13 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r13-finance-authorization-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule"
+  ],
+  "last_reviewed": "2026-11-24"
+}

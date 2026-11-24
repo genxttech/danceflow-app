@@ -1,0 +1,29 @@
+{
+  "id": "R13-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC events: Member-to-WSDC competitor surcharge for Registry Events.",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "2.2.1-2.2.3 (page not re-read in this session)",
+    "quote_free_summary": "A per-competitor-entry surcharge applies to WSDC Jack and Jill contests only, due within 30 days after the Registry Event and invoiced separately from the Membership Fee."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Member-to-WSDC competitor surcharge for Registry Events.",
+  "implementation": [],
+  "enforcement_point": "None: NOT IMPLEMENTED.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "A separate Member-to-WSDC obligation. NOT IMPLEMENTED. The WSDC hiatus wording on refunds for a canceled event concerns the Member fee, not competitor entries. Rule text from the coordinator brief; source PDF not in this worktree.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "R-13 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r13-finance-authorization-verification.md"
+  ],
+  "last_reviewed": "2026-11-24"
+}
