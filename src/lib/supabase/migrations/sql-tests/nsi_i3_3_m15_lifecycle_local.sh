@@ -67,7 +67,7 @@ mutate "drop the birthday-first rule in declare" "s|  v_res := public.intake_det
 mutate "drop the one-declaration rule" "s|  if exists (select 1 from public.intake_minor_determinations d where d.request_id = q.id) then return 'already_determined'; end if;||" "N09"
 mutate "audit without client_ref (determine)" "s|'minor_determination_recorded', 'system', null, null, q.id, q.client_id,|'minor_determination_recorded', 'system', null, null, q.id, null,|" "N10"
 mutate "staff provenance not stored on the row" "s|declared_value_class, actor_user_id)|declared_value_class)|;s|p_declared, s.issued_by_user) returning id into v_id;|p_declared) returning id into v_id;|" "N10"
-mutate "session state ignores a closed request" "s|  if q.id is null or q.status not in ('pending', 'invited', 'in_progress') then return null; end if;|  if q.id is null then return null; end if;|" "N11"
+mutate "session state never answers unknown" "s|  if not coalesce(v_found, false) then return 'unknown'; end if;|  if false then return 'unknown'; end if;|" "N11"
 mutate "staff read capability wrong" "s|assert_staff(p_studio_id, 'view_status')|assert_staff(p_studio_id, 'minor_override')|" "N12"
 mutate "drop the O11 branch" "s|    if v_source = 'declared' then|    if false then|" "N15"
 mutate "drop the B2 branch" "s|  if v_found is not true then|  if false then|" "N15"
@@ -111,7 +111,7 @@ raceprobe() { # label offset expected-scenario sed-expr
   apply $C 15 || true
 }
 raceprobe "determine without lock_client" 200 "A1" '/create or replace function public.intake_determine_minor_from_birthday/,/^end \$\$;/ s|  perform intake_private.lock_client(p_studio_id, v_client);|  null;|'
-raceprobe "declare without lock_client" 300 "A2" '/create or replace function public.intake_declare_minor_status/,/^end \$\$;/ s|  perform intake_private.lock_client(s.studio_id, v_client);|  null;|'
+raceprobe "declare without lock_client" 300 "A2b" '/create or replace function public.intake_declare_minor_status/,/^end \$\$;/ s|  perform intake_private.lock_client(s.studio_id, v_client);|  null;|'
 raceprobe "determine without the barrier branch after the lock" 400 "B1" "/create or replace function public.intake_determine_minor_from_birthday/,/^end \\\$\\\$;/ s|    if intake_private.erasure_barrier_active(p_studio_id, v_client) then return 'erasure_barrier'; end if;|    null;|"
 raceprobe "determine without the isolation guard" 500 "E1" "/create or replace function public.intake_determine_minor_from_birthday/,/^end \\\$\\\$;/ s|  if current_setting('transaction_isolation') <> 'read committed' then|  if false then|"
 raceprobe "declare without the after-lock session re-read" 600 "D1" "s|  select \\* into s from public.intake_sessions x where x.session_hash = p_session_hash for update;|  null;|"

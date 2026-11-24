@@ -90,13 +90,28 @@ must "A2 declare takes the client lock before it writes (waits for the holder, t
 
 # ---- A3: the two reads never take the client lock
 P=$(seed_client 13); C=${P%%|*}; REST=${P#*|}; R=${REST%%|*}; TK=${P##*|}
-holder "$C" 7; sleep 1; t0=$(date +%s)
+holder "$C" 9; sleep 1
+t0=$(date +%s%N)
 st=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_session_minor_state(decode('$(hexhash "sess-$TK")', 'hex'));" 2>&1 | tail -1)
+t1=$(date +%s%N)
 bs=$(as_staff "$U" "select count(*) from public.intake_minor_basis('$S', '$R');" | tail -1)
-t1=$(date +%s); wait
-ok=0; [ "$st" = "unknown" ] && [ "$bs" = "0" ] && [ $((t1 - t0)) -le 4 ] && ok=1
-note "A3 reads while the client lock is held: state=$st basis_rows=$bs elapsed=$((t1 - t0))s"
-must "A3 session_minor_state and intake_minor_basis do not wait for the client lock" "$ok"
+t2=$(date +%s%N); wait
+d1=$(( (t1 - t0) / 1000000 )); d2=$(( (t2 - t1) / 1000000 ))
+ok=0; [ "$st" = "unknown" ] && [ "$bs" = "0" ] && [ $d1 -lt 4000 ] && [ $d2 -lt 4000 ] && ok=1
+note "A3 reads while the client lock is held: state=$st (${d1} ms) basis_rows=$bs (${d2} ms)"
+must "A3 session_minor_state and intake_minor_basis do not wait for the client lock (each under 4 s while the holder keeps it for 9 s)" "$ok"
+
+# ---- A2b: declare takes the client lock BEFORE it locks the session row (client lock first, then the session row, like the revoke-all path)
+P=$(seed_client 19); C=${P%%|*}; REST=${P#*|}; R=${REST%%|*}; TK=${P##*|}
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select 1 from public.intake_sessions where request_id = '$R' for update; select pg_sleep(8); commit;" > /dev/null 2>&1 ) &
+sleep 1
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "$(declsql "$TK" adult)" > $TD/m15_a2b.out 2>&1 ) &
+sleep 3
+held=$(q "begin; select pg_try_advisory_xact_lock($(lockkey "$C")); rollback;" | grep -E '^(t|f)$' | head -1)
+wait
+ok=0; [ "$held" = "f" ] && [ "$(last $TD/m15_a2b.out)" = "declared_adult" ] && ok=1
+note "A2b declare while another session holds the session row: client lock held by declare=$([ "$held" = f ] && echo yes || echo no) result=$(last $TD/m15_a2b.out)"
+must "A2b declare holds the client lock while it waits for the session row (client lock first, then the session row)" "$ok"
 
 # ---- B1: erase holds the client lock; determine started meanwhile waits, then finds the request gone and the barrier active
 P=$(seed_client 14); C=${P%%|*}; REST=${P#*|}; R=${REST%%|*}; setbd "$C" "$BDAY_ADULT"
@@ -123,7 +138,7 @@ P=$(seed_client 16); C=${P%%|*}; REST=${P#*|}; R=${REST%%|*}; setbd "$C" "$BDAY_
 ( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "$(detsql "$R")" > $TD/m15_c1b.out 2>&1 ) &
 wait
 ra=$(last $TD/m15_c1a.out); rb=$(last $TD/m15_c1b.out)
-ok=0; [ "$(nrows "$R")" = "1" ] && { [ "$ra" = "determined_adult" ] && [ "$rb" = "already_current" ] || [ "$rb" = "determined_adult" ] && [ "$ra" = "already_current" ]; } && ok=1
+ok=0; if [ "$(nrows "$R")" = "1" ]; then if { [ "$ra" = "determined_adult" ] && [ "$rb" = "already_current" ]; } || { [ "$rb" = "determined_adult" ] && [ "$ra" = "already_current" ]; }; then ok=1; fi; fi
 note "C1 two concurrent determinations: $ra / $rb rows=$(nrows "$R")"
 must "C1 two concurrent determinations leave exactly one row (one determined, one already_current)" "$ok"
 
@@ -142,7 +157,9 @@ rr() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin isolat
 e1=$(rr "select public.intake_determine_minor_from_birthday('$S', '$R');")
 e2=$(rr "select public.intake_declare_minor_status(decode('$(hexhash "sess-$TK")', 'hex'), 'adult');")
 e3=$(docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin isolation level read uncommitted; select 1; set local role service_role; select public.intake_determine_minor_from_birthday('$S', '$R'); rollback;" 2>&1 | tr '\n' ' ')
-ok=0; echo "$e1" | grep -q "READ COMMITTED" && echo "$e2" | grep -q "READ COMMITTED" && echo "$e3" | grep -q "READ COMMITTED" && ok=1
+e4=$(rr "select public.intake_determine_minor_from_birthday('$S', gen_random_uuid());")
+note "E1 determine (unknown request) under RR: $(echo "$e4" | cut -c1-80)"
+ok=0; echo "$e4" | grep -q "READ COMMITTED" && echo "$e1" | grep -q "READ COMMITTED" && echo "$e2" | grep -q "READ COMMITTED" && echo "$e3" | grep -q "READ COMMITTED" && ok=1
 note "E1 determine under RR: $(echo "$e1" | cut -c1-80)"
 note "E1 declare under RR: $(echo "$e2" | cut -c1-80)"
 note "E1 determine under READ UNCOMMITTED: $(echo "$e3" | cut -c1-80)"
