@@ -13,6 +13,9 @@
 // docs/competition/governance/rule-register (OD19-*) and docs/competition/od19-custom-format-relabel.md.
 import type { EntryFormatDefinition, SetupProfileDefaults } from "./types";
 
+/** The label of the seeded Studio / Custom profile (studio_simple@3); the display layer applies to it only. */
+export const STUDIO_CUSTOM_PROFILE_LABEL = "Studio / Custom Rules";
+
 export type CustomFormatDisplay = {
   /** The persisted entry_format the profile must carry for the override to apply (default "custom"; OD-28 adds "team"). */
   entryFormat?: string;
@@ -96,7 +99,7 @@ export const STUDIO_DIVISION_DISPLAY: Readonly<Record<string, { note?: string; a
     axes: {
       age_group: {
         replace:
-          "Studio/Custom age labels: Youth, Adult and Senior carry no age thresholds in DanceFlow and do not correspond to any governing-body class. DanceFlow does not check age against these labels, and its launch restriction allows only competitors aged 18 or older whatever the label. Define your own labels if you prefer.",
+          "Studio/Custom age labels: Youth, Adult and Senior carry no age thresholds in DanceFlow and do not correspond to any governing-body class. DanceFlow does not check age against these labels, and DanceFlow's initial-release policy (OD-02) is that all competitors must be 18 or older whatever the label. Define your own labels if you prefer.",
       },
     },
   },
@@ -104,7 +107,7 @@ export const STUDIO_DIVISION_DISPLAY: Readonly<Record<string, { note?: string; a
     axes: {
       age_group: {
         append:
-          "UCWDC Couples II.D.3.a-b document a partner exception for Open and Masters (an adult may dance with a partner aged 16 or above). That exception is NOT available in this DanceFlow release: DanceFlow's initial-release restriction prohibits all competitors under 18, and DanceFlow does not enforce UCWDC age eligibility.",
+          "UCWDC Couples II.D.3.a-b document a partner exception for Open and Masters (an adult may dance with a partner aged 16 or above). That exception is NOT available in this DanceFlow release: DanceFlow's initial-release policy (OD-02) prohibits all competitors under 18, and DanceFlow does not enforce UCWDC age eligibility.",
       },
     },
   },
@@ -116,9 +119,11 @@ export const STUDIO_PARTNERSHIP_DISPLAY_KEYS = Object.keys(STUDIO_PARTNERSHIP_DI
 
 /**
  * Returns the profile with DanceFlow Studio/Custom display wording on the listed `custom` formats. Idempotent,
- * pure, and a no-op for any format that is missing from the profile or is not entry_format "custom".
+ * pure, and a no-op for any format that is missing from the profile or whose entry_format differs from the one its display entry names ("custom" by default). Applies only to the Studio / Custom profile.
  */
 export function withStudioCustomDisplayLabels(profile: SetupProfileDefaults): SetupProfileDefaults {
+  // Only the Studio / Custom profile: a future governing-body profile reusing generic keys must never be relabelled.
+  if (profile.label !== STUDIO_CUSTOM_PROFILE_LABEL) return profile;
   const categoryTypes: Record<string, EntryFormatDefinition> = { ...profile.categoryTypes };
   for (const [key, display] of Object.entries({ ...STUDIO_CUSTOM_DISPLAY, ...STUDIO_PARTNERSHIP_DISPLAY })) {
     const definition = categoryTypes[key];

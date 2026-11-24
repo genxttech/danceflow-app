@@ -30,10 +30,12 @@ describe("R-02 Studio/Custom partnership formats", () => {
   });
 
   it("no Studio partnership or 'Other / Studio-defined' format name or description names a governing body", () => {
-    const studioKeys = Object.keys(P.categoryTypes).filter((k) => /^(studio_|wcs_)/.test(k) || ["custom_routine"].includes(k));
+    const studioKeys = Object.keys(P.categoryTypes).filter((k) => /^(studio_|wcs_)/.test(k) || ["custom_routine", "solo"].includes(k));
     for (const key of studioKeys) {
       expect(D.categoryTypes[key].label, key).not.toMatch(BODY);
       expect(D.categoryTypes[key].description, key).not.toMatch(BODY);
+      expect(D.categoryTypes[key].eligibility_note ?? "", key).not.toMatch(BODY);
+      expect(D.categoryTypes[key].music_source.note ?? "", key).not.toMatch(BODY);
     }
     expect(P.programs.custom.formats.slice(0, 7).map((f) => D.categoryTypes[f].label)).toEqual([
       "Studio/Custom: Pro-Am", "Studio/Custom: Pro-Pro", "Studio/Custom: Couples", "Studio/Custom: Professional couples", "Studio/Custom: Jack & Jill",
@@ -77,11 +79,13 @@ describe("Studio age terminology (AE-26, FD-26, FD-37)", () => {
     expect(note).not.toMatch(/NDCA|Senior I|UCWDC|WSDC/);
   });
 
-  it("OD-02 gate against a Studio 'Youth' division: not testable on this base", () => {
-    // minorsGate.ts (PR 835) is not on this branch. The test that belongs there: a registration whose division is Studio
-    // 'Youth' and whose participant has a date of birth under 18 is refused with minors_not_permitted.
-    expect(ageAxis(D).values.some((v) => v.label === "Youth")).toBe(true);
+  it("the seeded Studio age values carry no eligibility or threshold data at all", () => {
+    expect(JSON.stringify(ageAxis(P).values)).not.toMatch(/eligibility|min_age|max_age|threshold/i);
   });
+
+  // minorsGate.ts (PR 835) is not on this branch. The test that belongs there: a registration whose division is Studio
+  // 'Youth' and whose participant has a date of birth under 18 is refused with minors_not_permitted.
+  it.todo("OD-02 gate still refuses an under-18 competitor in a Studio Youth division (needs PR 835)");
 });
 
 describe("OD-32 AE-08: UCWDC Masters partner exception is stated as unavailable", () => {
@@ -102,8 +106,11 @@ describe("OD-32 AE-08: UCWDC Masters partner exception is stated as unavailable"
     expect(D.divisionSchemes.country_couples.combination).toBe(P.divisionSchemes.country_couples.combination);
   });
 
-  it("the OD-02 gate still refuses under-18: not testable on this base", () => {
-    // Belongs with PR 835: a Country Couples Masters entry with a 16-year-old partner (the UCWDC exception) is refused.
-    expect(axis(D).note).toMatch(/under 18/);
+  // Belongs with PR 835: a Country Couples Masters entry with a 16-year-old partner (the UCWDC exception) is refused.
+  it.todo("OD-02 gate refuses a Country Couples Masters entry with a 16-year-old partner (needs PR 835)");
+
+  it("is not applied to a profile that is not the Studio / Custom profile", () => {
+    const other = { ...P, label: "Some Body Rules" };
+    expect(withStudioCustomDisplayLabels(other)).toBe(other);
   });
 });
