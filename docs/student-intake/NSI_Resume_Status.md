@@ -193,3 +193,6 @@ M14 (sha256 ae6bbf0b…ef2d2) applied to shared DEV via sb.sh; DEV catalog finge
 
 ## 16. M15 APPLIED TO DEV (2026-11-24)
 M15 (sha256 0b700fb2ccb3…cdfe) applied to shared DEV via sb.sh; DEV catalog fingerprint now **3fc0eea416e8f820856935a2b94d078a|776** (was be5a715a…|770), assert_catalog ok, Gate A closed, 0 rows, DEV-safe suites PASS (I1 109, level-10 9, level-11 5). Independent review: CONDITIONAL GO, condition (DEV columns exist) met and added as L05. Report: rehearsal/d11_dev_m15/D11_report_2026-11-24.md. Follow-ups M15.1 (P2-2, P2-3, P2-4 tests) before Gate A. PROD untouched. Next: M16 (I3-2) spec review, then implementation; P1-A rule 4 still a draft.
+
+## 17. M16 (I3-2) spec review (2026-11-24)
+Independent review of NSI_I3_2_DB_Spec.md rev 1: **NO-GO for SQL**, conditional GO for a narrowed first slice; P0 (session holder chose the code recipient), seven P1s. Rev 2 folds all of it in and splits the work: **M16a** (guardian audience, evidence-based respondent guard, erase/purge for new tables, attestation under the existing attest capability), **M16b** (two-party issue with a staff-bound recipient hash, email challenge), **M16c** (decline, O4). No owner decision blocks M16a/M16b; P1-A rule 4, O11, O5b untouched. A quick re-review of rev 2 is recommended before any M16a SQL.
