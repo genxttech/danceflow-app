@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. Advisory/conditional language: tracked as a compliance gap, NOT a mandatory hard blocker, and must not be enforced as one. Docs-only record; no compliance claimed.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "'should' means recommended, not mandatory; do not enforce as a blocker. Studio's 10D floor planner is first-fit and can produce 8 and 1 for nine entries; the readiness heatPlanner balances to within one (OD25-DF-0002). Neither is claimed as UCWDC compliance.",
+  "interpretation_notes": "'should' means recommended, not mandatory; do not enforce as a blocker. Studio's 10D floor planner is first-fit and can produce 8 and 1 for nine entries; the readiness heatPlanner balances to within one (OD25-DF-0002). Neither is claimed as UCWDC compliance. Note: source.effective_from is not stated in the source registry; it follows the convention of sibling entries.",
   "applicable_event_versions": [
     "2026 v16.9b"
   ],

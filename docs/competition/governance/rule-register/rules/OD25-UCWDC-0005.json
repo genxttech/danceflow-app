@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. Advisory/conditional language: tracked as a compliance gap, NOT a mandatory hard blocker, and must not be enforced as one. Docs-only record; no compliance claimed.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "'shall' is qualified by 'Whenever possible', so it is treated as conditional/advisory, not an unconditional hard blocker; confirm with the owner whether any form is mandatory before activation.",
+  "interpretation_notes": "'shall' is qualified by 'Whenever possible', so it is treated as conditional/advisory, not an unconditional hard blocker; confirm with the owner whether any form is mandatory before activation. Both Studio planners put the larger heat first (10D first-fit gives 8 then 1; balancedGroups gives the remainder to the earliest groups), the opposite of this advisory order. Note: source.effective_from is not stated in the source registry; it follows the convention of sibling entries.",
   "applicable_event_versions": [
     "2026 v16.9b"
   ],

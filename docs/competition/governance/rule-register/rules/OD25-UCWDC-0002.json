@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. Advisory/conditional language: tracked as a compliance gap, NOT a mandatory hard blocker, and must not be enforced as one. Docs-only record; no compliance claimed.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "Conditional and permissive wording ('If ... allow', 'may'): not a hard blocker. Studio's planners do not co-mingle divisions in the same way and no equivalence is claimed.",
+  "interpretation_notes": "Conditional and permissive wording ('If ... allow', 'may'): not a hard blocker. Studio's planners do not co-mingle divisions in the same way and no equivalence is claimed. Note: source.effective_from is not stated in the source registry; it follows the convention of sibling entries.",
   "applicable_event_versions": [
     "2026 v16.9b"
   ],

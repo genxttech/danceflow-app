@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. Advisory/conditional language: tracked as a compliance gap, NOT a mandatory hard blocker, and must not be enforced as one. Docs-only record; no compliance claimed.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "'recommended' and 'preferred': not mandatory. The example about the greatest number in the middle heat is illustrative.",
+  "interpretation_notes": "'recommended' and 'preferred': not mandatory. The example about the greatest number in the middle heat is illustrative. Note: source.effective_from is not stated in the source registry; it follows the convention of sibling entries.",
   "applicable_event_versions": [
     "2026 v16.9b"
   ],

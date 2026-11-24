@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body's scoring profile. Docs-only record; no compliance claimed. Not authorized: planner, SQL, UI changes.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "Mandatory ('must'). Whether Studio schedules a division's heats contiguously was not verified; the 10D planner groups by division and dance/run unit but also packs heats into earliest floor heats with the same music key, so contiguity is not guaranteed and is not claimed.",
+  "interpretation_notes": "Mandatory ('must'). NOT enforced by either planner: the 10D floor planner packs each scoring heat into the earliest floor heat with room, so a later heat of a division can be placed before or apart from an earlier one and other divisions can fall between a division's heats; the readiness heatPlanner places a job's heats back to back in a block, which is emergent, not enforced (and single-dance contests make a job per dance). No contiguity is claimed. Note: source.effective_from is not stated in the source registry; it follows the convention of sibling entries.",
   "applicable_event_versions": [
     "2026 v16.9b"
   ],

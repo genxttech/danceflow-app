@@ -17,7 +17,7 @@
   "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body's scoring profile. Docs-only record; no compliance claimed. Not authorized: planner, SQL, UI changes.",
   "tests": [],
   "verification_status": "unsupported",
-  "interpretation_notes": "'must be randomized' is mandatory; the retire-to-the-back instruction is 'should', advisory and operational (Emcee), not a system requirement. Reproducible randomization design: record seed and algorithm version at generation, store the final order, treat any re-draw as an audited new version, and never shuffle after publication. The existing heatPlanner records a seed and engine version but is not a UCWDC implementation (OD25-DF-0002).",
+  "interpretation_notes": "'must be randomized' is mandatory; the retire-to-the-back instruction is 'should', advisory and operational (Emcee), not a system requirement. Reproducible randomization design: record seed and algorithm version at generation, store the final order, treat any re-draw as an audited new version, and never shuffle after publication. The existing heatPlanner records a seed and engine version but is not a UCWDC implementation (OD25-DF-0002). Note: source.effective_from is not stated in the source registry; it follows the convention of sibling entries.",
   "applicable_event_versions": [
     "2026 v16.9b"
   ],

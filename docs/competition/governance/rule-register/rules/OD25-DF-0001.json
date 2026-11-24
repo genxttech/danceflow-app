@@ -4,7 +4,7 @@
   "format": "Studio / Custom events: scoring-heat capacity and the deterministic floor planner",
   "source": null,
   "rule_class": "dance_flow_policy",
-  "requirement": "DanceFlow product default (not a sanctioning rule): scoring-heat capacity is configurable per round (1..100, default 8 via DEFAULT_SCORING_HEAT_CAPACITY); the 10D floor planner is deterministic: it splits a division by capacity in entry order (first-fit; 9 entries give heats of 8 and 1, not balanced) without putting one competitor twice in a scoring heat. The callback-Final capacity guard keeps target_capacity between 1 and 100. Preserved unchanged by OD-25 Option B.",
+  "requirement": "DanceFlow product default (not a sanctioning rule): scoring-heat capacity is configurable per round (1..100, default 8 via DEFAULT_SCORING_HEAT_CAPACITY); the 10D floor planner is deterministic: it splits a division by capacity in entry order (first-fit; capacity is read from the division's first round only; 9 entries give heats of 8 and 1, not balanced) without putting one competitor twice in a scoring heat. The callback-Final ledger column target_capacity has a 1..100 CHECK (the guard function itself reads max_entries_per_heat without that range check; a configured value above 100 is not verified). Preserved unchanged by OD-25 Option B.",
   "implementation": [
     {
       "path": "src/lib/competition/floorPlanner.ts",
