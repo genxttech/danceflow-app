@@ -4,7 +4,7 @@
   "format": "Studio/Custom organizer exclusion (CF1 A5)",
   "source": null,
   "rule_class": "dance_flow_policy",
-  "requirement": "An organizer exclusion (request plus a second person's co-sign, with a recorded reason) is shown everywhere as 'Excluded (organizer decision)'. It is never worded as a governing-body disqualification. Scratch, No-show, Excluded and Disqualified stay distinct; the status 'disqualified' is not a supported DanceFlow disciplinary action.",
+  "requirement": "On the manager/staff results review surface and the action notices, an organizer exclusion (request plus a second person's co-sign, with a recorded reason) is labelled 'Excluded (organizer decision)' and is never worded as a governing-body disqualification.",
   "implementation": [
     {
       "path": "src/lib/competition/results/reviewTypes.ts",
@@ -28,14 +28,10 @@
     {
       "path": "src/lib/competition/results/__tests__/exclusionWording.od20.test.ts",
       "name": "no user-facing exclusion surface says disqualified / DQ / disqualification (except the explicit disclaimer)"
-    },
-    {
-      "path": "src/lib/competition/results/__tests__/exclusionWording.od20.test.ts",
-      "name": "exclusion state machine"
     }
   ],
   "verification_status": "verified_compliant",
-  "interpretation_notes": "Wording only. The public results page still shows 'Not placed' for scratched, no-show and excluded couples together (the public reader does not expose the kind); see OD20-DISQUALIFIED-STATUS-REACHABILITY for the separate status gap.",
+  "interpretation_notes": "Scope is wording on the manager results surface and notices only. Not covered: the public results page lumps scratched, no-show and excluded couples as 'Not placed' (the public reader does not expose the kind); the separate distinctness of Scratch / No-show / Excluded / Disqualified and the reachability of the status 'disqualified' are tracked in OD20-DISQUALIFIED-STATUS-REACHABILITY. Regression snapshots of existing behavior are in the same test file but are not evidence that the wording changed nothing.",
   "applicable_event_versions": [
     "studio_simple@3"
   ],

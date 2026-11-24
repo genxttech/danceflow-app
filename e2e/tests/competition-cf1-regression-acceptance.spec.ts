@@ -292,7 +292,7 @@ test.describe("CF1 cross-discipline regression and OD-17 scope (CF1-C)", () => {
     await lockCalcApprove(browser, s, testInfo);
     const review = await signedIn(browser, fixture.owner);
     await review.goto(`/app/events/${s.event.id}/competition/results/${s.finalRoundId}`);
-    await expect(review.getByRole("heading", { name: "Excluded from the ranking" })).toBeVisible();
+    await expect(review.getByRole("heading", { name: "Excluded (organizer decision)" })).toBeVisible();
     await expect(review.getByText(coupleName(3)).first()).toBeVisible();
     await expect(review.getByText(/No-show/i)).toHaveCount(0);
     await review.context().close();
