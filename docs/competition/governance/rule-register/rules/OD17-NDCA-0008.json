@@ -16,7 +16,7 @@
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6D): _compoc_blockers_panel_change and panel-change records for NDCA-declared events. Not built.",
   "tests": [],
-  "verification_status": "requires_interpretation",
+  "verification_status": "inconsistent",
   "interpretation_notes": "SOURCE INCONSISTENCY: the cross-reference looks mis-numbered. Unresolved; not relied on. NOT IMPLEMENTED (design only, PR-A section 6D): a BLOCKER to activating an NDCA profile; no test; no compliance claimed. Organizer-entered references are attested, not verified by DanceFlow or NDCA.",
   "applicable_event_versions": [
     "June 2026, Master v1"

@@ -56,6 +56,10 @@ Recorded per rule 3 below. Each one that affects eligibility or integrity fails 
 | NDCA | Rule Book IV.A.1 (p.25) versus IV.D.1.a(2) (p.28) | Definition of "immediate family" for the excuse-yourself duty: IV.A.1 enumerates (spouse, children, parent, sibling, grand-parent, grand-child, niece, nephew, in-law, first cousin); IV.D.1.a(2) says "first cousin or above" (open-ended, undefined) | No NDCA family/household definition is implemented or claimed; automatic checks cover accounts only (OD-05) | `OD05-NDCA-0001`, `OD05-NDCA-0002`, `OD05-NDCA-0003` |
 | NDCA | Rule Book III.B.4 (p.16) versus III.B.5 (p.16) and III.B.6 (p.16-17) | III.B.4 sends "substitute adjudicator" to III.B.5, which is the World Dance Council non-resident rule; substitution is in III.B.6 | Cross-reference not relied on; no NDCA substitution rule derived from it (OD-17) | `OD17-NDCA-0008` |
 
+## Page-number convention
+
+Citations use the **printed** page number of the document (NDCA and WSDC printed footers; UCWDC Couples "Page N of 17"). Printed and PDF page numbers differ for some files (for example UCWDC Couples II.B.1.b is printed p.3 and PDF page 5). The UCWDC Scoring Format text cited as p.3 is on PDF page 3; its printed page number was not extracted (neighbouring pages carry footers 2 and 4), so confirm visually before relying on the number.
+
 ## Rules for using a source
 
 1. Read the rule in the document itself. A summary or extraction can point to a section, but the citation is only valid once the section text has been read.

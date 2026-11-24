@@ -9,15 +9,15 @@
     "effective_to": null,
     "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
     "section": "III.B.1.b (p.14), III.B.4, III.B.4.a-b (p.16)",
-    "quote_free_summary": "At least one qualified Chairman must officiate; the Chairman must be a U.S. resident, on the current roster, with full membership in all categories of the event, plus a Scrutineering Certificate for a Championship; levels CH1-CH3 limit which events they may chair (CH1 and CH2 also need an active S1 Scrutineer License). A Scrutineer may not serve as Chairman at the same event. The Chairman should be non-voting if possible (recommended). A Scrutineer may not serve as Chairman."
+    "quote_free_summary": "At least one qualified Chairman must officiate; the Chairman must be a U.S. resident, on the current roster, with full membership in all categories of the event, plus a Scrutineering Certificate for a Championship; levels CH1-CH3 limit which events they may chair (CH1 and CH2 also need an active S1 Scrutineer License). The Chairman should be non-voting if possible (recommended). The text says a Scrutineer may not serve as a Chairman of Adjudicators."
   },
   "rule_class": "mandatory",
   "requirement": "DanceFlow requirement implementing the body rule: body role assignable only with a verified, unexpired credential set; never the generic chair or a manager. A person holding both credentials is not blocked, only from both roles in one event.",
   "implementation": [],
   "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6B): attestation record and credential records, surfaced through _compoc_blockers_qualifications. Not built.",
   "tests": [],
-  "verification_status": "unsupported",
-  "interpretation_notes": "No roster, membership or certificate data exists (audit J-05/J-06). The non-voting preference is recommended wording and belongs to OD-16. Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification. Source tension: III.B.1.f lets a back-up Scrutineer be the chairman. III.B.4 cross-refers substitution to III.B.5 (WDC non-resident rule), which looks mis-numbered; not copied as fact.",
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "No roster, membership or certificate data exists (audit J-05/J-06). The non-voting preference is recommended wording and belongs to OD-16. Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification. Source tension: III.B.1.f lets a back-up Scrutineer be the chairman. III.B.4 cross-refers substitution to III.B.5 (WDC non-resident rule), which looks mis-numbered; not copied as fact. \"At the same event\" is a DanceFlow interpretation: III.B.4 does not say so.",
   "applicable_event_versions": [
     "June 2026, Master v1"
   ],
