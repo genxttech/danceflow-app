@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "last_reviewed": "2026-11-24",
+  "decision_refs": [
+    "R-14",
+    "OD-01"
+  ],
+  "id": "R14-UCWDC-COMPETITOR-MEETING",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Competitor Meeting (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.R.1 (printed p14)",
+    "quote_free_summary": "Contest logistics and schedules are discussed at the official Competitors Meeting held at some UCWDC events; otherwise competitors ask the Contest Coordinator."
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "Not every event holds a Competitor Meeting; a future UCWDC profile may offer it as optional.",
+  "enforcement_point": "NOT IMPLEMENTED.  DanceFlow does not verify or fulfill it; it remains the organizer's responsibility (R-14) unless DanceFlow explicitly implements and verifies it in a future body profile. It must not block eligible Studio/Custom competitions.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "Re-read 2026-11-24: 'held at some UCWDC events' (optional).",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ]
+}

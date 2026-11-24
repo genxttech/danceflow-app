@@ -253,6 +253,13 @@ export type Sanctioning = (typeof SANCTIONING_VALUES)[number];
  * Structured disclosure. `text` is PROVISIONAL: S4-2 wording is still open with the owner. The declaration is the
  * organizer's own claim; DanceFlow does not verify or imply a sanction, and selecting a method never changes it.
  */
+/**
+ * R-14: shown wherever a governing-body sanction declaration is possible. It is NOT a compliance bypass and does not relax any
+ * restriction on declared events: it only states what DanceFlow does not do.
+ */
+export const OPERATIONAL_REQUIREMENTS_DISCLOSURE =
+  "DanceFlow does not currently verify or fulfill the applicable governing-body operational and reporting requirements (venue, timetable, meetings, reporting deadlines, surcharges and similar). These remain the organizer's responsibility.";
+
 export function sanctioningDisclosure(value: string | null | undefined): {
   declared: boolean;
   verifiedByDanceFlow: false;
@@ -264,6 +271,6 @@ export function sanctioningDisclosure(value: string | null | undefined): {
   return {
     declared: true,
     verifiedByDanceFlow: false,
-    text: `The organizer states this event is sanctioned by ${body}. DanceFlow has not verified this.`,
+    text: `The organizer states this event is sanctioned by ${body}. DanceFlow has not verified this. ${OPERATIONAL_REQUIREMENTS_DISCLOSURE}`,
   };
 }

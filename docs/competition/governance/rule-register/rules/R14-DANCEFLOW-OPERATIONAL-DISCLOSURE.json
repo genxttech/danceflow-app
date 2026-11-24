@@ -1,0 +1,31 @@
+{
+  "implementation": [
+    {
+      "path": "src/lib/competition/scoring/registry.ts",
+      "symbol_or_migration": "OPERATIONAL_REQUIREMENTS_DISCLOSURE"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/registry.test.ts",
+      "name": "a declared sanction is the organizer's claim, unverified, and independent of the method"
+    }
+  ],
+  "last_reviewed": "2026-11-24",
+  "decision_refs": [
+    "R-14",
+    "OD-01"
+  ],
+  "id": "R14-DANCEFLOW-OPERATIONAL-DISCLOSURE",
+  "governing_body": "dance_flow_policy",
+  "format": "Sanction declaration surfaces",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Wherever a governing-body sanction declaration is shown, DanceFlow states that it does not currently verify or fulfill the applicable operational and reporting requirements (venue, timetable, meetings, reporting deadlines, surcharges and similar) and that these remain the organizer's responsibility. The disclosure is not a compliance bypass: OD-01 restrictions on declared events are unchanged.",
+  "enforcement_point": "Text appended by sanctioningDisclosure() for a declared sanction (advanced page). The wizard's Studio/Custom text (never means sanctioned or approved) and the settings page remain as they were. Not shown in event registration, results or public pages.",
+  "verification_status": "unverified",
+  "interpretation_notes": "Unverified: only the advanced page uses the disclosure; the event-level declaration setter and public surfaces are outside this change.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ]
+}

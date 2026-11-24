@@ -38,3 +38,7 @@ OD-28 decided 2026-11-23 (Option B); see [od28-team-offerings-relabel.md](../../
 ## R-03 / R-04 / R-05 / R-09 follow-ups
 
 See [r03-r09-wording.md](../../r03-r09-wording.md). Open: team roster changes and staff-created entries have no database-level under-18 guard (release blocker, separate SQL approval); organizer-configurable age ranges are a separate design (thresholds, validation, audit history, compatibility review); non-Studio schemes still list under-18 age divisions; the DanceFlow role note is not yet shown in the public builder.
+
+## R-14 follow-ups (operational obligations)
+
+See [r14-operational-obligations-audit.md](../../r14-operational-obligations-audit.md). Open: the WSDC surcharge field on the advanced page creates a competitor-facing per-entry fee rule (review separately); no venue, meeting, timetable-window or reporting-deadline checks exist; the UCWDC personal-data requirements need a privacy-design review.

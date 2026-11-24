@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "last_reviewed": "2026-11-24",
+  "decision_refs": [
+    "R-14",
+    "OD-01"
+  ],
+  "id": "R14-WSDC-COMPETITOR-SURCHARGE",
+  "governing_body": "WSDC",
+  "format": "WSDC Member Competitor Surcharge",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "2.2.1-2.2.3 (printed p8)",
+    "quote_free_summary": "Members pay the WSDC a Competitor Surcharge of $2 per competitor entry per Jack and Jill contest, due within 30 days after the Registry Event closes."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future WSDC profile must track the surcharge as an organizer obligation, not a competitor charge.",
+  "enforcement_point": "NOT IMPLEMENTED.  DanceFlow does not verify or fulfill it; it remains the organizer's responsibility (R-14) unless DanceFlow explicitly implements and verifies it in a future body profile. It must not block eligible Studio/Custom competitions.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "WSDC: effective_from 2026-01-17 is taken from the file name (Updated Jan17 2026); the footers read Version 2026.1C and the file name says 2026.1B (registry note). Re-read 2026-11-24. The obligation is the member's (organizer's) to the WSDC. DanceFlow must NOT automatically collect or charge it to competitors and does not remit it. FINDING: the advanced page WSDC profile form creates an active flat per-entry fee rule 'WSDC competitor surcharge' when the organizer enters an amount (actions.ts, event_competition_fee_rules), which the registration quote charges to competitors; that is organizer-configured, not automatic, but it is a behavior to review separately. BLOCKER for a WSDC profile.",
+  "applicable_event_versions": [
+    "Version 2026.1C"
+  ]
+}

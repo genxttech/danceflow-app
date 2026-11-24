@@ -1,0 +1,29 @@
+{
+  "implementation": [],
+  "tests": [],
+  "last_reviewed": "2026-11-24",
+  "decision_refs": [
+    "R-14",
+    "OD-01"
+  ],
+  "id": "R14-NDCA-FLOOR-SIZE",
+  "governing_body": "NDCA",
+  "format": "NDCA sanctioned events: dance floor",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.22 (printed p22)",
+    "quote_free_summary": "Competition floors must be at least 60 by 36 feet (2,160 square feet); Championship floors at least 66 by 42 feet; floors free of obstructions; exceptions for competitions only by Ballroom Department Committee approval."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must verify floor dimensions.",
+  "enforcement_point": "NOT IMPLEMENTED.  DanceFlow does not verify or fulfill it; it remains the organizer's responsibility (R-14) unless DanceFlow explicitly implements and verifies it in a future body profile. It must not block eligible Studio/Custom competitions.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed. Re-read 2026-11-24. BLOCKER for an NDCA profile; the venue size is never checked today.",
+  "applicable_event_versions": [
+    "June 2026"
+  ]
+}
