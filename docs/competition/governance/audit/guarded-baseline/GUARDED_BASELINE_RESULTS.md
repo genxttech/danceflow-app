@@ -101,3 +101,7 @@ Composition: live line `49dbaee1b` Competition migrations + JC1/U18/U18-S from `
 | R2 entry refunds | **NOT EXECUTABLE in this composition**: the suite activates a heat by direct update, which the O1 heat-status guard refuses (`COMPO1_HEAT_STATUS_WRITER`); the release plan already records a fixture variant for this suite. Not a guard result |
 
 Raw tables: `evidence/`. Rows in section C that depended on a **[EXEC, section F]** run are now: U18/U18-S/HL1/A5/A6/F2 rows **[EXEC]**; NS1 and R2 refund rows remain **inspection only** (suites not executable here); Multi-Dance (R-08) not verified. Not covered by any test here: SC1 (absent), the OD PRs, application/browser behaviour, PostgREST (roles were simulated with SET ROLE, not through the API), and the hosted databases.
+
+## G. S6 / S7 follow-up (2026-11-24)
+
+See [S6_S7_RECONCILIATION.md](S6_S7_RECONCILIATION.md): F1 reconciled with the hosted guard state (class: distinct gap, previously accepted 2026-11-13 and not an answer to OD-20 item 4), executed per-status matrix, local-vs-hosted catalog comparison, byte-identity table for the nine JC1/U18/U18-S files, and a design-only correction. F3 there is downgraded to "no refusal observed" (no read-back).
