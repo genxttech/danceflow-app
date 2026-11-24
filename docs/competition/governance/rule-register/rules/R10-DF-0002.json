@@ -1,0 +1,16 @@
+{
+  "id": "R10-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: judging panel readiness and recovery",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: when a judge becomes unavailable after a round has started, cancellation must not be the only recovery; a controlled, authorized, audited recovery process preserves existing ballots and historical assignments.",
+  "implementation": [],
+  "enforcement_point": "Planned: panel recovery cases and RPCs (design only). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "UNSUPPORTED. The only exit today is cancel_competition_round (refused after publication). A judge with ballots cannot be recorded absent. Class A (no ballots) and B1 (withdraw after ballots) are designed; B2 (retire ballots and re-dance) needs an owner decision (Q-R10-4). Coordinated with OD-17 (Studio unchanged; NDCA profile later), OD-05/06/11.",
+  "applicable_event_versions": ["DanceFlow policy"],
+  "decision_refs": ["R-10 (owner decision 2026-11-23: parts 1-2 ratified; part 3 mandatory Studio/Custom release blocker, open)", "docs/competition/governance/judging-integrity/R10-studio-panel-readiness-correction.md"],
+  "last_reviewed": "2026-11-23"
+}
