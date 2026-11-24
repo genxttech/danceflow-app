@@ -92,7 +92,7 @@ not applied to any database", keep function bodies LF-only (Phase 10D CRLF lesso
 3. **A live order that was reordered is not reverted by the rollback.** `floor_heats.heat_number` keeps the last applied order (it is the live order, and
    frozen heats have run in it). The rollback runbook states this, and the revision table export is the record of how the order got there.
 4. **Mechanical check**: apply all, run the suite, roll back in reverse, assert the schema fingerprint equals the pre-apply baseline (runner pattern
-   `scripts/qa/cf1-db-settlement.mjs`), and assert the CF1 apply path still appends a Final (guard still permits the CF1 bypass after rollback).
+   `scripts/qa/cf1-db-settlement.mjs`, from open PR #833, not on the base), and assert the CF1 apply path still appends a Final (guard still permits the CF1 bypass after rollback).
 5. **Application rollback first** (the console and server action ship dark behind a flag; the flag is turned off before SQL is rolled back).
 6. **No data migration** is needed: heads are created lazily; nothing backfills existing events.
 
