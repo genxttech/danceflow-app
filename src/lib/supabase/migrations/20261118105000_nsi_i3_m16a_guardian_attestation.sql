@@ -524,7 +524,7 @@ create or replace function intake_private.audit_write(
   p_metadata jsonb, p_retention_class text)
 returns void language plpgsql security definer
 set search_path = pg_catalog, pg_temp
-as $
+as $$
 -- nsi-body:m16a
 declare
   v_policy record;
@@ -560,7 +560,7 @@ begin
     client_ref, object_type, object_ref, hold_ref, metadata, retention_class, retain_until, retention_state)
   values (p_studio_id, p_event_type, p_actor_type, p_actor_user_id, p_actor_role, p_request_ref, p_client_ref,
     p_object_type, p_object_ref, p_hold_ref, v_meta, p_retention_class, v_until, v_state);
-end $;
+end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Table: staff attestation of a guardian (L0). Immutable; one per respondent. Holds NO name and NO address.
@@ -645,7 +645,7 @@ create trigger intake_guardian_attestations_no_truncate before truncate on publi
 create or replace function intake_private.respondents_guard()
 returns trigger language plpgsql
 set search_path = pg_catalog, pg_temp
-as $
+as $$
 -- nsi-body:m16a
 begin
   if new.id <> old.id or new.studio_id <> old.studio_id or new.request_id <> old.request_id
@@ -668,7 +668,7 @@ begin
     raise exception 'nsi: respondent redaction is reserved to the restricted role' using errcode = '42501';
   end if;
   return new;
-end $;
+end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- Staff RPC: attest a guardian respondent. Outcome words; nothing personal is stored or returned.
@@ -737,7 +737,7 @@ create or replace function intake_private.erase_client_impl(p_studio_id uuid, p_
   p_reason_code text, p_drift boolean, p_case_ref text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, pg_temp
-as $
+as $$
 -- nsi-body:m16a
 declare
   v_counts jsonb := '{}'::jsonb;
@@ -789,7 +789,7 @@ begin
     jsonb_strip_nulls(jsonb_build_object('counts', v_counts, 'drift', p_drift, 'reason_code', p_reason_code, 'case_ref', p_case_ref)),
     'erasure_record');
   return v_counts || jsonb_build_object('outcome', 'erased');
-end $;
+end $$;
 revoke all on function intake_private.erase_client_impl(uuid, uuid, uuid, text, boolean, text) from public, anon, authenticated, service_role;
 grant execute on function intake_private.erase_client_impl(uuid, uuid, uuid, text, boolean, text) to postgres;
 reset role;
