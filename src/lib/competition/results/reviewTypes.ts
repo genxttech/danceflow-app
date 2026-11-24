@@ -44,7 +44,10 @@ export function parseReviewExcluded(review: unknown): ReviewExcludedCouple[] {
   return out;
 }
 
+/** OD-20: an organizer exclusion is always shown as this label (it is not a governing-body ruling). */
+export const EXCLUDED_LABEL = "Excluded (organizer decision)";
+
 /** The label a results page or a publication shows for an excluded couple (F3 owns the final wording; this is the required content). */
 export function excludedCoupleLabel(couple: Pick<ReviewExcludedCouple, "reason_kind" | "reason">): string {
-  return `Excluded (${couple.reason_kind}), ${couple.reason}`;
+  return `${EXCLUDED_LABEL}: ${couple.reason_kind}, ${couple.reason}`;
 }

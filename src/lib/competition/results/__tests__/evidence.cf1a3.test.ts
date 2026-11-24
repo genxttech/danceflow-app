@@ -71,7 +71,7 @@ describe("CF1 A3 review 'excluded' section", () => {
   it("reads the section and shows the recorded reason (never a no-show)", () => {
     const couples = parseReviewExcluded({ excluded: [row] });
     expect(couples).toHaveLength(1);
-    expect(excludedCoupleLabel(couples[0])).toBe("Excluded (refunded), Registration refunded after the heat was danced");
+    expect(excludedCoupleLabel(couples[0])).toBe("Excluded (organizer decision): refunded, Registration refunded after the heat was danced");
     expect(excludedCoupleLabel(couples[0])).not.toMatch(/no.?show/i);
   });
 

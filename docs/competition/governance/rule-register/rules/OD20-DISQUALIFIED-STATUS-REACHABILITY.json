@@ -1,0 +1,23 @@
+{
+  "id": "OD20-DISQUALIFIED-STATUS-REACHABILITY",
+  "governing_body": "dance_flow_policy",
+  "format": "Heat-entry and entry status 'disqualified'",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "'disqualified' must not be writable or displayed as if it were a supported DanceFlow disciplinary action.",
+  "implementation": [],
+  "enforcement_point": "No application code writes the status (static test). On this base the database does not stop a manager writing event_competition_heat_entries.status = 'disqualified' through the table API (competition_manage policy); the U18 trigger guard that refuses it exists in migration 20270215093000 on the competition-cf1 release line (PR 483) but is NOT on release/website-embeds. event_competition_entries.status = 'disqualified' is not covered by U18 on either line. A SQL fix is a separate owner approval; this PR does not write or apply SQL.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Readers of 'disqualified' (all treat it as a terminal/danced-like status, not a ruling): ballots/actions.ts and ballots/[roundId]/page.tsx (heat danced detection), noShow.ts canMarkNoShow, payments/competitionRefundSummary.ts (active entry test), payments/competitionRefundRules.ts (type), registration status page (shown as 'Not eligible'); SQL: HL1 _hl1_heat_is_danced, NS1 mark refusal, R2 refund locks, 10D.1. Needed SQL (separate approval): carry the U18 guard to this release line and extend it to event_competition_entries.status.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-20",
+    "OD-01",
+    "OD-07",
+    "OD-04"
+  ]
+}

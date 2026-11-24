@@ -222,7 +222,7 @@ export async function requestExclusionAction(formData: FormData): Promise<void> 
   });
   revalidatePath(returnTo);
   if (error) back(returnTo, { error: errorText(error) });
-  back(returnTo, { saved: "Exclusion requested. It takes effect when a different person co-signs it." });
+  back(returnTo, { saved: "Exclusion (organizer decision) requested. It takes effect when a different person co-signs it." });
 }
 
 /** A chair or a different manager co-signs a pending exclusion request (`decisionId` is the request row). */
@@ -235,7 +235,7 @@ export async function cosignExclusionAction(formData: FormData): Promise<void> {
   const { error } = await rpc("cosign_round_exclusion", { p_decision_id: decisionId, p_request_id: requestId });
   revalidatePath(returnTo);
   if (error) back(returnTo, { error: errorText(error) });
-  back(returnTo, { saved: "Exclusion co-signed. The couple is out of this round's ranking. Judges' submitted ballots may need correcting." });
+  back(returnTo, { saved: "Exclusion (organizer decision) co-signed. The couple is out of this round's ranking. Judges' submitted ballots may need correcting." });
 }
 
 /** After the cause is corrected, a manager requests that the exclusion be reversed. */
@@ -268,7 +268,7 @@ export async function cosignExclusionReversalAction(formData: FormData): Promise
   const { error } = await rpc("cosign_round_exclusion_reversal", { p_decision_id: decisionId, p_request_id: requestId });
   revalidatePath(returnTo);
   if (error) back(returnTo, { error: errorText(error) });
-  back(returnTo, { saved: "Exclusion reversed. The couple is back in this round's ranking." });
+  back(returnTo, { saved: "Exclusion (organizer decision) reversed. The couple is back in this round's ranking." });
 }
 
 // ----- A6: withdrawal and reinstatement of an advanced couple (on the Final round) -----

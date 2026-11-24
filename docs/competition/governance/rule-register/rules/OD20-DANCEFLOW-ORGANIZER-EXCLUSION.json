@@ -1,0 +1,45 @@
+{
+  "id": "OD20-DANCEFLOW-ORGANIZER-EXCLUSION",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom organizer exclusion (CF1 A5)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "On the manager/staff results review surface and the action notices, an organizer exclusion (request plus a second person's co-sign, with a recorded reason) is labelled 'Excluded (organizer decision)' and is never worded as a governing-body disqualification.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/reviewTypes.ts",
+      "symbol_or_migration": "EXCLUDED_LABEL"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/results/[roundId]/CallbackPanels.tsx",
+      "symbol_or_migration": "EXCLUDED_LABEL"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/results/actions.ts",
+      "symbol_or_migration": "Exclusion (organizer decision) co-signed."
+    }
+  ],
+  "enforcement_point": "Wording in the results review UI and action notices; behavior stays in the CF1 A5 database functions (migration 20270120094000), unchanged.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/__tests__/exclusionWording.od20.test.ts",
+      "name": "the label is 'Excluded (organizer decision)' and is used for managers and everyone else"
+    },
+    {
+      "path": "src/lib/competition/results/__tests__/exclusionWording.od20.test.ts",
+      "name": "no user-facing exclusion surface says disqualified / DQ / disqualification (except the explicit disclaimer)"
+    }
+  ],
+  "verification_status": "verified_compliant",
+  "interpretation_notes": "Scope is wording on the manager results surface and notices only. Not covered: the public results page lumps scratched, no-show and excluded couples as 'Not placed' (the public reader does not expose the kind); the separate distinctness of Scratch / No-show / Excluded / Disqualified and the reachability of the status 'disqualified' are tracked in OD20-DISQUALIFIED-STATUS-REACHABILITY. Regression snapshots of existing behavior are in the same test file but are not evidence that the wording changed nothing.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-20",
+    "OD-01",
+    "OD-07",
+    "OD-04"
+  ]
+}

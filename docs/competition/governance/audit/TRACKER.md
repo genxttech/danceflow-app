@@ -26,3 +26,7 @@ copy, see [od19-custom-format-relabel.md](../../od19-custom-format-relabel.md). 
 FD-29 stay open for the future body profiles: register entries `OD19-*` record role enforcement as NOT IMPLEMENTED and
 a BLOCKER for those profiles. Open: persisted contest names for new setups still carry the legacy label (needs an
 owner decision on a migration or render-time mapping).
+
+## OD-20 follow-ups (organizer exclusion only)
+
+OD-20 decided 2026-11-23 (Option A, organizer exclusion only for initial activation); see [od20-organizer-exclusion-wording.md](../../od20-organizer-exclusion-wording.md). Register entries `OD20-*` record UCWDC missed-call disqualification, UCWDC exclusion and Judge Review Board, NDCA D rule and eligibility-dispute routing as NOT IMPLEMENTED blockers for future body profiles. Open: the `disqualified` heat-entry status is directly writable by a manager on release/website-embeds (U18 guard not on this line; needs a separately approved SQL change).
