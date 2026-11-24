@@ -43,7 +43,7 @@ Sources are in the research fact sheet; items marked "not verified" could not be
 | Recurring-charge cron on with the database switch, proven on a credit studio | not needed | not needed (pilot refused by design) | required |
 | Funding-exposure scan (unfunded numbers and resources) alerting platform admins | recommended | recommended | required |
 | Inbound absorbed alert and hold or daily cap for ALL businesses | not needed | not needed | required |
-| Stripe dispute: automatic hold, admin alert, dispute fee recorded as DanceFlow-borne | not needed | not needed | required (before studios pay by Stripe) |
+| Stripe dispute: automatic hold, admin alert, dispute fee estimate recorded, allocation undecided | not needed | not needed | required (before studios pay by Stripe) |
 | Negative-balance hold and alert | not needed | required | required |
 | Twilio bill ingestion or a scheduled manual invoice reconciliation | not needed | not needed | required |
 | DB financial suites in CI against a dedicated Postgres | not needed | not needed | required |
