@@ -10,15 +10,16 @@ import {
   validateEligibilityDecision,
 } from "../eligibilityGate";
 import { loadEntryOperationalGates } from "../eligibilityGateServer";
+import { entryFingerprint } from "../eligibilityGate";
 import { isSchedulableEntry } from "../floorPlanner";
 
 const NOW = new Date("2026-11-23T12:00:00Z");
 const ADULT = "1990-01-01";
 const MINOR = "2012-01-01";
-const good = buildEligibilityDetermination({ by: "user-1", role: "organizer_admin", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["age_division"], now: NOW });
+const good = buildEligibilityDetermination({ by: "user-1", role: "organizer_admin", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["age_division"], fingerprint: "fp", now: NOW });
 // An age-restricted division with no level label and no pro/am participants: only the age criterion applies.
-const base = { status: "confirmed", eligibilityStatus: "eligible", ageLabel: "Senior I", skillLabel: null, participantRoles: ["dancer", "dancer"], metadata: { eligibility_determination: good }, participantDobs: [ADULT, ADULT] };
-const waiverDetermination = buildEligibilityDetermination({ by: "user-1", role: "organizer_admin", outcome: "waived", reasonCode: "waiver_event_policy_fee", criteria: [], now: NOW });
+const base = { status: "confirmed", eligibilityStatus: "eligible", ageLabel: "Senior I", skillLabel: null, participantRoles: ["dancer", "dancer"], fingerprint: "fp", metadata: { eligibility_determination: good }, participantDobs: [ADULT, ADULT] };
+const waiverDetermination = buildEligibilityDetermination({ by: "user-1", role: "organizer_admin", outcome: "waived", reasonCode: "waiver_event_policy_fee", criteria: [], fingerprint: "fp", now: NOW });
 
 describe("OD-03 age-restricted division detection", () => {
   it.each([["Senior I", true], ["Junior", true], ["Masters", true], ["mystery label", true], ["", false], [null, false], ["Open", false], ["All Ages", false]])(
@@ -59,7 +60,7 @@ describe("OD-03 entry operational gate", () => {
     expect(parseEligibilityDetermination(null)).toBeNull();
     expect(parseEligibilityDetermination({ eligibility_determination: { ...good, at: "nope" } })).toBeNull();
     expect(parseEligibilityDetermination({ eligibility_determination: { ...good, criteria: ["bogus"] } })).toBeNull();
-    expect(Object.keys(good).sort()).toEqual(["at", "by", "criteria", "outcome", "reasonCode", "role"]);
+    expect(Object.keys(good).sort()).toEqual(["at", "by", "criteria", "fingerprint", "outcome", "reasonCode", "role"]);
     expect(JSON.stringify(good)).not.toMatch(/birth/i);
   });
 });
@@ -105,8 +106,16 @@ describe("OD-03 scheduling and copy", () => {
     };
     expect((await loadEntryOperationalGates(client(tables), "ev", NOW)).get("e1")?.ready).toBe(false);
     await expect(loadEntryOperationalGates(client({ ...tables, event_competition_competitors: table([], { message: "x" }) }), "ev", NOW)).rejects.toThrow();
+    const fp = entryFingerprint({ divisionId: "d1", ageLabel: "Senior I", skillLabel: null, roleLabel: null, competitorIds: ["c1"] });
+    const stale = [{ ...entries[0], metadata: { eligibility_determination: { ...good, fingerprint: "old" } } }];
+    const fresh = [{ ...entries[0], metadata: { eligibility_determination: { ...good, fingerprint: fp } } }];
+    const people = { event_competition_entry_participants: table([{ entry_id: "e1", competitor_id: "c1", participant_role: "dancer" }]), event_competition_competitors: table([{ id: "c1", date_of_birth: ADULT }]) };
+    expect((await loadEntryOperationalGates(client({ ...tables, ...people, event_competition_entries: table(stale) }), "ev", NOW)).get("e1")?.ready).toBe(false);
+    expect((await loadEntryOperationalGates(client({ ...tables, ...people, event_competition_entries: table(fresh) }), "ev", NOW)).get("e1")?.ready).toBe(true);
+    // a missing division row fails closed
+    expect((await loadEntryOperationalGates(client({ ...tables, ...people, event_competition_entries: table(fresh), event_competition_divisions: table([]) }), "ev", NOW)).get("e1")?.reasons).toContain("division_not_found");
     const withPeople = { ...tables, event_competition_entry_participants: table([{ entry_id: "e1", competitor_id: "c1", participant_role: "dancer" }]), event_competition_competitors: table([{ id: "c1", date_of_birth: ADULT }]) };
-    expect((await loadEntryOperationalGates(client(withPeople), "ev", NOW)).get("e1")?.ready).toBe(true);
+    expect((await loadEntryOperationalGates(client(withPeople), "ev", NOW)).get("e1")?.ready).toBe(false); // stored fingerprint does not match: determination is stale
   });
   it("the organizer action, heat generation and planner loader call the gate (source wiring)", () => {
     const root = join(__dirname, "..", "..", "..");

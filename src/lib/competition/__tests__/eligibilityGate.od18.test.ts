@@ -5,6 +5,7 @@ import {
   PROHIBITED_OVERRIDE_SUBJECTS,
   STUDIO_ELIGIBILITY_DISCLOSURE,
   buildEligibilityDetermination,
+  entryFingerprint,
   evaluateEntryOperationalGate,
   requiredCriteria,
   validateEligibilityDecision,
@@ -16,11 +17,11 @@ const ADULT = "1990-01-01";
 const MINOR = "2012-01-01";
 
 function determination(outcome: "eligible" | "waived", reasonCode: string, criteria: EligibilityCriterion[]) {
-  return { eligibility_determination: buildEligibilityDetermination({ by: "u1", role: "organizer_admin", outcome, reasonCode: reasonCode as never, criteria, now: NOW }) };
+  return { eligibility_determination: buildEligibilityDetermination({ by: "u1", role: "organizer_admin", outcome, reasonCode: reasonCode as never, criteria, fingerprint: "fp", now: NOW }) };
 }
 const open = { ageLabel: null, skillLabel: null, participantRoles: ["dancer", "dancer"] };
 const entry = (over: Partial<Parameters<typeof evaluateEntryOperationalGate>[0]> = {}) => ({
-  status: "confirmed", eligibilityStatus: "eligible", ...open, metadata: {}, participantDobs: [ADULT, ADULT], ...over,
+  status: "confirmed", eligibilityStatus: "eligible", ...open, fingerprint: "fp", metadata: {}, participantDobs: [ADULT, ADULT], ...over,
 });
 
 describe("OD-18 per-division applicability (no checks for divisions that do not use the classification)", () => {
@@ -53,9 +54,34 @@ describe("OD-18 organizer determination must cover every applicable criterion", 
     expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: determination("eligible", "body_permitted_exception_applied", ["level"]) }), NOW).ready).toBe(true);
     expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: determination("eligible", "body_permitted_exception_applied", []) }), NOW).ready).toBe(false);
   });
+  it("amateur status: a division role label is a status classification, and unknown labels fail closed", () => {
+    expect(requiredCriteria({ ...open, roleLabel: "Amateur" })).toEqual(["status"]);
+    expect(requiredCriteria({ ...open, roleLabel: "???" })).toEqual(["status"]);
+    expect(requiredCriteria({ ...open, roleLabel: null })).toEqual([]);
+    expect(requiredCriteria({ ...open, roleLabel: "" })).toEqual([]);
+    expect(evaluateEntryOperationalGate(entry({ roleLabel: "Amateur" }), NOW).reasons).toContain("criteria_determination_missing");
+    expect(evaluateEntryOperationalGate(entry({ roleLabel: "Amateur", eligibilityStatus: "waived", metadata: determination("waived", "waiver_event_policy_fee", []) }), NOW).reasons).toContain("waiver_not_allowed_for_classified_division");
+  });
+  it("\"Open\" is unrestricted as an AGE label but a classification as a LEVEL label", () => {
+    expect(requiredCriteria({ ...open, ageLabel: "Open" })).toEqual([]);
+    expect(requiredCriteria({ ...open, skillLabel: "Open" })).toEqual(["level"]);
+    expect(requiredCriteria({ ...open, skillLabel: "All Levels" })).toEqual([]);
+  });
+  it("a determination is invalidated when the division, labels or participants change (fingerprint)", () => {
+    const meta = determination("eligible", "criteria_verified_by_organizer", ["level"]);
+    expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: meta }), NOW).ready).toBe(true);
+    expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: meta, fingerprint: "changed" }), NOW).reasons).toContain("criteria_determination_missing");
+    const a = entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Bronze", roleLabel: null, competitorIds: ["c1", "c2"] });
+    expect(a).toBe(entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Bronze", roleLabel: null, competitorIds: ["c2", "c1"] }));
+    expect(a).not.toBe(entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Silver", roleLabel: null, competitorIds: ["c1", "c2"] }));
+    expect(a).not.toBe(entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Bronze", roleLabel: null, competitorIds: ["c1", "c3"] }));
+  });
+  it("a missing division fails closed", () => {
+    expect(evaluateEntryOperationalGate(entry({ divisionFound: false }), NOW).reasons).toContain("division_not_found");
+  });
   it("records actor, role, time, criteria and outcome without sensitive detail", () => {
-    const record = buildEligibilityDetermination({ by: "u1", role: "organizer_admin", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["level", "age_division"], now: NOW });
-    expect(record).toEqual({ by: "u1", role: "organizer_admin", at: "2026-11-23T12:00:00.000Z", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["age_division", "level"] });
+    const record = buildEligibilityDetermination({ by: "u1", role: "organizer_admin", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["level", "age_division"], fingerprint: "fp", now: NOW });
+    expect(record).toEqual({ by: "u1", role: "organizer_admin", at: "2026-11-23T12:00:00.000Z", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["age_division", "level"], fingerprint: "fp" });
     expect(JSON.stringify(record)).not.toMatch(/birth|dob|membership|points|registration number/i);
   });
 });
@@ -126,7 +152,8 @@ describe("OD-18 waiver vs override categories (legitimate event-policy exception
     expect(waive("waiver_event_policy_fee", [], false)).toMatch(/18 or older/);
     // body age, status and level: a waiver is refused whenever the division uses that classification.
     for (const criterion of ELIGIBILITY_CRITERIA) expect(waive("waiver_event_policy_fee", [criterion])).toMatch(/requirements/);
-    // body membership/registration: not modelled, never verified; a waiver reason cannot stand in for it and no reason code claims it.
+    // body membership/registration: NOT MODELLED, so there is no gate for it (documented limitation, not a refusal): the organizer attests it
+    // outside DanceFlow, and no reason code or copy claims DanceFlow verified it.
     expect(waive("waiver_event_policy_fee", [])).toBeNull();
   });
   it("waiver reasons cannot be used with other decisions, and verification reasons only with eligible", () => {

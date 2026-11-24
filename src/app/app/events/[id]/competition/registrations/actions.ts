@@ -53,7 +53,7 @@ export async function updateCompetitionEntryEligibilityAction(formData: FormData
   const participantsAdult = await entryParticipantsAdultVerified(supabase, eventId, entryId);
   const problem = validateEligibilityDecision({ outcome: eligibilityStatus, reasonCode, required: classification.required, verifiedCriteria, participantsAdult });
   if (problem) throw new Error(problem);
-  const metadata = { ...(entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {}), eligibility_determination: buildEligibilityDetermination({ by: userId, role: actorRole || "event_manager", outcome: eligibilityStatus as EligibilityStatus, reasonCode: reasonCode as EligibilityReasonCode, criteria: verifiedCriteria }) };
+  const metadata = { ...(entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {}), eligibility_determination: buildEligibilityDetermination({ by: userId, role: actorRole || "event_manager", outcome: eligibilityStatus as EligibilityStatus, reasonCode: reasonCode as EligibilityReasonCode, criteria: verifiedCriteria, fingerprint: classification.fingerprint }) };
   const { error } = await (supabase as any).from("event_competition_entries").update({ eligibility_status: eligibilityStatus, metadata }).eq("id", entryId).eq("event_id", eventId);
   if (error) throw new Error(`Could not update entry eligibility: ${error.message}`);
   refresh(eventId);
