@@ -1,0 +1,34 @@
+{
+  "id": "R11-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio result approval controls",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: approval needs a different manager than the calculator, or the calculator's audited override reason (1-500 chars); no override exists for the minimum-two-couples rule, the Final withdrawal/exclusion windows, exclusion or withdrawal co-sign separation of duties, or approval of a stale result; approval is manager-only; API access is authenticated-only.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270114090000_competition_f2_results_lifecycle.sql",
+      "symbol_or_migration": "approve_competition_round_result"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "symbol_or_migration": "COMP_EXCLUSION_COSIGN_SAME_PERSON"
+    }
+  ],
+  "enforcement_point": "approve_competition_round_result (F2 + A3 roster check + PV-1 re-verify); A5/A6 request and co-sign RPCs.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/__tests__/r11.approval.static.test.ts",
+      "name": "refuses a stale result BEFORE the override branch, so an override reason can never approve a stale result"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Inspected plus static tests (executed); SQL suites f2_results, a4_minimum_integration, a5_exclusion, a6_withdrawal NOT RUN. Gaps: no test that a chair is refused approve; none that an override reason fails against a stale hash; none that the roster-minimum code surfaces at approve independently of STALE; none for service_role (approve revokes only public/anon, unlike A5/A6; not exploitable since auth.uid() is null); approve does not check a verified email for the approver; override reason is not required to be substantive (A5/A6 are).",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-11 (owner ratification 2026-11-23); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}
