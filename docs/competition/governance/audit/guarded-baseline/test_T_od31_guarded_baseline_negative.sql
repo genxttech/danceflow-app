@@ -159,6 +159,20 @@ select set_config('app.competition_entry_change_type', '', true);
 select pg_temp.chk('C4 CHARACTERIZATION (accepted residual): TRUNCATE is granted to authenticated and anon on the heat-entry table',
   has_table_privilege('authenticated', 'public.event_competition_heat_entries', 'TRUNCATE') and has_table_privilege('anon', 'public.event_competition_heat_entries', 'TRUNCATE'));
 
+-- C5 reviewer-added: the guards watch the status column only. Characterize what is NOT blocked by them (other triggers may still refuse; detail records the outcome).
+create temp table t_d (k text, r text) on commit drop;
+grant all on t_d to authenticated, anon, service_role;
+insert into t_d select 'move_danced_floor_order', pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set floor_order = 77 where id = '00000000-0000-0000-0000-cf1031900004'$q$);
+insert into t_d select 'delete_scratched_row', pg_temp.try_as('authenticated', $q$delete from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1031900003'$q$);
+select pg_temp.chk('C5 CHARACTERIZATION (finding F7): non-status changes and DELETE on danced/scratched rows are not covered by U18/U18-S (outcome in detail)', true,
+  (select string_agg(k || '=' || r, ' | ') from t_d));
+-- A6 reviewer-added: an upsert cannot set danced on an existing scheduled row, and a marker set for entry A does not authorise scratching entry B
+select pg_temp.chk('A6 INSERT ... ON CONFLICT (id) DO UPDATE cannot set danced on an existing row',
+  pg_temp.try_as('authenticated', $q$insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+    values ('00000000-0000-0000-0000-cf1031900006', '00000000-0000-0000-0000-cf1031e00001', '00000000-0000-0000-0000-cf1031003001', '00000000-0000-0000-0000-cf1031d00001', '00000000-0000-0000-0000-cf1031800005', 6, 'danced')
+    on conflict (id) do update set status = excluded.status$q$) like '%COMP_U18_HEAT_ENTRY_STATUS_WRITER%'
+  or (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1031900006') <> 'danced');
+
 do $$
 declare v_fail text; v_n integer;
 begin
