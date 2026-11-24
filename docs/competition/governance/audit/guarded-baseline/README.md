@@ -10,7 +10,7 @@ through `danceflow-ops/sb.sh`). U18 and U18-S are **DanceFlow integrity guards: 
 Evidence labels used throughout: **[EXEC]** executed SQL/application test or hosted read-only query, with the artifact named; **[INSP]** code or document inspection only;
 **[REC]** taken from a repository record or an engineering note and NOT re-verified in this session.
 
-**Final audit sign-off for the guarded baseline: BLOCKED** (reasons in section 5).
+**Final audit sign-off for the guarded baseline: BLOCKED** (reasons in section 5). Local SQL results are recorded in GUARDED_BASELINE_RESULTS.md section F.
 
 ## 1. Release-path finding
 

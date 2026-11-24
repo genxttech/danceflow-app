@@ -78,13 +78,26 @@ A reviewer subagent that had not seen these conclusions was given the candidate 
 
 `test_T_od31_guarded_baseline_negative.sql` (same directory): sections A refusals, B legitimate operations preserved, C characterization of F1-F4. It reuses the U18 suite's fixture shape under a distinct UUID block (`…cf1031…`), creates only TEMP objects and rolls back. Existing shipped suites (`test_T_competition_u18_*`, `u18s_*`, `jc1_*`) are unchanged.
 
-## F. Executed local test results
+## F. Executed local test results (2026-11-24, executed)
 
-**[PENDING]**: the local database run is queued behind other sessions' heavy jobs under `C:\dfr\HEAVY_LOCK_RULES.md` rules 7-8 (this session's ticket `20261124T020036-comp-od31.txt`). Until the run completes, **no row in section C is marked executed except the hosted read-only catalog checks**, and the results below are not claimed.
+Database: disposable container from image `cf1host:found` (id `sha256:a9ff85eb573976875d23c01be6114e7ed57a99764b345f024f1c80b5a343afd3`; PostgreSQL 17.6; hosted-equivalent July baseline + Competition foundation E1..HL1), no network, run as `supabase_admin` (an earlier attempt as `postgres` failed on SET ROLE and is **discarded**, not counted). Under the heavy-lock FIFO rules; container removed and lock released by the runner.
+Composition: live line `49dbaee1b` Competition migrations + JC1/U18/U18-S from `92a8c17c6`; **37 Competition migration files**, composed fingerprint (sha256 of the sorted per-file sha256 list, `evidence/migrations.sha256`) `d87e42858e6ca50ffef5779fe6d203bfa62992616d5ed8c694a75b397c52ba5d`. Applied on top of the image in version order: **23 migrations, 0 failed** (`evidence/migrations-applied.txt`: R2, R2 gate, CF1 A1..F3, desk gate, check-in balance, PV1, OJ1, JC1, U18, U18-S). Pre-state: image has `_compe2_is_absent`, `_hl1_heat_is_danced`, `change_competition_entry_lifecycle`, `mark_competition_heat_no_show`; none of CF1 A5/A6, U18, U18-S.
 
-| Item | Value |
+| Suite | Result |
 |---|---|
-| Runner | `run-guarded-baseline.sh` (this directory) |
-| Image / id | `cf1host:found` / _filled from the run_ |
-| Composed migration set fingerprint | _filled from the run_ |
-| Suites and counts | _filled from the run_ |
+| U18 (shipped) | **PASS 21 checks** (equals the 2026-11-19 record) |
+| U18-S (shipped) | **PASS 17 checks** (equals the record) |
+| JC1 (shipped) | PASS 15 checks |
+| OD31 negative suite (this PR, final version) | **PASS 28 checks** (sections A, B, C; C rows pass when the documented current behaviour is observed, they are not approvals). Run separately after two defects in my own earlier version were fixed; detail strings of the C rows were not captured, so F1/F2/F3/F7 behaviour is confirmed only as far as the suite passing its C assertions (C1 asserts the entry-level `disqualified` write succeeds and is audited as `status_change`; C2 the TRIGGER grant; C3 asserts the parent write only) |
+| A5 exclusion | PASS 186 (4 blocked inside the suite) |
+| A6 withdrawal | PASS 247 (3 blocked) |
+| HL1 heat guards | PASS 42 |
+| F2 results | PASS 198 |
+| OD17 enforcement | PASS 59 |
+| A4 minimum integration | PASS 55 (3 blocked) |
+| A0 callback to final | PASS 199 (5 blocked) |
+| R2 write gate | PASS 21 |
+| NS1 no-show | **NOT EXECUTABLE in this composition**: fixture helper `pg_temp.compo1_fixture_activate_round` is defined by another suite. Not a guard result |
+| R2 entry refunds | **NOT EXECUTABLE in this composition**: the suite activates a heat by direct update, which the O1 heat-status guard refuses (`COMPO1_HEAT_STATUS_WRITER`); the release plan already records a fixture variant for this suite. Not a guard result |
+
+Raw tables: `evidence/`. Rows in section C that depended on a **[PENDING]** run are now: U18/U18-S/HL1/A5/A6/F2 rows **[EXEC]**; NS1 and R2 refund rows remain **inspection only** (suites not executable here); Multi-Dance (R-08) not verified. Not covered by any test here: SC1 (absent), the OD PRs, application/browser behaviour, PostgREST (roles were simulated with SET ROLE, not through the API), and the hosted databases.

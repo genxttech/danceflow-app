@@ -112,21 +112,26 @@ select pg_temp.chk('A5 HL1 / A5 / R2 / A1 evidence helpers are not executable by
   and not has_function_privilege('authenticated', 'public._cf1_heat_entry_is_excluded(uuid)', 'execute'));
 
 -- B. legitimate server-side operations keep working ----------------------------------------------------------------------------------------------
+update public.event_competition_heat_entries set status = 'disqualified' where id = '00000000-0000-0000-0000-cf1031900001';
 select pg_temp.chk('B1 superuser/owner session can still write disqualified and read it back (migration owner path)',
-  (with u as (update public.event_competition_heat_entries set status = 'disqualified' where id = '00000000-0000-0000-0000-cf1031900001' returning status) select status from u) = 'disqualified');
+  (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1031900001') = 'disqualified');
 select pg_temp.chk('B2 HL1 danced evidence (_hl1_heat_is_danced) sees an owner-written disqualified placement',
   public._hl1_heat_is_danced('00000000-0000-0000-0000-cf1031d00001'::uuid, 'scheduled'));
 select pg_temp.chk('B3 client checked_in <-> scheduled on a normal row still works',
   pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'checked_in' where id = '00000000-0000-0000-0000-cf1031900003'$q$) = 'OK'
   and pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scheduled' where id = '00000000-0000-0000-0000-cf1031900003'$q$) = 'OK');
+create temp table t_b (r text) on commit drop;
+grant all on t_b to authenticated;
+insert into t_b select pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1031800003', 'scratched', 'OD31 negative suite', 'retain')$q$);
 select pg_temp.chk('B4 audited lifecycle RPC still scratches (manager), exactly one scratch audit row',
-  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1031800003', 'scratched', 'OD31 negative suite', 'retain')$q$) = 'OK'
-  and pg_temp.hes('003') = 'scratched'
-  and (select count(*) from public.event_competition_entry_changes where entry_id = '00000000-0000-0000-0000-cf1031800003' and change_type = 'scratch' and reason = 'OD31 negative suite') = 1);
+  (select r from t_b) = 'OK' and pg_temp.hes('003') = 'scratched'
+  and (select count(*) from public.event_competition_entry_changes where entry_id = '00000000-0000-0000-0000-cf1031800003' and change_type = 'scratch' and reason = 'OD31 negative suite') = 1,
+  (select r from t_b) || ' / heat=' || coalesce(pg_temp.hes('003'), 'null') || ' / audit rows=' || (select count(*) from public.event_competition_entry_changes where entry_id = '00000000-0000-0000-0000-cf1031800003')::text);
 
 -- C. characterization of residuals / findings (current behaviour; NOT approvals) ----------------------------------------------------------------------
 create temp table t_c (k text, r text) on commit drop;
 grant all on t_c to authenticated, anon, service_role;
+select set_config('app.competition_entry_change_type', '', true), set_config('app.competition_entry_change_reason', '', true), set_config('app.competition_entry_fee_handling', '', true);
 -- C1 FINDING OD31-F1: the guards cover HEAT entries only. A manager can still write the PARENT entry status to 'disqualified' (competition_manage policy + UPDATE grant);
 --    only the audit trigger runs (audit row change_type=status_change, reason NULL).
 insert into t_c select 'entry_disq', pg_temp.try_as('authenticated', $q$update public.event_competition_entries set status = 'disqualified' where id = '00000000-0000-0000-0000-cf1031800002'$q$);

@@ -8,6 +8,7 @@
 # Composition under test (the "guarded live line", see RELEASE_PATH_AND_BASELINE.md):
 #   release/website-embeds @ 49dbaee1b  +  the three candidate-line Competition migrations (JC1, U18, U18-S) and their SQL suites, taken from
 #   release/competition-cf1-app-candidate @ 92a8c17c6 (blob-identical to the candidate; every other Competition migration is blob-identical on both lines).
+# Role: the suites need a real superuser (SET ROLE, CREATE ROLE): connect as supabase_admin, not postgres (attempt 1 as postgres failed with "permission denied to set role").
 # Database: image cf1host:found (hosted-equivalent July baseline + Competition foundation E1..HL1), then the Competition migrations in version order.
 set -uo pipefail
 TICKET="${1:?ticket file}"; OUT="${2:?out dir}"; WAIT_MIN=45
@@ -50,7 +51,7 @@ log "lock taken"
 
 # 3. start the disposable database
 docker run -d --name "$NAME" --label df.od31=1 --network none -e POSTGRES_PASSWORD=postgres "$IMAGE" > /dev/null || { echo BLOCKED > "$OUT/result.txt"; log "BLOCKED: docker run failed"; exit 4; }
-PSQL=(docker exec -i -e PGPASSWORD=postgres "$NAME" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1)
+PSQL=(docker exec -i -e PGPASSWORD=postgres "$NAME" psql -U supabase_admin -d postgres -X -q -v ON_ERROR_STOP=1)
 for i in $(seq 1 60); do "${PSQL[@]}" -Atc 'select 1' >/dev/null 2>&1 && break; sleep 2; done
 "${PSQL[@]}" -Atc 'select 1' >/dev/null 2>&1 || { echo BLOCKED > "$OUT/result.txt"; log "BLOCKED: database not ready"; exit 4; }
 docker image inspect "$IMAGE" --format '{{.Id}}' > "$OUT/image-id.txt"
@@ -73,9 +74,9 @@ log "migrations applied: $applied ($(grep -c FAIL "$OUT/migrations-applied.txt")
 "${PSQL[@]}" -At < "$OUT/probe.sql" > "$OUT/state-after.txt"
 
 # 5. suites: guards first, then regression suites for the audited behaviours
-SUITES="test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_od31_guarded_baseline_negative test_T_competition_jc1_inactive_judge_absent \
+SUITES="${ONLY_SUITES:-test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_od31_guarded_baseline_negative test_T_competition_jc1_inactive_judge_absent \
 test_T_competition_cf1_a5_exclusion test_T_competition_ns1_no_show test_T_competition_hl1_heat_guards test_T_competition_cf1_a6_withdrawal test_T_competition_r2_entry_refunds \
-test_T_competition_r2_refund_write_gate test_T_competition_f2_results test_T_competition_cf1_od17_enforcement test_T_competition_cf1_a4_minimum_integration test_T_competition_cf1_callback_final_advancement"
+test_T_competition_r2_refund_write_gate test_T_competition_f2_results test_T_competition_cf1_od17_enforcement test_T_competition_cf1_a4_minimum_integration test_T_competition_cf1_callback_final_advancement}"
 : > "$OUT/suites.tsv"
 for s in $SUITES; do
   [ -f "$CHAIN/sql-tests/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$OUT/suites.tsv"; continue; }
