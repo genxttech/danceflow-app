@@ -345,7 +345,7 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
   if (!sink) return;
   // ONE claim per pass. tw4_rfl_alerts_claim counts an attempt at claim time and re-claims `failed` rows immediately (no backoff), so a second claim in the
   // same pass would burn the attempts of the alerts that just failed and starve newer ones. Each alert is therefore attempted AT MOST ONCE per pass (ids
-  // already seen are skipped); retries happen on later passes. Claiming oldest-first, a pass covers up to maxAlerts alerts.
+  // already seen are skipped); retries happen on later passes. Claiming oldest-first (except funding_exposure_grace_ending rows, which sort last: 20270223), a pass covers up to maxAlerts alerts.
   // The deadline for starting work: the delivery budget from the start of delivery, bounded by the pass deadline. Too little left: do not claim at all
   // (a claim burns an attempt, and a slow scan must never make every pass claim and defer the same alerts).
   const deliveryStartedAt = budget.now();
