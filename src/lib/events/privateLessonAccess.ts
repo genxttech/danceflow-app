@@ -13,7 +13,7 @@ type AdminClient = ReturnType<typeof createAdminClient>;
 
 /** What a visitor may see about an open slot. Never add buyer, client, payment-reference, hold or link columns. */
 export const VISITOR_SLOT_COLUMNS =
-  "id, starts_at, ends_at, price, location_label, status, payment_status, event_guest_coaches:coach_id ( id, name, bio, photo_url, active )";
+  "id, starts_at, ends_at, price, location_label, status, payment_status, event_guest_coaches:coach_id ( id, event_id, name, bio, photo_url, active )";
 
 export const GUEST_COACH_COLUMNS =
   "id, event_id, studio_id, organizer_id, name, bio, photo_url, schedule_token_enabled, active";
@@ -37,7 +37,7 @@ type ListingRow = {
   studio_id: string | null;
 };
 
-type VisitorCoach = { id: string; name: string; bio: string | null; photo_url: string | null; active?: boolean };
+type VisitorCoach = { id: string; event_id?: string; name: string; bio: string | null; photo_url: string | null; active?: boolean };
 type VisitorSlot = { event_guest_coaches: VisitorCoach | VisitorCoach[] | null } & Record<string, unknown>;
 
 /** A published, publicly listed event of a studio with an active or trial subscription. */
@@ -60,10 +60,10 @@ export async function isEventPubliclyListed(admin: AdminClient, eventId: string)
   return studio?.subscription_status === "active" || studio?.subscription_status === "trialing";
 }
 
-/** An inactive coach is not shown to visitors; the slot keeps no coach and the page skips it. */
-function withoutInactiveCoach(slot: VisitorSlot) {
+/** An inactive coach, or one belonging to another event, is not shown; the slot keeps no coach and the page skips it. */
+function onlyThisEventsActiveCoach(slot: VisitorSlot, eventId: string) {
   const coach = Array.isArray(slot.event_guest_coaches) ? slot.event_guest_coaches[0] : slot.event_guest_coaches;
-  if (!coach || coach.active !== true) return { ...slot, event_guest_coaches: null };
+  if (!coach || coach.event_id !== eventId || (coach.active !== true)) return { ...slot, event_guest_coaches: null };
   return { ...slot, event_guest_coaches: { id: coach.id, name: coach.name, bio: coach.bio, photo_url: coach.photo_url } };
 }
 
@@ -82,7 +82,7 @@ export async function loadVisitorPrivateLessonSlots(eventId: string, session: Se
     .eq("payment_status", "unpaid")
     .order("starts_at", { ascending: true });
 
-  return { data: data ? (data as unknown as VisitorSlot[]).map(withoutInactiveCoach) : null, error };
+  return { data: data ? (data as unknown as VisitorSlot[]).map((slot) => onlyThisEventsActiveCoach(slot, eventId)) : null, error };
 }
 
 /**

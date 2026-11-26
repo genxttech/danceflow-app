@@ -35,7 +35,7 @@ const session = () => fake("session") as any;
 const admin = () => fake("admin") as any;
 const EVENT = { id: "e1", status: "published", visibility: "public", public_directory_enabled: false, studio_id: "s1" };
 const coachRow = { id: "c1", event_id: "e1", schedule_token: "tok", active: true, schedule_token_enabled: true };
-const slot = (over: Row = {}) => ({ id: "l1", event_id: "e1", status: "available", payment_status: "unpaid", event_guest_coaches: { id: "c1", name: "N", bio: null, photo_url: null, active: true }, ...over });
+const slot = (over: Row = {}) => ({ id: "l1", event_id: "e1", status: "available", payment_status: "unpaid", event_guest_coaches: { id: "c1", event_id: "e1", name: "N", bio: null, photo_url: null, active: true }, ...over });
 
 function seed(event: Row = {}, studio: Row = {}) {
   const base = { events: [{ ...EVENT, ...event }], studios: [{ id: "s1", subscription_status: "active", ...studio }], event_private_lesson_slots: [slot()], event_guest_coaches: [coachRow] };
@@ -84,7 +84,13 @@ describe("loadVisitorPrivateLessonSlots", () => {
   });
 
   it("hides an inactive coach", async () => {
-    data.admin.event_private_lesson_slots = [slot({ event_guest_coaches: { id: "c1", name: "N", bio: null, photo_url: null, active: false } })];
+    data.admin.event_private_lesson_slots = [slot({ event_guest_coaches: { id: "c1", event_id: "e1", name: "N", bio: null, photo_url: null, active: false } })];
+    const { data: rows } = await loadVisitorPrivateLessonSlots("e1", session());
+    expect(rows![0].event_guest_coaches).toBeNull();
+  });
+
+  it("hides a coach that belongs to another event", async () => {
+    data.admin.event_private_lesson_slots = [slot({ event_guest_coaches: { id: "c2", event_id: "e2", name: "Other", bio: null, photo_url: null, active: true } })];
     const { data: rows } = await loadVisitorPrivateLessonSlots("e1", session());
     expect(rows![0].event_guest_coaches).toBeNull();
   });

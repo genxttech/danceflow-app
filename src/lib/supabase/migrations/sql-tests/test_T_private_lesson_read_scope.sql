@@ -23,15 +23,18 @@ begin
   return v;
 end $$;
 
--- users: 1 creator, 2 owner (not creator), 3 front desk, 4 instructor, 5 other-studio owner, 6 organizer staff, 7 signed-in visitor
+-- users: 1 creator, 2 owner (not creator), 3 front desk, 4 instructor, 5 other-studio owner, 6 organizer staff, 7 signed-in visitor,
+--        8 platform admin, 9 former owner (inactive role)
 insert into auth.users (id, email)
-select ('d0000000-0000-4000-8000-00000000000' || i)::uuid, 'u' || i || '@plscope.test' from generate_series(1, 7) i;
+select ('d0000000-0000-4000-8000-00000000000' || i)::uuid, 'u' || i || '@plscope.test' from generate_series(1, 9) i;
 insert into public.profiles (id) select id from auth.users where email like '%@plscope.test' on conflict do nothing;
 insert into public.studios (id, name, slug, subscription_status) values
   ('d1000000-0000-4000-8000-00000000000a', 'PL A', 'pl-a', 'active'),
   ('d1000000-0000-4000-8000-00000000000b', 'PL B', 'pl-b', 'active'),
   ('d1000000-0000-4000-8000-00000000000c', 'PL C', 'pl-c', 'canceled');
+update public.profiles set platform_role = 'platform_admin' where id = 'd0000000-0000-4000-8000-000000000008';
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
+  ('d0000000-0000-4000-8000-000000000009', 'd1000000-0000-4000-8000-00000000000a', 'studio_owner', false),
   ('d0000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-00000000000a', 'studio_owner', true),
   ('d0000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-00000000000c', 'studio_owner', true),
   ('d0000000-0000-4000-8000-000000000003', 'd1000000-0000-4000-8000-00000000000a', 'front_desk', true),
@@ -77,11 +80,13 @@ select pg_temp.chk('anon cannot change a slot', pg_temp.val_as('anon', null, $q$
 select pg_temp.expect('signed-in visitor', 7, '-', '-');
 select pg_temp.expect('instructor of the studio', 4, '-', '-');
 select pg_temp.expect('owner of another studio', 5, '-', '-');
+select pg_temp.expect('former owner with an inactive role', 9, '-', '-');
 
 -- 2. Event staff keep what they had: published public events of active studios, never cancelled slots or inactive coaches.
 select pg_temp.expect('studio owner (not creator)', 2, '12', '12');
 select pg_temp.expect('front desk: studio-hosted only', 3, '1', '1');
 select pg_temp.expect('organizer staff: own organizer only', 6, '2', '2');
+select pg_temp.expect('platform admin: listed events of active studios only', 8, '12', '12');
 
 -- 3. The event creator keeps full manage access.
 select pg_temp.expect('creator', 1, '12349', '12349');
