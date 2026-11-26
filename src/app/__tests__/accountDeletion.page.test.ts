@@ -24,6 +24,8 @@ describe("public account-deletion page", () => {
     expect(page).toContain("What is removed");
     expect(page).toContain("What may be kept");
     expect(page).toContain("cannot be undone");
+    // uploaded photos are not removed by the deletion code, so the page must not imply they are
+    expect(page).toContain("not removed automatically");
   });
 
   it("matches the in-app deletion copy (settings screen and its confirmation)", () => {
