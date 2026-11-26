@@ -553,7 +553,9 @@ select pg_temp.expect_msg('an absent judge cannot submit', format($q$select publ
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('nor can a manager enter paper for an absent judge', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000014'), pg_temp.u('f24010')), 'COMP_BALLOT_JUDGE_ABSENT');
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('the manager records judge 2 present again', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L, true)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24011')));
+select pg_temp.expect_ok('the manager records judge 2 present again', format(case when to_regprocedure('public.record_competition_judge_attendance(uuid, uuid, text, text, uuid, boolean)') is not null
+  then $q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L, true)$q$
+  else $q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$ end, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24011')));
 select pg_temp.as_user(pg_temp.u('000014'));
 select pg_temp.chk('a judge marked present is no longer absent on their sheet', (public.competition_judge_ballot_sheet(pg_temp.u('006005')) ->> 'absent')::boolean = false);
 select pg_temp.as_user(pg_temp.u('000017'));

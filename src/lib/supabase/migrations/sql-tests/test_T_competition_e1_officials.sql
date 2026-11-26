@@ -283,9 +283,9 @@ select pg_temp.chk('round 1 (3 lettered judges) is panel-ready', public.competit
 select pg_temp.chk('round 3 (no panel) is not ready', not public.competition_round_panel_ready(pg_temp.u('006003')));
 select pg_temp.chk('status reports judge count and chair', (public.competition_round_panel_status(pg_temp.u('006001')) ->> 'judge_count')::int = 3
   and (public.competition_round_panel_status(pg_temp.u('006001')) ->> 'chair_designated')::boolean);
-update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = pg_temp.u('006001');
-select pg_temp.chk('min_panel_judges raises the bar', not public.competition_round_panel_ready(pg_temp.u('006001')));
-update public.event_competition_rounds set configuration = '{}'::jsonb where id = pg_temp.u('006001');
+-- R10-S3: round 1 has started, so its panel minimum is frozen (raising the bar before start is covered by the R10-S3 suite).
+select pg_temp.expect_msg('the panel minimum cannot change once the round has started',
+  format($q$update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = %L$q$, pg_temp.u('006001')), 'COMP_ROUND_CONFIG_FROZEN');
 select pg_temp.chk('unknown round is not ready', not public.competition_round_panel_ready(pg_temp.u('0000ee')));
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
