@@ -74,6 +74,8 @@ describe("public knowledgebase assistant spend guard", () => {
   });
 
   it("an hourly budget of 0 turns the model off and still returns article links", async () => {
+    // Fresh buckets: otherwise an earlier test's spent budget would refuse the call even without the zero guard.
+    (globalThis as { __danceflowRateLimitBuckets?: Map<string, unknown> }).__danceflowRateLimitBuckets?.clear();
     process.env.KB_ASSISTANT_INSTANCE_HOURLY_BUDGET = "0";
     try {
       expect(await askKnowledgebaseAssistantAction(initial, form(QUESTION))).toMatchObject({ ok: true });

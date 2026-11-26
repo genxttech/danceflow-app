@@ -100,6 +100,15 @@ describe("LUMI plan action: which outcomes stay counted", () => {
     expectSettled();
   });
 
+  it("never releases a billable call when recording the settlement itself fails", async () => {
+    usage.settleLumiUsage.mockRejectedValue(new Error("db down"));
+    fetchMock.mockResolvedValueOnce(reply({ output_text: JSON.stringify({ headline: "h" }) }));
+    expect(await run()).toMatchObject({ ok: false });
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error("t"), { name: "TimeoutError" }));
+    expect(await run()).toMatchObject({ ok: false });
+    expect(usage.releaseLumiUsage).not.toHaveBeenCalled();
+  });
+
   it("releases a call the provider rejected", async () => {
     fetchMock.mockResolvedValueOnce(reply({ error: { message: "x" } }, 429));
     expect(await run()).toMatchObject({ ok: false });

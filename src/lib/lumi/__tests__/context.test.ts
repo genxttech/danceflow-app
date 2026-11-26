@@ -43,7 +43,7 @@ describe("LUMI context bounding", () => {
   });
 
   it("shortens the syllabus history before recaps and says the history was shortened", () => {
-    const homework = "h".repeat(700);
+    const homework = "h".repeat(1500);
     const context = {
       visibleLessonRecaps: [{ homework }],
       visibleSyllabusProgress: [{ client_syllabus_progress: Array.from({ length: 600 }, () => ({ notes: "n".repeat(300) })) }],
@@ -52,6 +52,21 @@ describe("LUMI context bounding", () => {
     expect(parsed.historyShortened).toBe(true);
     expect(parsed.visibleLessonRecaps[0].homework).toBe(homework);
     expect(parsed.visibleSyllabusProgress[0].client_syllabus_progress.length).toBeLessThan(600);
+  });
+
+  it("does not cut current syllabus work when the recaps are what is large", () => {
+    const context = {
+      visibleLessonRecaps: Array.from({ length: 6 }, () => ({ summary: "s".repeat(8000), homework: "h".repeat(8000) })),
+      visibleSyllabusProgress: Array.from({ length: 8 }, () => ({
+        client_syllabus_progress: Array.from({ length: 10 }, (_, i) => ({ status: "practicing", i })),
+      })),
+    };
+    const serialized = serializeLumiContext(context);
+    expect(serialized.length).toBeLessThanOrEqual(LUMI_MAX_CONTEXT_CHARS);
+    const parsed = JSON.parse(serialized);
+    expect(parsed.visibleSyllabusProgress).toHaveLength(8);
+    expect(parsed.visibleSyllabusProgress[7].client_syllabus_progress).toHaveLength(10);
+    expect(parsed.visibleLessonRecaps).toHaveLength(6);
   });
 
   it("never exceeds the cap, even for a pathological shape", () => {

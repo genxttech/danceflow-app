@@ -40,15 +40,16 @@ export function serializeLumiContext(context: Record<string, unknown>, maxChars 
   if (serialized.length <= maxChars) return serialized;
 
   const shortened: Record<string, unknown> = { ...context, historyShortened: true };
-  if ("visibleSyllabusProgress" in context) {
-    for (const step of STEPS) {
-      shortened.visibleSyllabusProgress = trim(context.visibleSyllabusProgress, step.text, step.list);
-      serialized = JSON.stringify(shortened);
-      if (serialized.length <= maxChars) return serialized;
+  // The syllabus runs one step ahead of everything else: it is shortened first, but when the other sections are what is large,
+  // they are shortened before current syllabus work is cut to its smallest size.
+  for (let index = 0; index <= STEPS.length; index += 1) {
+    const syllabusStep = STEPS[Math.min(index, STEPS.length - 1)];
+    const otherStep = STEPS[index - 1];
+    const candidate = otherStep ? (trim(shortened, otherStep.text, otherStep.list) as Record<string, unknown>) : { ...shortened };
+    if ("visibleSyllabusProgress" in context) {
+      candidate.visibleSyllabusProgress = trim(context.visibleSyllabusProgress, syllabusStep.text, syllabusStep.list);
     }
-  }
-  for (const step of STEPS) {
-    serialized = JSON.stringify(trim(shortened, step.text, step.list));
+    serialized = JSON.stringify(candidate);
     if (serialized.length <= maxChars) return serialized;
   }
   // Last resort for a pathological shape: a hard cut keeps the request inside its cap.
