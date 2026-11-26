@@ -8,7 +8,6 @@ import {
   hasOrganizerRequiredContent,
   isStudioSpecificEventAudience,
   normalizeCampaignCtaUrl,
-  normalizeCampaignCtaUrlLax,
   readTrimmedFormString,
   studioCampaignContentIssue,
 } from "../campaignContent";
@@ -34,13 +33,6 @@ describe("campaignContent (M-2a shared module)", () => {
     ["http://", ""],
   ])("strict normalizer: %j -> %j", (input, expected) => {
     expect(normalizeCampaignCtaUrl(input)).toBe(expected);
-  });
-
-  it("the lax normalizer only adds an https:// prefix (organizer create, legacy)", () => {
-    expect(normalizeCampaignCtaUrlLax("")).toBe("");
-    expect(normalizeCampaignCtaUrlLax("http://a.test")).toBe("http://a.test");
-    expect(normalizeCampaignCtaUrlLax("a.test")).toBe("https://a.test");
-    expect(normalizeCampaignCtaUrlLax("javascript:x")).toBe("https://javascript:x");
   });
 
   it("studio content issues come in subject, body, CTA order", () => {
