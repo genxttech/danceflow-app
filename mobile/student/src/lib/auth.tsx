@@ -10,16 +10,18 @@ import {
 } from "react";
 import { router } from "expo-router";
 import * as Linking from "expo-linking";
-import type { Session } from "@supabase/supabase-js";
-import { clearPersistedSupabaseSessions, supabase } from "@/lib/supabase";
+import type { EmailOtpType, Session } from "@supabase/supabase-js";
+import { clearPersistedSupabaseSessions, supabase, verifyEmailLink } from "@/lib/supabase";
 import { authErrorFacts } from "@/lib/errorKind";
 import { reactivateDanceFlowAccount } from "@/lib/accountControls";
 import {
   friendlyAuthLinkError,
+  LinkNotRequestedError,
   parseAuthLink,
   parseAuthLinkError,
   resolveEmailOtpType
 } from "@/lib/authLink";
+import { clearPendingSignIn, markPendingSignIn, normalizeSignInEmail, readPendingSignIn } from "@/lib/pendingSignIn";
 import { recordMobileEmailProof } from "@/lib/emailVerification";
 import { unbindPushTokenForSignOut } from "@/lib/pushNotifications";
 
@@ -55,6 +57,24 @@ function getMobileCallbackUrl() {
   return "danceflow://auth/callback";
 }
 
+/**
+ * Records the request before sending it, so a link still works if the answer is lost on the way back. When the server answered with a
+ * refusal (nothing was sent: a bad address, a rate limit), the earlier request is restored so its link keeps working.
+ */
+async function requestEmailLink(email: string, send: () => Promise<{ error: unknown }>) {
+  const previous = await readPendingSignIn();
+  await markPendingSignIn(email);
+  const { error } = await send();
+  if (!error) return;
+
+  const { network, status } = authErrorFacts(error);
+  if (!network && status !== null && status < 500) {
+    if (previous) await markPendingSignIn(previous.email, previous.requestedAt);
+    else await clearPendingSignIn();
+  }
+  throw error;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +84,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // A link can reach the app twice (the initial URL and the url event on a cold start); a token is
   // single use, so the second verification would fail and show an error for a sign-in that worked.
   const handledUrls = useRef(new Map<string, Promise<boolean>>());
+  // Emailed links are checked one at a time, so one pending request can accept only one link.
+  const linkQueue = useRef<Promise<unknown>>(Promise.resolve());
+
+  async function signInFromEmailLink(tokenHash: string, otpType: EmailOtpType) {
+    // Checked before the token is used: without a request from this phone the token is not even spent.
+    const pending = await readPendingSignIn();
+    if (!pending) throw new LinkNotRequestedError();
+
+    setIdentityCheckPending(true);
+
+    try {
+      const { data, error } = await verifyEmailLink({ token_hash: tokenHash, type: otpType });
+      if (error) throw error;
+
+      // A link for another address is dropped here: nothing was saved, and whoever was signed in stays signed in.
+      if (!data.session || normalizeSignInEmail(data.user?.email ?? "") !== pending.email) throw new LinkNotRequestedError();
+
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      });
+      if (sessionError) throw sessionError;
+
+      await clearPendingSignIn().catch(() => undefined);
+      setAuthLinkError(null);
+
+      // LAUNCH-SEC-1C-A: only this app-performed email-link verification may
+      // record proof; the database decides. A first proof requires binding.
+      if ((await recordMobileEmailProof()) === "binding_required") {
+        await supabase.auth.signOut({ scope: "others" }).catch(() => undefined);
+        setEmailBindingRequired(true);
+      }
+    } finally {
+      setIdentityCheckPending(false);
+    }
+  }
 
   async function processAuthUrl(url: string) {
     const linkError = parseAuthLinkError(url);
@@ -78,25 +134,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const otpType = resolveEmailOtpType(type);
       if (!otpType) throw new Error("This sign-in link type is not supported.");
 
-      setIdentityCheckPending(true);
-
-      try {
-        const { error } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type: otpType
-        });
-        if (error) throw error;
-        setAuthLinkError(null);
-
-        // LAUNCH-SEC-1C-A: only this app-performed email-link verification may
-        // record proof; the database decides. A first proof requires binding.
-        if ((await recordMobileEmailProof()) === "binding_required") {
-          await supabase.auth.signOut({ scope: "others" }).catch(() => undefined);
-          setEmailBindingRequired(true);
-        }
-      } finally {
-        setIdentityCheckPending(false);
-      }
+      const run = linkQueue.current.then(() => signInFromEmailLink(tokenHash, otpType));
+      linkQueue.current = run.catch(() => undefined);
+      await run;
 
       return true;
     }
@@ -104,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
       if (error) throw error;
+      await clearPendingSignIn().catch(() => undefined);
       setAuthLinkError(null);
       return true;
     }
@@ -243,23 +284,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [handleAuthUrlReportingErrors]);
 
   const continueWithEmail = useCallback(async (email: string) => {
-    const { error } = await supabase.auth.signInWithOtp({
-      email: normalizeEmail(email),
-      options: {
-        emailRedirectTo: getMobileCallbackUrl(),
-        // New or returning: the mailbox link is what proves the address, and the
-        // first proof still requires binding (LAUNCH-SEC-1C-A), same as web sign-up.
-        shouldCreateUser: true,
-        data: { signup_intent: "public" },
-      },
-    });
-
-    if (error) throw error;
+    await requestEmailLink(email, () =>
+      supabase.auth.signInWithOtp({
+        email: normalizeEmail(email),
+        options: {
+          emailRedirectTo: getMobileCallbackUrl(),
+          // New or returning: the mailbox link is what proves the address, and the
+          // first proof still requires binding (LAUNCH-SEC-1C-A), same as web sign-up.
+          shouldCreateUser: true,
+          data: { signup_intent: "public" },
+        },
+      }),
+    );
   }, []);
 
   const sendPasswordReset = useCallback(async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email));
-    if (error) throw error;
+    await requestEmailLink(email, () => supabase.auth.resetPasswordForEmail(normalizeEmail(email)));
   }, []);
 
   const signOut = useCallback(async () => {
@@ -275,6 +315,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } finally {
       await clearPersistedSupabaseSessions().catch(() => undefined);
+      await clearPendingSignIn().catch(() => undefined);
       setSession(null);
       setLoading(false);
       router.replace("/(auth)/sign-in");

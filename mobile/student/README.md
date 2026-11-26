@@ -94,6 +94,7 @@ Before pilot builds:
 - Run `npm run doctor`
 - Confirm Supabase Auth redirect URLs include `danceflow://auth/callback`
 - Confirm the Magic Link and Confirm Signup email templates reach the app with a `token_hash` and `type`. A `{{ .ConfirmationURL }}` link signs in through a PKCE code, which records no email proof
+- Emailed links are accepted only on a phone that asked for one in the app (a pending sign-in marker, 24 hours, same address). Any other source of `token_hash` links to the app (an admin-made link, a web-sent app link, opening the mail on a different phone) is refused with a "request a new link" message
 - Confirm push notification migrations have been applied in dev and production, including `20270213080000_mobile_push_token_claim.sql`. Apply it before shipping a build: this app registers through that function
 - Confirm the web release serving this build returns `stripeAccountId` from event checkout. Without it, the app falls back to hosted checkout on registration and shows an error when resuming a payment
 - Confirm `extra.eas.projectId` is set in `app.json`

@@ -9,6 +9,13 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
 
+// These rows are about routing: every link here is one this phone asked for (the marker itself is covered in auth.test.tsx).
+jest.mock("@/lib/pendingSignIn", () => ({
+  clearPendingSignIn: jest.fn(async () => undefined),
+  markPendingSignIn: jest.fn(async () => undefined),
+  normalizeSignInEmail: (email: string) => email.trim().toLowerCase(),
+  readPendingSignIn: jest.fn(async () => ({ email: "dancer@example.com", requestedAt: Date.now() })),
+}));
 jest.mock("expo-router", () => ({ router: { replace: jest.fn() } }));
 jest.mock("expo-linking", () => ({
   addEventListener: jest.fn(() => ({ remove: jest.fn() })),
@@ -19,13 +26,16 @@ jest.mock("@/lib/emailVerification", () => ({ recordMobileEmailProof: jest.fn(as
 jest.mock("@/lib/pushNotifications", () => ({ unbindPushTokenForSignOut: jest.fn(async () => undefined) }));
 jest.mock("@/lib/supabase", () => ({
   clearPersistedSupabaseSessions: jest.fn(async () => undefined),
+  // The non-saving link check, recorded on the same jest function the expectations read.
+  verifyEmailLink: (params: unknown) =>
+    (jest.requireMock("@/lib/supabase") as { supabase: { auth: { verifyOtp: (p: unknown) => unknown } } }).supabase.auth.verifyOtp(params),
   supabase: {
     auth: {
       getSession: jest.fn(async () => ({ data: { session: null } })),
       getUser: jest.fn(),
       onAuthStateChange: jest.fn(() => ({ data: { subscription: { unsubscribe: jest.fn() } } })),
       signInWithOtp: jest.fn(async () => ({ error: null })),
-      verifyOtp: jest.fn(async () => ({ error: null })),
+      verifyOtp: jest.fn(async () => ({ data: { user: { email: "dancer@example.com" }, session: { access_token: "link-token", refresh_token: "r" } }, error: null })),
       exchangeCodeForSession: jest.fn(async () => ({ error: null })),
       setSession: jest.fn(async () => ({ error: null })),
       signOut: jest.fn(async () => ({ error: null })),
