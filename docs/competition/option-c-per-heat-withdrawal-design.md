@@ -113,8 +113,7 @@ DanceFlow Studio/Custom policy. Not built. Ballots can be filed while heats are 
 
 - The scope being withdrawn (a whole entry, or one heat under section 6) has **affected ballots**: any ballot, in any version, in a round where the entry holds an unscratched placement; or any ballot that marks the entry; or any ballot on a heat it is placed in. Drafts do not count. This is the predicate proposed in the verification (section B); the database test itself belongs to the PR 877 work.
 - **Pre-start:** every affected heat is `scheduled` or `staging` with lock open, and the Option A block does not apply (whole entry) or the section 6 conditions other than the ballot test hold (one heat). Whether `staging` qualifies is an owner question.
-- No result in any affected round is approved or published; after that only the OD-07 correction workflow applies. A calculated, unapproved result may exist: it becomes stale and cannot be approved.
-- A round in `ballots_locked` is first reopened through the existing reasoned reopen action.
+- Every affected round is `active` with **no calculated, approved or published result**. Ballot lock requires every ballot heat to have been danced and calculation requires locked ballots, so a locked or calculated round is not a pre-start case. Anything later belongs to the OD-07 correction workflow or the existing reopen action, never to this exception.
 - Callback Finals stay with A6, which refuses once the Final has ballots. Extending this exception to them is not proposed.
 
 ### 6A.2 Refused even with approval
@@ -125,27 +124,29 @@ DanceFlow Studio/Custom policy. Not built. Ballots can be filed while heats are 
 | A callback round's remaining couples would be at or below the callback target | the round becomes "not danced" and every ballot is ignored |
 | A Final would keep fewer than two available couples | OD-21 |
 | Any affected heat has started, finished or is locked or certified | Option A; correction workflows only |
+| A judge who holds an affected ballot is no longer active and assigned, or is recorded absent | that ballot could never be replaced and the round could never lock |
 
 ### 6A.3 Two steps, two people
 
 1. **Request.** An event manager with a verified email records scope, a substantive reason (as A6: 20-500 characters), how and when the withdrawal was received (may reference a 5.1 notice) and a request id. The request snapshots the affected rounds, heats, current ballot ids with judge letters, and each round's input hash. It changes nothing.
 2. **Decision.** An approver approves or refuses with a reason. Approval re-checks everything under lock and refuses if the snapshot changed (a new or replaced ballot, a heat change), so a stale request must be made again.
 
-**Who may approve.** A person holding approval authority for every affected round (proposed: its designated chair, or a person given an explicit exception-approval designation for the event) who is **not**: the requester; a judge with a ballot in an affected round; whoever entered or verified such a ballot; or a participant in, or recorded representative of, the withdrawing entry. Being a second manager is neither required nor sufficient. Conflict and recusal records do not exist (OD-05), so interests beyond recorded links cannot be enforced. With no qualifying approver the request waits; there is no override, and the R-11 initial-approval self-approval exception never applies. Who counts as an independent approver under the R-11 B2 design is a separate pending owner question; the two definitions should be aligned.
+**Who may approve.** An active user with a verified email holding approval authority for every affected round (proposed: its designated chair, or a person given an explicit exception-approval designation), where the appointment predates the request and was not made by the requester. The approver is **not**: the requester; **any judge on the panel of an affected round**, whether or not they have submitted; whoever entered or verified an affected ballot; or a participant in, or recorded representative of, the withdrawing entry. The approver may not later enter or verify a replacement ballot for those rounds. Being a second manager is neither required nor sufficient. Conflict and recusal records do not exist (OD-05), so interests beyond recorded links cannot be enforced. With no qualifying approver the request waits; there is no override, and the R-11 initial-approval self-approval exception never applies. Who counts as an independent approver under the R-11 B2 design is a separate pending owner question; the two definitions should be aligned.
 
 ### 6A.4 What approval does
 
-One definer transaction, owner-run internal writer, no client execute grant and no client-settable bypass marker:
+One definer transaction, owner-run internal writer, no client execute grant and no client-settable bypass marker. It first confirms that **every judge holding an affected ballot is active, assigned and not recorded absent**, then:
 
 - scratches the placement or placements (for a whole entry also sets the entry status with its lifecycle audit row), exactly the state the ordinary writer would produce, so engines need no change;
-- appends the decision with actor, authority relied on, reason, time and the snapshot;
+- appends the decision with actor, authority relied on, reason, time and the snapshot, and the section 6 withdrawal row for each placement (whole-entry scope too);
+- puts the section 6 no-silent-return guard on those placements: a restored placement would silently make the original ballots valid again. Refusing a direct un-scratch depends on U18-S, which is applied on the hosted databases but not yet merged into this line;
 - **never** updates, deletes, renumbers or re-derives a ballot or mark.
 
-**Invalidation and correction.** The existing round blockers then treat a current ballot that ranks the entry (or a callback ballot that selected it) as stale, and ballot lock is refused until each such judge submits a **new version**; the old one remains. Marks are never closed up automatically. Under OD-11 only the judge can confirm replacement marks; a paper replacement also needs independent verification (OD-12). Neither confirmation nor verification is implemented, so today a scorer's paper entry could stand in for the judge: this exception must not be activated without that gap closed or accepted by the owner. If the judge is unavailable the round holds. Callback ballots that did not select the entry stay valid although the pool shrank; the approver is shown this, and whether those judges must re-confirm is an owner question.
+**Invalidation and correction.** The existing round blockers then treat a current ballot that ranks the entry (or a callback ballot that selected it) as stale, and ballot lock is refused until each such judge submits a **new version**; the old one remains. Marks are never closed up automatically. Under OD-11 only the judge can confirm replacement marks, and a paper replacement needs independent verification (OD-12). **Neither is implemented, and this exception must not be activated until both are**: today a scorer's paper entry could stand in for the judge. Callback ballots that did not select the entry stay valid although the pool shrank; whether those judges must re-confirm is an owner question.
 
-**Confidentiality (OD-10).** Requester and approver see which judges' ballots are affected, not the marks.
+**Confidentiality (OD-10).** In a callback round a ballot is stale exactly when it selected the couple, so naming stale judges discloses marks. The request and decision views therefore show only the affected rounds and heats and the number of ballots on file, never which judges are affected or how many would become stale. This does not make marks secret today: managers can already read ballots and marks, and the lock blockers list stale ballots to them afterwards. Closing that is OD-10 work, not designed here.
 
-**Mistakes.** No reversal in a first version: restoring a couple would invalidate the replacement ballots again and needs its own request design.
+**Mistakes and recovery.** While **no replacement ballot exists**, an approved exception may be reversed through the same two-step controls: the recorded prior status is restored and the original ballots apply again. Once any replacement exists there is no reversal. **Unsolved:** if a judge becomes unavailable after a replacement by another judge exists, the round cannot lock and no designed exit remains short of round cancellation, which is the bypass requirement 4 targets. An audited recovery for that case must be designed before any SQL.
 
 ### 6A.5 Concurrency
 
@@ -153,11 +154,11 @@ Ballot submit and paper entry take an advisory lock on (round, judge) and the ro
 
 ### 6A.6 Refunds and other writers
 
-A refund, cancellation or payment failure is not an ordinary Scratch and must not become a way round the block. Proposed: the money action proceeds as today; participation is left unchanged where affected ballots exist; a competition refund exception is recorded naming this workflow, and the affected rounds' publication stays held until it is resolved. Whether that hold also covers a financial-only case, and who closes it, is an owner question. Heat cancellation, round reassignment, schedule unpublish or replacement and round cancellation currently move ballots out of scope without any check; closing those is part of the 877 enforcement, not this workflow.
+A refund, cancellation or payment failure is not an ordinary Scratch and must not become a way round the block. Proposed: the money action proceeds as today; participation is left unchanged where affected ballots exist; a competition refund exception is recorded naming this workflow. Holding publication alone is not enough, because lock, calculation, approval and advancement could proceed with the refunded couple: the affected rounds must be held at ballot lock and every later step until the exception is resolved. No hold mechanism is designed here. Whether a hold also covers a financial-only case, and who closes it, is an owner question. Heat cancellation, round reassignment, schedule unpublish or replacement and round cancellation currently move ballots out of scope without any check; closing those is part of the 877 enforcement, not this workflow.
 
 ### 6A.7 Negative tests (not written)
 
-Requester approving; affected judge, transcriber, verifier, participant or undesignated second manager approving; approver lacking authority for one of several rounds; ballot submitted, replaced or paper-entered between request and decision and concurrently with it; heat started or locked between the two; approved or published result; emptied heat; callback pool at the target; Final below two; unaffected heats and divisions left alone; ordinary Scratch, direct writes, refund and registration sync still refused; every ballot and mark byte-identical afterwards; lock refused until each stale ballot is replaced; replay and reused request id; refused request changes nothing.
+A judge deactivated or absent at decision time; restoring a scratched placement without a reversal; reversal after a replacement ballot; a scorer substituting for a judge; approver appointed by the requester; Requester approving; panel judge (with or without a ballot), transcriber, verifier, participant or undesignated second manager approving; approver lacking authority for one of several rounds; ballot submitted, replaced or paper-entered between request and decision and concurrently with it; heat started or locked between the two; locked round; calculated, approved or published result; emptied heat; callback pool at the target; Final below two; unaffected heats and divisions left alone; ordinary Scratch, direct writes, refund and registration sync still refused; every ballot and mark byte-identical afterwards; lock refused until each stale ballot is replaced; replay and reused request id; refused request changes nothing.
 
 ## 7. Effects (requirement 11)
 
@@ -228,11 +229,11 @@ Section numbering follows the audit's citations; page numbers and effective date
 6. The two open Option A findings and the refund resolution finding in section 8.
 7. Is a No-show acceptable while ballots exist? It removes the couple today with no ballot check once the heat is active, and needs the judges to resubmit.
 8. How should refund exceptions behave when ballots exist (6A.6)?
-9. Who may approve a 6A exception, and must it exist before any ordinary ballot block ships? Without it a balloted couple cannot be removed until the heat starts.
+9. Who may approve a 6A exception, and must it exist before any ordinary ballot block ships? Without it a balloted couple cannot be removed until the heat starts. It also cannot be activated before OD-11 confirmation and OD-12 verification exist, and its stranded-round recovery is unsolved.
 10. May a `staging` heat use 6A, and must callback judges who did not select the couple re-confirm?
 
 ## 13. Unverified and review
 
-No SQL, test or UI walkthrough was run for this design. Section 6A rests on a code-reading verification; none of it is executed. Whether an absent judge's stale ballot still blocks the lock is not checked. Not established: which formats initial events will use; whether the UI permits a hand-built later round; a one-couple Final after a No-show; callback behaviour when the pool shrinks to the target; lock-order safety; S4/S5 behaviour on a heat-entry scratch.
+No SQL, test or UI walkthrough was run for this design. Section 6A rests on a code-reading verification; none of it is executed. By reading, a stale ballot blocks the lock regardless of its judge's attendance or status. An independent review of the first 6A draft was blocking (stranded rounds, mark disclosure, approver holes); this version addresses it except for the recovery named in 6A.4. Not established: which formats initial events will use; whether the UI permits a hand-built later round; a one-couple Final after a No-show; callback behaviour when the pool shrinks to the target; lock-order safety; S4/S5 behaviour on a heat-entry scratch.
 
 Independent read-only review: the first draft's impairment conclusion was wrong (it missed per-dance heats) with errors about A6, the finals flag and locking; the second draft's writer precondition refused a skipped dance before any heat had started. A final narrow check found the third draft not blocking and noted that superseded or draft schedule copies must not satisfy the writer precondition or restore a withdrawn dance; the wording added for that has not been re-reviewed.
