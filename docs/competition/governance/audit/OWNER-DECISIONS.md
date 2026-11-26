@@ -731,3 +731,27 @@ Context: PR 877 (S6, draft) refuses scratch AND withdrawal of a whole entry once
 > Keep both PRs and associated test gaps open until independently verified. Report the minimum viable Option C design and whether its absence would materially impair initial Studio/Custom operations.
 
 **Coordinator note (open, not decided):** until C exists, an advance withdrawal from later heats of an entry that has already started can only be recorded as a per-heat No-show once each heat is active, or not at all. That is in tension with requirement 4 and belongs in the requirement 15 impact report.
+
+## 15. Ballot integrity: ordinary Scratch and withdrawal blocked once affected ballots exist (2026-11-26)
+
+Context: ballots need only an active round and a published heat, not a started heat, so a scored couple in a heat never marked started could still be scratched or withdrawn and drop out of the calculation (read from code, not executed). Owner decision, verbatim:
+
+> BALLOT INTEGRITY DECISION: BLOCK ORDINARY SCRATCH AND WITHDRAWAL ONCE AFFECTED BALLOTS EXIST.
+> Approve extending Option A's fail-closed safeguards.
+> Requirements:
+>
+> 1. Block ordinary Scratch or withdrawal when submitted ballots exist for any heat or round whose scoring, eligible participant set or advancement would be affected.
+> 2. Preserve the existing whole-entry block after any associated heat starts or completes.
+> 3. Determine the exact affected scoring scope from verified engine and database behavior. Do not unnecessarily block an entry because ballots exist only in unrelated heats.
+> 4. Prevent bypasses through direct status writes, ballot deletion, reassignment, cancellation or replacement-round creation.
+> 5. Preserve submitted ballots and immutable audit evidence. Never silently erase or overwrite ballots to make an entry eligible for ordinary Scratch.
+> 6. Design a controlled exception workflow for legitimate pre-start withdrawal after early ballot submission. Require authorized review, reason, scoring invalidation or correction as appropriate, and complete audit history.
+> 7. Coordinate with R-08, R-11, OD-07, OD-11, OD-12 and the future per-heat withdrawal design (Option C).
+> 8. Do not automatically equate an independent approver with a second manager. The approver must have appropriate authority and must be independent of the disallowed actors under the applicable workflow.
+> 9. Add negative tests for submitted ballots before heat start, affected and unaffected heats, concurrent ballot submission versus Scratch, direct database bypasses and controlled correction recovery.
+> 10. Independently verify whether existing PRs #877 and #878 already enforce any portion of this rule. Report exact missing enforcement before implementing additional SQL.
+>
+> Authorization: policy approval, bounded non-applied draft correction design, local tests and independent review only. Do not apply SQL, merge, deploy or activate Competition OS without separate approval.
+> Record this ballot ruling, then present the first B2 independent-approver question individually with the full recommendation and its implications.
+
+**Sequencing as recorded by the coordinator:** no additional ballot-related SQL is written until the requirement 10 verification has been reported to the owner. DanceFlow Studio/Custom policy, not a governing-body compliance claim.
