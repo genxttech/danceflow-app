@@ -22,7 +22,16 @@ import { colors, radius, space } from "@/theme";
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
-  | { status: "ready"; day: StaffStudioDay; loadedAt: number; stale?: boolean };
+  | {
+      status: "ready";
+      day: StaffStudioDay;
+      loadedAt: number;
+      /** When the read was sent, and for which selection: the midnight rule judges a day by the date it was ASKED on, and only for the selection it answers. */
+      askedAt: number;
+      askedDate: string | null;
+      askedStudio: string;
+      stale?: boolean;
+    };
 
 export type DayMode = "mine" | "studio";
 
@@ -74,18 +83,25 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
   const requestId = useRef(0);
 
   const load = useCallback(
-    async (mode: "initial" | "refresh") => {
+    async (mode: "initial" | "refresh" | "rollover") => {
       if (!studioId) return;
       const id = ++requestId.current;
       if (mode === "initial") setState({ status: "loading" });
       else setRefreshing(true);
+      const askedAt = Date.now();
       try {
         const day = await api.studioSchedule(studioId, date ?? undefined);
-        if (id === requestId.current) setState({ status: "ready", day, loadedAt: Date.now() });
+        if (id === requestId.current) setState({ status: "ready", day, loadedAt: Date.now(), askedAt, askedDate: date, askedStudio: studioId });
       } catch (error) {
         if (id === requestId.current) {
           setState((prev) =>
-            shouldKeepStale({ enabled: isStaffFeatureEnabled("keepStale"), mode, hadData: prev.status === "ready", error }) && prev.status === "ready"
+            // A re-read the screen starts by itself at midnight must never replace a working day with an error because of an outage, whatever the stale-data flag says.
+            shouldKeepStale({
+              enabled: mode === "rollover" || isStaffFeatureEnabled("keepStale"),
+              mode: mode === "initial" ? "initial" : "refresh",
+              hadData: prev.status === "ready",
+              error,
+            }) && prev.status === "ready"
               ? { ...prev, stale: true }
               : { status: "error", error },
           );
@@ -139,8 +155,11 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
   // device clock slightly ahead of the server; a failed read is tried again no more than every five minutes. Until the new day is here the old one is not called today.
   const calendarToday = day ? dateInZone(nowMs, day.timeZone) : null;
   const movedTo = day ? dateInZone(nowMs - ROLLOVER_GRACE_MS, day.timeZone) : null;
-  const loadedOn = state.status === "ready" ? dateInZone(state.loadedAt, state.day.timeZone) : null;
-  const rolledOver = date === null && day !== null && movedTo !== null && loadedOn !== null && movedTo > loadedOn && movedTo > day.date;
+  // The date this day was asked for, with the same grace: an answer that straddles midnight, or a server still a little behind, does not count as "already the new date".
+  const loadedOn = state.status === "ready" ? dateInZone(state.askedAt - ROLLOVER_GRACE_MS, state.day.timeZone) : null;
+  // Only the answer to the current selection (no picked day, this studio) can roll over; the old state is still on screen for one render after either changes.
+  const current = state.status === "ready" && state.askedDate === null && state.askedStudio === studioId;
+  const rolledOver = date === null && current && day !== null && movedTo !== null && loadedOn !== null && movedTo > loadedOn && movedTo > day.date;
   const lastAttempt = useRef<{ key: string; at: number } | null>(null);
   useEffect(() => {
     if (!rolledOver) return;
@@ -148,7 +167,7 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
     const last = lastAttempt.current;
     if (last && last.key === key && nowMs - last.at < ROLLOVER_RETRY_MS) return;
     lastAttempt.current = { key, at: nowMs };
-    void load("refresh");
+    void load("rollover");
   }, [rolledOver, movedTo, studioId, nowMs, load]);
   // The one obvious next action, for today only (a past or future day has no "next"). Today is judged by the calendar date in the studio's zone, so stepping away
   // and back to today still counts. The role must be able to mark attendance, the same condition the appointment screen needs for its controls.
@@ -195,7 +214,7 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
       {day && day.appointments.length === 0 ? (
         <StateMessage
           testID="studio-empty"
-          title={date === null ? "Nothing on the studio schedule today" : "Nothing on the studio schedule"}
+          title={date === null && !rolledOver ? "Nothing on the studio schedule today" : "Nothing on the studio schedule"}
           body="Lessons, classes and rentals at this studio appear here."
         />
       ) : null}

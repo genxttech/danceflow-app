@@ -244,8 +244,10 @@ describe("studio schedule: next up", () => {
       expect(screen.queryByText("Studio today")).toBeNull();
       expect(screen.getByText("Tuesday, November 24")).toBeTruthy();
       expect(screen.queryByTestId("next-up")).toBeNull();
+      await advanceTo("2026-11-25T05:23:00.000Z", 2); // under five minutes after the first try
+      expect(studioSchedule).toHaveBeenCalledTimes(2);
       studioSchedule.mockResolvedValue(newDay());
-      await advanceTo("2026-11-25T05:27:00.000Z");
+      await advanceTo("2026-11-25T05:26:30.000Z"); // over five minutes after it
       expect(await screen.findByRole("button", { name: "Check in Bo Chen" })).toBeTruthy();
       expect(studioSchedule).toHaveBeenCalledTimes(3);
       expect(screen.getByText("Studio today")).toBeTruthy();
@@ -259,6 +261,61 @@ describe("studio schedule: next up", () => {
       await advanceTo("2026-11-26T15:05:00.000Z", 4);
       expect(studioSchedule).toHaveBeenCalledTimes(1);
       expect(screen.getByText("Studio today")).toBeTruthy();
+    });
+
+    it("with the stale-data flag off too, a failed midnight re-read keeps the day on screen and tries again", async () => {
+      const studioSchedule = jest.fn().mockResolvedValueOnce(oldDay()).mockRejectedValueOnce(new StaffApiError(503, "service_unavailable", "x")).mockResolvedValue(newDay());
+      renderStudio(studioSchedule);
+      await screen.findByTestId("next-up");
+      await advanceTo(AFTER);
+      expect(await screen.findByText("1 appointment")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Next day" }).props.accessibilityState.disabled).toBe(false);
+      expect(screen.queryByText("Studio today")).toBeNull();
+      await advanceTo("2026-11-25T05:26:30.000Z");
+      expect(await screen.findByRole("button", { name: "Check in Bo Chen" })).toBeTruthy();
+      expect(studioSchedule).toHaveBeenCalledTimes(3);
+    });
+
+    it("a refused session at midnight is still shown as an answer", async () => {
+      const studioSchedule = jest.fn().mockResolvedValueOnce(oldDay()).mockRejectedValue(new StaffApiError(401, "unauthenticated", "x"));
+      renderStudio(studioSchedule);
+      await screen.findByTestId("next-up");
+      await advanceTo(AFTER);
+      expect(await screen.findByRole("button", { name: "Sign in again" })).toBeTruthy();
+    });
+
+    it("a read that answered with the earlier day just after midnight still rolls over", async () => {
+      jest.setSystemTime(Date.parse("2026-11-25T05:00:30.000Z")); // the device is just past midnight, the server not yet
+      const studioSchedule = jest.fn().mockResolvedValueOnce(oldDay()).mockResolvedValue(newDay());
+      renderStudio(studioSchedule);
+      await screen.findByTestId("next-up");
+      await advanceTo("2026-11-25T05:03:00.000Z");
+      expect(await screen.findByRole("button", { name: "Check in Bo Chen" })).toBeTruthy();
+      expect(studioSchedule).toHaveBeenCalledTimes(2);
+    });
+
+    it("an empty earlier day is not called today while the new one is on its way", async () => {
+      const studioSchedule = jest.fn().mockResolvedValueOnce(day([])).mockRejectedValue(new StaffApiError(503, "service_unavailable", "x"));
+      renderStudio(studioSchedule);
+      await screen.findByText("Nothing on the studio schedule today");
+      await advanceTo(AFTER);
+      expect(await screen.findByText("Nothing on the studio schedule")).toBeTruthy();
+      expect(screen.queryByText("Nothing on the studio schedule today")).toBeNull();
+    });
+
+    it("pressing Today after midnight reads once, not twice", async () => {
+      const studioSchedule = jest.fn(async (_studio: string, date?: string) => (date ? day([], date) : oldDay()));
+      renderStudio(studioSchedule);
+      await screen.findByTestId("next-up");
+      fireEvent.press(screen.getByRole("button", { name: "Previous day" }));
+      await screen.findByText("Monday, November 23");
+      await advanceTo(AFTER);
+      expect(studioSchedule).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        fireEvent.press(screen.getByRole("button", { name: "Today" }));
+      });
+      await screen.findByText("1 appointment");
+      expect(studioSchedule).toHaveBeenCalledTimes(3);
     });
 
     it("leaves a day the person picked alone", async () => {
@@ -276,7 +333,7 @@ describe("studio schedule: next up", () => {
       const studioSchedule = jest.fn(async () => newDay()); // the server is already on the 25th
       renderStudio(studioSchedule);
       expect(await screen.findByRole("button", { name: "Check in Bo Chen" })).toBeTruthy();
-      await advanceTo("2026-11-25T04:55:00.000Z", 3);
+      await advanceTo("2026-11-25T05:10:00.000Z", 3); // the device crosses midnight onto the date the server already gave
       expect(studioSchedule).toHaveBeenCalledTimes(1);
       expect(screen.getByText("Studio today")).toBeTruthy();
     });
