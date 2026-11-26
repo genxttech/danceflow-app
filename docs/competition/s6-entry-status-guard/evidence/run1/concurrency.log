@@ -1,0 +1,1 @@
+S6 CONCURRENCY FAIL:; B, C and D were all waiting on a lock while A held its transaction (0 lock waiters) (status=scratched audit=1)

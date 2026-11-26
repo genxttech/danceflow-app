@@ -1,0 +1,17 @@
+[11:25:49Z] composed 39 competition migrations; fingerprint 6783fe122d24851ff29b26df676f08c080391ef601d82c36bc991a9c6b53f95d; head 7341af1df0f240583f8e6b33ca40c8a372d085d3
+[13:33:46Z] lock taken
+[13:34:18Z] chain applied: 23 ok, 0 failed
+[13:34:21Z] suites-pr867 test_T_competition_u18s_heat_entry_scratch_audit: PASS
+[13:34:24Z] suites-pr867 test_T_phase10a_competition_foundation: FAIL
+[13:34:26Z] suites-pr867 test_T_competition_o1_day_of: FAIL
+[13:34:36Z] suites test_T_competition_s6_entry_status_guard: PASS
+[13:34:38Z] suites test_T_competition_u18s_heat_entry_scratch_audit_with_s6: PASS
+[13:34:40Z] suites test_T_competition_u18s_heat_entry_scratch_audit: FAIL
+[13:34:42Z] suites test_T_phase10a_competition_foundation: FAIL
+[13:34:44Z] suites test_T_competition_o1_day_of: FAIL
+[13:34:58Z] concurrency: S6 CONCURRENCY PASS (7 checks; 3 lock waiters observed)
+[13:35:02Z] rollback proof: PASS (catalog state identical to pre-S6, 10 lines)
+[13:35:06Z] suite-s6-after-reapply test_T_competition_s6_entry_status_guard: PASS
+[13:35:07Z] suites.tsv: 3 suite(s) not PASS
+[13:35:07Z] suites-pr867.tsv: 2 suite(s) not PASS
+[13:35:07Z] done

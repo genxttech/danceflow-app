@@ -1,6 +1,6 @@
 # S6: guard for direct changes to a competition entry's status (DRAFT, NOT APPLIED)
 
-Owner decision 2026-11-24, option B (corrects OD-31 findings F1 and F2). **Nothing here is applied, merged or authorized for any hosted database.** Two new migrations (`20270301140000`, `20270301141000`), their rollbacks, a SQL suite, a concurrency script, an F3 read-back experiment and a local runner; two edits to existing test files (section 9). Stacked on PR 867 (it uses the `current_user in ('postgres','supabase_admin')` allowlist convention of U18 and S4/R15 and the guards that PR lands); retarget to `release/website-embeds` after PR 867 merges.
+Owner decision 2026-11-24, option B (corrects OD-31 findings F1 and F2). **Nothing here is applied, merged or authorized for any hosted database.** Two new migrations (`20270301140000`, `20270301141000`), their rollbacks, a SQL suite, a concurrency script, an F3 read-back experiment and a local runner; no existing test file modified, one adapted suite copy added (section 9). Stacked on PR 867 (it uses the `current_user in ('postgres','supabase_admin')` allowlist convention of U18 and S4/R15 and the guards that PR lands); retarget to `release/website-embeds` after PR 867 merges.
 
 Rule-dependence: no governing-body rule is involved. Status values and their effects on refunds, eligibility and registration are DanceFlow behaviour: **NOT SPECIFIED IN PROVIDED SOURCE**, the same class as U18 / U18-S.
 
@@ -81,6 +81,8 @@ Triggers on `event_competition_entries` (same-timing triggers fire in name order
 * Parent cascades (deleting a division, program or event) delete entries as the table owner (OD-04 covers events).
 * A client can still delete an unlinked `confirmed` entry that never held a protected status and re-create it as `pending` (kept because existing suites assert that deletion).
 * `TRUNCATE` is still granted to the client roles (not reachable through the table API).
+* Further delete routes (third review): a **pending linked** entry with no restricting cart reference can be deleted and re-created unlinked; deleting a registration that has no order clears `registration_id`, after which a formerly protected confirmed entry becomes deletable; deleting a deletable entry cascades away its heat entries, including `danced` / `disqualified` ones in unlocked draft or version-less heats.
+* Lifecycle evidence columns (`scratched_at`, `scratch_reason`, `withdrawn_at`, `withdrawal_reason`, `confirmed_at`, `lifecycle_version`) are **not** guarded: a manager can erase or pre-plant them without an audit row.
 * Owner-role sessions are trusted.
 * F3 for **heat** entries (the U18-S marker) is unchanged; section 10 records what the read-back showed.
 * F7 stays limited to what was observed: published-schedule heat entries are protected by the 10D guard; draft-schedule delete/re-insert is not covered here.
@@ -138,6 +140,27 @@ Same image, role and 39-file composition (fingerprint `6783fe12...f95d`) as run 
 
 Not executed anywhere: PostgREST/HTTP requests, referential SET NULL / cascade from registrations or orders, a composed run with S4 / S5, any hosted database.
 
+**SQL suites never run with S6** (not evidence either way): R2 entry refunds (the main consumer of the lifecycle RPC), NS1 no-show, A3, A7, F3 publication, RB3 / RB3R, U66, and every CF1 concurrency script. **One is expected to FAIL with S6 (by reading, not executed): `test_T_competition_cf1_a5_concurrency.sh`** probes P1/P2 scratch entries that sit `scheduled` in an `active` heat through the lifecycle RPC, which S6 now refuses (`COMP_ENTRY_LIFECYCLE_PLACED`) before taking a lock; June allowed it. Whether an active-heat scratch must be refused (it affects day-of use) is an owner decision.
+
+**Blocked checks inside passing suites** (reported by the suites themselves, not passes): A5 4, A6 3, A2 1, A4 3, callback-final 5, including multi-session probes.
+
 ## 11. Independent review
 
-Two reviewers that had not seen these conclusions reviewed the work. The first found: service_role reach through the internal R2 definers; indirect transitions through registration links; delete and re-create; an unsafe re-grant against SC1; the optional lifecycle rules being necessary; the repeat-call branch skipping checks; missing heat locks; test defects; rollback ACL order, TRIGGER re-grant and missing rollback preflights. The second reviewed the fixes and found: the delete rule breaking two behaviours the 10A and callback-final suites assert; the link rule refusing referential SET NULL actions (AFTER trigger); locks taken before refusals (CF1 U55); assertions made in the same statement as the action (vacuous or failing) and other suite defects; an incomplete rollback proof; unrecorded prior privileges; client-changeable `id`/`event_id`; stale references. All were addressed in the current version except the items in section 8 and the narrow concurrency window in section 5. **The second round of fixes has not itself been independently re-reviewed.**
+Two reviewers that had not seen these conclusions reviewed the work. The first found: service_role reach through the internal R2 definers; indirect transitions through registration links; delete and re-create; an unsafe re-grant against SC1; the optional lifecycle rules being necessary; the repeat-call branch skipping checks; missing heat locks; test defects; rollback ACL order, TRIGGER re-grant and missing rollback preflights. The second reviewed the fixes and found: the delete rule breaking two behaviours the 10A and callback-final suites assert; the link rule refusing referential SET NULL actions (AFTER trigger); locks taken before refusals (CF1 U55); assertions made in the same statement as the action (vacuous or failing) and other suite defects; an incomplete rollback proof; unrecorded prior privileges; client-changeable `id`/`event_id`; stale references. All were addressed in the current version except the items in section 8 and the narrow concurrency window in section 5. 
+
+**Third review (2026-11-26), of the second round of fixes.** Verdict: no blocker to owner review of this as a **draft**; no direct client status write found past the three triggers (by reading). It ran no SQL. Sound by reading: trigger branching; referential actions passing the BEFORE guards (PostgreSQL semantics, untested); upserts; authorization before any lock; history row-level security does not fail open today; the adapted U18-S copy and pin.
+
+**Open findings, NOT fixed; to be fixed before any apply approval** (the tested SQL is deliberately unchanged):
+
+| ID | Sev | Finding |
+|---|---|---|
+| R3-F1 | P2 | A5 concurrency probes P1/P2 expected to fail under the placed-entry refusal (above) |
+| R3-F3 | P2 | Test gaps that a broken guard would pass: the INSERT link rule is never exercised; the delete rule's current-status branch is not isolated (e.g. owner-inserted disqualified or waitlisted entry without history); only the registration arm of the linked-delete rule is tested |
+| R3-F5 | P3 | The race test would also pass without the entry lock (it does not assert `lifecycle_version` / reason are unchanged) and has no heats, so heat locking and the under-lock refusals are untested |
+| R3-F6 | P3 | `141000` rollback after S4 has been applied and then rolled back re-grants TRIGGER that was absent before S6; it restores privileges from assumption and does not pin the guard body. Rollback is proven only without S4 |
+| R3-F7 | P3 | Further delete routes (section 8) |
+| R3-F8 | P3 | `140000` preflight does not pin the exact prior ACL, so a rollback could re-grant a privilege another change had revoked |
+| R3-F9 | P3 | Lifecycle evidence columns unguarded (section 8) |
+| R3-F10/11 | info | Preflight does not check the audit trigger / history protections the rules rely on; the runner records head and fingerprint before the lock wait (run 2 composed 11:25Z, executed 13:33Z; no SQL or test file changed in between), and classifies any line containing PASS as a pass |
+
+R3-F2 (evidence logs excluded by `.gitignore`) and R3-F4 (suites not run, blocked counts) are addressed here: the logs are now committed.
