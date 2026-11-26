@@ -32,13 +32,13 @@ Function owner / security / ACL read from DEV and PROD (identical) on 2026-11-24
 
 ## 3. Decision: a general, fail-closed guard
 
-**Chosen:** one guard function with two triggers (`cf1_s6_guard_entry_status` AFTER INSERT OR UPDATE; `cf1_s6_guard_entry_delete` BEFORE DELETE). For any role that is not `postgres` / `supabase_admin` it refuses every status change, every change of the registration/order links, any INSERT that is not an unlinked `pending` entry, and any DELETE of an entry that is not pending, is linked, or has change history.
+**Chosen:** one guard function with three triggers. For any role that is not `postgres` / `supabase_admin`: `cf1_s6_guard_entry_status` (AFTER INSERT OR UPDATE) refuses every status change and any INSERT that is not an unlinked `pending` entry; `cf1_s6_guard_entry_links` (BEFORE UPDATE) refuses changes of `id`, `event_id` and the registration / order / order-item / cart links; `cf1_s6_guard_entry_delete` (BEFORE DELETE) refuses deleting an entry whose status is not `pending` or `confirmed`, whose history ever held `scratched`, `withdrawn`, `disqualified` or `complete`, or that is `confirmed` and linked to a registration or order. The link and delete rules are BEFORE triggers so that a foreign-key referential action (ON DELETE SET NULL, cascade delete), which runs as the table owner at that point, is not refused (inferred; no registration fixture exercises it yet).
 
 Why not narrower: direct `complete`, `scratched` and `withdrawn` writes matter as much as `disqualified` (R2 skips the cascade and exception recording; the sync skips the entry; A5/A6/advancement treat it as unavailable; `withdrawn`/`scratched` satisfies R2's `withdrawn_after_unlock` gate); `waitlisted` / `pending` flip the eligibility predicate. A per-value list leaves a gap for every value not listed and every value added later. After the one client-facing writer becomes DEFINER, **no legitimate client-role status writer exists**, so the general rule loses nothing.
 
-| Role / path | INSERT | UPDATE of `status` or links | DELETE |
+| Role / path | INSERT | UPDATE of `status`, identity or links | DELETE |
 |---|---|---|---|
-| anon, authenticated, service_role, any other non-owner role | unlinked `pending` only | refused (`COMP_S6_ENTRY_STATUS_WRITER`, `COMP_S6_ENTRY_LINK_WRITER`) | only an unused pending entry (`COMP_S6_ENTRY_DELETE_WRITER` otherwise) |
+| anon, authenticated, service_role, any other non-owner role | unlinked `pending` only | refused (`COMP_S6_ENTRY_STATUS_WRITER`, `COMP_S6_ENTRY_LINK_WRITER`) | allowed only for a pending entry, or an unlinked confirmed one, that never held a protected status (`COMP_S6_ENTRY_DELETE_WRITER` otherwise). This keeps the two existing behaviours the 10A and callback-final suites assert |
 | owner-run definers (registration, sync, R2, lifecycle RPC) | any | any, subject to their own rules | any |
 | owner SQL session, referential cascades (run as the table owner) | any | any | any |
 
@@ -50,7 +50,7 @@ The guard reads `current_user` and row values only; it reads no custom setting. 
 
 ## 5. The lifecycle RPC (`140000`)
 
-Same signature; EXECUTE limited to `authenticated`. Because a definer function bypasses RLS and the invoker-side guards, `140000` makes these rules **mandatory** (each differs from June, and the owner should confirm them): (1) only `pending`, `confirmed`, `waitlisted` entries can be scratched or withdrawn (`COMP_ENTRY_LIFECYCLE_STATE`), so a disqualification or completion cannot be cleared; (2) placed entries are refused (`COMP_ENTRY_LIFECYCLE_PLACED`, the R2 locked/certified class) besides the existing locked-heat refusal; (3) repeating the call for the current state writes no audit row or version bump and, after the same checks, completes the heat-entry cascade; (4) heats are locked FOR SHARE in id order, then the entry FOR NO KEY UPDATE, and decisions use what is read under those locks. The SC1 session was told the error codes and keeps the same call.
+Same signature; EXECUTE limited to `authenticated`. Because a definer function bypasses RLS and the invoker-side guards, `140000` makes these rules **mandatory** (each differs from June, and the owner should confirm them): (1) only `pending`, `confirmed`, `waitlisted` entries can be scratched or withdrawn (`COMP_ENTRY_LIFECYCLE_STATE`), so a disqualification or completion cannot be cleared; (2) placed entries are refused (`COMP_ENTRY_LIFECYCLE_PLACED`, the R2 locked/certified class) besides the existing locked-heat refusal; (3) repeating the call for the current state writes no audit row or version bump and, after the same checks, completes the heat-entry cascade; (4) the locked/certified and placed refusals run first **without** a row lock (a refused call must not lock an advanced couple, CF1 rows U55/U22), then heats are locked FOR SHARE in id order and the entry FOR NO KEY UPDATE and the refusals are repeated under the locks. A heat entry inserted into an active heat between the heat locks and the cascade is a narrow remaining window. The SC1 session was told the error codes and keeps the same call.
 
 The rollback restores the June invoker definition and ACL order. **"Exact" is relative to the repository text:** the hosted body contains CR characters from its original apply, so a rollback restores the CR-free repository definition; the pins compare `md5(replace(prosrc, chr(13), ''))`.
 
@@ -64,6 +64,7 @@ Triggers on `event_competition_entries` (same-timing triggers fire in name order
 
 | Timing | Trigger | Source | Concern |
 |---|---|---|---|
+| BEFORE UPDATE | `cf1_s6_guard_entry_links` (ALWAYS) | this PR | fires first (name order), before the next two |
 | BEFORE UPDATE / INSERT | `set_event_competition_updated_at`, `validate_competition_entry_registration_links` | live line | unchanged |
 | BEFORE DELETE | `cf1_s6_guard_entry_delete` (ALWAYS) | this PR | runs before the audit trigger writes the delete row |
 | AFTER | `audit_competition_entry_change` (origin-only) | live line | rolled back with a refused statement |
@@ -78,6 +79,7 @@ Triggers on `event_competition_entries` (same-timing triggers fire in name order
 
 * A manager (or `service_role`) changing an `event_registrations` row that is **legitimately** linked to an entry still drives the sync: marking it paid/free confirms a pending entry, cancelling withdraws it (`paywh1` guards allow some of this). Closing it belongs to the registration guards, not this table.
 * Parent cascades (deleting a division, program or event) delete entries as the table owner (OD-04 covers events).
+* A client can still delete an unlinked `confirmed` entry that never held a protected status and re-create it as `pending` (kept because existing suites assert that deletion).
 * `TRUNCATE` is still granted to the client roles (not reachable through the table API).
 * Owner-role sessions are trusted.
 * F3 for **heat** entries (the U18-S marker) is unchanged; section 10 records what the read-back showed.
@@ -93,4 +95,4 @@ See the section appended after the local run. Until then nothing in this directo
 
 ## 11. Independent review
 
-A reviewer that had not seen these conclusions reviewed the first version and found: service_role reach through the internal R2 definers; indirect transitions through registration links; delete and re-create; an unsafe re-grant against SC1; the optional lifecycle rules being necessary; the repeat-call branch skipping checks; missing heat locks; two existing-test and one new-test defects; rollback ACL order, TRIGGER re-grant and missing rollback preflights; and weak assertions. All were addressed in the current version except those listed in section 8. The fixes have not yet had a second review.
+Two reviewers that had not seen these conclusions reviewed the work. The first found: service_role reach through the internal R2 definers; indirect transitions through registration links; delete and re-create; an unsafe re-grant against SC1; the optional lifecycle rules being necessary; the repeat-call branch skipping checks; missing heat locks; test defects; rollback ACL order, TRIGGER re-grant and missing rollback preflights. The second reviewed the fixes and found: the delete rule breaking two behaviours the 10A and callback-final suites assert; the link rule refusing referential SET NULL actions (AFTER trigger); locks taken before refusals (CF1 U55); assertions made in the same statement as the action (vacuous or failing) and other suite defects; an incomplete rollback proof; unrecorded prior privileges; client-changeable `id`/`event_id`; stale references. All were addressed in the current version except the items in section 8 and the narrow concurrency window in section 5. **The second round of fixes has not itself been independently re-reviewed.**
