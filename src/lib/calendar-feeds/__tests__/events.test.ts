@@ -296,3 +296,15 @@ describe("loadFeedEvents: review hardening", () => {
     for (const q of admin.queries) for (const f of q.filters) if (f.op === "in" && Array.isArray(f.val)) expect(f.val.length).toBeLessThanOrEqual(100);
   });
 });
+
+describe("loadFeedEvents: attendee cancellation without updated_at", () => {
+  it("uses cancelled_at so the cancellation advances SEQUENCE and LAST-MODIFIED", async () => {
+    const klass = appt({ id: "g7", appointment_type: "group_class", title: "Waltz", client_id: null, updated_at: "2026-11-20T09:00:00Z" });
+    const base = { studio_id: S1, appointments: { starts_at: iso(2) }, appointment_id: "g7", client_id: C_ADULT, updated_at: "2026-11-21T09:00:00Z" };
+    const booked = (await loadFeedEvents(world({ appointments: [klass], appointment_attendees: [{ ...base, status: "booked", cancelled_at: null }] }), dancer("minimal", [C_ADULT]), NOW)).events[0];
+    const cancelled = (await loadFeedEvents(world({ appointments: [klass], appointment_attendees: [{ ...base, status: "cancelled", cancelled_at: "2026-11-29T09:00:00Z" }] }), dancer("minimal", [C_ADULT]), NOW)).events[0];
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(cancelled.lastModified).toBe("2026-11-29T09:00:00Z");
+    expect(cancelled.sequence).toBeGreaterThan(booked.sequence + 1);
+  });
+});

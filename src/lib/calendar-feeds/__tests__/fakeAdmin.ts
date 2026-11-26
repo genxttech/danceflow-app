@@ -9,6 +9,16 @@ export class FakeAdmin {
   rpcCalls: Array<{ fn: string; args: any }> = [];
   rpcHandlers: Record<string, (args: any) => { data: any; error: any }> = {};
 
+  /** Auth users by id; ids that are not listed exist and are not banned. Set to null for a deleted user. */
+  users: Record<string, any> = {};
+  authError: any = null;
+  auth = {
+    admin: {
+      getUserById: async (id: string) =>
+        this.authError ? { data: { user: null }, error: this.authError } : { data: { user: id in this.users ? this.users[id] : { id, banned_until: null } }, error: null },
+    },
+  };
+
   constructor(tables: Record<string, any[]> = {}) {
     this.tables = tables;
   }
