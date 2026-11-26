@@ -9,7 +9,7 @@ Facts used: live web = `e84ed0f3` (`release/website-embeds`, deployment `dpl_ERs
 | # | Item | Live today | Blocks | Action | Gate |
 |---|---|---|---|---|---|
 | 1 | Public `/account-deletion` page (#516) | **404** | Play data-safety form | Backport PR (H2) | Release-line merge, then deploy |
-| 2 | Managed-access guard on self-service account deletion (part of #438) | **Missing**: the live delete action has no check, so a login with a studio, organizer or platform role can delete itself and the role rows cascade | The page in row 1 says such logins cannot be deleted, so it must not ship without this | Same PR as row 1 | Same |
+| 2 | Managed-access guard on self-service account deletion (part of #438) | Not on the live line | The page in row 1 says logins that manage a studio, an organizer account or the platform cannot be deleted in self-service, so it ships with the guard | Same PR as row 1 | Same |
 | 3 | Instructor access functions (SQL `20260905160000`, `20260905160100`) and roster names (`20270214120000`) | **Absent on PROD** | Any instructor tester (web or app). Owner, admin and front desk are unaffected | SQL only, no code backport. See `Instructor_RPC_Gap_Impact.md` | One PROD SQL approval per file |
 | 4 | Staff API Pulse cards (#774 and later) | Absent | Nothing while `pulseCards` is off (H7) | None now; port with the flag decision | Later |
 
