@@ -151,6 +151,9 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Sam One / Pat Pro', 'confirmed', 'eligible', '101'),
   (pg_temp.u('008002'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'Sue Two / Pat Pro', 'confirmed', 'eligible', '102'),
   (pg_temp.u('008003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'Alex Morgan / Bo Bee', 'confirmed', 'eligible', '103');
+-- S5 (OD-02): fixture competitors are adults. The database participant age guard (20270301120000) refuses an unknown or under-18 date of birth;
+-- the negative cases for both live in test_T_competition_s5_participant_age_guard.sql. Harmless on a chain without S5.
+update public.event_competition_competitors set date_of_birth = date '1985-06-15' where date_of_birth is null;
 insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order) values
   (pg_temp.u('00e001'), pg_temp.u('008001'), pg_temp.u('007002'), 'student', 'follower', 'Sam One', 1),
   (pg_temp.u('00e001'), pg_temp.u('008001'), pg_temp.u('007001'), 'professional', 'leader', 'Pat Pro', 2),
@@ -425,6 +428,7 @@ insert into public.event_competition_competitors (id, event_id, first_name, last
 values (pg_temp.u('007019'), pg_temp.u('00e002'), 'Otto', 'Other', 'staff');
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
 values (pg_temp.u('008019'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'Otto Other', 'confirmed', 'eligible', '119');
+update public.event_competition_competitors set date_of_birth = date '1985-06-15' where date_of_birth is null;
 insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order)
 values (pg_temp.u('00e002'), pg_temp.u('008019'), pg_temp.u('007019'), 'student', 'follower', 'Otto Other', 1);
 insert into public.event_competition_entry_dances (event_id, entry_id, division_dance_id, dance_key, dance_label)
