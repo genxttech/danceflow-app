@@ -28,12 +28,15 @@ end $$;
 insert into auth.users (id, email)
 select ('d0000000-0000-4000-8000-00000000000' || i)::uuid, 'u' || i || '@plscope.test' from generate_series(1, 9) i;
 insert into public.profiles (id) select id from auth.users where email like '%@plscope.test' on conflict do nothing;
+-- publicly listed studios, so that the anonymous checks can fail without the migration
 insert into public.studios (id, name, slug, subscription_status) values
   ('d1000000-0000-4000-8000-00000000000a', 'PL A', 'pl-a', 'active'),
   ('d1000000-0000-4000-8000-00000000000b', 'PL B', 'pl-b', 'active'),
   ('d1000000-0000-4000-8000-00000000000c', 'PL C', 'pl-c', 'canceled');
 update public.profiles set platform_role = 'platform_admin' where id = 'd0000000-0000-4000-8000-000000000008';
+update public.studios set active = true, public_directory_enabled = true where slug in ('pl-a', 'pl-b', 'pl-c');
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
+  ('d0000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-00000000000a', 'instructor', true),
   ('d0000000-0000-4000-8000-000000000009', 'd1000000-0000-4000-8000-00000000000a', 'studio_owner', false),
   ('d0000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-00000000000a', 'studio_owner', true),
   ('d0000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-00000000000c', 'studio_owner', true),
@@ -44,11 +47,11 @@ insert into public.organizers (id, studio_id, name, slug) values ('d2000000-0000
 insert into public.organizer_users (organizer_id, user_id, role, active) values ('d2000000-0000-4000-8000-000000000001', 'd0000000-0000-4000-8000-000000000006', 'organizer_staff', true);
 
 -- events: 1 studio public, 2 organizer public, 3 studio draft, 4 public event of a canceled studio
-insert into public.events (id, studio_id, organizer_id, name, slug, status, visibility, start_date, end_date, created_by) values
-  ('d3000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-00000000000a', null, 'E1', 'pl-e1', 'published', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001'),
-  ('d3000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-00000000000a', 'd2000000-0000-4000-8000-000000000001', 'E2', 'pl-e2', 'published', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001'),
-  ('d3000000-0000-4000-8000-000000000003', 'd1000000-0000-4000-8000-00000000000a', null, 'E3', 'pl-e3', 'draft', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001'),
-  ('d3000000-0000-4000-8000-000000000004', 'd1000000-0000-4000-8000-00000000000c', null, 'E4', 'pl-e4', 'published', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001');
+insert into public.events (id, studio_id, organizer_id, name, slug, event_type, status, visibility, start_date, end_date, created_by) values
+  ('d3000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-00000000000a', null, 'E1', 'pl-e1', 'workshop', 'published', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001'),
+  ('d3000000-0000-4000-8000-000000000002', 'd1000000-0000-4000-8000-00000000000a', 'd2000000-0000-4000-8000-000000000001', 'E2', 'pl-e2', 'workshop', 'published', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001'),
+  ('d3000000-0000-4000-8000-000000000003', 'd1000000-0000-4000-8000-00000000000a', null, 'E3', 'pl-e3', 'workshop', 'draft', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001'),
+  ('d3000000-0000-4000-8000-000000000004', 'd1000000-0000-4000-8000-00000000000c', null, 'E4', 'pl-e4', 'workshop', 'published', 'public', '2027-03-01', '2027-03-01', 'd0000000-0000-4000-8000-000000000001');
 insert into public.event_guest_coaches (id, event_id, studio_id, organizer_id, name, active)
 select ('d4000000-0000-4000-8000-00000000000' || right(e.id::text, 1))::uuid, e.id, e.studio_id, e.organizer_id, 'Coach ' || e.name, true from public.events e where e.slug like 'pl-e%';
 insert into public.event_guest_coaches (id, event_id, studio_id, name, active) values ('d4000000-0000-4000-8000-000000000009', 'd3000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-00000000000a', 'Inactive', false);
@@ -101,8 +104,8 @@ select pg_temp.chk('service role reads all fixtures', pg_temp.slots('service_rol
 select pg_temp.chk('no read policy applies to anon or everyone', not exists (select 1 from pg_policies where schemaname = 'public' and tablename in ('event_guest_coaches', 'event_private_lesson_slots') and (roles && array['public', 'anon']::name[])));
 select pg_temp.chk('exactly two policies per table', (select bool_and(n = 2) and count(*) = 2 from (select tablename, count(*) n from pg_policies where schemaname = 'public' and tablename in ('event_guest_coaches', 'event_private_lesson_slots') group by tablename) q));
 select pg_temp.chk('row security still enabled', (select bool_and(relrowsecurity) from pg_class where oid in ('public.event_guest_coaches'::regclass, 'public.event_private_lesson_slots'::regclass)));
-select pg_temp.chk('staff function not executable by anon', not has_function_privilege('anon', 'public.can_view_event_private_lessons(uuid)', 'execute'));
-select pg_temp.chk('staff function executable by authenticated and service role', has_function_privilege('authenticated', 'public.can_view_event_private_lessons(uuid)', 'execute') and has_function_privilege('service_role', 'public.can_view_event_private_lessons(uuid)', 'execute'));
+select pg_temp.chk('staff function not executable by anon', case when to_regprocedure('public.can_view_event_private_lessons(uuid)') is null then false else not has_function_privilege('anon', 'public.can_view_event_private_lessons(uuid)', 'execute') end);
+select pg_temp.chk('staff function executable by authenticated and service role', case when to_regprocedure('public.can_view_event_private_lessons(uuid)') is null then false else has_function_privilege('authenticated', 'public.can_view_event_private_lessons(uuid)', 'execute') and has_function_privilege('service_role', 'public.can_view_event_private_lessons(uuid)', 'execute') end);
 
 do $$ declare n int; f text; begin
   select count(*), string_agg(name || ' [' || detail || ']', '; ') filter (where not ok) into n, f from t_results;
