@@ -164,4 +164,4 @@ Owner-confirmed 2026-11-20: **DanceFlow (Student) 0.1.0, version code 1 is ACTIV
 | Version | versionName 0.1.0, **versionCode 1**; the next upload needs **versionCode 2** |
 | Tester steps | `Student_Internal_Tester_Smoke.md` (message to forward, 8-step smoke, what we watch server-side, housekeeping) |
 
-Still UNVERIFIED: device behavior of this exact production-valued AAB (only the QA build of the same inputs was smoke-tested), push delivery (DEV Firebase project), and the Play pre-launch report. Business is not uploaded.
+Still UNVERIFIED: device behavior of this exact production-valued AAB (only the QA build of the same inputs was smoke-tested), push delivery (DEV Firebase project), and the Play pre-launch report. Business was not uploaded on 2026-11-20 when this was written; superseded: a read-only Console check on 2026-11-22 showed Business **version code 1 (0.1.0) Available to internal testers**, released Nov 20 4:47 PM (`Business_Release_Package_Internal_Testing.md`, 2026-11-23 status).
