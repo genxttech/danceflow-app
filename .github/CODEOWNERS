@@ -96,3 +96,10 @@
 
 # --- Continuity pilot: orchestrator code, policy and owner authorizations (the trust root of the pilot; changes need owner approval) ---
 /docs/ops/continuity-pilot/ @genxttech
+
+# --- AI: provider spend, usage metering and entitlements (every provider call is money; changes need owner approval) ---
+/src/lib/ai/ @genxttech
+/src/lib/lumi/ @genxttech
+/src/app/**/*ai-actions.ts @genxttech
+/src/app/app/reports/actions.ts @genxttech
+/src/app/portal/*/journey/actions.ts @genxttech
