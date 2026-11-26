@@ -2,7 +2,7 @@
 -- Integrations Slice 0 / ICS privacy. instructor_calendar_feeds.token is a bearer secret (the feed URL) stored in plaintext, and RLS
 -- let ANY active staff role of the studio read it (and, where the 20260503 migration was applied, manage it too: that migration's
 -- "Studio users can manage" policy was never dropped by 20260524). Narrow it to the people who need it:
---   studio_owner / studio_admin  read + manage (policy from 20260524, recreated here so a fresh database has exactly this set)
+--   platform_admin / studio_owner / studio_admin (the app's canManageInstructors)  read + manage (policy from 20260524, recreated here so a fresh database has exactly this set)
 --   the instructor the feed belongs to  read their own row
 -- Everyone else, including other staff roles, gets no access. The public feed route reads with the service role and is unaffected.
 -- Hash-only token storage with a one-time reveal and revoke/rotate UI is a separate follow-up (needs UI changes).
@@ -23,7 +23,7 @@ using (
     where usr.user_id = auth.uid()
       and usr.studio_id = instructor_calendar_feeds.studio_id
       and usr.active = true
-      and usr.role in ('studio_owner', 'studio_admin')
+      and usr.role in ('platform_admin', 'studio_owner', 'studio_admin')
   )
 )
 with check (
@@ -32,7 +32,7 @@ with check (
     where usr.user_id = auth.uid()
       and usr.studio_id = instructor_calendar_feeds.studio_id
       and usr.active = true
-      and usr.role in ('studio_owner', 'studio_admin')
+      and usr.role in ('platform_admin', 'studio_owner', 'studio_admin')
   )
 );
 
@@ -49,5 +49,13 @@ using (
       and i.active = true
   )
 );
+
+-- Fail closed: a policy that exists only in a hosted database would OR this tightening away, so it must stop the migration.
+do $$
+begin
+  if (select count(*) from pg_policies where schemaname = 'public' and tablename = 'instructor_calendar_feeds') <> 2 then
+    raise exception 'instructor_calendar_feeds must end with exactly two policies. Nothing was changed.';
+  end if;
+end $$;
 
 commit;

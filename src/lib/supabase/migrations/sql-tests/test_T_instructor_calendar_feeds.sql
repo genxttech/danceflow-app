@@ -24,7 +24,7 @@ end $$;
 insert into auth.users (id, email) values
   ('e0000000-0000-4000-8000-0000000000a1', 'owner@ics.test'), ('e0000000-0000-4000-8000-0000000000a2', 'front@ics.test'),
   ('e0000000-0000-4000-8000-0000000000a3', 'instrA@ics.test'), ('e0000000-0000-4000-8000-0000000000a4', 'instrB@ics.test'),
-  ('e0000000-0000-4000-8000-0000000000b1', 'otherowner@ics.test');
+  ('e0000000-0000-4000-8000-0000000000b1', 'otherowner@ics.test'), ('e0000000-0000-4000-8000-0000000000a5', 'platform@ics.test');
 insert into public.profiles (id) select id from auth.users where email like '%@ics.test' on conflict do nothing;
 insert into public.studios (id, name, slug) values
   ('e1000000-0000-4000-8000-00000000000a', 'Ics A', 'ics-a'), ('e1000000-0000-4000-8000-00000000000b', 'Ics B', 'ics-b');
@@ -33,7 +33,8 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('e0000000-0000-4000-8000-0000000000a2', 'e1000000-0000-4000-8000-00000000000a', 'front_desk', true),
   ('e0000000-0000-4000-8000-0000000000a3', 'e1000000-0000-4000-8000-00000000000a', 'instructor', true),
   ('e0000000-0000-4000-8000-0000000000a4', 'e1000000-0000-4000-8000-00000000000a', 'instructor', true),
-  ('e0000000-0000-4000-8000-0000000000b1', 'e1000000-0000-4000-8000-00000000000b', 'studio_owner', true);
+  ('e0000000-0000-4000-8000-0000000000b1', 'e1000000-0000-4000-8000-00000000000b', 'studio_owner', true),
+  ('e0000000-0000-4000-8000-0000000000a5', 'e1000000-0000-4000-8000-00000000000a', 'platform_admin', true);
 insert into public.instructors (id, studio_id, user_id, first_name, last_name, active) values
   ('e3000000-0000-4000-8000-0000000000a3', 'e1000000-0000-4000-8000-00000000000a', 'e0000000-0000-4000-8000-0000000000a3', 'Ana', 'A', true),
   ('e3000000-0000-4000-8000-0000000000a4', 'e1000000-0000-4000-8000-00000000000a', 'e0000000-0000-4000-8000-0000000000a4', 'Bo', 'B', true);
@@ -42,6 +43,7 @@ insert into public.instructor_calendar_feeds (studio_id, instructor_id, token) v
   ('e1000000-0000-4000-8000-00000000000a', 'e3000000-0000-4000-8000-0000000000a4', 'tok-bo');
 
 select pg_temp.chk('owner reads all feeds of own studio', pg_temp.val_as('authenticated', 'e0000000-0000-4000-8000-0000000000a1', 'select count(*)::text from public.instructor_calendar_feeds') = '2');
+select pg_temp.chk('platform admin role reads the studio feeds', pg_temp.val_as('authenticated', 'e0000000-0000-4000-8000-0000000000a5', 'select count(*)::text from public.instructor_calendar_feeds') = '2');
 select pg_temp.chk('instructor reads only their own feed', pg_temp.val_as('authenticated', 'e0000000-0000-4000-8000-0000000000a3', 'select string_agg(token, '','') from public.instructor_calendar_feeds') = 'tok-ana');
 select pg_temp.chk('other staff role reads nothing', pg_temp.val_as('authenticated', 'e0000000-0000-4000-8000-0000000000a2', 'select count(*)::text from public.instructor_calendar_feeds') = '0');
 select pg_temp.chk('other studio owner reads nothing', pg_temp.val_as('authenticated', 'e0000000-0000-4000-8000-0000000000b1', 'select count(*)::text from public.instructor_calendar_feeds') = '0');
