@@ -158,6 +158,8 @@ export async function sendBilledSms(admin: Client, provider: BilledSmsProvider, 
   if (!marked.error && markedData.dispatch === false && markedData.state === "released" && markedData.reason === "sender_not_ready") {
     return { outcome: "refused", reason: "no_billed_sender" };
   }
+  // TW-4F slice E: the location went on a DanceFlow traffic hold after the reservation: no marker, nothing sent (the reconciler releases the reservation)
+  if (marked.error && String(marked.error.code ?? "") === "TW080") return { outcome: "refused", reason: "suspended" };
   if (marked.error || markedData.dispatch !== true) {
     return { outcome: "replay", logId, state: str(markedData.state) || "reserved", providerSid: null };
   }

@@ -339,8 +339,9 @@ commit;`);
       const again = await run(w, p, { idempotencyKey: key });
       expect(again).toEqual({ kind: "replay", state: "closed", outcome: "succeeded", providerStateAfter: "suspended" });
       expect(p.writes).toHaveLength(1);
-      expect((await begin(claims(ADMIN2), { studio: w.studios[0], name: w.names[0], tail: w.account.slice(-6), key })).error?.code).toBe("42501");
-      expect((await begin(claims(ADMIN), { studio: w.studios[0], action: "reactivate", name: w.names[0], tail: w.account.slice(-6), key })).error?.code).toBe("42501");
+      expect((await begin(claims(ADMIN2), { studio: w.studios[0], name: w.names[0], tail: w.account.slice(-6), key })).data).toEqual({ decision: "refused", code: "key_conflict" });
+      expect((await begin(claims(ADMIN), { studio: w.studios[0], action: "reactivate", name: w.names[0], tail: w.account.slice(-6), key })).data).toEqual({ decision: "refused", code: "key_conflict" });
+      expect(count(`select 1 from public.studio_sms_suspension_attempts where idempotency_key = '${key}'`)).toBe(1);
     });
 
     it("concurrent duplicates: two requests for the same business (different keys, or the same key) yield exactly one attempt", async () => {
@@ -384,6 +385,21 @@ commit;`);
       expect(acctStatus(w)).toBe("suspended");
       // nothing ever reactivated it on its own
       expect(count(`select 1 from public.studio_sms_suspension_attempts where legal_entity_id = '${w.entity}' and action = 'reactivate'`)).toBe(0);
+      // a suspension confirmed by verification counts as confirmed: an administrator may reactivate it (explicitly)
+      const rp = fake(w, "suspended");
+      expect(await run(w, rp, { action: "reactivate" })).toMatchObject({ outcome: "succeeded", stateAfter: "active" });
+      expect(acctStatus(w)).toBe("active");
+    });
+
+    it("a hold placed by a suspension attempt cannot be lost to a concurrent release (per-location lock)", async () => {
+      const w = world();
+      psql(`select public.tw4_traffic_hold_set('${w.studios[0]}', true, '${ADMIN}', 'manual hold before the race test')`);
+      const release = asService(`select public.tw4_traffic_hold_set('${w.studios[0]}', false, '${ADMIN}', 'concurrent release during the race test')::text, pg_sleep(1);`);
+      const susp = asAuth(claims(ADMIN), `select public.tw4susp_begin('${w.studios[0]}', 'suspend', ${lit(w.names[0])}, '${w.account.slice(-6)}', 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', 'key-${hex(10)}')::text;`);
+      const first = psqlAsync(release);
+      await new Promise((r) => setTimeout(r, 300));
+      await Promise.all([first, psqlAsync(susp)]);
+      expect(held(w.studios[0]) && held(w.studios[1])).toBe(true);
     });
 
     it("verification observing CLOSED records the fact without changing the account row; verification with nothing open is refused", async () => {

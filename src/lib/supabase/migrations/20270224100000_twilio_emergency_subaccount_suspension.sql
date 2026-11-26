@@ -318,7 +318,9 @@ begin
   select * into a from public.studio_sms_suspension_attempts x where x.idempotency_key = p_idempotency_key;
   if a.id is not null then
     if a.actor <> v_actor or a.studio_id <> p_studio_id or a.action <> p_action then
-      raise exception 'this idempotency key belongs to another request' using errcode = '42501';
+      -- never a replay of someone else's result, and never a new attempt under a used key
+      perform public._tw4susp_audit(null, 'refused', p_action, v_actor, p_studio_id, null, null, p_authorization_ref, p_reason, p_idempotency_key, null, null, 'refused', 'key_conflict', null);
+      return jsonb_build_object('decision', 'refused', 'code', 'key_conflict');
     end if;
     return jsonb_build_object('decision', 'replay', 'attempt_id', a.id, 'state', a.state, 'outcome', a.outcome, 'provider_state_after', a.provider_state_after);
   end if;
@@ -352,7 +354,7 @@ begin
     v_code := 'attempt_open';
   elsif p_action = 'reactivate' and (acc.status <> 'suspended' or not exists (
           select 1 from public.studio_sms_suspension_attempts x where x.legal_entity_id = v_entity and x.account_sid = acc.twilio_account_sid
-             and x.action = 'suspend' and x.outcome in ('succeeded', 'already_in_state'))) then
+             and x.action = 'suspend' and (x.outcome in ('succeeded', 'already_in_state') or (x.outcome = 'reconciled' and x.provider_state_after = 'suspended'))))) then
     v_code := 'not_suspended';
   end if;
 
@@ -369,6 +371,8 @@ begin
   -- failure-safe: BEFORE the provider is called, every location of the business is put on the DanceFlow traffic hold (never lifted automatically)
   if p_action = 'suspend' then
     for s in select es.studio_id from public.studio_sms_entity_studios es where es.legal_entity_id = v_entity order by es.studio_id loop
+      -- the same per-location lock tw4_traffic_hold_set takes: a concurrent release cannot slip between the check and the hold (studio_id order: no cycle)
+      perform pg_advisory_xact_lock(hashtextextended('tw4susp:hold:' || s.studio_id::text, 0));
       if not public._tw4susp_held(s.studio_id) then
         insert into public.studio_sms_traffic_hold_events (studio_id, legal_entity_id, hold, actor, reason, attempt_id)
         values (s.studio_id, v_entity, true, v_actor, left('emergency subaccount suspension requested: ' || btrim(p_reason), 300), v_id);
@@ -448,6 +452,9 @@ begin
     if a.state <> 'in_flight' then
       raise exception 'the attempt is not in progress' using errcode = '22023';
     end if;
+    perform set_config('tw4.susp_write', 'on', true);
+    update public.studio_sms_suspension_attempts set provider_state_before = p_state_before where id = a.id;
+    perform set_config('tw4.susp_write', 'off', true);
     perform public._tw4susp_audit(a.id, 'precheck', a.action, a.actor, a.studio_id, a.legal_entity_id, a.account_sid, null, null, null, p_state_before, null, null, p_code, p_detail);
     return jsonb_build_object('recorded', 'precheck');
   end if;

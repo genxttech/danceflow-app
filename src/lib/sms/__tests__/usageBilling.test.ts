@@ -147,6 +147,16 @@ describe("sendBilledSms: replay and dispatch marker", () => {
     expect(provider.sent).toHaveLength(0);
   });
 
+  it("TW-4F slice E: a traffic hold refuses at begin (TW080) and at the dispatch marker; the provider is never called", async () => {
+    const atBegin = fakeRpc({ tw4_usage_begin: { data: null, error: { code: "TW080" } } });
+    const p1 = new FakeBilledSmsProvider();
+    expect(await sendBilledSms(atBegin.client, p1, input())).toEqual({ outcome: "refused", reason: "suspended" });
+    const atDispatch = fakeRpc({ tw4_usage_dispatching: { data: null, error: { code: "TW080" } } });
+    const p2 = new FakeBilledSmsProvider();
+    expect(await sendBilledSms(atDispatch.client, p2, input())).toEqual({ outcome: "refused", reason: "suspended" });
+    expect(p1.sent.length + p2.sent.length).toBe(0);
+  });
+
   it("dispatch:false is a replay carrying the reported state and the provider is not called", async () => {
     const rpc = fakeRpc({ tw4_usage_dispatching: { data: { dispatch: false, state: "submitting" }, error: null } });
     const provider = new FakeBilledSmsProvider();

@@ -200,7 +200,8 @@ export function suspensionMessage(result: ChangeResult | VerifyResult): { ok: bo
     parent_unknown: "Refused: the deployment's parent account is not configured, so the target cannot be proven to be a subaccount.",
     not_owned_by_parent: "Refused: Twilio does not report this account as a subaccount of DanceFlow's parent account.",
     unexpected_provider_state: "Refused: Twilio reported an unexpected account status. Nothing changed.",
-    nothing_to_verify: "There is no open attempt to verify.",
+    key_conflict: "This form's request key was already used for a different request. Reload the page and try again. Nothing changed.",
+    nothing_to_verify:"There is no open attempt to verify.",
     attempt_in_progress: "That attempt started less than 10 minutes ago; wait, then verify.",
     provider_unreadable: "Twilio could not be read. The attempt stays open; try the verification again later.",
   };
