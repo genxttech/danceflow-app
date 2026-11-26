@@ -61,9 +61,15 @@ pull(){ # <ref> <regex of migration file names>
 }
 pull "$P_R11" '/(20270301090000_|sql-tests/test_T_competition_(r11_|cf1_a3_results|pv1_recompute))|rollback/20270301090000_'
 pull "$P_S3"  '/(20270301(100|101|102)000_|sql-tests/test_T_competition_(r10_s3_|e1_officials|e2_ballots))|rollback/20270301(100|101|102)000_'
-pull "$P_S4"  '/(20270301[0-9]{6}_competition_r15_|sql-tests/(test_T_competition_(r15_|ns1_no_show|cf1_f3_publication)|test_T_phase10d1_heat_entry_eligibility|fixtures/))|rollback/20270301[0-9]{6}_competition_r15_'
+pull "$P_S4"  '/(20270301[0-9]{6}_competition_r15_|sql-tests/(test_T_competition_(r15_|ns1_no_show|cf1_f3_publication|o1_day_of|r2_refund_write_gate|r2_entry_refunds)|test_T_phase10d_floor_schedule|test_T_phase10d1_heat_entry_eligibility|fixtures/))|rollback/20270301[0-9]{6}_competition_r15_'
+# S5-only phase: S5's own suite versions. Composed phases: the four suites PR 866 builds on S5's versions (R-15 seeding added) come from PR 866.
 S5_SUITE_RE='sql-tests/(test_T_competition_(s5_|o1_day_of|r2_refund_write_gate|r2_entry_refunds)|test_T_phase10d_floor_schedule|test_T_phase10c_competitor_registration)'
-pull "$P_S5"  "/(20270301120000_|$S5_SUITE_RE)|rollback/20270301120000_"
+S5_COMPOSED_RE='sql-tests/(test_T_competition_s5_|test_T_phase10c_competitor_registration)'
+pull "$P_S5"  "/(20270301120000_|$S5_COMPOSED_RE)|rollback/20270301120000_"
+for n in test_T_competition_o1_day_of test_T_competition_r2_refund_write_gate test_T_competition_r2_entry_refunds test_T_phase10d_floor_schedule; do
+  dropped="$(git diff "$P_S5" "$P_S4" -- "$M/sql-tests/$n.sql" | grep -c '^-[^-]')"
+  echo "$n from PR866 $(git rev-parse "$P_S4") (lines of PR863's version removed or changed: $dropped)" >> "$OUT/suite-sources.txt"
+done
 mkdir -p "$CHAIN/sql-tests/fixtures"; for f in $(git ls-tree -r --name-only "$P_S4" "$M/sql-tests/fixtures/"); do git show "$P_S4:$f" > "$CHAIN/sql-tests/fixtures/$(basename "$f")"; done
 rm -rf "$CHAIN/sql-tests-s5"; cp -r "$CHAIN/sql-tests-base" "$CHAIN/sql-tests-s5"
 for f in $(git ls-tree -r --name-only "$P_S5" "$M/sql-tests/" | grep -E "$S5_SUITE_RE"); do git show "$P_S5:$f" > "$CHAIN/sql-tests-s5/$(basename "$f")"; done
@@ -101,15 +107,27 @@ if [ "$adapted_ok" = 1 ] && ( cd "$ADIR" && git -c core.autocrlf=false apply -p1
     else log "ADAPTED: adapted blob mismatch for $n (want $want_ad got $got_ad); composed phase keeps the released copy"; fi
   done
 else log "ADAPTED: patch not applied; composed phase keeps the released copies"; fi
+# OD-31 negative suite: S4's C2 patch on a temporary copy, composed phase only (baseline and S5-only run the released file)
+n=test_T_od31_guarded_baseline_negative; p="docs/competition/governance/audit/guarded-baseline/$n.sql"
+mkdir -p "$ADIR/$(dirname "$p")"; cp "$CHAIN/sql-tests-base/$n.sql" "$ADIR/$p"
+git show "$P_S4:$M/sql-tests/adapted/r15-od31-negative-c2.patch" > "$ADIR/od31.patch"
+want_rel="$(grep -F "$n.sql\`" "$ADIR/README.md" | awk -F'`' '{print $4}')"; want_ad="$(grep -F "$n.sql\`" "$ADIR/README.md" | awk -F'`' '{print $6}')"
+if [ -n "$want_rel" ] && [ "$(git hash-object --no-filters "$ADIR/$p")" = "$want_rel" ] && ( cd "$ADIR" && git -c core.autocrlf=false apply -p1 od31.patch ) && [ "$(git hash-object --no-filters "$ADIR/$p")" = "$want_ad" ]; then
+  diff -u "$CHAIN/sql-tests-base/$n.sql" "$ADIR/$p" > "$OUT/adapted-$n.diff"; cp "$ADIR/$p" "$CHAIN/sql-tests/$n.sql"
+  echo "$n released=$want_rel adapted=$want_ad" >> "$OUT/adapted-copies.txt"
+else log "ADAPTED: OD-31 patch or blob check failed (want released $want_rel, adapted $want_ad); composed phase keeps the released copy"; fi
 # S6 composed dir: composed suites + hooked temporary copies of the two S6 suites (same hook block, inserted only; ADAPTED COPY)
 rm -rf "$CHAIN/sql-tests-s6comp"; cp -r "$CHAIN/sql-tests" "$CHAIN/sql-tests-s6comp"
 HOOK="$(awk 'index($0,"+-- S4/R-15")==1 {on=1} on && substr($0,1,1)=="+" {print substr($0,2); if ($0=="+end $r15$;") exit}' "$ADIR/hook.patch")"
 printf '%s' "$HOOK" | grep -q 'perform pg_temp.r15_clear_entries' || { log "ADAPTED: hook block with the helper call not found in the S4 patch"; HOOK=""; }
 n=test_T_competition_s6_entry_status_guard; src="$CHAIN/sql-tests-s6base/$n.sql"
-if [ -n "$HOOK" ] && sed -n '49p' "$src" | grep -qi '^insert into public.event_competition_heat_entries' && sed -n '291p' "$src" | grep -qi '^insert into public.event_competition_heat_entries'; then
-  HOOK="$HOOK" awk 'NR==49 || NR==291 { print ENVIRON["HOOK"] } { print }' "$src" > "$CHAIN/sql-tests-s6comp/$n.sql"
+# hook points: before EVERY top-level (column 1) heat-entry insert of the suite; the S6 head moves, so line numbers are not hard-coded
+points="$(grep -n '^insert into public\.event_competition_heat_entries' "$src" | cut -d: -f1 | tr '\n' ' ')"
+if [ -n "$HOOK" ] && [ -n "$points" ]; then
+  log "ADAPTED: S6 suite hook inserted before lines: $points"
+  HOOK="$HOOK" awk 'index($0,"insert into public.event_competition_heat_entries")==1 { print ENVIRON["HOOK"] } { print }' "$src" > "$CHAIN/sql-tests-s6comp/$n.sql"
   diff -u "$src" "$CHAIN/sql-tests-s6comp/$n.sql" > "$OUT/adapted-$n.diff"; echo "$n released=$(git hash-object --no-filters "$src") adapted=$(git hash-object --no-filters "$CHAIN/sql-tests-s6comp/$n.sql")" >> "$OUT/adapted-copies.txt"
-else cp "$src" "$CHAIN/sql-tests-s6comp/$n.sql"; log "ADAPTED: S6 suite hook points not as described; running it unhooked"; fi
+else cp "$src" "$CHAIN/sql-tests-s6comp/$n.sql"; log "ADAPTED: no S6 hook block or hook point; running the S6 suite unhooked"; fi
 n=test_T_competition_u18s_heat_entry_scratch_audit_with_s6; src="$CHAIN/sql-tests-s6base/$n.sql"
 W="$CHAIN/adapted-u18s-s6"; rm -rf "$W"; mkdir -p "$W/$M/sql-tests"; cp "$src" "$W/$M/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql"
 if ( cd "$W" && git -c core.autocrlf=false apply -p1 --include="$M/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql" "$ADIR/hook.patch" ) 2>>"$OUT/runner.log"; then
