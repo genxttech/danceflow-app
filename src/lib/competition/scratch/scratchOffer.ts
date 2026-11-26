@@ -16,7 +16,8 @@ type Query = {
 };
 export type ScratchOfferSupabase = { from: (table: string) => { select: (columns: string) => Query } };
 
-export type ScratchOffer = { loaded: boolean; blocked: ReadonlySet<string> };
+/** `left`: entries already scratched or withdrawn (a leftover placement of theirs is not a no-show). */
+export type ScratchOffer = { loaded: boolean; blocked: ReadonlySet<string>; left: ReadonlySet<string> };
 
 const PAGE = 1000;
 
@@ -37,11 +38,13 @@ async function readAll(query: () => Query): Promise<unknown[] | null> {
 export async function loadScratchOffer(supabase: ScratchOfferSupabase, eventId: string): Promise<ScratchOffer> {
   const [placements, closedEntries] = await Promise.all([
     readAll(() => supabase.from("event_competition_heat_entries").select("entry_id, status, heat:event_competition_heats(lock_state, status)").eq("event_id", eventId)),
-    readAll(() => supabase.from("event_competition_entries").select("id").eq("event_id", eventId).in("status", ["disqualified", "complete"])),
+    readAll(() => supabase.from("event_competition_entries").select("id, status").eq("event_id", eventId).in("status", ["disqualified", "complete", "scratched", "withdrawn"])),
   ]);
-  if (!placements || !closedEntries) return { loaded: false, blocked: new Set() };
+  if (!placements || !closedEntries) return { loaded: false, blocked: new Set(), left: new Set() };
 
-  const blocked = new Set<string>((closedEntries as { id: string }[]).map((entry) => entry.id));
+  const closed = closedEntries as { id: string; status: string }[];
+  const left = new Set<string>(closed.filter((entry) => entry.status === "scratched" || entry.status === "withdrawn").map((entry) => entry.id));
+  const blocked = new Set<string>(closed.filter((entry) => !left.has(entry.id)).map((entry) => entry.id));
   const byEntry = new Map<string, PlacementState[]>();
   for (const row of placements as PlacementRow[]) {
     const heat = Array.isArray(row.heat) ? row.heat[0] : row.heat;
@@ -58,7 +61,7 @@ export async function loadScratchOffer(supabase: ScratchOfferSupabase, eventId: 
     const placementClass = classifyPlacements(states);
     if (placementClass !== "open" && placementClass !== "unplaced") blocked.add(entryId);
   }
-  return { loaded: true, blocked };
+  return { loaded: true, blocked, left };
 }
 
 export function mayOfferScratch(offer: ScratchOffer, entryId: string): boolean {

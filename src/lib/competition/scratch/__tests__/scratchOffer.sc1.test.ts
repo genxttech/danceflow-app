@@ -12,7 +12,7 @@ const PAGES = [
 const heat = (status: string, lock_state = "open") => ({ status, lock_state });
 const placed = (entry_id: string, heatStatus: string, status = "scheduled", lock = "open"): Placement => ({ entry_id, status, heat: heat(heatStatus, lock) });
 
-function fake(options: { placements?: Placement[]; closed?: string[]; fail?: string; maxRows?: number }) {
+function fake(options: { placements?: Placement[]; closed?: { id: string; status: string }[]; fail?: string; maxRows?: number }) {
   const calls: { table: string; columns: string; filters: [string, unknown][] }[] = [];
   const supabase: ScratchOfferSupabase = {
     from: (table) => ({
@@ -25,7 +25,7 @@ function fake(options: { placements?: Placement[]; closed?: string[]; fail?: str
           order: () => query,
           range: async (from: number, to: number) => {
             if (options.fail === table) return { data: null, error: { message: "boom" } };
-            const all: unknown[] = table === "event_competition_heat_entries" ? (options.placements ?? []) : (options.closed ?? []).map((id) => ({ id }));
+            const all: unknown[] = table === "event_competition_heat_entries" ? (options.placements ?? []) : (options.closed ?? []);
             return { data: all.slice(from, Math.min(to + 1, from + (options.maxRows ?? 1000))), error: null };
           },
         };
@@ -75,9 +75,18 @@ describe("SC1 whole-entry scratch offer (Option A)", () => {
   });
 
   it("offers nothing for a disqualified or complete entry status", async () => {
-    const { supabase, calls } = fake({ closed: ["d"] });
+    const { supabase, calls } = fake({ closed: [{ id: "d", status: "disqualified" }] });
     expect(mayOfferScratch(await loadScratchOffer(supabase, "ev"), "d")).toBe(false);
-    expect(calls.find((c) => c.table === "event_competition_entries")?.filters).toEqual([["event_id", "ev"], ["status", ["disqualified", "complete"]]]);
+    expect(calls.find((c) => c.table === "event_competition_entries")?.filters).toEqual([["event_id", "ev"], ["status", ["disqualified", "complete", "scratched", "withdrawn"]]]);
+  });
+
+  it("marks scratched and withdrawn entries as having left, so the day-of console offers no no-show for them", async () => {
+    const offer = await loadScratchOffer(fake({ closed: [{ id: "w", status: "withdrawn" }, { id: "s", status: "scratched" }, { id: "d", status: "disqualified" }] }).supabase, "ev");
+    expect([...offer.left].sort()).toEqual(["s", "w"]);
+    expect([...offer.blocked]).toEqual(["d"]);
+    const source = readFileSync("src/app/app/events/[id]/competition/day-of/page.tsx", "utf8");
+    expect(source).toContain("const hasLeft = scratchOffer.left.has(entry.entryId);");
+    expect(source).toContain("const canMark = !hasLeft && canMarkNoShow({");
   });
 
   it("reads past the response row limit, including a server limit below the page size", async () => {

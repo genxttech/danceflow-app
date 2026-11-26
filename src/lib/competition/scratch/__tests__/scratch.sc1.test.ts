@@ -183,6 +183,11 @@ describe("SC1 port: performScratch (calls the audited RPC as the user; entry/hea
       expect(state.entry!.status).toBe("confirmed");
     }
   });
+  it("fails closed, without calling the RPC, when a placement's heat cannot be read", async () => {
+    const { client, state } = fake({ heats: [{ status: "scheduled", heat: null } as unknown as HeatRow] });
+    expect(await performScratch(client, { eventId: EVENT, entryId: ENTRY, reason: "r" })).toEqual({ ok: false, code: "COMP_SC1_UNKNOWN" });
+    expect(state.rpcCalls).toHaveLength(0);
+  });
   it("surfaces the RPC's own locked/certified refusal if state changed between preflight and call", async () => {
     const { client } = fake({ heats: [open()], rpcError: "This entry is in a locked or certified heat and requires the correction workflow." });
     expect(await performScratch(client, { eventId: EVENT, entryId: ENTRY, reason: "r" })).toEqual({ ok: false, code: "COMP_SC1_LOCKED" });

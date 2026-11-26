@@ -4,7 +4,7 @@
  * These rules (mirrored by the server actions) are the only guard.
  *
  * "Danced" follows SC1's database rule: the heat is on the floor or finished (status active/complete), or one of its
- * placements is marked danced/disqualified. A locked, not-yet-danced heat still allows an official scratch (SC1).
+ * placements is marked danced/disqualified. A whole-entry scratch is refused while a heat is locked (SC1).
  */
 
 export type HeatFloorInfo = { status: string; lock_state: string; has_danced_entry?: boolean };

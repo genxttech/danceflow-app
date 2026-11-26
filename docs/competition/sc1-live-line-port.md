@@ -32,6 +32,7 @@ Recorded in `governance/audit/OWNER-DECISIONS.md` section 14 (PR 795, `3515c5524
 
 - The page and the server action refuse such an entry. The day-of and Registrations pages show no Scratch link for it, and none for a locked or certified heat or a `disqualified` / `complete` entry (`scratchOffer.ts`). If placements cannot be read, no link is shown.
 - A `staging` heat is not in the policy and is not refused. A placement already `scratched` inside an active or completed unlocked heat does not block (same as `_r2_entry_participation_class`).
+- A leftover scheduled placement of an already scratched or withdrawn entry gets no "Mark no-show" on the day-of console; it needs correction before that heat's ballots can complete, and no app action does that today.
 - An advance withdrawal is never recorded or worded as a No-show. No-show stays the separate per-heat day-of action. Withdrawing only the later heats of a partly danced entry has no mechanism; Option C is a separate design.
 
 ## Consistency and money

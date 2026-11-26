@@ -69,7 +69,8 @@ export default async function DayOfPage({
               <ul className="mt-1 space-y-1">
                 {(data.entriesByHeat.get(scoringHeat.id) ?? []).map((entry) => {
                   const noShow = data.noShows.get(entry.heatEntryId);
-                  const canMark = canMarkNoShow({ roundStatus: roundStatusById.get(scoringHeat.round_id), heatStatus: scoringHeat.status, entryStatus: entry.status });
+                  const hasLeft = scratchOffer.left.has(entry.entryId);
+                  const canMark = !hasLeft && canMarkNoShow({ roundStatus: roundStatusById.get(scoringHeat.round_id), heatStatus: scoringHeat.status, entryStatus: entry.status });
                   return (
                     <li key={entry.entryId} className="min-w-0 text-sm text-slate-700">
                       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -86,6 +87,7 @@ export default async function DayOfPage({
                           ) : null}
                         </span>
                       </div>
+                      {hasLeft ? <p className="mt-1 break-words text-xs text-amber-900">Already scratched or withdrawn, which is not a no-show. This heat placement needs correction.</p> : null}
                       {noShow || canMark ? (
                         <details className="mt-1">
                           <summary className="flex min-h-11 cursor-pointer items-center text-xs font-semibold text-slate-700 underline">
