@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import {
   getGoogleCalendarAccess,
   googleCalendarReturnPath,
@@ -14,7 +14,7 @@ import {
   type GoogleCalendarConnectionRow,
 } from "@/lib/integrations/google-calendar/sync";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { deleteGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
+import { deleteGoogleCredentials, loadGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
 import {
   revokeGoogleCalendarGrant,
   getValidGoogleCalendarAccessToken,
@@ -34,7 +34,7 @@ async function loadConnection(scope: GoogleCalendarScope) {
   const access = await getGoogleCalendarAccess(scope);
   let query = access.supabase
     .from("studio_google_calendar_connections")
-    .select("id, studio_id, connection_scope, instructor_id, calendar_id, sync_lessons, sync_classes, sync_events")
+    .select("id, studio_id, connection_scope, instructor_id, calendar_id, sync_lessons, sync_classes, sync_events, status")
     .eq("studio_id", access.context.studioId)
     .eq("connection_scope", scope);
   query = scope === "instructor"
@@ -79,14 +79,40 @@ export async function updateGoogleCalendarSettingsAction(formData: FormData) {
   redirect(withParam(returnTo, "saved", "1"));
 }
 
+/**
+ * True only when DanceFlow can no longer act on the user's Google account: the connection is parked for reauthorization (before or by the
+ * failed attempt) or it holds no usable credentials. A network or provider error is NOT this: cleanup must then be retried, not skipped.
+ */
+async function googleAuthorizationIsGone(connectionId: string, statusBefore: string | null | undefined) {
+  if (statusBefore === "needs_reauth") return true;
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("studio_google_calendar_connections").select("status").eq("id", connectionId).maybeSingle<{ status: string | null }>();
+  if (error) return false;
+  if (data?.status === "needs_reauth") return true;
+  try {
+    return !(await loadGoogleCredentials(admin, connectionId));
+  } catch {
+    return false;
+  }
+}
+
 export async function disconnectGoogleCalendarAction(formData: FormData) {
   const scope = parseGoogleCalendarScope(String(formData.get("connectionScope") ?? "studio"));
   const returnTo = safeReturnPath(formData.get("returnTo"), scope);
   const { access, connection } = await loadConnection(scope);
   if (!connection) redirect(withParam(returnTo, "disconnected", "1"));
 
-  const cleanup = await cleanupGoogleCalendarConnectionEvents(connection);
-  if (cleanup.failed > 0) redirect(withParam(returnTo, "error", "disconnect_cleanup_failed"));
+  // A connection whose authorization is gone (needs_reauth, revoked grant) cannot reach Google to remove events: that must not trap it.
+  // Cleanup is skipped only when authorization is gone; any other failure, including partial deletes, keeps the connection for a retry.
+  let cleanupSkipped = false;
+  try {
+    const cleanup = await cleanupGoogleCalendarConnectionEvents(connection);
+    if (cleanup.failed > 0) redirect(withParam(returnTo, "error", "disconnect_cleanup_failed"));
+  } catch (error) {
+    unstable_rethrow(error);
+    if (!(await googleAuthorizationIsGone(connection.id, connection.status))) redirect(withParam(returnTo, "error", "disconnect_cleanup_failed"));
+    cleanupSkipped = true;
+  }
 
   // Tokens go first: a failure here leaves the connection visibly connected so the user can retry, never "disconnected" with live tokens.
   // Revoke at Google first (best effort, never blocks the local disconnect); the app should also disappear from the user's Google account permissions.
@@ -102,7 +128,7 @@ export async function disconnectGoogleCalendarAction(formData: FormData) {
   if (error) throw new Error(`Failed to disconnect Google Calendar: ${error.message}`);
   revalidatePath("/app/settings/integrations");
   revalidatePath(returnTo);
-  redirect(withParam(returnTo, "disconnected", "1"));
+  redirect(withParam(withParam(returnTo, "disconnected", "1"), "cleanup_skipped", cleanupSkipped ? "1" : "0"));
 }
 
 export async function refreshGoogleCalendarsAction(formData: FormData) {

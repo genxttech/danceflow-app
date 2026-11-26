@@ -9,6 +9,8 @@ import {
 } from "@/lib/integrations/google-calendar/client";
 
 export type GoogleCalendarConnectionRow = {
+  /** Present when the caller selected it (disconnect uses it to tell a parked authorization from a transient failure). */
+  status?: string | null;
   id: string;
   studio_id: string;
   connection_scope: "studio" | "instructor";

@@ -10,7 +10,7 @@ import {
   updateGoogleCalendarSettingsAction,
 } from "../actions";
 
-type SearchParams = Promise<{ connected?: string; saved?: string; disconnected?: string; refreshed?: string; synced?: string; deleted?: string; failed?: string; error?: string }>;
+type SearchParams = Promise<{ connected?: string; saved?: string; disconnected?: string; cleanup_skipped?: string; refreshed?: string; synced?: string; deleted?: string; failed?: string; error?: string }>;
 type Connection = {
   id: string;
   status: string;
@@ -61,14 +61,14 @@ export default async function PersonalGoogleCalendarPage({ searchParams }: { sea
           <p className="mt-6 text-sm font-semibold uppercase tracking-[0.24em] text-fuchsia-100">My Teaching Calendar</p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Keep your assigned DanceFlow schedule on your own calendar.</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-fuchsia-50">
-            {instructorName}'s assigned lessons and classes automatically sync every 30 minutes. Studio events and other instructors' appointments are not included.
+            {instructorName}&apos;s assigned lessons and classes automatically sync every 30 minutes. Studio events and other instructors&apos; appointments are not included.
           </p>
         </div>
       </section>
 
       {params.connected ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Your teaching calendar is connected.</div> : null}
       {params.saved ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Personal calendar settings saved.</div> : null}
-      {params.disconnected ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">Personal calendar disconnected and DanceFlow-created entries removed.</div> : null}
+      {params.disconnected ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{params.cleanup_skipped === "1" ? "Personal calendar disconnected. Events DanceFlow added to this Google calendar could not be removed. Delete them in Google Calendar if you no longer want them." : "Personal calendar disconnected and DanceFlow-created entries removed."}</div> : null}
       {params.synced ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Sync complete: {params.synced} synced, {params.deleted ?? "0"} removed, {params.failed ?? "0"} failed.</div> : null}
       {params.error || calendarLoadError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-900">{calendarLoadError ?? `Google Calendar needs attention: ${params.error?.replaceAll("_", " ")}`}</div> : null}
 
@@ -101,6 +101,7 @@ export default async function PersonalGoogleCalendarPage({ searchParams }: { sea
           <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-start gap-3"><ShieldCheck className="h-6 w-6 text-emerald-600" /><div><h2 className="text-lg font-semibold text-slate-950">Connection status</h2><p className="mt-2 text-sm text-slate-600">Account: {connection?.google_account_email ?? "Not connected"}</p><p className="mt-1 text-sm text-slate-600">Calendar: {connection?.calendar_summary ?? "Not selected"}</p><p className="mt-1 text-sm text-slate-600">Last auto-sync: {formatDateTime(connection?.last_sync_at)}</p></div></div>
           </section>
+          {connection?.status === "needs_reauth" ? <form action={disconnectGoogleCalendarAction} className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><input type="hidden" name="returnTo" value={returnTo} /><input type="hidden" name="connectionScope" value="instructor" /><button type="submit" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100">Disconnect Google Calendar</button></form> : null}
           {connected ? <>
             <form action={syncGoogleCalendarNowAction}><input type="hidden" name="returnTo" value={returnTo} /><input type="hidden" name="connectionScope" value="instructor" /><button className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white"><RefreshCw className="h-4 w-4" />Sync now</button></form>
             <form action={refreshGoogleCalendarsAction}><input type="hidden" name="returnTo" value={returnTo} /><input type="hidden" name="connectionScope" value="instructor" /><button className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700">Refresh authorization</button></form>

@@ -229,7 +229,7 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
             </div>
           </div>
         </div>
-        {connection?.status === "connected" ? <div className="flex justify-end border-t border-white/10 px-5 py-3 sm:px-7"><form action={disconnectWaveAction}><button className="text-sm font-semibold text-purple-100 hover:text-white">Disconnect Wave</button></form></div> : null}
+        {connection && ["connected", "needs_reauth", "reauthorization_required", "error"].includes(connection.status ?? "") ? <div className="flex justify-end border-t border-white/10 px-5 py-3 sm:px-7"><form action={disconnectWaveAction}><button className="text-sm font-semibold text-purple-100 hover:text-white">Disconnect Wave</button></form></div> : null}
       </header>
 
       {connection?.status === "connected" ? <nav aria-label="Wave setup progress" className="grid overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm sm:grid-cols-5">
