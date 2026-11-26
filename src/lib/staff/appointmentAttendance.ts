@@ -254,14 +254,22 @@ async function markNoShow(params: {
       return { ok: false, reason: "charge_changed" };
     }
   } else {
+    // Only ONE request may record the decision: the status filter makes a second "first" request (read as open, written after the winner) match no row.
     const { data: written, error } = await supabase
       .from("appointments")
       .update({ status: "no_show", updated_at: markedAt })
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
+      .neq("status", "no_show")
       .select("id");
     if (error) return { ok: false, reason: "write_failed" };
-    if (!written || written.length !== 1) return { ok: false, reason: written && written.length === 0 ? "not_found" : "write_failed" };
+    if (written && written.length === 0) {
+      const { data: current } = await supabase.from("appointments").select("status").eq("id", appointmentId).eq("studio_id", studioId).maybeSingle<{ status: string }>();
+      // lost the race: from here on this request is a replay of the recorded no-show, under the replay rules
+      if (current?.status === "no_show") return markNoShow({ ...params, appointment: { ...appointment, status: "no_show" } });
+      return { ok: false, reason: "not_found" };
+    }
+    if (!written || written.length !== 1) return { ok: false, reason: "write_failed" };
 
     await clearMembershipUsageForAppointment({ supabase, appointmentId });
   }

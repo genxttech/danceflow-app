@@ -57,7 +57,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ stud
         case "no_show_cannot_be_marked_attended":
           return staffConflict("outcome_conflict", "This lesson is already marked no-show and can't be changed.", { status: "no_show" });
         case "charge_changed":
-          return staffConflict("outcome_conflict", "This no-show is already recorded with a different charge decision and can't be changed.", { status: "no_show" });
+          return staffConflict("outcome_conflict", "This charge can't be applied to the recorded no-show: another decision, or none, is on record. Use the package balance tools on the web.", { status: "no_show" });
         case "package_changed":
           return staffConflict("outcome_conflict", "This lesson was charged to a different package; change it on the web.", { status });
         case "payment_required":

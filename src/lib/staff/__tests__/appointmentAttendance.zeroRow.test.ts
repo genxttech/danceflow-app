@@ -34,7 +34,8 @@ function fakeClient(updateRows: unknown[] | null) {
   const calls: string[] = [];
   const chain = (name: string, result: unknown) => {
     const c: Record<string, unknown> = {};
-    for (const method of ["eq", "in", "limit", "like", "order", "select", "delete", "insert", "update"]) c[method] = () => c;
+    for (const method of ["eq", "neq", "in", "limit", "like", "order", "select", "delete", "insert", "update"]) c[method] = () => c;
+    c.maybeSingle = async () => ({ data: null, error: null });
     c.then = (resolve: (value: unknown) => unknown) => resolve(result);
     calls.push(name);
     return c;
@@ -63,7 +64,8 @@ describe("a zero-row status update stops everything", () => {
     const { client, calls } = fakeClient([]);
     const result = await markAppointmentAttendance({ ...base, supabase: client as never, status, missedAppointmentCharge: "package" });
     expect(result).toEqual({ ok: false, reason: "not_found" });
-    expect(calls).toEqual(["update:appointments"]);
+    // a no-show re-reads the status once, to tell "someone else just recorded it" from "not there"
+    expect(calls).toEqual(status === "no_show" ? ["update:appointments", "select:appointments"] : ["update:appointments"]);
   });
 
   it.each(["attended", "no_show"] as const)("%s: a null result is write_failed, with the same silence", async (status) => {

@@ -443,6 +443,26 @@ describe.skipIf(!enabled)("staff API appointment attendance against real RLS and
       expect(deductions(appointment)).toBe(0);
     });
 
+    it("two first requests with different decisions: only one decision is recorded, and at most that one is charged", async () => {
+      for (let round = 0; round < 3; round += 1) {
+        const client = newClient();
+        const pkg = newPackage(3, { client });
+        const appointment = lesson({ packageId: pkg, client });
+        const [none, charge] = await Promise.all([
+          mark(USERS.frontDesk, appointment, { status: "no_show", missedAppointmentCharge: "none" }),
+          mark(USERS.owner, appointment, { status: "no_show", missedAppointmentCharge: "package" }),
+        ]);
+        expect(noteCount(client)).toBe(1);
+        if (noteBodies(client).includes("No lesson deduction")) {
+          expect(deductions(appointment)).toBe(0);
+          expect(charge.status).toBe(409);
+        } else {
+          expect(deductions(appointment)).toBe(1);
+          expect(none.status).toBe(409);
+        }
+      }
+    });
+
     it("a charge that fails with database text returns the fixed sentence, never the text", async () => {
       const client = newClient();
       const spent = newPackage(0, { client });

@@ -3876,7 +3876,7 @@ export async function markAppointmentNoShowAction(formData: FormData) {
               : result.reason === "charge_failed"
                 ? (result.message ?? "missed_appointment_charge_failed")
                 : result.reason === "charge_changed"
-                  ? "This no-show is already recorded with a different charge decision, so it can't be changed here."
+                  ? "This charge can't be applied to the recorded no-show: another decision, or none, is on record. Use the package balance tools."
                   : result.reason === "package_changed"
                     ? "This lesson was already charged to a different package. Adjust the balance manually."
                     : result.reason,
