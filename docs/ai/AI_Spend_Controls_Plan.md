@@ -64,7 +64,7 @@ Charge-bearing tests (**none run**; report before running), gpt-4.1-mini:
 
 ## Release readiness: live-line compatibility
 
-Live `e84ed0f3` is on `release/website-embeds`; `main` is hundreds of commits ahead. Of the files this change touches, `marketing/campaigns/ai-actions.ts` and `knowledgebase/ai-actions.ts` differ between the live line and `main`, so a backport is **not** a clean cherry-pick for those two; see the PR description for the apply check. All seven provider call sites exist on the live line.
+Live `e84ed0f3` is on `release/website-embeds`; `main` is hundreds of commits ahead. Apply check (2026-11-26, temporary index, nothing written): the source diff applies to the live commit with a three-way merge except **one conflict, `src/app/knowledgebase/ai-actions.ts`**, which on `main` reads articles through `src/lib/knowledgebase/articles.ts`, absent on the live line. A backport must hand-port that action; it has not been built or tested on the live line. All seven provider call sites exist there. The A5 narrow containment is exactly that one file.
 
 ## Pilot values introduced by the PR (all environment-tunable; not pricing)
 
