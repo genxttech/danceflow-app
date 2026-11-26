@@ -122,7 +122,7 @@ check "forward: the R-11 suite passes" "$(res_of forward test_T_competition_r11_
 check "baseline: the R-11 suite ran to its verdict, failed, and the failures name the blockers" "$(awk -F'	' '$1=="baseline" && $2=="test_T_competition_r11_approval_override_scope" && $4 ~ /SUITE FAIL/ {print "FAIL-with-verdict"}' "$OUT/suites.tsv") $(grep -c "RB-11" "$OUT/suite-baseline-test_T_competition_r11_approval_override_scope.log" | awk '{print ($1>0)?"RB-11":"no-RB-11"}')" "FAIL-with-verdict RB-11"
 check "every SQL suite produced a verdict (baseline and forward)" "$(awk -F'	' '($1=="baseline"||$1=="forward") && $2!="run_f2_races" && $4 !~ /SUITE (PASS|FAIL)/' "$OUT/suites.tsv" | wc -l | tr -d ' ')" 0
 for s in test_T_competition_cf1_a3_results test_T_competition_pv1_recompute; do check "forward: ${s#test_T_} passes" "$(res_of forward "$s")" PASS; done
-check "the probe completed routes R and B" "$(grep -cE '^.(R|B). RESULT' "$OUT/probe-forward.txt" 2>/dev/null)" 2
+check "the probe completed routes NC, CS, CA and R" "$(grep -cE '^.(NC|CS|CA|R). RESULT' "$OUT/probe-forward.txt" 2>/dev/null)" 4
 for s in $SUITES run_f2_races; do
   [ "$(res_of baseline "$s")" = PASS ] && check "no regression: ${s#test_T_} passed on the base chain and still passes" "$(res_of forward "$s")" PASS
 done
