@@ -100,7 +100,7 @@ Executed on the composed chain: 8 of 8 migrations applied, rolled back in revers
 | `_r15_required_criteria` raised `malformed array literal` (`v_req || 'age_division'` on `text[]`) for any entry in a division with an age, level or status criterion | **product defect in `20270301110000`**, missed by syntax parsing and by both reviews | fixed with `array_append`. The old body reproduces the error in the execution harness below; the fixed one passes |
 | `r15_clear_entries` inserted a competitor without `studio_id`; under replica mode the filling guard does not fire (OD-31 suite) | fixture defect | fixed: `studio_id` given explicitly |
 | cf1 F3 `COMP_R15_ENTRY_NOT_CLEARED` | the runner composed the unadapted F3 suite: its pull rule for PR 866 does not include `test_T_competition_cf1_f3_publication.sql` (the candidate and `website-embeds` copies are identical) | runner change requested from the S5 session |
-| U18, U18-S, JC1 `COMP_R15_ENTRY_NOT_CLEARED` | gate correct; the suites seed no clearance. Their copies are carried by PR 867 (OD-31 session) | hook requested from that session |
+| U18, U18-S, JC1 `COMP_R15_ENTRY_NOT_CLEARED` | gate correct; the suites seed no clearance. Their copies are carried by PR 867 (OD-31 session) | adapted copies, see below; released suites unchanged |
 | E1, R2 refunds | fail on the base chain too | not R-15 |
 | O1, R2 write gate, 10D floor, 10C (and NS1/F3 under S5 only) | missing dates of birth (S5) | S5 session |
 
@@ -118,7 +118,7 @@ In-process PostgreSQL (PGlite) with **minimal stand-in tables**, not the compose
 
 **Executed for this revision** (in-process PostgreSQL, stand-in tables, no heavy lock): the migration/behavior harness (73 of 73) and section J with the suite guard block and the fixture guard (40 of 40, of which section J is 26). Vitest static tests for the slice. **PENDING:** the composed run of every suite at this head.
 
-**U18, U18-S, JC1.** Gate correct (couples seeded `eligible` with no determination are placed into a published order of an active round). Exact change: `r15-u18-u18s-jc1-clearance-hook.patch` in the shared notes folder, generated from PR 867 head `6dc6b2d4`, applies with `-p1`; owner to apply (their files, not edited here).
+**U18, U18-S, JC1.** Gate correct (couples seeded eligible with no determination are placed into a published order of an active round). Coordinator decision 2026-11-26: the released suites stay byte-identical to their pins; they run on R-15 chains only as labelled temporary adapted copies, built from src/lib/supabase/migrations/sql-tests/adapted/ (patch, blob hashes and runner rules). Originals run unpatched on the baseline chain.
 
 ## Known gaps
 
