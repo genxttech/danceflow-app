@@ -5,6 +5,7 @@ import {
   createFakeEntitlementClient,
   type Row,
 } from "@/lib/packages/__tests__/fakeEntitlementSupabase";
+import { FakeStorage } from "./helpers/fakeStorage";
 
 /**
  * H2-B3: regression coverage for the legacy clients.portal_user_id mirror
@@ -24,8 +25,10 @@ const STUDIO_A = "studio-a";
 const STUDIO_B = "studio-b";
 const CLIENT_A = "client-a";
 const CLIENT_B = "client-b";
-const USER_A = "user-a";
-const USER_OTHER = "user-other";
+// account ids are UUIDs: the file purge refuses anything else
+const USER_A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+const USER_OTHER = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+let storage: FakeStorage;
 
 let clientsTable: FakeTable;
 let linksTable: FakeTable;
@@ -43,6 +46,9 @@ let accountDeletionAuditTable: FakeTable;
 let userStudioRolesTable: FakeTable;
 let organizerUsersTable: FakeTable;
 let deleteUserCalls: string[];
+let deleteUserError: { message: string } | null = null;
+let onDeleteUser: (() => void) | null = null;
+let loginGone = false;
 /** A table whose reads answer with an error, to drive the role check's failure branch. */
 let failingTable: string | null = null;
 
@@ -110,6 +116,7 @@ function createFakeAdminClientWithDelete(tables: Record<string, FakeTable>) {
           select: () => failed,
           eq: () => failed,
           limit: () => failed,
+          update: () => failed,
           then: (onFulfilled: (v: { data: null; error: { message: string } }) => unknown) => Promise.resolve({ data: null, error: { message: `${table} unavailable` } }).then(onFulfilled),
         };
         return failed;
@@ -171,11 +178,15 @@ vi.mock("@/lib/supabase/admin", () => ({
         return organizerUsersTable;
       },
     } as unknown as Record<string, FakeTable>),
+    storage,
     auth: {
       admin: {
+        getUserById: async (id: string) =>
+          loginGone ? { data: { user: null }, error: { status: 404, code: "user_not_found", message: "User not found" } } : { data: { user: { id } }, error: null },
         deleteUser: async (userId: string) => {
           deleteUserCalls.push(userId);
-          return { error: null };
+          onDeleteUser?.();
+          return { error: deleteUserError };
         },
       },
     },
@@ -220,6 +231,10 @@ beforeEach(() => {
   organizerUsersTable = new FakeTable();
   deleteUserCalls = [];
   failingTable = null;
+  storage = new FakeStorage();
+  deleteUserError = null;
+  onDeleteUser = null;
+  loginGone = false;
 });
 
 describe("disconnectClientAccount -- H2-B3 stale-mirror cleanup", () => {
@@ -556,5 +571,119 @@ describe("account deletion through the app route and the web action", () => {
     userStudioRolesTable.rows = [];
     await expect(deleteAccountAction(confirmed())).rejects.toThrow("redirect:/?account=deleted");
     expect(deleteUserCalls).toEqual([USER_A]);
+  });
+});
+
+describe("deleteDanceFlowAccount -- the account's own photos", () => {
+  const user = () => ({ id: USER_A, email: "a@example.test" }) as never;
+  const own = `${USER_A}/profile-1.jpg`;
+  const theirs = `${USER_OTHER}/profile-2.jpg`;
+  const seed = () => {
+    storage.files.add(own);
+    storage.files.add(theirs);
+    // the listing points at someone else's photo: a stored URL must never decide what is removed
+    dancerPartnerProfilesTable.rows = [
+      { id: "pp-a", user_id: USER_A, visibility: "published", photo_url: `https://x.test/storage/v1/object/public/partner-profile-photos/${theirs}` },
+      { id: "pp-o", user_id: USER_OTHER, visibility: "published", photo_url: null },
+    ];
+    linksTable.rows = [linkRow({ id: "link-a", user_id: USER_A })];
+  };
+
+  it("removes the owner's files and nobody else's, and deletes the account", async () => {
+    seed();
+    await deleteDanceFlowAccount(user());
+    expect([...storage.files]).toEqual([theirs]);
+    expect(deleteUserCalls).toEqual([USER_A]);
+    expect(dancerPartnerProfilesTable.rows.map((row) => row.user_id)).toEqual([USER_OTHER]);
+  });
+
+  it("stops before the account is marked for deletion when the files cannot be removed: account kept, listing hidden, retry works", async () => {
+    seed();
+    storage.failRemoveCall = 1;
+
+    await expect(deleteDanceFlowAccount(user())).rejects.toThrow("Account files could not be removed (remove_failed).");
+
+    expect(deleteUserCalls).toEqual([]);
+    expect(userAccountStatusTable.rows).toEqual([]);
+    expect(linksTable.rows[0].status).toBe("linked");
+    expect(accountDeletionAuditTable.rows).toEqual([]);
+    expect(dancerPartnerProfilesTable.rows.map((row) => row.visibility)).toEqual(["archived", "published"]);
+
+    await deleteDanceFlowAccount(user());
+    expect(deleteUserCalls).toEqual([USER_A]);
+    expect([...storage.files]).toEqual([theirs]);
+  });
+
+  it("changes no file and marks nothing when the listing cannot be hidden first", async () => {
+    seed();
+    failingTable = "dancer_partner_profiles";
+    await expect(deleteDanceFlowAccount(user())).rejects.toThrow("Partner listing cleanup failed: dancer_partner_profiles unavailable");
+    expect(storage.removeCalls).toEqual([]);
+    expect(userAccountStatusTable.rows).toEqual([]);
+    expect(deleteUserCalls).toEqual([]);
+  });
+
+  it("removes a file added while the deletion ran (second pass)", async () => {
+    seed();
+    const late = `${USER_A}/late.jpg`;
+    onDeleteUser = () => storage.files.add(late);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await deleteDanceFlowAccount(user());
+
+    expect([...storage.files]).toEqual([theirs]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(USER_A);
+  });
+
+  it("a failing second pass still reports the account deleted and records a follow-up without ids or file names", async () => {
+    seed();
+    const late = `${USER_A}/late.jpg`;
+    onDeleteUser = () => {
+      storage.files.add(late);
+      storage.failList = true;
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(deleteDanceFlowAccount(user())).resolves.toMatchObject({ deleted: true });
+
+    expect(error).toHaveBeenCalledWith("Account deletion: second file pass failed, follow up needed", expect.objectContaining({ code: "list_failed" }));
+    const logged = JSON.stringify(error.mock.calls);
+    expect(logged).not.toContain(USER_A);
+    expect(logged).not.toContain("late.jpg");
+  });
+
+  it("does not run the second pass when the login could not be removed, and the half-deleted account can be deleted again", async () => {
+    seed();
+    clientsTable.rows = [clientRow({ id: CLIENT_A, studio_id: STUDIO_A, portal_user_id: USER_A })];
+    deleteUserError = { message: "auth unavailable" };
+    await expect(deleteDanceFlowAccount(user())).rejects.toThrow("auth unavailable");
+    expect(userAccountStatusTable.rows).toEqual([expect.objectContaining({ user_id: USER_A, status: "pending_deletion" })]);
+
+    // the retry finds no relationship rows any more; a mirror an interrupted attempt left behind is still cleared
+    clientsTable.rows[0].portal_user_id = USER_A;
+    deleteUserError = null;
+    await expect(deleteDanceFlowAccount(user())).resolves.toMatchObject({ deleted: true });
+    expect(deleteUserCalls).toEqual([USER_A, USER_A]);
+    expect(clientsTable.rows[0].portal_user_id).toBeNull();
+    expect([...storage.files]).toEqual([theirs]);
+  });
+
+  it("reports the deletion done when another request already removed the login", async () => {
+    seed();
+    deleteUserError = { message: "User not found" };
+    onDeleteUser = () => {
+      loginGone = true;
+    };
+    await expect(deleteDanceFlowAccount(user())).resolves.toMatchObject({ deleted: true });
+    expect([...storage.files]).toEqual([theirs]);
+  });
+
+  it("two requests at once both finish, and only the owner's files go", async () => {
+    seed();
+    const results = await Promise.allSettled([deleteDanceFlowAccount(user()), deleteDanceFlowAccount(user())]);
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+    expect([...storage.files]).toEqual([theirs]);
+    expect(dancerPartnerProfilesTable.rows.map((row) => row.user_id)).toEqual([USER_OTHER]);
   });
 });

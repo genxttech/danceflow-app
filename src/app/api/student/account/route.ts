@@ -8,6 +8,9 @@ import {
   deleteDanceFlowAccount,
 } from "@/lib/student-identity/account-controls";
 
+// Deleting an account also removes its files (two bounded passes).
+export const maxDuration = 60;
+
 export async function DELETE(request: Request) {
   const user = await getStudentApiUser(request);
   if (!user) return studentApiJsonError("Authentication required.", 401);

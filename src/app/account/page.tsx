@@ -692,6 +692,9 @@ function RegisteredEventCards({ events }: { events: RegisteredEventItem[] }) {
   );
 }
 
+// This page's actions include account deletion, which also removes the account's files (two bounded passes).
+export const maxDuration = 60;
+
 export default async function AccountPage({
   searchParams,
 }: {
