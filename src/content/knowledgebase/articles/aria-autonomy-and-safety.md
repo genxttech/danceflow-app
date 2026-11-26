@@ -31,17 +31,15 @@ Staff reviews it before the workflow continues where approval is required.
 
 ARIA surfaces the issue but does not prepare or execute the next step.
 
+Click **Save pack** on each pack to apply its setting. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
+
 ## Off
 
 ARIA does not create new work from that operational pack.
 
-## Rule-level exceptions
+## Applying a pack setting
 
-Rules inherit the pack setting by default.
-
-A rule exception can make one workflow more restrictive.
-
-A rule cannot be more permissive than its operational pack.
+Saving a pack applies its setting to that pack's rules.
 
 ## External communication is separate
 

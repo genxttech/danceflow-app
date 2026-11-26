@@ -33,7 +33,7 @@ A simple campaign workflow is:
 8. Review the send summary and tick the confirmation box.
 9. Send the campaign.
 
-Campaign sending is not generally available yet, so you may not be able to complete the final step on your account.
+Campaign sending is not generally available yet. While sending is paused, saved campaigns are hidden and you cannot prepare a send list, send a test email, or send.
 
 ## Audience preview
 

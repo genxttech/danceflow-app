@@ -9,7 +9,7 @@ visibility: public
 
 ## Overview
 
-Approving a booking request creates a confirmed appointment. Declining a request keeps the calendar unchanged and records the staff decision.
+Approving a request carries it out: it books, reschedules, or cancels the appointment. Declining a request keeps the calendar unchanged and records the staff decision.
 
 ## Approving a request
 
@@ -17,24 +17,24 @@ Go to **Self-service Requests** (the **Schedule Requests** page) and find the re
 
 Before approval, review:
 
-- Client name and contact information
+- Client name
 - Requested date and time
 - Instructor
 - Room
 - Lesson type
 - Notes from the client
 
-When you approve, DanceFlow performs a final conflict check. If the time is still available, the appointment is created and the request moves to the **Executed** tab.
+For bookings and reschedules, DanceFlow rechecks eligibility and conflicts. If both pass, the schedule is updated and the request moves to the **Executed** tab. Otherwise an error is shown.
 
 ## Declining a request
 
 Decline a request when the requested time or setup does not work.
 
-Add a staff note so your team understands why it was declined. A good note might include a suggested alternate time or a reminder to contact the client.
+You can add an optional decline note. The client sees it in their portal, so write it for them, for example with a suggested alternate time.
 
 ## What clients see
 
-If email notifications are enabled, clients can receive updates when a request is received, approved, or declined.
+Clients see the request status and any decline note under **Recent requests** in their portal. Do not rely on an email; contact the client directly.
 
 ## Best practice
 

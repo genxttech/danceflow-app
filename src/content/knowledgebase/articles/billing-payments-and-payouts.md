@@ -40,7 +40,7 @@ Examples:
 - Event registrations
 - General balance payments
 
-The Payment Ledger page (open it from Take Payment / Payouts) helps staff search and review payment activity.
+The **Payment Ledger** page (in the menu, also linked from Take Payment) helps staff search and review payment activity.
 
 You can filter by:
 

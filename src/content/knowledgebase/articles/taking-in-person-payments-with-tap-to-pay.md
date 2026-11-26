@@ -15,6 +15,8 @@ This is a fallback process for studios that do not have a physical Stripe Termin
 
 It is not the same as a DanceFlow-controlled reader payment.
 
+> **Warning:** Payout accounts set up through DanceFlow use Stripe's Express Dashboard, and the Stripe Dashboard mobile app may not support those accounts. Do not rely on this fallback until Stripe confirms your account can use it.
+
 ## Technology required
 
 Make sure:
@@ -43,15 +45,15 @@ A separate physical card reader is not required for Stripe Dashboard Tap to Pay.
 After the Stripe payment succeeds, open the correct area in DanceFlow:
 
 - Client profile for general client payments
-- Sell to Client (the Sell page) for package sales or package payments
-- Memberships for membership payments
+- Sell for package sales or package payments
+- Take Payment (Payment for: Membership payment or renewal) for membership payments
 - Schedule or Daily Closeout for lesson balances
 - Take Payment for ad hoc payments (choose Record collected payment)
 - Event or door-sale tools for event-related payments, when available
 
 Use:
 
-- Method: Card already collected
+- Method: the external card option on that screen (for example Card already collected on Take Payment and package sales, or Card outside DanceFlow on lesson payments)
 - Notes: Stripe Dashboard Tap to Pay
 
 ## Why a DanceFlow record is still needed

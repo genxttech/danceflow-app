@@ -38,13 +38,9 @@ Each pack has one autonomy setting:
 - **Notify me only**: ARIA surfaces the issue without taking the next step.
 - **Off**: ARIA does not create new work from that pack.
 
-## Rule exceptions
+## Applying a pack setting
 
-Individual rules inherit their operational pack.
-
-Only create a rule exception when that specific workflow should be more restrictive than the rest of the pack.
-
-A rule can never become more permissive than its pack.
+Click **Save pack** on each pack. Saving a pack applies its setting to that pack's rules. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
 
 ## Autonomy is not the same as delivery permission
 
@@ -68,4 +64,4 @@ ARIA still cannot automatically:
 
 ## Best practice
 
-Start with DanceFlow's recommended pack settings. Change a pack only when your studio needs a different boundary, and use rule exceptions sparingly.
+Start with DanceFlow's recommended pack settings, and click **Save pack** on each one to apply it. Change a pack only when your studio needs a different boundary.

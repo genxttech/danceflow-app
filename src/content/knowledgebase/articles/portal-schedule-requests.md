@@ -30,8 +30,6 @@ The request may include:
 
 Staff reviews portal schedule requests from **Self-service Requests** (the **Schedule Requests** page).
 
-A portal request is labeled separately from a public intro request so the team can understand where it came from.
-
 ## Why this is useful
 
 Portal schedule requests reduce back-and-forth messaging while keeping the studio in control.

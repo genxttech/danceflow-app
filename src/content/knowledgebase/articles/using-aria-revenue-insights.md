@@ -51,7 +51,7 @@ Operational packs can be set to:
 - Notify me only
 - Off
 
-Individual rules inherit the pack setting unless the studio creates a stricter exception.
+Click **Save pack** on each pack to apply its setting to that pack's rules.
 
 ## Financial safety
 

@@ -21,16 +21,11 @@ Scope: content-only corrections to 25 existing articles flagged in KB-1 section 
 | what-is-danceflow | "stays connected through the portal and app" | "stays connected through the portal" | app availability | same | same |
 | current-danceflow-capabilities | (Events section) added: "Event registration and ticketing require the Organizer Suite; without it, events can be listed but registration and ticket sales are not available. Public registration for competitions is not yet generally available." | | included for all; competition | events/actions.ts:398-413; registrationFlag.ts:3-4 | |
 | current-danceflow-capabilities | "## Student app and wallet" section (native in-app payments, wallet, QR, etc.) | "## Student portal" - "Studios can link clients to a student portal for schedule visibility and student-facing documents on the web." | student app/native payments/wallet presented as available | mobile/student/app.json:6 (0.1.0), store release unconfirmed; web portal exists src/app/portal/[studioSlug] | not confirmed released |
-| how-danceflow-protects-your-data | "...public forms." (Rate limiting section) | + "These limits are currently tracked in memory on each server instance rather than shared across all of them, so they reduce abuse but are not a hard global cap." | rate limiting strength | src/lib/security/rate-limit.ts:19-31 (globalThis Map), checkRateLimit; login use src/app/(auth)/actions.ts:329-335 | per-instance in-memory |
-| how-danceflow-protects-your-data | "DanceFlow avoids showing sensitive ... details in user-facing error messages." | "DanceFlow works to avoid ... This is still being tightened: a few screens and API responses can show the underlying error text." | error message safety | src/app/app/automations/actions.ts:323,342,386 (redirect error=encodeURIComponent(db error.message)) rendered at automations/page.tsx:515; ~11 api route files return error.message (e.g. api/notifications/generate/route.ts:300,575) | raw DB messages reach users |
 
 ## Not changed
-- how-danceflow-protects-your-data "Oversold events" (event ticketing controls): capacity checks exist (api/events/cart/checkout/route.ts:734) with a capacity hold (~1166); could not prove oversell is possible from code read.
 - what-is-danceflow "Event waivers and signed-document receipts" / capabilities "Documents": could not prove waiver features are Suite-gated.
 - getting-started article "Competitions" event type, and Step 7 text: event type creation exists; only public registration is flagged.
-- security article mobile app ownership checks: API routes exist; wording does not claim store availability.
 - Student-app mentions elsewhere in the security article ("student app requests", wallet items): describe server-side checks, not availability; left.
-- capabilities "Security and privacy" paragraph lists rate limiting/error handling as hardening passes; accurate as history.
 
 ### Table B
 #### D7 evidence B (paths relative to worktree kb-d7)
@@ -132,8 +127,6 @@ what-is-danceflow (wallet / student app bullets removed) | UNVERIFIABLE | mobile
 what-is-danceflow ("portal and app" -> "portal") | UNVERIFIABLE | same as above (app availability not provable); edit minimal.
 current-danceflow-capabilities (Events Suite sentence) | CONFIRMED | events/actions.ts:399-413; registrationFlag.ts:3-4; wording does not document flag-off behaviour.
 current-danceflow-capabilities (Student app -> Student portal) | UNVERIFIABLE | old text's availability unprovable (mobile/student/app.json:6 0.1.0, wallet.tsx exists); new text true (portal/[studioSlug]/documents exists, schedule/appointments pages exist). Removes more than wallet (learning content, self-service booking, lesson check-in claims) without per-claim evidence: partly OVERREACH if those are released.
-how-danceflow-protects-your-data (rate limiting) | CONFIRMED | lib/security/rate-limit.ts:25-35 globalThis Map store, per-instance; new sentence true.
-how-danceflow-protects-your-data (error messages) | CONFIRMED | app/app/automations/actions.ts:320-345 redirects with encodeURIComponent(db error.message); 59 api route.ts files reference error.message (e.g. notifications/generate/route.ts:300 returns it); "a few" slightly understates but acceptable.
 
 Unlisted diff lines (in these 8 articles): none. (current-danceflow-capabilities removal of "Students can review pending client-assigned documents..." and "The app is designed to help dancers..." belong to row 16.)
 Other 17 articles in the diff (booking requests, ARIA, billing, SMS, CSV, marketing, etc.) are outside this evidence table; not reviewed.
@@ -222,3 +215,34 @@ Counts: CONFIRMED 37 (rows 7-16, 18-44), n/a 1 (row 17), all other verdicts 0.
 - creating-a-marketing-campaign, sentence "Campaign sending is not generally available yet": UNVERIFIABLE IN CODE. Rests on the release fact that Marketing M-0 sends are frozen in production (read-only verification 2026-11-21, per the APPS coordinator). Owner must confirm this still holds when the wording is published, or drop the sentence.
 - what-is-danceflow and current-danceflow-capabilities (student app, wallet, "portal and app"): UNVERIFIABLE IN CODE whether the store release has happened. The edit is conservative (claims removed, not asserted false). Owner to confirm the Student app release state; if released, the claims can be restored in accurate form.
 - Not touched, by design: the public intro-request approval question (articles 11, 41, 42), which needs a product decision; claims the code could not prove wrong are listed under "not changed" in each table.
+
+## Part 4: owner dispositions and second review (2026-11-26)
+
+This part supersedes Parts 1 to 3 wherever the wording differs. Evidence rows for the security article are held outside this public repository.
+
+Owner dispositions applied:
+
+- W1: the security article now uses plain user-facing language, claims only what was verified, and carries no implementation detail.
+- W2: "Campaign sending is not generally available yet" is kept.
+- W3: native app, wallet and in-app payment claims stay removed. Web student portal capabilities (schedule, past appointments, lesson recaps, confirming lessons, reviewing and signing documents, booking requests when the studio enables self-scheduling) and online registration with QR tickets are described.
+- W4 and W7: the competition registration sentence is removed. Generic mentions of competitions as a kind of event remain.
+- W5: the text messaging statement is shortened. STOP, START and HELP wording is kept.
+- W6: unchanged.
+- W8: a fresh reviewer checked the full text of the remaining changed articles, and the rewritten ones, against the code of production commit e84ed0f3.
+
+Corrections made from the second review:
+
+| Articles | Correction |
+|---|---|
+| managing and approving booking requests, portal schedule requests | The review queue shows portal requests only. Public inquiries arrive as new leads. Instant mode, request fields, approve and decline behaviour and the client view corrected. Email notice claim replaced. |
+| client portal linking | The invitation has an Accept Studio Connection step. |
+| billing, in-person payments, Tap to Pay | Menu and field labels corrected, unavailable reader paths and a roadmap sentence removed, warning added that the Dashboard app may not support DanceFlow payout accounts (Stripe pages indicate Express Dashboard accounts are excluded; not confirmed with Stripe). |
+| CSV import | Executing a Dry Run batch adds and updates clients: stated. Independent instructor and review error wording corrected. |
+| ARIA (four articles) | Rule exception wording removed; Save pack step added, including the past-due membership email default. Promotional email held while sending is paused. |
+| marketing campaign | What is blocked while sending is paused is stated. |
+| security, overview and capabilities | Unreleased app claims, a roadmap sentence and over-broad statements removed or narrowed. |
+| SMS history | Consent note and status label wording corrected. |
+
+Public intro lesson requests (owner disposition K6): the live product captures them as leads for manual follow-up. It has no supported screen to approve or decline them, and no article in this change instructs users to do so.
+
+Still to verify before publishing: Wave Accounting and Google Calendar availability depends on production configuration that cannot be read from code; Partner Search listing rules were narrowed pending confirmation of a database change; Tap to Pay support for the studio payout account type.

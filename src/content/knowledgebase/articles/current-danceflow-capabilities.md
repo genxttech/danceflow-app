@@ -41,7 +41,7 @@ Studios can use these payment tools for package sales, membership payments, even
 
 DanceFlow events can include public event pages, ticket types, early bird pricing, registration windows, attendee records, QR tickets, confirmation emails, check-in tools, event schedules, private lesson slots, event documents, and event closeout review.
 
-Event registration and ticketing require the Organizer Suite; without it, events can be listed but registration and ticket sales are not available. Public registration for competitions is not yet generally available.
+Event registration and ticketing require the Organizer Suite; without it, events can be listed but registration and ticket sales are not available.
 
 This helps studios and organizers manage events from listing to registration to event-day check-in.
 
@@ -59,7 +59,9 @@ Public discovery is controlled by visibility settings so studios and organizers 
 
 ## Student portal
 
-Studios can link clients to a student portal for schedule visibility and student-facing documents on the web.
+Studios can link clients to a student portal on the web. In the portal, students can view their upcoming schedule, past appointments, and lesson recaps, confirm lessons, and review and sign documents.
+
+When a studio turns on self-scheduling, students can also request bookings from the portal according to the studio's booking rules.
 
 ## Partner Search and Now Hiring
 
@@ -81,8 +83,6 @@ DanceFlow includes payroll preparation tools that help studios review instructor
 
 These tools are designed to organize compensation data and reduce manual preparation. They do not replace the studio's payroll provider, accountant, or tax professional.
 
-The long-term direction is an Integration Hub that makes external connections easier to manage and audit.
-
 ## ARIA and AI-assisted workflows
 
 ARIA is DanceFlow's AI Revenue Insights Assistant. ARIA helps surface follow-up opportunities, low package balances, inactive clients, event closeout concerns, revenue opportunities, and operational review items.
@@ -91,7 +91,7 @@ AI-assisted workflows are designed to support owner and staff decisions, not rep
 
 ## Security and privacy
 
-DanceFlow has gone through multiple security hardening passes covering authentication redirects, uploads, public pages, payments, webhooks, mobile APIs, bot protection, rate limiting, OAuth, error handling, public data minimization, and production security checks.
+DanceFlow has gone through multiple security hardening passes covering authentication redirects, uploads, public pages, payments, webhooks, bot protection, rate limiting, OAuth, error handling, public data minimization, and production security checks.
 
 For a plain-English overview, read the article called **How DanceFlow Protects Your Studio, Students, Events, and Business Data**.
 

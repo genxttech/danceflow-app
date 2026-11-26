@@ -11,7 +11,7 @@ visibility: public
 
 SMS consent helps your studio track whether a client has agreed to receive text messages.
 
-Text messaging is not active yet for studios. You can record consent now so clients are ready once texting becomes available, but DanceFlow does not send texts until your studio's SMS registration is approved.
+Text messaging is not active yet for studios. You can record consent now so clients are ready once texting becomes available.
 
 DanceFlow requires consent tracking so staff can see whether a client is opted in, opted out, or still needs consent.
 
@@ -19,7 +19,7 @@ DanceFlow requires consent tracking so staff can see whether a client is opted i
 
 Open a client profile and go to the Communication tab.
 
-There you can review or update the client's SMS consent status and consent note.
+There, owners, admins, and front desk staff can review and update the client's SMS consent status and add a consent note.
 
 ## SMS statuses
 
@@ -31,7 +31,7 @@ Common statuses include:
 
 ## Message history
 
-The client Communication tab can show recent SMS message history, including queued, sent, delivered, failed, not sent, or received messages when available. Because texting is not active yet, expect this history to be empty for now.
+The client Communication tab can show recent SMS message history, including queued, sent, delivered, failed, suppressed (not sent), or received messages when available. Because texting is not active yet, expect this history to be empty for now.
 
 ## Best practice
 

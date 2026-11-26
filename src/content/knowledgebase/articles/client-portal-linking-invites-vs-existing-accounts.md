@@ -74,7 +74,7 @@ If the email does not match, the client may log in but not see the correct porta
 
 The client will receive an email from DanceFlow with a secure sign-in link.
 
-When the client clicks the link, DanceFlow should activate the session and send them directly to the correct portal.
+The link opens the studio invitation. The client may be asked to confirm their email or sign in, then clicks **Accept Studio Connection** to open the portal.
 
 ## How to link an existing account
 
@@ -91,7 +91,7 @@ The client should:
 
 1. Open the email from DanceFlow.
 2. Click the secure sign-in link.
-3. Land in their client portal.
+3. Click **Accept Studio Connection** to open their client portal.
 4. Use the same email address for future portal access.
 
 They should not need to request multiple magic links to activate portal access.

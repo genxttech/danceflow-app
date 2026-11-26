@@ -25,11 +25,11 @@ To collect a DanceFlow-controlled in-person card payment, the studio needs:
 - A supported physical Stripe Terminal reader
 - The reader registered in DanceFlow
 - The reader online and available
-- A DanceFlow payment workflow, such as package sale, lesson balance, client balance, or Quick Charge
+- A DanceFlow payment workflow with a card reader option, such as a package sale, a new membership sale, Take Payment, or Quick Charge
 
 ## Linked payment process
 
-Use this process for payments that must attach to a specific client, package, membership, appointment, or balance.
+Use this process for payments that must attach to a specific client, package, new membership sale, or balance. Take Payment does not offer the reader for membership renewals or payment arrangements.
 
 1. Open the payment workflow in DanceFlow.
 2. Confirm the client, amount, and purchase type.
@@ -55,14 +55,12 @@ The flow is:
 5. DanceFlow records the payment automatically.
 6. Staff is ready for the next person.
 
-Quick Charge may be expanded separately from linked package or membership payments because door-sale payments need fewer steps.
-
 ## Canceling a payment attempt
 
-If the customer changes their mind, the reader is unavailable, or the wrong payment was started, use Cancel attempt before trying again.
+If the customer changes their mind, the reader is unavailable, or the wrong payment was started, use **Cancel attempt** (**Cancel** on Quick Charge) before trying again.
 
 ## Best practice
 
 Use DanceFlow-controlled reader payments when you want the payment automatically connected to DanceFlow.
 
-Use Stripe Dashboard Tap to Pay only as a fallback when there is no registered reader available, and remember to record the payment in DanceFlow afterward.
+Use Stripe Dashboard Tap to Pay only as a fallback when there is no registered reader available and Stripe has confirmed your account can use it, and remember to record the payment in DanceFlow afterward.
