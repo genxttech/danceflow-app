@@ -26,6 +26,7 @@ describe("public knowledgebase assistant spend guard", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     process.env.AI_FEATURES_ENABLED = "true";
     process.env.OPENAI_API_KEY = "sk-test-not-real";
+    process.env.KB_PUBLIC_ASSISTANT_MODEL_ENABLED = "true";
     delete process.env.AI_DISABLED_FEATURES;
   });
 
@@ -34,10 +35,20 @@ describe("public knowledgebase assistant spend guard", () => {
     vi.restoreAllMocks();
     delete process.env.AI_FEATURES_ENABLED;
     delete process.env.OPENAI_API_KEY;
+    delete process.env.KB_PUBLIC_ASSISTANT_MODEL_ENABLED;
     delete process.env.AI_DISABLED_FEATURES;
   });
 
-  it("answers with the model today (behaviour preserved) with a timeout and store:false", async () => {
+  it("makes no provider call unless the public model answer is explicitly opted in, and still returns links", async () => {
+    for (const value of [undefined, "", "false", "TRUE", "1"]) {
+      if (value === undefined) delete process.env.KB_PUBLIC_ASSISTANT_MODEL_ENABLED;
+      else process.env.KB_PUBLIC_ASSISTANT_MODEL_ENABLED = value;
+      expect(await askKnowledgebaseAssistantAction(initial, form(QUESTION))).toMatchObject({ ok: true });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("when opted in, answers with the model with a timeout and store:false", async () => {
     const result = await askKnowledgebaseAssistantAction(initial, form(QUESTION));
     expect(result).toMatchObject({ ok: true, answer: "Model answer." });
     expect(fetchMock).toHaveBeenCalledTimes(1);

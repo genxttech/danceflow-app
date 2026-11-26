@@ -133,6 +133,14 @@ const MAX_QUESTION_CHARS = 300;
 const KB_MODEL_TIMEOUT_MS = 15000;
 const KB_DEFAULT_INSTANCE_HOURLY_BUDGET = 300;
 
+/**
+ * The anonymous model answer is OFF unless explicitly opted in. Do not set KB_PUBLIC_ASSISTANT_MODEL_ENABLED=true until a durable
+ * global spend cap exists: the per-IP and per-instance limits below are speed bumps, not a budget.
+ */
+function isPublicKbModelOptedIn() {
+  return process.env.KB_PUBLIC_ASSISTANT_MODEL_ENABLED === "true";
+}
+
 /** Model calls per instance per hour. 0 turns the model off; unset or unreadable = the default. */
 function kbInstanceHourlyBudget() {
   const parsed = Number.parseInt(process.env.KB_ASSISTANT_INSTANCE_HOURLY_BUDGET ?? "", 10);
@@ -177,6 +185,7 @@ export async function askKnowledgebaseAssistantAction(
   // Link-only answer (no provider call) when AI is off, the public feature is switched off (AI_DISABLED_FEATURES=kb_public),
   // or this caller is over the per-IP limit.
   const modelAllowed =
+    isPublicKbModelOptedIn() &&
     isAiFeatureEnabled("kb_public") &&
     kbInstanceHourlyBudget() > 0 &&
     (await withinPublicRateLimit());

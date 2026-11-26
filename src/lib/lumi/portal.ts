@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 import { resolveStudioBillingPlan } from "@/lib/billing/access";
+import { isLumiPlanAllowed } from "@/lib/lumi/plan";
 
 type PlanCode = "starter" | "growth" | "pro" | null;
 
@@ -23,10 +24,6 @@ export type LumiPortalAccess = {
   allowed: boolean;
   reason: "available" | "studio_disabled" | "plan_required" | "inactive_student" | "instructor_portal";
 };
-
-function isActiveStatus(value: string | null | undefined) {
-  return value === "active" || value === "trialing";
-}
 
 function normalizePlan(value: string | null | undefined): PlanCode {
   return value === "starter" || value === "growth" || value === "pro"
@@ -85,9 +82,7 @@ export async function resolveLumiPortalAccess(
   ]);
 
   const planCode = normalizePlan(billingResolution.planCode);
-  const billingActive = isActiveStatus(billingResolution.status);
-  const planAllowed =
-    billingActive && (planCode === "growth" || planCode === "pro");
+  const planAllowed = isLumiPlanAllowed(billingResolution);
   const enabled = settings?.lumi_enabled === true;
 
   const nowIso = new Date().toISOString();

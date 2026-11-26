@@ -2,8 +2,7 @@
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { callOpenAiResponses } from "@/lib/ai/providerCall";
-import { studioHasFeature } from "@/lib/billing/access";
-import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
+import { authorizeEventDescriptionAi } from "@/lib/ai/eventDescriptionAccess";
 export type EventDescriptionAIState = {
   ok: boolean;
   error?: string;
@@ -45,24 +44,6 @@ export async function generateEventDescriptionAssistantAction(
   _previousState: EventDescriptionAIState,
   formData: FormData,
 ): Promise<EventDescriptionAIState> {
-  const canUseAi = await studioHasFeature("ai_assistant");
-
-  if (!canUseAi) {
-    return {
-      ok: false,
-      error: "AI event writing help is available on Growth and Pro plans.",
-    };
-  }
-
-  const allowance = await getUsageAllowance({ featureKey: "ai_action" });
-
-  if (!allowance.allowed) {
-    return {
-      ok: false,
-      error: getUsageLimitMessage(allowance, "AI action"),
-    };
-  }
-
   const eventName = getString(formData, "eventName");
   const eventType = getString(formData, "eventType") || "event";
   const danceCategory = getString(formData, "danceCategory");
@@ -110,6 +91,12 @@ export async function generateEventDescriptionAssistantAction(
     return { ok: false, error: rateLimitErrorMessage(rateLimit) };
   }
 
+  // Signed-in studio user, plan and allowance, decided (and for the basic pool reserved) before any provider spend.
+  const grant = await authorizeEventDescriptionAi(task);
+  if (!grant.ok) {
+    return { ok: false, error: grant.error };
+  }
+
   const result = await callOpenAiResponses({
     feature: "event_description",
     model,
@@ -130,16 +117,13 @@ export async function generateEventDescriptionAssistantAction(
   });
 
   if (!result.ok) {
+    await grant.finish(result.mayHaveBilled ? "maybe_billed" : "not_billed");
     return { ok: false, error: result.message };
   }
 
   const text = result.text;
 
-  await recordUsageEvent({
-    featureKey: "ai_action",
-    source: "event_ai_assistant",
-    metadata: { task },
-  });
+  await grant.finish("success");
 
   const parsed = parseJsonFromText(text) as
     | {

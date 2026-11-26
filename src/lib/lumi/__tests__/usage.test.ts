@@ -17,7 +17,7 @@ import type { LumiPortalAccess } from "../portal";
 type Row = Record<string, unknown> & { id: string };
 
 /** Minimal in-memory stand-in for the service-role client, with a yield between steps so parallel requests interleave. */
-function makeAdmin(initialEntitlements: Array<{ quantity_included: number }> = [], opts: { failCounts?: boolean } = {}) {
+function makeAdmin(initialEntitlements: Array<{ quantity_included: number }> = [], opts: { failCounts?: boolean; studioRow?: Record<string, unknown> } = {}) {
   const events: Row[] = [];
   let seq = 0;
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -30,6 +30,9 @@ function makeAdmin(initialEntitlements: Array<{ quantity_included: number }> = [
     const api: Record<string, unknown> = {
       select(_cols?: string, opts?: { head?: boolean }) {
         head = Boolean(opts?.head);
+        return api;
+      },
+      maybeSingle() {
         return api;
       },
       eq(col: string, value: unknown) {
@@ -56,6 +59,7 @@ function makeAdmin(initialEntitlements: Array<{ quantity_included: number }> = [
         return (async () => {
           await tick();
           if (table === "usage_addon_entitlements") return { data: initialEntitlements, error: null };
+          if (table === "studios") return { data: opts.studioRow ?? { billing_override_enabled: false, billing_override_expires_at: null }, error: null };
           if (mode === "update") {
             events.filter((row) => filters.every((f) => f(row))).forEach((row) => Object.assign(row, patch));
             return { error: null };
@@ -185,6 +189,15 @@ describe("LUMI usage accounting", () => {
     expect(snapshot.total).toBe(400);
   });
 
+  it("caps the included pool of a complimentary studio and leaves purchased credits on top", async () => {
+    const studioRow = { billing_override_enabled: true, billing_override_expires_at: null };
+    const total = async (packs: Array<{ quantity_included: number }>, row: Record<string, unknown>) =>
+      (await getLumiUsageSnapshot(accessFor(makeAdmin(packs, { studioRow: row }).admin, { plan: "pro" }))).total;
+    expect(await total([], studioRow)).toBe(50);
+    expect(await total([{ quantity_included: 200 }], studioRow)).toBe(250);
+    expect(await total([], { billing_override_enabled: true, billing_override_expires_at: "2020-01-01T00:00:00Z" })).toBe(500);
+  });
+
   it("counts are per studio and per dancer: another studio or dancer does not consume this dancer's caps", async () => {
     process.env.LUMI_MAX_REQUESTS_PER_DANCER_PER_DAY = "1";
     const { admin } = makeAdmin();
@@ -202,11 +215,11 @@ describe("LUMI usage accounting", () => {
   });
 
   it("default dancer caps are the documented ones and are env-tunable", () => {
-    expect(lumiDancerCaps()).toEqual({ perDay: 10, perMonth: 60 });
+    expect(lumiDancerCaps()).toEqual({ perDay: 5, perMonth: 20 });
     process.env.LUMI_MAX_REQUESTS_PER_DANCER_PER_DAY = "4";
     process.env.LUMI_MAX_REQUESTS_PER_DANCER_PER_MONTH = "12";
     expect(lumiDancerCaps()).toEqual({ perDay: 4, perMonth: 12 });
     process.env.LUMI_MAX_REQUESTS_PER_DANCER_PER_DAY = "not-a-number";
-    expect(lumiDancerCaps().perDay).toBe(10);
+    expect(lumiDancerCaps().perDay).toBe(5);
   });
 });

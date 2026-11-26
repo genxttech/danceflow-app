@@ -32,7 +32,7 @@ vi.mock("@/lib/lumi/portal", () => ({
     allowed: true,
     admin: { from: () => chain() },
     studio: { id: "studio-1", slug: "s", name: "S" },
-    client: { id: "client-1", first_name: "A", last_name: "B" },
+    client: { id: "client-1", first_name: "Zelda", last_name: "Quimby" },
   }),
 }));
 
@@ -82,6 +82,7 @@ describe("LUMI plan action: which outcomes stay counted", () => {
     fetchMock.mockResolvedValueOnce(reply({ output_text: JSON.stringify({ headline: "h" }) }));
     expect(await run()).toMatchObject({ ok: true });
     expectSettled();
+    expect(String(fetchMock.mock.calls[0][1].body)).not.toMatch(/Zelda|Quimby/);
   });
 
   it("settles an answer that cannot be parsed", async () => {

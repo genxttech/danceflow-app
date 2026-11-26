@@ -233,9 +233,6 @@ export async function generateLumiPlanAction(
     .filter((item) => item.starts_at >= nowIso && item.status !== "cancelled")
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
     .slice(0, 3);
-  const studentName =
-    `${access.client.first_name ?? ""} ${access.client.last_name ?? ""}`.trim() ||
-    "the dancer";
   const visibleSyllabusProgress = (syllabusAssignments ?? []).map(
     (assignment) => ({
       ...assignment,
@@ -250,7 +247,6 @@ export async function generateLumiPlanAction(
   );
   const context = {
     task,
-    studentName,
     goals: goals ?? [],
     visibleLessonRecaps: recaps ?? [],
     visibleGroupLessonRecaps: ((groupRecapRows ?? []) as GroupLessonRecapRecipientRow[])

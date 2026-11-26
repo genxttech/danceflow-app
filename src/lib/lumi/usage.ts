@@ -1,3 +1,4 @@
+import { capComplimentaryAllowance } from "@/lib/ai/complimentaryCap";
 import { getIncludedUsageAllowance } from "@/lib/usage/addons";
 import type { LumiPortalAccess } from "@/lib/lumi/portal";
 
@@ -30,11 +31,11 @@ function intFromEnv(name: string, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-/** Hard per-dancer ceilings (per studio relationship). Tunable by env; defaults are generous for legitimate use. */
+/** Hard per-dancer ceilings (per studio relationship). Conservative PILOT values, tunable by env after real usage; not pricing. */
 export function lumiDancerCaps() {
   return {
-    perDay: intFromEnv("LUMI_MAX_REQUESTS_PER_DANCER_PER_DAY", 10),
-    perMonth: intFromEnv("LUMI_MAX_REQUESTS_PER_DANCER_PER_MONTH", 60),
+    perDay: intFromEnv("LUMI_MAX_REQUESTS_PER_DANCER_PER_DAY", 5),
+    perMonth: intFromEnv("LUMI_MAX_REQUESTS_PER_DANCER_PER_MONTH", 20),
   };
 }
 
@@ -59,7 +60,8 @@ async function studioPoolTotal(access: LumiPortalAccess) {
     .eq("feature_key", "ai_action")
     .eq("status", "active");
   const addon = (entitlements ?? []).reduce((sum, row) => sum + Math.max(0, row.quantity_included ?? 0), 0);
-  return getIncludedUsageAllowance({ planCode: access.planCode, featureKey: "ai_action" }) + addon;
+  const included = getIncludedUsageAllowance({ planCode: access.planCode, featureKey: "ai_action" });
+  return (await capComplimentaryAllowance(access.admin, access.studio.id, included)) + addon;
 }
 
 async function countRows(access: LumiPortalAccess, extra: { clientId?: string; sinceIso?: string }) {

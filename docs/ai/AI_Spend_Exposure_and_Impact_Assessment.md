@@ -117,3 +117,7 @@ A fresh read-only re-review of the second-review fixes found no critical or high
 
 A fresh read-only re-review of the third-round fixes required changes (three medium): when recaps were the large section, current syllabus work was cut to its smallest size first; and two tests still passed with the logic they guard removed (knowledgebase zero budget, syllabus-first trimming). **Fixed:** the syllabus now shortens one step ahead of the other sections instead of all the way first; both tests were corrected, a settle-failure test was added, and each of the three guards was removed temporarily to confirm its test now fails. These last changes have not had a further independent review. **Accepted (low):** the action test mock ignores query arguments (ordering wiring and note redaction are not tested); untouched figures tie in arbitrary order; the prompt does not explain `historyShortened`.
 
+### Owner dispositions applied (2026-11-26)
+
+This supersedes the behaviour listed above where they differ. Pilot LUMI limits are now 5 a day and 20 a month (E3). The public knowledgebase model answer is **off unless `KB_PUBLIC_ASSISTANT_MODEL_ENABLED=true`** (E4/K2), replacing the earlier default-to-current-behaviour switch. Studios without the AI assistant keep the event helper, signed in and metered from a separate pool (E1). The dancer name is no longer sent to the provider, mobile LUMI availability follows the plan, and complimentary studios have a capped included allowance (E7). See `AI_Spend_Controls_Plan.md` and `AI_Usage_Ledger_Proposal.md`.
+

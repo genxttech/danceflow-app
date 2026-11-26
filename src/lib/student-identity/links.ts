@@ -1,3 +1,5 @@
+import { resolveStudioBillingPlan } from "@/lib/billing/access";
+import { isLumiPlanAllowed } from "@/lib/lumi/plan";
 import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -112,11 +114,15 @@ export async function getStudentStudioLinks(user: User) {
   const clientsById = new Map(
     ((clients ?? []) as ClientRow[]).map((client) => [client.id, client]),
   );
+  // LUMI shows only where the studio turned it on AND its plan includes it: the same rule the web portal enforces.
   const lumiByStudioId = new Map(
-    (settings ?? []).map((item) => [
-      String(item.studio_id),
-      item.lumi_enabled === true,
-    ]),
+    await Promise.all(
+      (settings ?? []).map(async (item): Promise<[string, boolean]> => {
+        const studioId = String(item.studio_id);
+        if (item.lumi_enabled !== true) return [studioId, false];
+        return [studioId, isLumiPlanAllowed(await resolveStudioBillingPlan(admin, studioId))];
+      }),
+    ),
   );
 
   return typedLinks
