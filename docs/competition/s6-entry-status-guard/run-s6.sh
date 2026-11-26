@@ -144,6 +144,15 @@ if grep -q '^trg|' "$OUT/state-P0-before-S6.txt" && grep -q '^acl|' "$OUT/state-
 # forward again, then the S6 suite once more
 apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"
 TSV="$OUT/suite-s6-after-reapply.tsv"; : > "$TSV"; runsuite test_T_competition_s6_entry_status_guard
+# joint 877 + 878 stage (optional, SC1_DIR = the SC1 session's local DB suite folder; used as the files are, not committed here). Runs last, on the re-applied S6 chain,
+# because its concurrency script disables guard triggers while seeding.
+if [ -n "${SC1_DIR:-}" ]; then
+  ( cd "$SC1_DIR" && sha256sum sc1_suite.sql sc1_concurrency.sh ) > "$OUT/sc1-harness.sha256"
+  ( cd "$REPO" && git rev-parse origin/claude/sc1-port-live-line origin/claude/r15-s4-eligibility-clearance ) > "$OUT/sc1-heads.txt" 2>&1
+  { ( cd "$REPO" && git show origin/claude/r15-s4-eligibility-clearance:src/lib/supabase/migrations/sql-tests/fixtures/r15_clear_entries.sql ); cat "$SC1_DIR/sc1_suite.sql"; } | timeout 600 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/sc1-suite.log" 2>&1
+  log "sc1 suite: $(grep -E 'PASS|FAIL' "$OUT/sc1-suite.log" | grep -E '^(ERROR|NOTICE)' | tail -1 | cut -c1-300)"
+  bash "$SC1_DIR/sc1_concurrency.sh" "$NAME" t > "$OUT/sc1-concurrency.log" 2>&1; log "sc1 concurrency: rc=$? $(tail -1 "$OUT/sc1-concurrency.log" | cut -c1-200)"
+fi
 FAILS=0
 grep -q '^FAIL' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
 grep -Eq 'rc=[1-9]' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
