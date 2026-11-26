@@ -55,6 +55,11 @@ begin
   if (select count(*) from pg_trigger where tgrelid = 'public.event_competition_entry_changes'::regclass and tgname in ('protect_competition_entry_change_history', 'protect_competition_entry_change_history_truncate') and tgenabled <> 'D') <> 2 then
     raise exception 'S6 guard preflight failed: the append-only history triggers are missing or disabled.';
   end if;
+  -- S6 relies on these: U18 / U18-S protect danced, disqualified and scratched placements, and the O1 guard keeps a heat's status from being moved back by a client
+  if (select count(*) from pg_trigger where tgenabled <> 'D' and ((tgrelid = 'public.event_competition_heat_entries'::regclass and tgname in ('cf1_u18_guard_heat_entry_status', 'cf1_u18s_guard_heat_entry_scratch'))
+        or (tgrelid = 'public.event_competition_heats'::regclass and tgname = 'compo1_guard_heat_status'))) <> 3 then
+    raise exception 'S6 guard preflight failed: the U18, U18-S or heat status guard is missing or disabled.';
+  end if;
   -- the privileges this migration revokes are recorded for the rollback; refuse a state it was not written for
   if not has_function_privilege('service_role', 'public._r2_withdraw_entry(uuid, text, text)', 'execute')
      or not has_function_privilege('service_role', 'public._r2_apply_participation(uuid)', 'execute')
@@ -170,8 +175,9 @@ begin
     return new;
   end if;
   if tg_table_name = 'event_competition_heats' then
-    if old.status in ('active', 'complete') then
-      raise exception 'COMP_S6_PARTICIPATION_WRITER: a started or completed heat cannot be deleted by a direct table write.' using errcode = '42501';
+    if old.status in ('active', 'complete')
+       or exists (select 1 from public.event_competition_heat_entries he where he.heat_id = old.id and he.status in ('danced', 'disqualified')) then
+      raise exception 'COMP_S6_PARTICIPATION_WRITER: a started or completed heat, or one holding a danced or disqualified placement, cannot be deleted by a direct table write.' using errcode = '42501';
     end if;
     return old;
   end if;

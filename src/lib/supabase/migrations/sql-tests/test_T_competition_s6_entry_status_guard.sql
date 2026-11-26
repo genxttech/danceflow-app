@@ -396,6 +396,8 @@ set local session_replication_role = replica;
 update public.event_competition_heat_entries set status = 'danced' where id = pg_temp.id('951041');
 set local session_replication_role = origin;
 select pg_temp.run('x_del_danced', 'authenticated', format('delete from public.event_competition_heat_entries where id = %L', pg_temp.id('951041')));
+select pg_temp.run('x_del_heat_danced', 'authenticated', format('delete from public.event_competition_heats where id = %L', pg_temp.id('d00001')));
+select pg_temp.chk('P4b a scheduled heat holding a danced placement cannot be deleted', pg_temp.r('x_del_heat_danced') like '42501 COMP_S6_PARTICIPATION_WRITER%', pg_temp.r('x_del_heat_danced'));
 select pg_temp.chk('P4 a danced placement in a scheduled heat cannot be removed either', pg_temp.r('x_del_danced') like '42501 COMP_S6_PARTICIPATION_WRITER%', pg_temp.r('x_del_danced'));
 select pg_temp.chk('P5 consequences preserved after every refusal: entries unchanged, completed-heat ranking set still includes them, R2 refund class still locked (the refund cascade itself is not executed here)',
   (select bool_and(snap = pg_temp.snap(n)) from t_p)

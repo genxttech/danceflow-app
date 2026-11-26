@@ -167,3 +167,12 @@ Two reviewers that had not seen these conclusions reviewed the work. The first f
 | R3-F10/11 | info | Preflight does not check the audit trigger / history protections the rules rely on; the runner records head and fingerprint before the lock wait (run 2 composed 11:25Z, executed 13:33Z; no SQL or test file changed in between), and classifies any line containing PASS as a pass |
 
 R3-F2 (evidence logs excluded by `.gitignore`) and R3-F4 (suites not run, blocked counts) are addressed here: the logs are now committed.
+
+## 12. Joint review of this PR and PR 878 (2026-11-26; reviewed 55e2200c0 and 878 at 5c9f24d8; nothing executed)
+
+With both applied, app and database enforce the same core rule; no legitimate day-of operation was found broken by the new triggers.
+
+* **Release order (P1):** this PR's two migrations must ship before or together with PR 878. With 878 alone, the live June function still accepts a direct scratch of an entry in an active or complete heat, and any entry status.
+* **Needs an owner ruling (P1), not changed:** ballots require an active round and a published heat, not an active or complete heat, so a scored placement in a never-advanced, unlocked heat can still be scratched, removing a ranked couple from the calculation.
+* **Also open for an owner or follow-up:** the registration sync checks participation without locking heats; a manager can still replace a danced entry's participants or edit eligibility afterwards; a scratched placement in a started heat is ignored by the function, refunds and the app; there is no advance per-heat withdrawal for later heats once one has started (risk of it being recorded as No-show); staging heats; parent cascades; insert into a started heat is stopped only by the published-version guard.
+* **Fixed after this review:** the preflight now requires the U18, U18-S and heat-status guards; a heat holding a danced or disqualified placement cannot be deleted. These two changes have not been reviewed again.
