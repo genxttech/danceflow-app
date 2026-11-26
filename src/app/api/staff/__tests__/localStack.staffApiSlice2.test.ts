@@ -1,13 +1,14 @@
 /**
  * Staff API slice 2 (client lookup, client summary, attendance PUT, studio timeZone) against REAL RLS: route handler -> real supabase-js -> Kong -> PostgREST ->
  * Postgres, as the caller's own JWT. LOCAL / DISPOSABLE STACK ONLY; skipped unless the isolated QA harness provides a loopback stack:
- *   node scripts/qa/iso-qa.mjs run baseline -- src/app/api/staff/__tests__/localStack.staffApiSlice2.test.ts
- * (apply migrations above the baseline cutoff, including 20270214120000, first). auth.getUser is the one stand-in: the stack has no GoTrue,
+ *   node scripts/qa/iso-qa.mjs run baseline --migration origin/main:20270214120000 -- src/app/api/staff/__tests__/localStack.staffApiSlice2.test.ts
+ * (20270214120000 adds the instructor roster-names function; it is above the baseline cutoff, hence the flag). auth.getUser is the one stand-in: the stack has no GoTrue,
  * so it checks the HS256 signature and expiry. Real GoTrue tokens over HTTP are covered by scripts/qa/staff-api/http-qa.mjs.
  */
 import { createHmac, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { requireRosterNamesRpc } from "./staffLocalStackPreflight";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -132,6 +133,7 @@ describe.skipIf(!enabled)("staff API slice 2 against real RLS", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = URL_;
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = sign({ role: "anon", exp: exp() });
     process.env.SUPABASE_SERVICE_ROLE_KEY = sign({ role: "service_role", exp: exp() });
+    requireRosterNamesRpc(psql);
 
     const users = Object.values(USERS);
     const role = (user: string, studio: string, value: string) => `('${user}', '${studio}', '${value}', true)`;
