@@ -45,7 +45,8 @@ create index ai_usage_ledger_created_idx on public.ai_usage_ledger (created_at);
 
 alter table public.ai_spend_controls enable row level security;
 alter table public.ai_usage_ledger enable row level security;
-revoke all on table public.ai_spend_controls, public.ai_usage_ledger from public, anon, authenticated;
+-- Hosted Supabase grants new tables to service_role by default: revoke first, then grant only what is needed.
+revoke all on table public.ai_spend_controls, public.ai_usage_ledger from public, anon, authenticated, service_role;
 grant select, insert, update on table public.ai_spend_controls to service_role;
 grant select on table public.ai_usage_ledger to service_role;
 
@@ -90,12 +91,13 @@ begin
     return;
   end if;
 
-  -- A retry with the same key never reserves twice. 'reused' tells the caller not to dispatch a second provider call.
+  -- A retry with the same key never reserves twice and is never admitted again: the caller must not dispatch a second
+  -- provider call. A key stays used after release; a deliberate new attempt needs a new key.
   select * into v_existing from public.ai_usage_ledger l
    where l.feature = p_feature and l.payer_scope = p_payer_scope and l.payer_id = p_payer_id
      and l.idempotency_key = p_idempotency_key;
   if found then
-    return query select v_existing.id, v_existing.status <> 'released', 'duplicate_' || v_existing.status, true;
+    return query select v_existing.id, false, 'duplicate_' || v_existing.status, true;
     return;
   end if;
 

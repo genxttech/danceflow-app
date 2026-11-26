@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const features = vi.hoisted(() => ({ list: new Set<string>(), signedIn: true }));
 const allowance = vi.hoisted(() => ({ get: vi.fn(), record: vi.fn() }));
 const rows = vi.hoisted(() => [] as Array<Record<string, unknown> & { id: string }>);
+const db = vi.hoisted(() => ({ failCount: false }));
 
 vi.mock("@/lib/billing/access", () => ({
   studioHasFeature: async (feature: string) => features.signedIn && features.list.has(feature),
@@ -16,15 +17,14 @@ vi.mock("@/lib/usage/addons", () => ({
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     from: () => ({
-      insert: (row: Record<string, unknown>) => ({
-        select: () => ({
-          single: async () => {
-            const created = { ...row, id: `e${rows.length + 1}` };
-            rows.push(created);
-            return { data: { id: created.id }, error: null };
-          },
-        }),
-      }),
+      insert: (row: Record<string, unknown>) => {
+        const created = { ...row, id: `e${rows.length + 1}` };
+        rows.push(created);
+        return {
+          select: () => ({ single: async () => ({ data: { id: created.id }, error: null }) }),
+          then: (resolve: (value: unknown) => void) => resolve({ error: null }),
+        };
+      },
       update: (patch: Record<string, unknown>) => {
         const filters: Array<[string, unknown]> = [];
         const api = {
@@ -40,11 +40,20 @@ vi.mock("@/lib/supabase/admin", () => ({
         return api;
       },
       select: () => {
+        const filters: Array<[string, unknown]> = [];
         const api = {
-          eq: () => api,
+          eq(column: string, value: unknown) {
+            filters.push([column, value]);
+            return api;
+          },
           in: async () => {
             await new Promise((resolve) => setTimeout(resolve, 0));
-            const counted = rows.filter((row) => ["reserved", "settled"].includes((row.metadata as { state: string }).state));
+            if (db.failCount) return { count: null, error: { message: "boom" } };
+            const counted = rows.filter(
+              (row) =>
+                filters.every(([c, v]) => row[c] === v) &&
+                ["reserved", "settled"].includes((row.metadata as { state: string }).state),
+            );
             return { count: counted.length, error: null };
           },
         };
@@ -62,9 +71,10 @@ describe("event description assistant access", () => {
   beforeEach(() => {
     rows.length = 0;
     features.signedIn = true;
+    db.failCount = false;
     features.list = new Set(["public_events"]);
     allowance.get.mockReset().mockResolvedValue({ allowed: true });
-    allowance.record.mockReset();
+    allowance.record.mockReset().mockResolvedValue({ ok: true });
     delete process.env.AI_EVENT_DESCRIPTION_BASIC_MONTHLY_CAP;
   });
 
@@ -102,6 +112,26 @@ describe("event description assistant access", () => {
     const admitted = results.filter((result) => result.ok).length;
     expect(admitted).toBeLessThanOrEqual(3);
     expect(states().filter((state) => state === "reserved")).toHaveLength(admitted);
+  });
+
+  it("counts only this studio's pool for this month, and refuses when the count cannot be read", async () => {
+    process.env.AI_EVENT_DESCRIPTION_BASIC_MONTHLY_CAP = "1";
+    rows.push({ id: "other", studio_id: "studio-2", feature_key: "ai_event_basic", period_start: "x", metadata: { state: "settled" } });
+    rows.push({ id: "ops", studio_id: "studio-1", feature_key: "ai_action", period_start: "x", metadata: { state: "settled" } });
+    expect((await authorizeEventDescriptionAi("generate")).ok).toBe(true);
+    rows.length = 0;
+    db.failCount = true;
+    expect(await authorizeEventDescriptionAi("generate")).toMatchObject({ ok: false });
+    expect(states()).toEqual(["released"]);
+  });
+
+  it("records a successful paid call even when the session RPC refuses it", async () => {
+    features.list = new Set(["ai_assistant", "public_events"]);
+    allowance.record.mockResolvedValue({ ok: false });
+    const grant = await authorizeEventDescriptionAi("generate");
+    if (grant.ok) await grant.finish("success");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ studio_id: "studio-1", feature_key: "ai_action", source: "event_ai_assistant" });
   });
 
   it("a cap of 0 turns the basic pool off", async () => {

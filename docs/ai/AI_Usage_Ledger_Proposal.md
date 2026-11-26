@@ -9,7 +9,7 @@ Status: proposal (owner dispositions E5, E6, 2026-11-26). **Nothing here is appl
 | No durable global cap; public knowledgebase AI cannot be activated (E4, K2) | `ai_spend_controls` row `*` and per-feature rows hold on/off switches and **daily cost ceilings** checked in the database |
 | Studio actions check, call, then record: parallel overshoot, unmetered failures | One `ai_reserve` before every provider call, `ai_settle` after |
 | Reserve-then-verify in application code over-refuses under bursts, and a database outage can leave rows reserved (seen in the local check) | One locked transaction: exact admission, no cleanup write needed to refuse |
-| Retries can call the provider twice | Idempotency key unique per feature and payer; a duplicate is reported and must not be dispatched again |
+| Retries can call the provider twice | Idempotency key unique per feature and payer; a duplicate is not admitted |
 | No cost visibility | Tokens, model, outcome and cost per request; no content |
 
 ## Model
@@ -32,7 +32,9 @@ Pilot control values to load at activation (proposal, owner approves): `*` $10/d
 
 ## Local validation (2026-11-26, throwaway `postgres:17`, no hosted database)
 
-Applied cleanly on top of a minimal bootstrap; no control rows → refused; 60 parallel reservations for one payer with a daily limit of 5 → **exactly 5** admitted; 200 parallel public reservations against a 50,000 micro-dollar ceiling at 1,000 each → **exactly 50**; duplicate key returned the same reservation as a duplicate; release works once; global switch off → refused; `anon` cannot execute, `authenticated` cannot read, `service_role` can execute; rollback removed every object. Not covered: hosted Supabase image, PostgREST RPC calls, load, month boundaries.
+Applied cleanly on top of a minimal bootstrap; no control rows → refused; 60 parallel reservations for one payer with a daily limit of 5 → **exactly 5** admitted; 200 parallel public reservations against a 50,000 micro-dollar ceiling at 1,000 each → **exactly 50**; a duplicate key returns the existing reservation and is **not** admitted again (a released key stays used); with Supabase-style default privileges simulated, `service_role` can only read the ledger; release works once; global switch off → refused; `anon` cannot execute, `authenticated` cannot read, `service_role` can execute; rollback removed every object. Not covered: hosted Supabase image, PostgREST RPC calls, load, month boundaries.
+
+Known limits to settle in the database review: count caps trust the caller-supplied payer scope and id (only the cost ceilings bind a wrong payer); there is no monthly cost ceiling or `lock_timeout`.
 
 ## Gates, in order
 

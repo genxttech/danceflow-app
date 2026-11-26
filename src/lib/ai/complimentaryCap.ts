@@ -27,7 +27,10 @@ export async function capComplimentaryAllowance(client: StudioReader, studioId: 
     .maybeSingle()) as { data: OverrideRow | null; error: unknown };
 
   // Unreadable: apply the cap rather than assume a paying studio.
-  if (error || !data) return Math.min(included, complimentaryMonthlyCap());
+  if (error || !data) {
+    console.error("AI allowance capped: the studio billing override could not be read", { studioId });
+    return Math.min(included, complimentaryMonthlyCap());
+  }
 
   const expiresAt = data.billing_override_expires_at ? new Date(data.billing_override_expires_at).getTime() : null;
   const complimentary = Boolean(data.billing_override_enabled) && (expiresAt === null || expiresAt >= Date.now());

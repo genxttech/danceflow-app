@@ -29,15 +29,43 @@ export type EventAiAccess =
 const NOT_AVAILABLE = "AI event writing help needs an active DanceFlow studio sign-in.";
 const BASIC_USED_UP = "This month's AI description help for your plan has been used. It renews next month.";
 
+function currentPeriod(now = new Date()) {
+  return {
+    periodStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10),
+    periodEnd: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10),
+  };
+}
+
+async function recordWithServiceRole(studioId: string, task: string) {
+  const { periodStart, periodEnd } = currentPeriod();
+  const { error } = await createAdminClient().from("usage_events").insert({
+    studio_id: studioId,
+    organizer_id: null,
+    workspace_type: "studio",
+    feature_key: "ai_action",
+    quantity: 1,
+    source: "event_ai_assistant",
+    metadata: { task, recordedBy: "service_role" },
+    period_start: periodStart,
+    period_end: periodEnd,
+  });
+  if (error) console.error("Event AI usage recording failed", error.message);
+}
+
 export async function authorizeEventDescriptionAi(task: string): Promise<EventAiAccess> {
   if (await studioHasFeature("ai_assistant")) {
     const allowance = await getUsageAllowance({ featureKey: "ai_action" });
     if (!allowance.allowed) return { ok: false, error: getUsageLimitMessage(allowance, "AI action") };
+    const subscription = await getCurrentStudioPlanForUser();
+    if (!subscription) return { ok: false, error: NOT_AVAILABLE };
     return {
       ok: true,
       finish: async (outcome) => {
         if (outcome !== "success") return;
-        await recordUsageEvent({ featureKey: "ai_action", source: "event_ai_assistant", metadata: { task } });
+        const recorded = await recordUsageEvent({ featureKey: "ai_action", source: "event_ai_assistant", metadata: { task } });
+        // The RPC refuses callers without a studio role (organizer-only members, support admins) and calls that would pass the
+        // cap. The provider has already been paid, so the usage is still recorded.
+        if (!recorded.ok) await recordWithServiceRole(subscription.studioId, task);
       },
     };
   }
@@ -51,9 +79,7 @@ export async function authorizeEventDescriptionAi(task: string): Promise<EventAi
   if (cap <= 0) return { ok: false, error: BASIC_USED_UP };
 
   const studioId = subscription.studioId;
-  const now = new Date();
-  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
-  const periodEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 10);
+  const { periodStart, periodEnd } = currentPeriod();
   const admin = createAdminClient();
 
   const { data: inserted, error } = await admin

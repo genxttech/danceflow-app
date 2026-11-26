@@ -7,7 +7,10 @@ const studioHasFeature = vi.fn();
 const getUsageAllowance = vi.fn();
 const recordUsageEvent = vi.fn();
 
-vi.mock("@/lib/billing/access", () => ({ studioHasFeature: (...a: unknown[]) => studioHasFeature(...a) }));
+vi.mock("@/lib/billing/access", () => ({
+  studioHasFeature: (...a: unknown[]) => studioHasFeature(...a),
+  getCurrentStudioPlanForUser: async () => ({ studioId: "studio-1" }),
+}));
 vi.mock("@/lib/usage/addons", () => ({
   getUsageAllowance: (...a: unknown[]) => getUsageAllowance(...a),
   getUsageLimitMessage: () => "limit reached",
@@ -79,6 +82,15 @@ describe("event-description and report-insights actions: authentication, plan, a
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ output_text: "Summary\nOK" }), { status: 200 }));
     expect(await generateReportInsights(metrics)).toMatchObject({ ok: true });
     expect(recordUsageEvent).toHaveBeenCalledWith(expect.objectContaining({ featureKey: "ai_action", source: "report_ai_insights" }));
+  });
+
+  it("meters a successful event description call, and not one the provider rejected", async () => {
+    expect(await generateEventDescriptionAssistantAction({ ok: false }, eventForm())).toMatchObject({ ok: true });
+    expect(recordUsageEvent).toHaveBeenCalledTimes(1);
+    expect(recordUsageEvent).toHaveBeenCalledWith(expect.objectContaining({ featureKey: "ai_action", source: "event_ai_assistant" }));
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 500 }));
+    expect(await generateEventDescriptionAssistantAction({ ok: false }, eventForm())).toMatchObject({ ok: false });
+    expect(recordUsageEvent).toHaveBeenCalledTimes(1);
   });
 
   it("a provider failure is not metered and never leaks raw provider text", async () => {
