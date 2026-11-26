@@ -1,7 +1,7 @@
 # Option C: withdrawal from heats that have not started (design only)
 
 Status: DESIGN FOR REVIEW. No SQL or application change is made or authorized. Nothing here is executed or tested.
-Authority: owner decision of 2026-11-26, items 8-15 (`governance/audit/OWNER-DECISIONS.md` section 14, PR 795, `3515c5524`).
+Authority: owner decisions of 2026-11-26 in `governance/audit/OWNER-DECISIONS.md` (PR 795): section 14 items 8-15 (`3515c5524`) and section 15 requirements 6-8 on ballots (`2190ec923`). Ballot facts also rest on `BALLOT-ENFORCEMENT-VERIFICATION.md` (`dee85d066`; read from code, nothing executed).
 Policy label: **everything proposed here is DanceFlow Studio/Custom policy**, not a governing-body requirement or compliance claim.
 Read at: live line `49dbaee1b`; Option A as draft PR 877 (`5a8c5456`) and draft PR 878. Both are unapplied and may change.
 
@@ -11,6 +11,8 @@ Read at: live line `49dbaee1b`; Option A as draft PR 877 (`5a8c5456`) and draft 
 - The default schedule planner puts one entry into a separate heat for each dance in `individual` and `choose_count` divisions (`individual` is also the fallback). Today one of those dances cannot be withdrawn on its own: before any heat starts only the whole entry can be scratched, and afterwards a skipped dance can only end in a No-show.
 - **Minimum viable C (recommended): a per-heat withdrawal and reinstatement writer for heats that have not started (section 6), the existing A6 workflow for callback Finals, and a small advance-withdrawal notice for a Final whose callback result is not yet approved (section 5).**
 - **Impairment: material for per-dance divisions with more than one dance** (and for any later round not built from a callback result), where advance word about one heat cannot be recorded truthfully. Not material for divisions that run once per round with a callback Final, if the conditions in section 5.3 hold.
+
+- Once affected ballots exist, ordinary Scratch and withdrawal are to be blocked (section 15; **not yet enforced** by drafts 877 or 878). Section 6A designs the only proposed way through before a heat starts: a two-person exception that preserves every ballot.
 
 ## 2. Facts the design rests on (read from code, not executed)
 
@@ -92,7 +94,7 @@ Recording nothing is not a workable substitute where ballots are collected: an a
 `withdraw_competition_heat_entry(p_heat_entry_id, p_reason, p_request_id)` and a matching reinstatement function, `SECURITY DEFINER`, authenticated only.
 
 - **Authority:** event managers (`can_manage_event_competition`, which includes organizer staff) with verified email. Whether OD-26's "explicit event-level scheduling permission" should apply instead is an owner decision. Judges and scorers never.
-- **Preconditions (before and again under lock):** the entry is pending, confirmed or waitlisted; **the entry keeps at least one other placement that is not scratched, in a non-cancelled heat of the same live (published) schedule version** (superseded and draft copies never count), started or not (so this writer cannot empty an entry; leaving every heat is the whole-entry lifecycle, or A6); heat entry scheduled or checked in; heat `scheduled` and lock open; round not `ballots_locked`, complete or cancelled; no ballot for the heat; no calculated, approved or published result for the round; not a CF1 callback Final (A6 owns those); a Final keeps at least two eligible couples.
+- **Preconditions (before and again under lock):** the entry is pending, confirmed or waitlisted; **the entry keeps at least one other placement that is not scratched, in a non-cancelled heat of the same live (published) schedule version** (superseded and draft copies never count), started or not (so this writer cannot empty an entry; leaving every heat is the whole-entry lifecycle, or A6); heat entry scheduled or checked in; heat `scheduled` and lock open; round not `ballots_locked`, complete or cancelled; **no affected ballot** under the round-wide test of section 6A (a ballot anywhere in the round counts, not only on that heat); with affected ballots only the section 6A exception may proceed; no calculated, approved or published result for the round; not a CF1 callback Final (A6 owns those); a Final keeps at least two eligible couples.
 - **Writes:** one append-only row in `event_competition_heat_withdrawals` (event, heat, heat entry, entry, dances of the heat, prior status, reason, actor, role, request id), then that heat entry to `scratched`. The entry row and entry dances are not updated.
 - **No silent return:** a guard, like the A6 guard, refuses placing the entry again for those dances of that round, in any schedule version, unless reinstated, and the planner must say why. Schedule versions hold their own copies of placements, so a draft copied before the withdrawal could bring the dance back: publishing must also refuse, or scratch, a copy of a withdrawn placement.
 - **Why `scratched`:** engines, ballots, F8 and F10 already handle it with no scoring change. Consequence: where it is the entry's only heat in a round, results label the couple "scratched" for that round. A separate status or wording needs engine and recompute work; owner decision.
@@ -103,6 +105,60 @@ Recording nothing is not a workable substitute where ballots are collected: an a
 
 Ballot submission takes only a round `FOR SHARE` lock, with no event or heat lock, so the writer must lock the **round `FOR UPDATE`** or a ballot can land after its "no ballot" check. Proposed order: event lock (as A6 and O1), the heat `FOR SHARE` (conflicts with start and lock transitions), the round `FOR UPDATE`, the entry `FOR SHARE` (as A6, so a concurrent whole-entry change cannot pass the status check), the heat entry `FOR UPDATE`; re-check under lock. Heat then round matches the floor advance; No-show locks the round only. The order must be reviewed and race-tested before any SQL is written.
 
+## 6A. Controlled exception: withdrawal before the start, after ballots exist (section 15, requirement 6)
+
+DanceFlow Studio/Custom policy. Not built. Ballots can be filed while heats are still `scheduled`, and today there is no recovery before the start: exclusion needs a danced heat and No-show an active or complete one.
+
+### 6A.1 When it applies
+
+- The scope being withdrawn (a whole entry, or one heat under section 6) has **affected ballots**: any ballot, in any version, in a round where the entry holds an unscratched placement; or any ballot that marks the entry; or any ballot on a heat it is placed in. Drafts do not count. This is the predicate proposed in the verification (section B); the database test itself belongs to the PR 877 work.
+- **Pre-start:** every affected heat is `scheduled` or `staging` with lock open, and the Option A block does not apply (whole entry) or the section 6 conditions other than the ballot test hold (one heat). Whether `staging` qualifies is an owner question.
+- No result in any affected round is approved or published; after that only the OD-07 correction workflow applies. A calculated, unapproved result may exist: it becomes stale and cannot be approved.
+- A round in `ballots_locked` is first reopened through the existing reasoned reopen action.
+- Callback Finals stay with A6, which refuses once the Final has ballots. Extending this exception to them is not proposed.
+
+### 6A.2 Refused even with approval
+
+| Situation | Why |
+| --- | --- |
+| Removing the entry empties a ballot heat | its ballots leave the evidence **without** being flagged stale |
+| A callback round's remaining couples would be at or below the callback target | the round becomes "not danced" and every ballot is ignored |
+| A Final would keep fewer than two available couples | OD-21 |
+| Any affected heat has started, finished or is locked or certified | Option A; correction workflows only |
+
+### 6A.3 Two steps, two people
+
+1. **Request.** An event manager with a verified email records scope, a substantive reason (as A6: 20-500 characters), how and when the withdrawal was received (may reference a 5.1 notice) and a request id. The request snapshots the affected rounds, heats, current ballot ids with judge letters, and each round's input hash. It changes nothing.
+2. **Decision.** An approver approves or refuses with a reason. Approval re-checks everything under lock and refuses if the snapshot changed (a new or replaced ballot, a heat change), so a stale request must be made again.
+
+**Who may approve.** A person holding approval authority for every affected round (proposed: its designated chair, or a person given an explicit exception-approval designation for the event) who is **not**: the requester; a judge with a ballot in an affected round; whoever entered or verified such a ballot; or a participant in, or recorded representative of, the withdrawing entry. Being a second manager is neither required nor sufficient. Conflict and recusal records do not exist (OD-05), so interests beyond recorded links cannot be enforced. With no qualifying approver the request waits; there is no override, and the R-11 initial-approval self-approval exception never applies. Who counts as an independent approver under the R-11 B2 design is a separate pending owner question; the two definitions should be aligned.
+
+### 6A.4 What approval does
+
+One definer transaction, owner-run internal writer, no client execute grant and no client-settable bypass marker:
+
+- scratches the placement or placements (for a whole entry also sets the entry status with its lifecycle audit row), exactly the state the ordinary writer would produce, so engines need no change;
+- appends the decision with actor, authority relied on, reason, time and the snapshot;
+- **never** updates, deletes, renumbers or re-derives a ballot or mark.
+
+**Invalidation and correction.** The existing round blockers then treat a current ballot that ranks the entry (or a callback ballot that selected it) as stale, and ballot lock is refused until each such judge submits a **new version**; the old one remains. Marks are never closed up automatically. Under OD-11 only the judge can confirm replacement marks; a paper replacement also needs independent verification (OD-12). Neither confirmation nor verification is implemented, so today a scorer's paper entry could stand in for the judge: this exception must not be activated without that gap closed or accepted by the owner. If the judge is unavailable the round holds. Callback ballots that did not select the entry stay valid although the pool shrank; the approver is shown this, and whether those judges must re-confirm is an owner question.
+
+**Confidentiality (OD-10).** Requester and approver see which judges' ballots are affected, not the marks.
+
+**Mistakes.** No reversal in a first version: restoring a couple would invalidate the replacement ballots again and needs its own request design.
+
+### 6A.5 Concurrency
+
+Ballot submit and paper entry take an advisory lock on (round, judge) and the round `FOR SHARE`; the draft lifecycle function takes neither, so a check without a round lock can be beaten in either order. The decision takes the affected heats `FOR SHARE`, then every affected round `FOR UPDATE` in id order, then the entry and heat entries, then re-reads. Heat then round matches the floor advance and the heat-lock reopen; A6 and the F2 correction take the round first, so deadlock behaviour must be reviewed and race-tested before SQL.
+
+### 6A.6 Refunds and other writers
+
+A refund, cancellation or payment failure is not an ordinary Scratch and must not become a way round the block. Proposed: the money action proceeds as today; participation is left unchanged where affected ballots exist; a competition refund exception is recorded naming this workflow, and the affected rounds' publication stays held until it is resolved. Whether that hold also covers a financial-only case, and who closes it, is an owner question. Heat cancellation, round reassignment, schedule unpublish or replacement and round cancellation currently move ballots out of scope without any check; closing those is part of the 877 enforcement, not this workflow.
+
+### 6A.7 Negative tests (not written)
+
+Requester approving; affected judge, transcriber, verifier, participant or undesignated second manager approving; approver lacking authority for one of several rounds; ballot submitted, replaced or paper-entered between request and decision and concurrently with it; heat started or locked between the two; approved or published result; emptied heat; callback pool at the target; Final below two; unaffected heats and divisions left alone; ordinary Scratch, direct writes, refund and registration sync still refused; every ballot and mark byte-identical afterwards; lock refused until each stale ballot is replaced; replay and reused request id; refused request changes nothing.
+
 ## 7. Effects (requirement 11)
 
 | Area | Notice (5.1) | A6 (existing) | Per-heat writer (6) |
@@ -112,7 +168,7 @@ Ballot submission takes only a round `FOR SHARE` lock, with no event or heat loc
 | Multi-dance scoring | none | all dances of the Final heat | the dances of that heat only; split rounds are not calculable here (F3); no withdrawal of one dance inside a shared heat |
 | Minimum couples | none | refuses below two | refuses below two for a Final; no rule proposed for callback rounds |
 | Schedule publication | shown as a flag | roster change on a published version as today | status-only change is allowed by the 10D guard; the couple leaves the floor list, so show "Withdrawn (this heat)"; OD-26 version history applies to reordering, not to this |
-| Ballots | none | refused once ballots exist | refused once the heat has a ballot; R-08 stale-ballot rule is then not reached |
+| Ballots | none | refused once ballots exist | refused once an affected ballot exists; then only 6A, where R-08 stale ballots are replaced by their judges |
 | Eligibility | none | reinstatement re-checks it | unchanged; withdrawal needs no clearance |
 
 ## 8. Refunds (requirement 13)
@@ -138,6 +194,8 @@ Ballot submission takes only a round `FOR SHARE` lock, with no event or heat loc
 
 | Item | Effect on this design |
 | --- | --- |
+| OD-11 and OD-12 | Replacement ballots after a 6A approval need the judge's confirmation, and paper entry independent verification; neither is implemented. |
+| R-11 | Its self-approval exception covers initial result approval only, never a 6A decision; B2 approver definition pending. |
 | OD-07 corrections | Nothing here edits a completed round; completed participation is corrected only through the OD-07 workflow. |
 | OD-08 | The NDCA last-place treatment is a future NDCA profile only; no Studio placement is invented. |
 | OD-21 | Two-couple Final minimum and no backfill preserved. |
@@ -168,9 +226,13 @@ Section numbering follows the audit's citations; page numbers and effective date
 4. Accept the "scratched" label for a heat withdrawal, or require separate wording and the engine work it needs?
 5. Accept No-show in the cases of 5.4? This is where Option A requirement 4 cannot be fully met.
 6. The two open Option A findings and the refund resolution finding in section 8.
+7. Is a No-show acceptable while ballots exist? It removes the couple today with no ballot check once the heat is active, and needs the judges to resubmit.
+8. How should refund exceptions behave when ballots exist (6A.6)?
+9. Who may approve a 6A exception, and must it exist before any ordinary ballot block ships? Without it a balloted couple cannot be removed until the heat starts.
+10. May a `staging` heat use 6A, and must callback judges who did not select the couple re-confirm?
 
 ## 13. Unverified and review
 
-No SQL, test or UI walkthrough was run for this design. Not established: which formats initial events will use; whether the UI permits a hand-built later round; a one-couple Final after a No-show; callback behaviour when the pool shrinks to the target; lock-order safety; S4/S5 behaviour on a heat-entry scratch.
+No SQL, test or UI walkthrough was run for this design. Section 6A rests on a code-reading verification; none of it is executed. Whether an absent judge's stale ballot still blocks the lock is not checked. Not established: which formats initial events will use; whether the UI permits a hand-built later round; a one-couple Final after a No-show; callback behaviour when the pool shrinks to the target; lock-order safety; S4/S5 behaviour on a heat-entry scratch.
 
 Independent read-only review: the first draft's impairment conclusion was wrong (it missed per-dance heats) with errors about A6, the finals flag and locking; the second draft's writer precondition refused a skipped dance before any heat had started. A final narrow check found the third draft not blocking and noted that superseded or draft schedule copies must not satisfy the writer precondition or restore a withdrawn dance; the wording added for that has not been re-reviewed.
