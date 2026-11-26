@@ -80,4 +80,4 @@ Confirmed before deleting (2026-11-26): the three release AABs in `C:\dfr-out\re
 | `C:\dfr\tmp-rel-student-4564c0b2` | about 36 MB |
 | `C:\dfr\tmp-rel-business-42e31612` | about 26 MB |
 
-Kept: every AAB, the check evidence, logs, all `C:\dfr-out` evidence, other sessions' folders and temporary directories.
+Kept: every AAB, the check evidence, logs, all `C:\dfr-out` evidence, other sessions' folders and temporary directories. Deletion verified complete; the three AAB hashes were re-checked afterwards (42.0 GB free).
