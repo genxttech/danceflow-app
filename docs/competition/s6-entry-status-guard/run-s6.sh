@@ -67,6 +67,20 @@ select 'priv|' || r || '|' || string_agg(p, ',' order by p) from unnest(array['a
 SQL
 "${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P0-before-S6.txt"
 
+TSV="$OUT/suites.tsv"
+runsuite(){ # $1 name
+  local s="$1"
+  [ -f "$M/sql-tests/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$TSV"; return; }
+  timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$M/sql-tests/$s.sql" > "$OUT/suite-$s.log" 2>&1
+  local line res; line="$(grep -E "SUITE (PASS|FAIL)|PASS \(|FAIL" "$OUT/suite-$s.log" | tail -1 | cut -c1-500)"
+  case "$line" in *PASS*) res=PASS;; *) res=FAIL;; esac
+  printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$TSV"; log "$(basename "$TSV" .tsv) $s: $res"
+}
+# PR 867 evidence: the chain at this point is exactly the PR 867 migration set (live line + JC1 / U18 / U18-S; no S6 file applied yet), and the SQL suites in this tree
+# differ from the PR 867 head only by the two added S6 test files.
+TSV="$OUT/suites-pr867.tsv"; : > "$TSV"
+for s in test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_callback_final_advancement test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_f2_results; do runsuite "$s"; done
+
 # F3 read-back BEFORE S6 (state read-back of the forged-marker chain on the pre-S6 database)
 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$REPO/docs/competition/s6-entry-status-guard/f3-readback.sql" > "$OUT/f3-readback-before-S6.log" 2>&1
 apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"
@@ -80,15 +94,7 @@ SQL
 "${PSQL[@]}" -At < "$OUT/probe.sql" > "$OUT/state-after.txt"
 
 SUITES="${ONLY_SUITES:-test_T_competition_s6_entry_status_guard test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_cf1_a2_lock test_T_competition_hl1_heat_guards test_T_competition_f2_results test_T_competition_cf1_od17_enforcement test_T_competition_cf1_a4_minimum_integration test_T_competition_cf1_callback_final_advancement test_T_competition_r2_refund_write_gate test_T_competition_e2_ballots test_T_competition_o1_day_of}"
-: > "$OUT/suites.tsv"
-runsuite(){ # $1 name
-  local s="$1"
-  [ -f "$M/sql-tests/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$OUT/suites.tsv"; return; }
-  timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$M/sql-tests/$s.sql" > "$OUT/suite-$s.log" 2>&1
-  local line res; line="$(grep -E "SUITE (PASS|FAIL)|PASS \(|FAIL" "$OUT/suite-$s.log" | tail -1 | cut -c1-500)"
-  case "$line" in *PASS*) res=PASS;; *) res=FAIL;; esac
-  printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$OUT/suites.tsv"; log "$s: $res"
-}
+TSV="$OUT/suites.tsv"; : > "$TSV"
 for s in $SUITES; do runsuite "$s"; done
 
 # concurrency (real second connections)
@@ -104,5 +110,5 @@ if diff -u "$OUT/state-P2-after-140000-141000.txt" "$OUT/state-P2b-after-rollbac
 if diff -u "$OUT/state-P0-before-S6.txt" "$OUT/state-P1-after-rollback.txt" > "$OUT/rollback-diff.txt"; then log "rollback proof: PASS (catalog state identical to pre-S6, $(wc -l < "$OUT/state-P0-before-S6.txt") lines)"; echo PASS > "$OUT/rollback-result.txt"; else log "rollback proof: FAIL (see rollback-diff.txt)"; echo FAIL > "$OUT/rollback-result.txt"; fi
 # forward again, then the S6 suite once more
 apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"; apply "$M/20270301142000_competition_s6_entry_lifecycle_hardening.sql"
-cp "$OUT/suites.tsv" "$OUT/suites-first-pass.tsv"; : > "$OUT/suites.tsv"; runsuite test_T_competition_s6_entry_status_guard; mv "$OUT/suites.tsv" "$OUT/suite-s6-after-reapply.tsv"; mv "$OUT/suites-first-pass.tsv" "$OUT/suites.tsv"
+TSV="$OUT/suite-s6-after-reapply.tsv"; : > "$TSV"; runsuite test_T_competition_s6_entry_status_guard
 log "done"; echo DONE > "$OUT/result.txt"
