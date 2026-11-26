@@ -26,6 +26,14 @@ Original: PR #306 (`competition-sc1-scratch-workflow`, head 59775cd3). Target: `
 
 5. Replay: an entry already scratched or withdrawn never reaches the RPC again ("already scratched" / "already withdrawn", nothing changed). If such an entry still has scheduled or checked-in heat entries (for example left by the older registration sync or a direct write) the workflow reports `COMP_SC1_STRANDED` and changes nothing: on the live RPC a repeat call overwrites the recorded reason and time without a new audit row.
 
+## Option A (owner decision 2026-11-26; DanceFlow Studio/Custom policy)
+
+Recorded in `governance/audit/OWNER-DECISIONS.md` section 14 (PR 795, `3515c5524`). Whole-entry scratch and withdrawal stay blocked once any associated heat is active, completed, danced or disqualified.
+
+- The page and the server action refuse such an entry. The day-of and Registrations pages show no Scratch link for it, and none for a locked or certified heat or a `disqualified` / `complete` entry (`scratchOffer.ts`). If placements cannot be read, no link is shown.
+- A `staging` heat is not in the policy and is not refused. A placement already `scratched` inside an active or completed unlocked heat does not block (same as `_r2_entry_participation_class`).
+- An advance withdrawal is never recorded or worded as a No-show. No-show stays the separate per-heat day-of action. Withdrawing only the later heats of a partly danced entry has no mechanism; Option C is a separate design.
+
 ## Consistency and money
 
 - Parent entry, heat entries, audit row: written by the RPC in one transaction; verified by read-back and by the unit model in the tests.
@@ -47,7 +55,7 @@ None offered. U18-S refuses `scratched -> *` for non-owner writers, and the pare
 
 ## S6 coordination (OD-31 session)
 
-- Read from draft PR 877 (`claude/od31-s6-entry-status-guard`, head 9af1b8f1, stacked on PR 867; not applied, its tests reported not yet executed, not verified here; the head may move). `20270301140000` makes the lifecycle RPC SECURITY DEFINER (authenticated only) with mandatory rules: source states (`COMP_ENTRY_LIFECYCLE_STATE`), placed entries refused (`COMP_ENTRY_LIFECYCLE_PLACED`), heat and entry row locks, and a repeat call that writes no audit row or version bump and only completes the heat-entry cascade. `20270301141000` guards direct entry status writes. The earlier optional 142000 was folded into 140000.
+- Read from draft PR 877 (`claude/od31-s6-entry-status-guard`, head 5a8c5456, stacked on PR 867; not applied; the OD-31 session leads the joint 877 + 878 verification; the head may move). `20270301140000` makes the lifecycle RPC SECURITY DEFINER (authenticated only) with mandatory rules: source states (`COMP_ENTRY_LIFECYCLE_STATE`), placed entries refused (`COMP_ENTRY_LIFECYCLE_PLACED`), heat and entry row locks, and a repeat call that writes no audit row or version bump and only completes the heat-entry cascade. `20270301141000` guards direct entry status writes. The earlier optional 142000 was folded into 140000.
 - Expected effect once applied (by reading): gaps 1-3 close. Gap 4 could then be repaired by repeating the call with the entry's current status; this workflow does not do that.
 - Contract: signature unchanged, this workflow's call shape stays valid, both new codes are mapped. SC1 writes no entry status itself, so 141000 does not affect it.
 

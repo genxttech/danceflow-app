@@ -15,6 +15,7 @@ import {
   type DayOfFloorHeat,
 } from "@/lib/competition/dayOf";
 import { canMarkNoShow } from "@/lib/competition/noShow";
+import { loadScratchOffer, mayOfferScratch, type ScratchOfferSupabase } from "@/lib/competition/scratch/scratchOffer";
 import { heatTransitionAction, noShowAction, roundTransitionAction } from "./actions";
 
 /* O1: staff floor console. Mobile first (375px): one column, large buttons, no horizontal scroll. */
@@ -44,7 +45,7 @@ export default async function DayOfPage({
   const { id } = await params;
   const query = await searchParams;
   const { supabase } = await requireCompetitionWorkspace(id);
-  const data = await loadDayOf(supabase, id);
+  const [data, scratchOffer] = await Promise.all([loadDayOf(supabase, id), loadScratchOffer(supabase as unknown as ScratchOfferSupabase, id)]);
   const roundStatusById = new Map(data.rounds.map((round) => [round.id, round.status]));
   const roundName = new Map(data.rounds.map((round) => [round.id, `${data.divisionName.get(round.division_id) ?? "Division"} · ${round.name}`]));
   const { current, next } = floorPosition(data.floorHeats);
@@ -78,9 +79,11 @@ export default async function DayOfPage({
                         </span>
                         <span className="flex shrink-0 items-center gap-3">
                           {noShow ? <span className={`${chip} bg-rose-100 text-rose-900`}>No-show</span> : null}
-                          <Link href={scratchHref(id, entry.entryId)} className="text-xs font-semibold text-slate-600 underline">
-                            Scratch
-                          </Link>
+                          {mayOfferScratch(scratchOffer, entry.entryId) ? (
+                            <Link href={scratchHref(id, entry.entryId)} className="text-xs font-semibold text-slate-600 underline">
+                              Scratch
+                            </Link>
+                          ) : null}
                         </span>
                       </div>
                       {noShow || canMark ? (
@@ -136,6 +139,7 @@ export default async function DayOfPage({
 
       {query.notice ? <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{query.notice}</p> : null}
       {data.noShowLoadError ? <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">Couldn&apos;t load no-shows: {data.noShowLoadError} No-show marks may be missing below.</p> : null}
+      {!scratchOffer.loaded ? <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">Couldn&apos;t check which entries can be scratched, so Scratch links are hidden. Reload the page.</p> : null}
       {query.error ? <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-900">{query.error}</p> : null}
 
       {!data.version ? (
