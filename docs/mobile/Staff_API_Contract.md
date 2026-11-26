@@ -288,6 +288,25 @@ Content-Type: application/json
 - Refusals: `404 not_found` (missing class, another studio's, not the caller's class, a private lesson, or a client of another studio); `409` with `class_full`, `class_cancelled`, `no_eligible_entitlement`, `entitlement_exhausted`, `membership_not_active`, `ambiguous_funding_source`, or `invalid_funding` (the package or membership is not an active one of this dancer). `409` bodies carry `current: null`.
 - Dancer notice: after the enrollment commits the dancer gets the same confirmation (email and push, no SMS) as from the web, once per new attendee row.
 
+### `GET /api/staff/workspaces/{studioId}/appointments/{appointmentId}/roster/funding?clientId=uuid`
+
+What one dancer can be billed to for this class, so the app can resolve `ambiguous_funding_source` or let the desk pick. Read only (no write gate, no `Idempotency-Key`). It calls the same database function as the web's Enroll Student page (`get_eligible_group_class_funding_candidates`).
+
+Response `200`:
+
+```json
+{ "candidates": [
+  { "billingType": "package_credit", "sourceId": "uuid", "label": "10 Class Pack", "unlimited": false, "remaining": 3 },
+  { "billingType": "membership", "sourceId": "uuid", "label": "Gold", "unlimited": true, "remaining": null }
+] }
+```
+
+- Enroll with `billingType` and `clientPackageId` (for `package_credit`) or `clientMembershipId` (for `membership`) set to `sourceId`. `pay_as_you_go` and `free_comped` need no candidate and are not listed; a class's accepted funding types can still refuse them at enrollment, so an empty list does not promise that they will work.
+- What is listed (the database's rule, as on the web): **active** packages with group-class credit left or unlimited; **active** memberships with an unlimited group-class benefit, or with an included group-class allowance left; restricted to the class's accepted funding types. Each source appears once. Limits to know: a package's `expiration_date` is **not** checked (an expired but still active pack is listed and the enrollment accepts it, unlike client detail, which hides it); an unlimited membership gets no date check; a finite membership's allowance is judged for the class's date in the database time zone and its current period; a package's `remaining` does not subtract classes booked but not yet attended. An empty list means no package or membership qualifies. The enrollment still decides: a listed source can be used up a moment later.
+- **Roles:** owner, admin, front desk. Instructors get `403 role_not_permitted` (the database chooses for an instructor), as do independent instructors and organizer roles.
+- `404 not_found`: missing class, not a group class, another studio's class or dancer. `400 invalid_request`: a missing or malformed id.
+- Counts are credits or allowance only; no prices or payment details.
+
 ### `DELETE /api/staff/workspaces/{studioId}/appointments/{appointmentId}/roster/{clientId}`
 
 Removes a dancer, addressed by client id (the roster the app shows lists clients, not attendee rows). `Idempotency-Key` required, no body.
