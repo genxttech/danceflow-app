@@ -32,3 +32,17 @@ No high-severity defect. Verified and fixed in this change: a sign-in link that 
 Not fixed here, needs a server change and an owner decision (listed with A9): the push token is not unbound at sign-out, so a signed-out shared phone keeps receiving the previous person's pushes until another account claims it. It matters only once a staff push sender exists; push is off without credentials. Also noted: a normal sign-out revokes the session locally only ("Sign out of all devices" revokes it on the server).
 
 Checked and fine: tokens only in SecureStore with no fallback to AsyncStorage, backup off, no raw tokens read from links, no tokens in logs, notification routing validates ids and the server authorizes, one refresh then stop on a 401 with the same idempotency key, state reset on user switch.
+
+## versionCode 2 build check (2026-11-26, main `ee6a254fc`, after #869 and #868)
+
+QA release APK (`assembleRelease`, QA keys, flags `pulse` and `studioSchedule` on, **x86_64 only**), disposable local stack, fictional data. Evidence `C:\dfr-out\business-vc2\run1` (`summary.json`), APK SHA-256 `54907ffae60c979255f9c43ad84487f543552daa08de93a2ad3e4170ab8f02c9`.
+
+| Check | Result |
+|---|---|
+| APK identity | `com.idanceflow.business`, versionCode 2, versionName 0.1.0, target and compile SDK 36, min 24 |
+| One-command smoke with `--a11y` | PASS 28/28: light and dark at 1.0 and 2.0, live text-size change, empty day, 403 and recovery, 401 and sign-in again, instructor, and the sign-in, class roster, client and More trees |
+| Accessibility tree audit | 23 screens, 0 unlabelled controls. The "small" flags on the roster marks and the My day / Studio switch are 115 px = 43.8 dp at density 420 (a 44 dp control rounded to pixels) |
+| 16 KB: `zipalign -c -P 16 4` | PASS (exit 0) |
+| 16 KB: ELF `PT_LOAD` alignment | PASS for the 18 x86_64 libraries, 0 below 16384 |
+
+**Not covered by this run:** the signed or unsigned **AAB** (not built), **arm64-v8a** libraries of this commit (the QA APK carries x86_64 only; the earlier arm64 pass is in `Android_Release_Audit.md`), the appointment and client screens in dark at 2.0, R8, real TalkBack, a real device. The sign-in link change of #869 is covered by unit tests only: the smoke signs in with a password.
