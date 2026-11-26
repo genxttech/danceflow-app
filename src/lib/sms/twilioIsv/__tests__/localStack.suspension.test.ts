@@ -76,12 +76,15 @@ function rpcClient(wrap: (sql: string) => string) {
       calls.push(fn);
       const named = Object.entries(args).map(([k, v]) => `${k} => ${lit(v)}`).join(", ");
       const sql = wrap(`select public.${fn}(${named})::text;`);
-      const err = psqlError(sql);
-      if (err) {
+      // ONE execution: the statement commits, so it is never run a second time just to read its output
+      let out: string;
+      try {
+        out = execFileSync("docker", sqlArgs, { input: `\\set VERBOSITY verbose${NL}${sql}`, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim().split(NL).filter(Boolean).pop() ?? "null";
+      } catch (error) {
+        const err = String((error as { stderr?: Buffer | string }).stderr ?? error);
         const m = /ERROR:\s+([0-9A-Z]{5}):/.exec(err);
         return { data: null, error: { code: m ? m[1] : "unknown", message: err.slice(0, 300) } };
       }
-      const out = psql(sql).split(NL).filter(Boolean).pop() ?? "null";
       return { data: JSON.parse(out) as unknown, error: null };
     },
   };
@@ -441,6 +444,7 @@ commit;`);
       }
       expect(psqlError(`update public.studio_sms_suspension_attempts set outcome = 'succeeded'`)).toMatch(/only through the tw4susp functions/);
       expect(psqlError(`delete from public.studio_sms_suspension_attempts`)).toMatch(/never removed/);
+      expect(count(`select 1 from public.studio_sms_suspension_attempts where state = 'closed'`)).toBeGreaterThan(0);
       expect(psqlError(`begin; set local tw4.susp_write = 'on'; update public.studio_sms_suspension_attempts set state = 'in_flight' where state = 'closed'; commit;`)).toMatch(/only moves forward/);
     });
 
@@ -489,7 +493,7 @@ rollback;`;
       expect(psqlError(asService(`select public.record_sms_inbound_opt_event('${w.studios[0]}', '${phone}', 'stop')::text;`))).toBe("");
       expect(psqlError(asService(`select public.sms_pending_opt_out_record('${w.studios[0]}', '${phone}', 'SM${hex(16)}')::text;`))).toBe("");
       expect(psqlError(asService(`select public.record_sms_inbound_opt_event('${w.studios[0]}', '${phone}', 'start')::text;`))).toBe("");
-      const rec = JSON.parse(psql(asService(`select public.tw4_inbound_record('${w.studios[0]}', '${w.account}', 'SM${hex(16)}', 1, 0, 'compliance', 'You are unsubscribed.', now(), 'webhook')::text;`)).split(NL).pop()!) as { recorded: boolean; charged_cents: number };
+      const rec = JSON.parse(psql(asService(`select public.tw4_inbound_record('${w.studios[0]}', '${w.account}', 'SM${hex(16)}', 1, 0, 'compliance', 'You are unsubscribed.', null, 'webhook')::text;`)).split(NL).pop()!) as { recorded: boolean; charged_cents: number };
       expect(rec).toMatchObject({ recorded: true, charged_cents: 0 });
       const hash = createHash("sha256").update(`tw4-inbound:${phone}`).digest("hex");
       for (const kind of ["help", "start"]) {
