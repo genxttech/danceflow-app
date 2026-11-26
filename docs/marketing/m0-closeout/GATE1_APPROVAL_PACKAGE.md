@@ -1,5 +1,7 @@
 # M-0 Gate 1 owner approval package (prepared 2026-11-26; NOT run on PROD)
 
+**Result 2026-11-26:** approved (owner item B1) and run read-only on PROD: **PASS**, 110 qualifying emails, freeze still on. The 2026-10-14 conditional authorization mentioned below is now retired (B2). See `EVIDENCE_2026-11-26.md`.
+
 **Ask:** approve one read-only PROD query, to check whether a genuine transactional email has been accepted since the M-0 stage-1 apply.
 
 Why this is a package and not a routine run: the closeout runbook does not define Gate 1 or mark it routine. Gate 1 is the owner's 2026-10-14 precondition for the unfreeze; it failed that day (no qualifying row existed yet).
