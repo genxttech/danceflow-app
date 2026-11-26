@@ -8,8 +8,10 @@ import { checkRateLimit, rateLimitKey } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { encodePanelFlash, PANEL_FLASH_MAX_AGE_SECONDS } from "@/lib/sms/twilioIsv/panelFlash";
-import { runSubaccountStatusChange, runSubaccountVerification, suspensionCallsAllowed, suspensionMessage, type SuspensionAction } from "@/lib/sms/twilioIsv/suspension";
-import { createRealSuspensionProvider } from "@/lib/sms/twilioIsv/suspensionReal";
+import {
+  attestReconciliation, releaseTrafficHold, runSubaccountStatusChange, runSubaccountVerification, suspensionCallsAllowed, suspensionMessage, type SuspensionAction,
+} from "@/lib/sms/twilioIsv/suspension";
+import { createRealSuspensionProvider } from "@/lib/sms/twilioIsv/real";
 
 /**
  * TW-4F slice E: the ONLY entry points to the DanceFlow traffic hold and the EMERGENCY Twilio subaccount suspension / reactivation
@@ -57,10 +59,13 @@ async function changeStatus(adminId: string, form: FormData, action: SuspensionA
     authorizationRef: field(form, "authorizationRef"),
     reason: field(form, "reason"),
     idempotencyKey: field(form, "idempotencyKey"),
+    locationCount: /^[0-9]{1,4}$/.test(field(form, "confirmLocationCount")) ? Number(field(form, "confirmLocationCount")) : -1,
   };
   if (!KEY.test(input.idempotencyKey)) return bad("The form is out of date. Reload the page and try again. Nothing changed.");
   if (!printable(input.authorizationRef, 6, 120) || !printable(input.reason, 10, 300)) return bad(suspensionMessage({ kind: "refused", code: "missing_reason_or_authorization" }).message);
-  if (!/^[0-9a-fA-F]{6}$/.test(input.sidTail) || !input.studioName) return bad("Type the location name and the last 6 characters of the subaccount SID. Nothing changed.");
+  if (!/^[0-9a-fA-F]{6}$/.test(input.sidTail) || !input.studioName || input.locationCount < 1) {
+    return bad("Type the location name, the last 6 characters of the subaccount SID and the number of locations the business has. Nothing changed.");
+  }
   if (limited(adminId, action, studioId)) return bad("Too many attempts. Wait a few minutes and try again.");
   // gate 2 (environment) before anything else is touched
   if (!suspensionCallsAllowed(process.env).allowed) return bad(suspensionMessage({ kind: "refused", code: "disabled" }).message);
@@ -108,27 +113,42 @@ export async function verifySubaccountAction(formData: FormData): Promise<void> 
   return finish(suspensionMessage(await runSubaccountVerification({ user: await createClient(), admin: db, provider, parentSid: creds.accountSid }, { studioId, reason })));
 }
 
-async function setHold(adminId: string, formData: FormData, hold: boolean): Promise<Result> {
-  const studioId = field(formData, "studioId");
-  if (!UUID.test(studioId)) return bad("Choose a location from the list. Nothing changed.");
-  const reason = field(formData, "reason");
-  if (!printable(reason, 10, 300)) return bad("Give a reason of 10 to 300 characters. Nothing changed.");
-  if (limited(adminId, hold ? "hold" : "release", studioId)) return bad("Too many attempts. Wait a few minutes and try again.");
-  const res = await createAdminClient().rpc("tw4_traffic_hold_set", { p_studio_id: studioId, p_hold: hold, p_actor: adminId, p_reason: reason });
-  if (res.error) return bad("The hold could not be changed. Nothing changed.");
-  return hold
-    ? { ok: true, message: "DanceFlow traffic hold placed: no billed text is reserved or dispatched for this location and optional error replies stop. STOP, START and HELP still work. Twilio is not involved and continuing provider fees are not stopped." }
-    : { ok: true, message: "DanceFlow traffic hold lifted for this location. Billed texts follow the usual checks again." };
-}
-
-/** DanceFlow-level hold (safe direction): plain aal2, like the other emergency stops. */
+/** DanceFlow-level hold (safe direction): plain aal2, like the other emergency stops. Placing only: lifting is a separate, checked action. */
 export async function placeTrafficHoldAction(formData: FormData): Promise<void> {
   const admin = await requirePlatformStepUp("aal2");
-  return finish(await setHold(admin.id, formData, true));
+  const studioId = field(formData, "studioId");
+  if (!UUID.test(studioId)) return finish(bad("Choose a location from the list. Nothing changed."));
+  const reason = field(formData, "reason");
+  if (!printable(reason, 10, 300)) return finish(bad("Give a reason of 10 to 300 characters. Nothing changed."));
+  if (limited(admin.id, "hold", studioId)) return finish(bad("Too many attempts. Wait a few minutes and try again."));
+  const res = await createAdminClient().rpc("tw4_traffic_hold_set", { p_studio_id: studioId, p_hold: true, p_actor: admin.id, p_reason: reason });
+  if (res.error) return finish(bad("The hold could not be placed. Nothing changed."));
+  return finish({ ok: true, message: "DanceFlow traffic hold placed: no billed text is reserved or dispatched for this location and optional error replies stop. STOP, START and HELP still work. Twilio is not involved and continuing provider fees are not stopped." });
 }
 
-/** Lifting the hold resumes traffic: fresh step-up. After a suspension, only after the opt-out reconciliation (runbook 5.2). */
+/**
+ * Lifting the hold resumes traffic: fresh step-up here, and the DATABASE derives the actor from the administrator's own token (registered administrator) and
+ * refuses while an attempt is open, the subaccount is suspended, or a suspension that may have reached Twilio has no opt-out reconciliation attestation.
+ */
 export async function releaseTrafficHoldAction(formData: FormData): Promise<void> {
   const admin = await requirePlatformStepUp("fresh");
-  return finish(await setHold(admin.id, formData, false));
+  const studioId = field(formData, "studioId");
+  if (!UUID.test(studioId)) return finish(bad("Choose a location from the list. Nothing changed."));
+  const reason = field(formData, "reason");
+  if (!printable(reason, 10, 300)) return finish(bad("Give a reason of 10 to 300 characters. Nothing changed."));
+  if (limited(admin.id, "release", studioId)) return finish(bad("Too many attempts. Wait a few minutes and try again."));
+  return finish(suspensionMessage(await releaseTrafficHold(await createClient(), { studioId, reason })));
+}
+
+/** Append-only attestation that opt-outs were reconciled after one suspend attempt (runbook 5.2), with an evidence reference. Required before a release. */
+export async function attestReconciliationAction(formData: FormData): Promise<void> {
+  const admin = await requirePlatformStepUp("fresh");
+  const studioId = field(formData, "studioId");
+  const attemptId = field(formData, "attemptId");
+  if (!UUID.test(studioId) || !UUID.test(attemptId)) return finish(bad("Choose a location and a suspension attempt. Nothing changed."));
+  const evidenceRef = field(formData, "evidenceRef");
+  const note = field(formData, "note");
+  if (!printable(evidenceRef, 10, 300) || !printable(note, 10, 300)) return finish(bad("Give an evidence reference and a note of 10 to 300 characters each. Nothing changed."));
+  if (limited(admin.id, "reconcile", studioId)) return finish(bad("Too many attempts. Wait a few minutes and try again."));
+  return finish(suspensionMessage(await attestReconciliation(await createClient(), { studioId, attemptId, evidenceRef, note })));
 }

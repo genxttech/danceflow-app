@@ -24,7 +24,7 @@ export type SuspensionAction = "suspend" | "reactivate";
 export type ProviderStatus = "active" | "suspended" | "closed";
 export type ProviderAccount = { sid: string; ownerAccountSid: string | null; status: string };
 
-/** The provider surface this module needs. The fake (suspensionFake.ts) and the guarded real client (suspensionReal.ts) implement it. */
+/** The provider surface this module needs. The fake (suspensionFake.ts) and the guarded real client in real.ts implement it. */
 export interface SubaccountStatusProvider {
   readonly isFake: boolean;
   getAccount(accountSid: string): Promise<ProviderAccount>;
@@ -52,12 +52,14 @@ export type ChangeInput = {
   authorizationRef: string;
   reason: string;
   idempotencyKey: string;
+  /** The administrator's typed count of the legal business's locations: the subaccount serves all of them (checked by the database). */
+  locationCount: number;
 };
 
 export type ChangeResult =
   | { kind: "refused"; code: string }
   | { kind: "replay"; state: string; outcome: string | null; providerStateAfter: string | null }
-  | { kind: "done"; outcome: "succeeded" | "already_in_state" | "failed" | "refused" | "unknown"; code: string | null; stateBefore: string | null; stateAfter: string | null; recorded: boolean };
+  | { kind: "done"; outcome: "succeeded" | "already_in_state" | "failed" | "refused" | "unknown"; code: string | null; stateBefore: string | null; stateAfter: string | null; recorded: boolean; locations: number; holdsPlaced: number };
 
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
@@ -76,9 +78,13 @@ function definite(e: unknown): boolean {
   return e instanceof IsvApiError && (e.kind === "validation" || e.kind === "account");
 }
 
+/** Account SIDs compare case-insensitively everywhere (hex digits): a differently cased parent SID is still the parent. */
+export const sameSid = (a: string | null | undefined, b: string | null | undefined): boolean =>
+  typeof a === "string" && typeof b === "string" && a !== "" && a.toLowerCase() === b.toLowerCase();
+
 /** Is this reply about the requested account, and is it a SUBACCOUNT of the deployment's parent (never the parent itself)? */
 export function ownedSubaccount(account: ProviderAccount, requestedSid: string, parentSid: string): boolean {
-  return account.sid === requestedSid && account.sid !== parentSid && account.ownerAccountSid === parentSid && ACCOUNT_SID.test(account.sid);
+  return ACCOUNT_SID.test(account.sid) && sameSid(account.sid, requestedSid) && !sameSid(account.sid, parentSid) && sameSid(account.ownerAccountSid, parentSid);
 }
 
 async function record(admin: Rpc, attemptId: string, accountSid: string, step: "precheck" | "outcome" | "reconciled", before: string | null, after: string | null, outcome: string | null, code: string | null): Promise<boolean> {
@@ -99,7 +105,7 @@ async function record(admin: Rpc, attemptId: string, accountSid: string, step: "
 export async function runSubaccountStatusChange(deps: { user: Rpc; admin: Rpc; provider: SubaccountStatusProvider; parentSid: string }, input: ChangeInput): Promise<ChangeResult> {
   const { user, admin, provider, parentSid } = deps;
   const begun = await user.rpc("tw4susp_begin", {
-    p_studio_id: input.studioId, p_action: input.action, p_studio_name: input.studioName, p_sid_tail: input.sidTail,
+    p_studio_id: input.studioId, p_action: input.action, p_studio_name: input.studioName, p_sid_tail: input.sidTail, p_location_count: input.locationCount,
     p_authorization_ref: input.authorizationRef, p_reason: input.reason, p_idempotency_key: input.idempotencyKey,
   });
   if (begun.error) return { kind: "refused", code: begun.error.code === "42501" ? "not_allowed" : begun.error.code === "22023" ? "invalid" : "unavailable" };
@@ -110,15 +116,17 @@ export async function runSubaccountStatusChange(deps: { user: Rpc; admin: Rpc; p
   const sid = str(b.account_sid);
   if (b.decision !== "proceed" || !attemptId || !ACCOUNT_SID.test(sid) || b.action !== input.action) return { kind: "refused", code: "unavailable" };
   const target: ProviderStatus = input.action === "suspend" ? "suspended" : "active";
+  const locations = typeof b.locations === "number" ? b.locations : 0;
+  const holdsPlaced = typeof b.holds_placed === "number" ? b.holds_placed : 0;
 
   const finish = async (outcome: "succeeded" | "already_in_state" | "failed" | "refused" | "unknown", code: string | null, before: string | null, after: string | null): Promise<ChangeResult> => {
     const recorded = await record(admin, attemptId, sid, "outcome", before, after, outcome, code);
-    return { kind: "done", outcome, code, stateBefore: before, stateAfter: after, recorded };
+    return { kind: "done", outcome, code, stateBefore: before, stateAfter: after, recorded, locations, holdsPlaced };
   };
 
   // NEVER the parent account (every subaccount would follow it)
   if (!ACCOUNT_SID.test(parentSid)) return finish("refused", "parent_unknown", "not_called", null);
-  if (sid === parentSid) return finish("refused", "parent_account", "not_called", null);
+  if (sameSid(sid, parentSid)) return finish("refused", "parent_account", "not_called", null);
 
   // pre-check: the recorded SID must be a subaccount owned by this parent. Nothing has changed yet, so an unreadable reply is a definite failure.
   let before: ProviderAccount;
@@ -132,7 +140,8 @@ export async function runSubaccountStatusChange(deps: { user: Rpc; admin: Rpc; p
   if (stateBefore === "closed") return finish("refused", "closed", "closed", "closed"); // permanent: never offered, never changed
   if (stateBefore === target) return finish("already_in_state", null, stateBefore, stateBefore);
   if (stateBefore === "other") return finish("refused", "unexpected_provider_state", "other", null);
-  await record(admin, attemptId, sid, "precheck", stateBefore, null, null, null);
+  // the pre-check is the evidence that a write MAY follow (the opt-out reconciliation rule depends on it): no record, no write
+  if (!(await record(admin, attemptId, sid, "precheck", stateBefore, null, null, null))) return finish("failed", "precheck_unrecorded", stateBefore, null);
 
   let writeError: unknown = null;
   try {
@@ -145,13 +154,31 @@ export async function runSubaccountStatusChange(deps: { user: Rpc; admin: Rpc; p
   let after: string;
   try {
     const acct = await provider.getAccount(sid);
-    after = acct.sid === sid ? providerState(acct.status) : "unreadable";
+    after = sameSid(acct.sid, sid) ? providerState(acct.status) : "unreadable";
   } catch {
     after = "unreadable";
   }
   if (after === target) return finish("succeeded", writeError ? `write:${errorCode(writeError)}`.slice(0, 60) : null, stateBefore, after);
   if (writeError && definite(writeError) && after === stateBefore) return finish("failed", `write:${errorCode(writeError)}`.slice(0, 60), stateBefore, after);
   return finish("unknown", writeError ? `write:${errorCode(writeError)}`.slice(0, 60) : "readback_mismatch", stateBefore, after);
+}
+
+export type HoldResult = { kind: "released"; replayed: boolean } | { kind: "recorded" } | { kind: "refused"; code: string };
+
+/** Lift a DanceFlow traffic hold with the administrator's OWN token; the database refuses while a suspension or its reconciliation is outstanding. */
+export async function releaseTrafficHold(user: Rpc, input: { studioId: string; reason: string }): Promise<HoldResult> {
+  const res = await user.rpc("tw4_traffic_hold_release", { p_studio_id: input.studioId, p_reason: input.reason });
+  if (res.error) return { kind: "refused", code: res.error.code === "42501" ? "not_allowed" : "unavailable" };
+  const d = obj(res.data);
+  return d.decision === "released" ? { kind: "released", replayed: d.replayed === true } : { kind: "refused", code: str(d.code) || "refused" };
+}
+
+/** Record (append-only) that opt-outs were reconciled after one suspend attempt, with an evidence reference. The administrator's OWN token. */
+export async function attestReconciliation(user: Rpc, input: { studioId: string; attemptId: string; evidenceRef: string; note: string }): Promise<HoldResult> {
+  const res = await user.rpc("tw4susp_reconciliation_attest", { p_studio_id: input.studioId, p_attempt_id: input.attemptId, p_evidence_ref: input.evidenceRef, p_note: input.note });
+  if (res.error) return { kind: "refused", code: res.error.code === "42501" ? "not_allowed" : "unavailable" };
+  const d = obj(res.data);
+  return d.decision === "recorded" ? { kind: "recorded" } : { kind: "refused", code: str(d.code) || "refused" };
 }
 
 export type VerifyResult = { kind: "refused"; code: string } | { kind: "verified"; observed: string; recorded: boolean };
@@ -165,7 +192,7 @@ export async function runSubaccountVerification(deps: { user: Rpc; admin: Rpc; p
   if (b.decision !== "proceed") return { kind: "refused", code: str(b.code) || "refused" };
   const attemptId = str(b.attempt_id);
   const sid = str(b.account_sid);
-  if (!attemptId || !ACCOUNT_SID.test(sid) || !ACCOUNT_SID.test(parentSid) || sid === parentSid) return { kind: "refused", code: "parent_account" };
+  if (!attemptId || !ACCOUNT_SID.test(sid) || !ACCOUNT_SID.test(parentSid) || sameSid(sid, parentSid)) return { kind: "refused", code: "parent_account" };
   let acct: ProviderAccount;
   try {
     acct = await provider.getAccount(sid);
@@ -180,7 +207,7 @@ export async function runSubaccountVerification(deps: { user: Rpc; admin: Rpc; p
 }
 
 /** The sentence the console shows for a result. Never claims a spending ceiling. */
-export function suspensionMessage(result: ChangeResult | VerifyResult): { ok: boolean; message: string } {
+export function suspensionMessage(result: ChangeResult | VerifyResult | HoldResult): { ok: boolean; message: string } {
   const R: Record<string, string> = {
     switched_off: "Subaccount suspension is switched off. Nothing changed.",
     disabled: "Subaccount suspension is switched off in this deployment. Nothing changed.",
@@ -194,6 +221,14 @@ export function suspensionMessage(result: ChangeResult | VerifyResult): { ok: bo
     subaccount_not_ready: "The business's subaccount is not active or suspended in DanceFlow's records. Nothing changed.",
     wrong_studio_name: "The location name you typed does not match. Nothing changed.",
     wrong_sid_tail: "The last 6 characters of the subaccount SID do not match the subaccount recorded for this location. Nothing changed.",
+    wrong_location_count: "The number of locations you typed does not match this business. The subaccount serves every location of the business. Nothing changed.",
+    sid_collision: "Refused: the recorded subaccount SID matches another business's record when case is ignored. Escalate; nothing changed.",
+    precheck_unrecorded: "The pre-check could not be recorded, so nothing was written to Twilio. Try again.",
+    subaccount_suspended: "The subaccount is still suspended. Reactivate it first.",
+    reconciliation_required: "Opt-outs for the suspension window must be reconciled and attested first (runbook 5.2). The hold stays on.",
+    unknown_attempt: "That attempt does not belong to this location's business.",
+    not_needed: "That attempt never reached Twilio; no reconciliation is needed.",
+    subaccount_not_active: "Reconcile only after the subaccount is active again.",
     attempt_open: "Another suspension or reactivation for this business is in progress or has an unknown outcome. Run the verification first. Nothing changed.",
     not_suspended: "Reactivation is offered only after a confirmed suspension. Nothing changed.",
     parent_account: "Refused: that is the parent account. DanceFlow never suspends the parent.",
@@ -206,13 +241,15 @@ export function suspensionMessage(result: ChangeResult | VerifyResult): { ok: bo
     provider_unreadable: "Twilio could not be read. The attempt stays open; try the verification again later.",
   };
   if (result.kind === "refused") return { ok: false, message: R[result.code] ?? "Refused. Nothing changed." };
+  if (result.kind === "released") return { ok: true, message: result.replayed ? "The location was not on a hold." : "DanceFlow traffic hold lifted for this location. Billed texts follow the usual checks again." };
+  if (result.kind === "recorded") return { ok: true, message: "Opt-out reconciliation recorded with your name and evidence reference. The hold can now be lifted." };
   if (result.kind === "verified") return { ok: true, message: `Verified: Twilio shows the subaccount as ${result.observed}. The observed state was ${result.recorded ? "recorded" : "NOT recorded (check the audit)"}. The traffic hold is unchanged.` };
   if (result.kind === "replay") return { ok: result.outcome === "succeeded" || result.outcome === "already_in_state", message: `This request was already handled (${result.state}${result.outcome ? `, ${result.outcome}` : ""}). Nothing was sent to Twilio again.` };
   const note = result.recorded ? "" : " The outcome could NOT be recorded: the attempt stays open; check the audit and run the verification.";
   switch (result.outcome) {
     case "succeeded":
     case "already_in_state":
-      return { ok: true, message: `Twilio now shows the subaccount as ${result.stateAfter}. This is not a spending ceiling: number fees continue while suspended. The DanceFlow traffic hold stays on until an administrator lifts it.${note}` };
+      return { ok: true, message: `Twilio now shows the subaccount as ${result.stateAfter}. It serves ${result.locations} location(s); ${result.holdsPlaced} new traffic hold(s) were placed. This is not a spending ceiling: number fees continue while suspended. The DanceFlow traffic hold stays on until an administrator lifts it after the opt-out reconciliation.${note}` };
     case "failed":
       return { ok: false, message: `Twilio refused the change and still shows ${result.stateAfter ?? "the previous state"}. Nothing changed. The DanceFlow traffic hold stays on.${note}` };
     case "refused":

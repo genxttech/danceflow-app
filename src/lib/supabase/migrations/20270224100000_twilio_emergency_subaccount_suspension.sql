@@ -8,7 +8,10 @@
 --                                      recording and STOP / START / HELP (and their confirmations) are never affected.
 --   studio_sms_suspension_switch       singleton database gate, default OFF (owner-level setter, audited)
 --   studio_sms_suspension_attempts     one row per suspend / reactivate request; unique idempotency key; at most one OPEN attempt per legal business
---   studio_sms_suspension_audit        append-only evidence: no UPDATE / DELETE / TRUNCATE for any role (trigger, enabled ALWAYS)
+--   studio_sms_suspension_audit        append-only evidence: UPDATE / DELETE / TRUNCATE are refused by triggers enabled ALWAYS, for every API role and for the
+--                                      table owner in normal operation. NOT tamper-proof against the owner or a superuser, who can disable or drop a trigger (DDL).
+--   studio_sms_optout_reconciliations  append-only attestation that opt-outs were reconciled after a suspension (evidence reference); a hold placed by a
+--                                      suspension that may have reached Twilio cannot be lifted without one
 --
 -- No existing function is replaced (so no md5 body guard is needed); the one existing object touched is a NEW trigger on studio_sms_usage_attempts.
 -- Rollback: rollback/20270224100000_twilio_emergency_subaccount_suspension_rollback.sql (refuses once any evidence row exists: forward-fix only).
@@ -61,7 +64,7 @@ create table public.studio_sms_suspension_attempts (
   authorization_ref text not null check (char_length(btrim(authorization_ref)) between 6 and 120),
   reason text not null check (char_length(btrim(reason)) between 10 and 300),
   state text not null default 'in_flight' check (state in ('in_flight', 'unknown', 'closed')),
-  outcome text null check (outcome is null or outcome in ('succeeded', 'already_in_state', 'failed', 'refused', 'unknown', 'reconciled')),
+  outcome text null check (outcome is null or outcome in ('succeeded', 'already_in_state', 'failed', 'refused', 'unknown', 'reconciled', 'abandoned')),
   provider_state_before text null,
   provider_state_after text null,
   created_at timestamptz not null default clock_timestamp(),
@@ -75,8 +78,8 @@ create unique index studio_sms_suspension_attempts_one_open on public.studio_sms
 create table public.studio_sms_suspension_audit (
   seq bigint generated always as identity primary key,
   attempt_id uuid null,
-  event text not null check (event in ('requested', 'refused', 'precheck', 'outcome', 'reconciled', 'switch')),
-  action text null check (action is null or action in ('suspend', 'reactivate', 'verify')),
+  event text not null check (event in ('requested', 'refused', 'precheck', 'outcome', 'reconciled', 'switch', 'abandoned', 'optout_reconciliation', 'hold_released')),
+  action text null check (action is null or action in ('suspend', 'reactivate', 'verify', 'abandon', 'reconcile', 'release')),
   actor uuid null,
   studio_id uuid null,
   legal_entity_id uuid null,
@@ -92,10 +95,23 @@ create table public.studio_sms_suspension_audit (
   created_at timestamptz not null default clock_timestamp()
 );
 create index studio_sms_suspension_audit_attempt on public.studio_sms_suspension_audit (attempt_id, seq);
+
+-- after a suspension that may have reached Twilio: who reconciled opt-outs for which attempt, with what evidence (append-only)
+create table public.studio_sms_optout_reconciliations (
+  seq bigint generated always as identity primary key,
+  attempt_id uuid not null references public.studio_sms_suspension_attempts(id),
+  legal_entity_id uuid not null,
+  actor uuid not null,
+  evidence_ref text not null check (char_length(btrim(evidence_ref)) between 10 and 300),
+  note text not null check (char_length(btrim(note)) between 10 and 300),
+  created_at timestamptz not null default clock_timestamp()
+);
+create index studio_sms_optout_reconciliations_attempt on public.studio_sms_optout_reconciliations (attempt_id);
 create index studio_sms_suspension_audit_studio on public.studio_sms_suspension_audit (studio_id, seq desc);
 
-revoke all on public.studio_sms_traffic_hold_events, public.studio_sms_suspension_switch, public.studio_sms_suspension_attempts, public.studio_sms_suspension_audit
-  from public, anon, authenticated, service_role;
+revoke all on public.studio_sms_traffic_hold_events, public.studio_sms_suspension_switch, public.studio_sms_suspension_attempts, public.studio_sms_suspension_audit,
+  public.studio_sms_optout_reconciliations from public, anon, authenticated, service_role;
+alter table public.studio_sms_optout_reconciliations enable row level security;
 alter table public.studio_sms_traffic_hold_events enable row level security;
 alter table public.studio_sms_suspension_switch enable row level security;
 alter table public.studio_sms_suspension_attempts enable row level security;
@@ -104,7 +120,8 @@ alter table public.studio_sms_suspension_audit enable row level security;
 -- ---------------------------------------------------------------------------------------------------------------
 -- guards
 -- ---------------------------------------------------------------------------------------------------------------
--- evidence (audit, hold events): never updated, deleted or truncated, by ANY role (the triggers are enabled ALWAYS, so replication-role tricks do not skip them)
+-- evidence (audit, hold events, reconciliations): UPDATE / DELETE / TRUNCATE refused by triggers enabled ALWAYS (so the replication role does not skip them).
+-- This binds every API role and the owner in normal operation; it does NOT bind DDL by the owner or a superuser (disable / drop trigger).
 create or replace function public._tw4susp_append_only()
 returns trigger language plpgsql
 set search_path = pg_catalog, public, pg_temp
@@ -120,6 +137,10 @@ alter table public.studio_sms_suspension_audit enable always trigger studio_sms_
 alter table public.studio_sms_suspension_audit enable always trigger studio_sms_suspension_audit_no_truncate;
 alter table public.studio_sms_traffic_hold_events enable always trigger studio_sms_traffic_hold_events_append_only;
 alter table public.studio_sms_traffic_hold_events enable always trigger studio_sms_traffic_hold_events_no_truncate;
+create trigger studio_sms_optout_reconciliations_append_only before update or delete on public.studio_sms_optout_reconciliations for each row execute function public._tw4susp_append_only();
+create trigger studio_sms_optout_reconciliations_no_truncate before truncate on public.studio_sms_optout_reconciliations for each statement execute function public._tw4susp_append_only();
+alter table public.studio_sms_optout_reconciliations enable always trigger studio_sms_optout_reconciliations_append_only;
+alter table public.studio_sms_optout_reconciliations enable always trigger studio_sms_optout_reconciliations_no_truncate;
 
 -- attempts and the switch change only inside this migration's functions (transaction-local flag), and an attempt only moves forward
 create or replace function public._tw4susp_state_guard()
@@ -228,8 +249,12 @@ begin
     raise exception 'a written reason (10 to 300 characters) is required' using errcode = '22023';
   end if;
   perform pg_advisory_xact_lock(hashtextextended('tw4susp:hold:' || p_studio_id::text, 0));
-  if public._tw4susp_held(p_studio_id) = p_hold then
-    return jsonb_build_object('held', p_hold, 'replayed', true);
+  if not p_hold then
+    -- lifting a hold resumes traffic: only tw4_traffic_hold_release (the administrator's own token, registered administrator, reconciliation checks)
+    raise exception 'a hold is lifted only with tw4_traffic_hold_release' using errcode = '42501';
+  end if;
+  if public._tw4susp_held(p_studio_id) then
+    return jsonb_build_object('held', true, 'replayed', true);
   end if;
   select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
   insert into public.studio_sms_traffic_hold_events (studio_id, legal_entity_id, hold, actor, reason) values (p_studio_id, v_entity, p_hold, p_actor, btrim(p_reason));
@@ -253,6 +278,150 @@ as $$
   select exists (select 1 from public.studio_sms_twilio_accounts t join public.studio_sms_entity_studios es on es.legal_entity_id = t.legal_entity_id
                   where t.twilio_account_sid = p_account_sid and public._tw4susp_held(es.studio_id));
 $$;
+
+
+-- ---------------------------------------------------------------------------------------------------------------
+-- (a) lifting a hold, and the opt-out reconciliation it may need
+-- ---------------------------------------------------------------------------------------------------------------
+-- Does this SUSPEND attempt need an opt-out reconciliation before any hold of its business may be lifted? FAIL CLOSED: yes unless it provably never wrote
+-- to Twilio. The server records the pre-check BEFORE the only status write and does not write when that record fails, so "no precheck row" proves no write.
+-- already_in_state (Twilio already showed suspended), reconciled (verified: whatever it observed, the write may have landed for a while), unknown,
+-- abandoned-after-precheck and any still-open attempt all need one.
+create or replace function public._tw4susp_needs_reconciliation(p_attempt uuid)
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+  select exists (select 1 from public.studio_sms_suspension_attempts a where a.id = p_attempt and a.action = 'suspend'
+                   and (a.state <> 'closed' or a.outcome in ('already_in_state', 'reconciled', 'unknown')
+                        or exists (select 1 from public.studio_sms_suspension_audit x where x.attempt_id = a.id and x.event = 'precheck')));
+$;
+
+-- why a hold of this business may NOT be lifted (null = it may): an open attempt, a subaccount DanceFlow records as suspended, or a suspend attempt that
+-- may have reached Twilio without a reconciliation attestation recorded after it closed
+create or replace function public._tw4susp_release_blocker(p_entity uuid)
+returns text language sql stable security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+  select case
+    when p_entity is null then null
+    when exists (select 1 from public.studio_sms_suspension_attempts a where a.legal_entity_id = p_entity and a.state in ('in_flight', 'unknown')) then 'attempt_open'
+    when exists (select 1 from public.studio_sms_twilio_accounts t where t.legal_entity_id = p_entity and t.status = 'suspended') then 'subaccount_suspended'
+    when exists (select 1 from public.studio_sms_suspension_attempts a where a.legal_entity_id = p_entity and public._tw4susp_needs_reconciliation(a.id)
+                   and not exists (select 1 from public.studio_sms_optout_reconciliations r where r.attempt_id = a.id and r.created_at > a.closed_at)) then 'reconciliation_required'
+  end;
+$;
+
+-- the ADMINISTRATOR'S OWN TOKEN (authenticated): registered administrator in a fresh second-factor session, exactly as begin. Same lock order as begin
+-- (business, then location), so a release can never slip between begin's check and its hold.
+create or replace function public.tw4_traffic_hold_release(p_studio_id uuid, p_reason text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  v_actor uuid;
+  v_entity uuid;
+  v_block text;
+begin
+  v_actor := public._tw4price_session_actor('recent');
+  if not public._tw4price_admin_active(v_actor) then
+    raise exception 'a registered, active platform administrator is required' using errcode = '42501';
+  end if;
+  if p_studio_id is null or not exists (select 1 from public.studios s where s.id = p_studio_id) then
+    raise exception 'a known location is required' using errcode = '22023';
+  end if;
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  if v_entity is not null then
+    perform pg_advisory_xact_lock(hashtextextended('tw4susp:entity:' || v_entity::text, 0));
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('tw4susp:hold:' || p_studio_id::text, 0));
+  if not public._tw4susp_text_ok(p_reason, 10, 300) then
+    v_block := 'missing_reason_or_authorization';
+  elsif not public._tw4susp_held(p_studio_id) then
+    return jsonb_build_object('decision', 'released', 'replayed', true);
+  else
+    v_block := public._tw4susp_release_blocker(v_entity);
+  end if;
+  if v_block is not null then
+    perform public._tw4susp_audit(null, 'refused', 'release', v_actor, p_studio_id, v_entity, null, null, p_reason, null, null, null, 'refused', v_block, null);
+    return jsonb_build_object('decision', 'refused', 'code', v_block);
+  end if;
+  insert into public.studio_sms_traffic_hold_events (studio_id, legal_entity_id, hold, actor, reason) values (p_studio_id, v_entity, false, v_actor, btrim(p_reason));
+  perform public._tw4susp_audit(null, 'hold_released', 'release', v_actor, p_studio_id, v_entity, null, null, p_reason, null, null, null, 'released', null, null);
+  return jsonb_build_object('decision', 'released', 'replayed', false);
+end $;
+
+-- explicit, audited attestation that opt-outs were reconciled for one suspend attempt, AFTER it closed and while the subaccount is active again (the runbook
+-- reads the subaccount's inbound messages and Twilio's opt-out records for the window). The administrator's own token; registered administrator.
+create or replace function public.tw4susp_reconciliation_attest(p_studio_id uuid, p_attempt_id uuid, p_evidence_ref text, p_note text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  v_actor uuid;
+  v_entity uuid;
+  a public.studio_sms_suspension_attempts;
+  v_code text := null;
+begin
+  v_actor := public._tw4price_session_actor('recent');
+  if not public._tw4price_admin_active(v_actor) then
+    raise exception 'a registered, active platform administrator is required' using errcode = '42501';
+  end if;
+  select es.legal_entity_id into v_entity from public.studio_sms_entity_studios es where es.studio_id = p_studio_id;
+  if v_entity is not null then
+    perform pg_advisory_xact_lock(hashtextextended('tw4susp:entity:' || v_entity::text, 0));
+  end if;
+  select * into a from public.studio_sms_suspension_attempts x where x.id = p_attempt_id;
+  if not public._tw4susp_text_ok(p_evidence_ref, 10, 300) or not public._tw4susp_text_ok(p_note, 10, 300) then
+    v_code := 'missing_reason_or_authorization';
+  elsif v_entity is null or a.id is null or a.legal_entity_id <> v_entity then
+    v_code := 'unknown_attempt';
+  elsif a.state <> 'closed' then
+    v_code := 'attempt_open';
+  elsif not public._tw4susp_needs_reconciliation(a.id) then
+    v_code := 'not_needed';
+  elsif exists (select 1 from public.studio_sms_twilio_accounts t where t.legal_entity_id = v_entity and t.status <> 'active') then
+    v_code := 'subaccount_not_active';
+  elsif exists (select 1 from public.studio_sms_suspension_attempts x where x.legal_entity_id = v_entity and x.state in ('in_flight', 'unknown')) then
+    v_code := 'attempt_open';
+  end if;
+  if v_code is not null then
+    perform public._tw4susp_audit(a.id, 'refused', 'reconcile', v_actor, p_studio_id, v_entity, a.account_sid, null, p_note, null, null, null, 'refused', v_code, null);
+    return jsonb_build_object('decision', 'refused', 'code', v_code);
+  end if;
+  insert into public.studio_sms_optout_reconciliations (attempt_id, legal_entity_id, actor, evidence_ref, note) values (a.id, v_entity, v_actor, btrim(p_evidence_ref), btrim(p_note));
+  perform public._tw4susp_audit(a.id, 'optout_reconciliation', 'reconcile', v_actor, p_studio_id, v_entity, a.account_sid, null, p_note, null, null, null, 'recorded', null,
+                                left('evidence=' || btrim(p_evidence_ref), 300));
+  return jsonb_build_object('decision', 'recorded');
+end $;
+
+-- OWNER-LEVEL ONLY (no API role): closes an attempt the product can never close (verification keeps answering other / unreadable / not owned, or a begin
+-- made directly while the environment gate was off). It never lifts a hold, never changes the subaccount status, never calls Twilio, and the attempt still
+-- needs an opt-out reconciliation if it may have written (_tw4susp_needs_reconciliation).
+create or replace function public.tw4susp_attempt_abandon(p_attempt_id uuid, p_actor uuid, p_reason text, p_evidence_ref text)
+returns jsonb language plpgsql security definer
+set search_path = pg_catalog, public, pg_temp
+as $
+declare
+  a public.studio_sms_suspension_attempts;
+begin
+  perform public._tw4c_admin(p_actor);
+  if not public._tw4susp_text_ok(p_reason, 10, 300) or not public._tw4susp_text_ok(p_evidence_ref, 10, 300) then
+    raise exception 'a written reason and an evidence reference (10 to 300 characters each) are required' using errcode = '22023';
+  end if;
+  select * into a from public.studio_sms_suspension_attempts x where x.id = p_attempt_id for update;
+  if a.id is null then
+    raise exception 'unknown suspension attempt' using errcode = '22023';
+  end if;
+  if a.state = 'closed' then
+    return jsonb_build_object('abandoned', false, 'state', 'closed');
+  end if;
+  perform set_config('tw4.susp_write', 'on', true);
+  update public.studio_sms_suspension_attempts set state = 'closed', outcome = 'abandoned', closed_at = clock_timestamp() where id = a.id;
+  perform set_config('tw4.susp_write', 'off', true);
+  perform public._tw4susp_audit(a.id, 'abandoned', 'abandon', p_actor, a.studio_id, a.legal_entity_id, a.account_sid, null, p_reason, null, a.provider_state_before, null,
+                                'abandoned', null, left('evidence=' || btrim(p_evidence_ref), 300));
+  return jsonb_build_object('abandoned', true, 'needs_reconciliation', public._tw4susp_needs_reconciliation(a.id));
+end $;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- (b) emergency suspension: gate
@@ -284,8 +453,8 @@ as $$ select public._tw4susp_switch_on(); $$;
 -- (_tw4price_session_actor 'recent'); authority from the registered-administrator registry (_tw4price_admin_active). No actor can be named.
 -- A refusal of a request that got past authentication is recorded (and committed: the function returns normally).
 -- ---------------------------------------------------------------------------------------------------------------
-create or replace function public.tw4susp_begin(p_studio_id uuid, p_action text, p_studio_name text, p_sid_tail text, p_authorization_ref text, p_reason text,
-  p_idempotency_key text)
+create or replace function public.tw4susp_begin(p_studio_id uuid, p_action text, p_studio_name text, p_sid_tail text, p_location_count int,
+  p_authorization_ref text, p_reason text, p_idempotency_key text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
@@ -298,6 +467,7 @@ declare
   v_code text := null;
   v_id uuid := gen_random_uuid();
   v_held int := 0;
+  v_locations int := 0;
   s record;
 begin
   v_actor := public._tw4price_session_actor('recent');
@@ -331,6 +501,7 @@ begin
     select * into acc from public.studio_sms_twilio_accounts t where t.legal_entity_id = v_entity for update;
   end if;
   select s2.name into v_name from public.studios s2 where s2.id = p_studio_id;
+  select count(*) into v_locations from public.studio_sms_entity_studios es where es.legal_entity_id = v_entity;
 
   if not public._tw4susp_text_ok(p_reason, 10, 300) or not public._tw4susp_text_ok(p_authorization_ref, 6, 120) then
     v_code := 'missing_reason_or_authorization';
@@ -350,6 +521,11 @@ begin
     v_code := 'wrong_studio_name';
   elsif p_sid_tail is null or lower(btrim(p_sid_tail)) <> public._tw4susp_tail(acc.twilio_account_sid) then
     v_code := 'wrong_sid_tail';
+  elsif p_location_count is null or p_location_count <> v_locations then
+    -- the blast radius: the subaccount serves EVERY location of the legal business, and the administrator must say how many
+    v_code := 'wrong_location_count';
+  elsif exists (select 1 from public.studio_sms_twilio_accounts t where lower(t.twilio_account_sid) = lower(acc.twilio_account_sid) and t.legal_entity_id <> v_entity) then
+    v_code := 'sid_collision';
   elsif exists (select 1 from public.studio_sms_suspension_attempts x where x.legal_entity_id = v_entity and x.state in ('in_flight', 'unknown')) then
     v_code := 'attempt_open';
   elsif p_action = 'reactivate' and (acc.status <> 'suspended' or not exists (
@@ -382,9 +558,9 @@ begin
   end if;
   perform public._tw4susp_audit(v_id, 'requested', p_action, v_actor, p_studio_id, v_entity, acc.twilio_account_sid, p_authorization_ref, p_reason, p_idempotency_key,
                                 acc.status, null, 'pending', null,
-                                'locations=' || (select count(*) from public.studio_sms_entity_studios es where es.legal_entity_id = v_entity) || ';holds_placed=' || v_held);
+                                'locations=' || v_locations || ';holds_placed=' || v_held);
   return jsonb_build_object('decision', 'proceed', 'attempt_id', v_id, 'action', p_action, 'account_sid', acc.twilio_account_sid,
-                            'locations', (select count(*) from public.studio_sms_entity_studios es where es.legal_entity_id = v_entity), 'holds_placed', v_held);
+                            'locations', v_locations, 'holds_placed', v_held);
 end $$;
 
 -- read-only verification of an OPEN attempt (unknown, or in_flight older than 10 minutes): the server reads the provider (GET only) and records the
@@ -529,10 +705,13 @@ revoke all on function public._tw4susp_append_only(), public._tw4susp_state_guar
   public._tw4susp_text_ok(text, int, int), public._tw4susp_audit(uuid, text, text, uuid, uuid, uuid, text, text, text, text, text, text, text, text, text),
   public._tw4susp_state_ok(text), public._tw4susp_switch_on(), public._tw4susp_usage_hold_guard(),
   public.tw4_traffic_hold_set(uuid, boolean, uuid, text), public.tw4_traffic_hold_state(uuid), public.tw4_traffic_hold_for_account(text),
-  public.tw4susp_switch_set(boolean, uuid, text), public.tw4susp_switch_state(), public.tw4susp_begin(uuid, text, text, text, text, text, text),
-  public.tw4susp_verify_begin(uuid, text), public.tw4susp_record(uuid, text, text, text, text, text, text, text), public.tw4susp_overview(uuid)
+  public.tw4susp_switch_set(boolean, uuid, text), public.tw4susp_switch_state(), public.tw4susp_begin(uuid, text, text, text, int, text, text, text),
+  public.tw4susp_verify_begin(uuid, text), public.tw4susp_record(uuid, text, text, text, text, text, text, text), public.tw4susp_overview(uuid),
+  public._tw4susp_needs_reconciliation(uuid), public._tw4susp_release_blocker(uuid), public.tw4_traffic_hold_release(uuid, text),
+  public.tw4susp_reconciliation_attest(uuid, uuid, text, text), public.tw4susp_attempt_abandon(uuid, uuid, text, text)
   from public, anon, authenticated, service_role;
-grant execute on function public.tw4susp_begin(uuid, text, text, text, text, text, text), public.tw4susp_verify_begin(uuid, text) to authenticated;
+grant execute on function public.tw4susp_begin(uuid, text, text, text, int, text, text, text), public.tw4susp_verify_begin(uuid, text),
+  public.tw4_traffic_hold_release(uuid, text), public.tw4susp_reconciliation_attest(uuid, uuid, text, text) to authenticated;
 grant execute on function public.tw4_traffic_hold_set(uuid, boolean, uuid, text), public.tw4_traffic_hold_state(uuid), public.tw4_traffic_hold_for_account(text),
   public.tw4susp_switch_state(), public.tw4susp_record(uuid, text, text, text, text, text, text, text), public.tw4susp_overview(uuid) to service_role;
 
@@ -545,7 +724,10 @@ do $$ begin
      or has_function_privilege('authenticated', 'public.tw4susp_switch_set(boolean, uuid, text)', 'execute')
      or has_function_privilege('anon', 'public.tw4susp_switch_set(boolean, uuid, text)', 'execute')
      or has_function_privilege('authenticated', 'public.tw4susp_record(uuid, text, text, text, text, text, text, text)', 'execute')
-     or has_function_privilege('anon', 'public.tw4susp_begin(uuid, text, text, text, text, text, text)', 'execute') then
+     or has_function_privilege('anon', 'public.tw4susp_begin(uuid, text, text, text, int, text, text, text)', 'execute')
+     or has_function_privilege('service_role', 'public.tw4susp_attempt_abandon(uuid, uuid, text, text)', 'execute')
+     or has_function_privilege('authenticated', 'public.tw4susp_attempt_abandon(uuid, uuid, text, text)', 'execute')
+     or has_function_privilege('service_role', 'public.tw4_traffic_hold_release(uuid, text)', 'execute') then
     raise exception 'TW4SUSP_POSTCONDITION: unexpected execute privilege';
   end if;
 end $$;

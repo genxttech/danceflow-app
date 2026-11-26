@@ -25,6 +25,8 @@ export type BilledSendRefusal =
   | "monthly_limit"
   | "no_billed_sender"
   | "suspended"
+  /** TW-4F slice E: the location is on a DanceFlow administrator traffic hold (distinct from "suspended", an uncovered monthly charge, TW016). */
+  | "traffic_hold"
   | "switched_off"
   | "paused"
   | "no_price"
@@ -39,7 +41,7 @@ const REFUSALS: Record<string, BilledSendRefusal> = {
   TW012: "monthly_limit",
   TW015: "no_billed_sender",
   TW016: "suspended",
-  TW080: "suspended", // TW-4F slice E: the location is on a DanceFlow traffic hold; nothing was reserved or sent
+  TW080: "traffic_hold", // TW-4F slice E: the location is on a DanceFlow traffic hold; nothing was reserved or sent
   TW018: "switched_off",
   TW024: "paused", // 20261218: the usage reconciler is not ready; nothing was reserved, so a later retry of the same source is safe
   TW008: "no_price",
@@ -158,8 +160,14 @@ export async function sendBilledSms(admin: Client, provider: BilledSmsProvider, 
   if (!marked.error && markedData.dispatch === false && markedData.state === "released" && markedData.reason === "sender_not_ready") {
     return { outcome: "refused", reason: "no_billed_sender" };
   }
-  // TW-4F slice E: the location went on a DanceFlow traffic hold after the reservation: no marker, nothing sent (the reconciler releases the reservation)
-  if (marked.error && String(marked.error.code ?? "") === "TW080") return { outcome: "refused", reason: "suspended" };
+  // TW-4F slice E: the location went on a DanceFlow traffic hold after the reservation. The marker update was refused inside its own transaction, so the
+  // attempt is still 'reserved' and the provider was never called: releasing it now is safe (tw4_usage_release_unprepared touches a reserved attempt only).
+  // A retry of the same source then replays as released (not sent): a held text is never sent later by surprise.
+  if (marked.error && String(marked.error.code ?? "") === "TW080") {
+    const released = await admin.rpc("tw4_usage_release_unprepared", { p_attempt_id: attemptId, p_code: "traffic_hold" });
+    if (released.error) console.warn("sms_usage_unprepared_release_failed", released.error.code ?? "unknown");
+    return { outcome: "refused", reason: "traffic_hold" };
+  }
   if (marked.error || markedData.dispatch !== true) {
     return { outcome: "replay", logId, state: str(markedData.state) || "reserved", providerSid: null };
   }
@@ -212,6 +220,7 @@ export const BILLED_REFUSAL_MESSAGE: Record<BilledSendRefusal, string> = {
   monthly_limit: "This month's texting spending limit is reached or not set. The owner can change it in Settings, Texting.",
   no_billed_sender: "Texting for your business is not set up yet. Contact DanceFlow support.",
   suspended: "Texting is paused because a monthly charge was not covered. Add credit; replies like STOP and HELP still work for your contacts.",
+  traffic_hold: "Texting is paused for this location by DanceFlow support. Nothing was sent; replies like STOP and HELP still work for your contacts.",
   switched_off: "Texting is not open yet.",
   paused: "Texting is paused for a few minutes while usage is reconciled. Nothing was sent; try again shortly.",
   no_price: "Texting is not open yet.",

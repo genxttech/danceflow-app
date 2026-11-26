@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ownedSubaccount, runSubaccountStatusChange, runSubaccountVerification, suspensionMessage, type ChangeInput } from "../suspension";
+import { ownedSubaccount, runSubaccountStatusChange, sameSid, runSubaccountVerification, suspensionMessage, type ChangeInput } from "../suspension";
 import { FakeSubaccountStatusProvider } from "../suspensionFake";
 
 /**
@@ -20,10 +20,10 @@ function db(answer: (fn: string, args: Record<string, unknown>) => { data: unkno
   const calls: Call[] = [];
   return { calls, rpc: async (fn: string, args: Record<string, unknown> = {}) => (calls.push({ fn, args }), answer(fn, args)) };
 }
-const proceed = (action: "suspend" | "reactivate", sid = SUB) => db(() => ({ data: { decision: "proceed", attempt_id: ATTEMPT, action, account_sid: sid }, error: null }));
+const proceed = (action: "suspend" | "reactivate", sid = SUB) => db(() => ({ data: { decision: "proceed", attempt_id: ATTEMPT, action, account_sid: sid, locations: 2, holds_placed: action === "suspend" ? 2 : 0 }, error: null }));
 const recorder = () => db(() => ({ data: { recorded: true }, error: null }));
 const input = (action: "suspend" | "reactivate" = "suspend"): ChangeInput => ({
-  studioId: "00000000-0000-4000-8000-000000000001", action, studioName: "Studio One", sidTail: SUB.slice(-6), authorizationRef: "owner email 2026-11-26", reason: "emergency: traffic we did not send", idempotencyKey: "k".repeat(20),
+  studioId: "00000000-0000-4000-8000-000000000001", action, studioName: "Studio One", sidTail: SUB.slice(-6), authorizationRef: "owner email 2026-11-26", reason: "emergency: traffic we did not send", idempotencyKey: "k".repeat(20), locationCount: 2,
 });
 const outcomes = (admin: ReturnType<typeof recorder>) => admin.calls.filter((c) => c.fn === "tw4susp_record").map((c) => [c.args.p_step, c.args.p_outcome, c.args.p_state_before, c.args.p_state_after, c.args.p_code]);
 
@@ -150,12 +150,52 @@ describe("runSubaccountStatusChange", () => {
     expect(r).toMatchObject({ outcome: "succeeded", stateAfter: "suspended" });
   });
 
+  it("F2: a pre-check that cannot be recorded ends the attempt as FAILED before any write to the provider", async () => {
+    for (const failing of [{ data: null, error: { code: "XX000" } }, "throw"] as const) {
+      const provider = new FakeSubaccountStatusProvider().add({ sid: SUB, ownerAccountSid: PARENT, status: "active" });
+      const admin = db((fn, args) => {
+        if (args.p_step === "precheck") {
+          if (failing === "throw") throw new Error("db down");
+          return failing;
+        }
+        return { data: { recorded: true }, error: null };
+      });
+      const r = await runSubaccountStatusChange({ user: proceed("suspend"), admin, provider, parentSid: PARENT }, input());
+      expect(r).toMatchObject({ kind: "done", outcome: "failed", code: "precheck_unrecorded" });
+      expect(provider.writes).toEqual([]);
+    }
+  });
+
   it("an outcome that cannot be recorded is reported as such (the attempt stays open in the database)", async () => {
     const provider = new FakeSubaccountStatusProvider().add({ sid: SUB, ownerAccountSid: PARENT, status: "active" });
-    const admin = db(() => ({ data: null, error: { code: "XX000" } }));
+    const admin = db((_fn, args) => (args.p_step === "outcome" ? { data: null, error: { code: "XX000" } } : { data: { recorded: true }, error: null }));
     const r = await runSubaccountStatusChange({ user: proceed("suspend"), admin, provider, parentSid: PARENT }, input());
     expect(r).toMatchObject({ outcome: "succeeded", recorded: false });
     expect(suspensionMessage(r).message).toMatch(/could NOT be recorded/);
+  });
+
+  it("F4: SID comparisons ignore case: a differently cased parent is refused, an owner SID in another case still proves ownership", async () => {
+    const upperParent = PARENT.toUpperCase().replace(/^AC/, "AC");
+    // the recorded SID is the parent in another case: refused before any provider call
+    const p1 = new FakeSubaccountStatusProvider().add({ sid: PARENT, ownerAccountSid: null, status: "active" });
+    expect(await runSubaccountStatusChange({ user: proceed("suspend", PARENT), admin: recorder(), provider: p1, parentSid: upperParent }, input())).toMatchObject({ outcome: "refused", code: "parent_account" });
+    expect(p1.reads).toEqual([]);
+    // the provider reports the owner in upper case: still the parent, so the change proceeds
+    const p2 = new FakeSubaccountStatusProvider().add({ sid: SUB, ownerAccountSid: upperParent, status: "active" });
+    expect(await runSubaccountStatusChange({ user: proceed("suspend"), admin: recorder(), provider: p2, parentSid: PARENT }, input())).toMatchObject({ outcome: "succeeded" });
+    // the provider reports the account as the parent itself in another case: refused
+    expect(ownedSubaccount({ sid: upperParent, ownerAccountSid: PARENT, status: "active" }, PARENT, PARENT)).toBe(false);
+    expect(sameSid(SUB, SUB.toUpperCase().replace(/^AC/, "AC"))).toBe(true);
+    expect(sameSid("", "")).toBe(false);
+  });
+
+  it("F7: the result reports how many locations the subaccount serves and how many holds were placed", async () => {
+    const provider = new FakeSubaccountStatusProvider().add({ sid: SUB, ownerAccountSid: PARENT, status: "active" });
+    const user = proceed("suspend");
+    const r = await runSubaccountStatusChange({ user, admin: recorder(), provider, parentSid: PARENT }, input());
+    expect(r).toMatchObject({ locations: 2, holdsPlaced: 2 });
+    expect(suspensionMessage(r).message).toMatch(/serves 2 location\(s\); 2 new traffic hold\(s\)/);
+    expect(user.calls[0].args.p_location_count).toBe(2);
   });
 
   it("a begin answer that does not match the request (wrong action, invalid sid) is refused without a provider call", async () => {

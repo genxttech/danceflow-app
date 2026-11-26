@@ -9,7 +9,7 @@ do $$ begin
     raise exception 'TW4SUSP_ROLLBACK: 20270224100000 is not applied';
   end if;
   if exists (select 1 from public.studio_sms_suspension_audit) or exists (select 1 from public.studio_sms_traffic_hold_events)
-     or exists (select 1 from public.studio_sms_suspension_attempts) then
+     or exists (select 1 from public.studio_sms_suspension_attempts) or exists (select 1 from public.studio_sms_optout_reconciliations) then
     raise exception 'TW4SUSP_ROLLBACK: evidence rows exist; this migration is forward-fix only from now on';
   end if;
   if (select enabled from public.studio_sms_suspension_switch where singleton) then
@@ -19,10 +19,15 @@ end $$;
 
 drop trigger if exists studio_sms_usage_attempts_traffic_hold on public.studio_sms_usage_attempts;
 
+drop function if exists public.tw4susp_attempt_abandon(uuid, uuid, text, text);
+drop function if exists public.tw4susp_reconciliation_attest(uuid, uuid, text, text);
+drop function if exists public.tw4_traffic_hold_release(uuid, text);
+drop function if exists public._tw4susp_release_blocker(uuid);
+drop function if exists public._tw4susp_needs_reconciliation(uuid);
 drop function if exists public.tw4susp_overview(uuid);
 drop function if exists public.tw4susp_record(uuid, text, text, text, text, text, text, text);
 drop function if exists public.tw4susp_verify_begin(uuid, text);
-drop function if exists public.tw4susp_begin(uuid, text, text, text, text, text, text);
+drop function if exists public.tw4susp_begin(uuid, text, text, text, int, text, text, text);
 drop function if exists public.tw4susp_switch_state();
 drop function if exists public.tw4susp_switch_set(boolean, uuid, text);
 drop function if exists public.tw4_traffic_hold_for_account(text);
@@ -31,6 +36,7 @@ drop function if exists public.tw4_traffic_hold_set(uuid, boolean, uuid, text);
 drop function if exists public._tw4susp_usage_hold_guard();
 
 -- the tables are empty (checked above); their triggers go with them
+drop table public.studio_sms_optout_reconciliations;
 drop table public.studio_sms_suspension_audit;
 drop table public.studio_sms_suspension_attempts;
 drop table public.studio_sms_suspension_switch;
@@ -46,7 +52,7 @@ drop function if exists public._tw4susp_state_guard();
 drop function if exists public._tw4susp_append_only();
 
 do $$ begin
-  if to_regclass('public.studio_sms_suspension_audit') is not null or to_regprocedure('public.tw4susp_begin(uuid, text, text, text, text, text, text)') is not null
+  if to_regclass('public.studio_sms_suspension_audit') is not null or to_regprocedure('public.tw4susp_begin(uuid, text, text, text, int, text, text, text)') is not null or to_regclass('public.studio_sms_optout_reconciliations') is not null
      or exists (select 1 from pg_trigger where tgname = 'studio_sms_usage_attempts_traffic_hold') then
     raise exception 'TW4SUSP_ROLLBACK_POSTCONDITION: objects remain';
   end if;

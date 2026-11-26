@@ -109,6 +109,7 @@ const REGISTRY: Record<string, Record<string, Tier>> = {
   // TW-4F slice E: the emergency subaccount suspension and the DanceFlow traffic hold (placing a hold is the safe direction)
   "suspensionActions.ts": {
     suspendSubaccountAction: "fresh", reactivateSubaccountAction: "fresh", verifySubaccountAction: "fresh", placeTrafficHoldAction: "aal2", releaseTrafficHoldAction: "fresh",
+    attestReconciliationAction: "fresh",
   },
   "usageReconcileActions.ts": { resolveUsageAttemptAction: "recent" },
 };
@@ -194,7 +195,7 @@ describe("completeness and source order", () => {
     const fresh = Object.values(REGISTRY).flatMap((a) => Object.entries(a).filter(([, t]) => t === "fresh").map(([n]) => n));
     expect(fresh.sort()).toEqual(
       ["pricePropose", "priceApprove", "priceRevise", "priceAuthzBegin", "priceAuthzFinish", "priceCredBegin", "priceCredEnroll", "priceCredRevoke", "priceThaw", "priceCredApply", "priceCredCancel", "priceRecoveryEnroll",
-        "suspendSubaccountAction", "reactivateSubaccountAction", "verifySubaccountAction", "releaseTrafficHoldAction"].sort(),
+        "suspendSubaccountAction", "reactivateSubaccountAction", "verifySubaccountAction", "releaseTrafficHoldAction", "attestReconciliationAction"].sort(),
     );
     expect(REGISTRY["priceChangeActions.ts"].priceFreeze).toBe("aal2");
     expect(REGISTRY["priceChangeActions.ts"].priceReportCompromise).toBe("aal2");

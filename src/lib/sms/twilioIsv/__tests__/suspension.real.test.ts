@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { suspensionCallsAllowed } from "../suspension";
-import { createRealSuspensionProvider } from "../suspensionReal";
+import { createRealSuspensionProvider } from "../real";
 
 /**
  * TW-4F slice E: the real subaccount status client is unreachable while either gate is off, and its request shapes when both are on. Every request goes to
@@ -80,6 +80,8 @@ describe("request shapes with both gates on (injected fetch only)", () => {
     await expect(p.setStatus(SUB, "closed" as never)).rejects.toThrow(/only suspended or active/);
     await expect(p.setStatus(PARENT, "suspended")).rejects.toThrow(/not a subaccount sid/);
     await expect(p.getAccount(PARENT)).rejects.toThrow(/not a subaccount sid/);
+    // F4: the parent in another case is still the parent
+    await expect(p.setStatus(PARENT.toUpperCase(), "suspended")).rejects.toThrow(/not a subaccount sid/);
     expect(f).not.toHaveBeenCalled();
   });
 

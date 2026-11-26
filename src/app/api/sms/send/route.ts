@@ -28,6 +28,7 @@ const REFUSAL_STATUS: Record<BilledSendRefusal, number> = {
   monthly_limit: 402,
   no_billed_sender: 503,
   suspended: 503,
+  traffic_hold: 503,
   switched_off: 503,
   paused: 503,
   no_price: 503,

@@ -91,9 +91,9 @@ function rpcClient(wrap: (sql: string) => string) {
 }
 const userDb = (c: Claims | null) => rpcClient((sql) => asAuth(c, sql));
 const serviceDb = () => rpcClient(asService);
-const begin = (c: Claims | null, args: { studio: string; action?: string; name?: string; tail?: string; ref?: string | null; reason?: string | null; key?: string }) =>
+const begin = (c: Claims | null, args: { studio: string; action?: string; name?: string; tail?: string; count?: number; ref?: string | null; reason?: string | null; key?: string }) =>
   userDb(c).rpc("tw4susp_begin", {
-    p_studio_id: args.studio, p_action: args.action ?? "suspend", p_studio_name: args.name ?? null, p_sid_tail: args.tail ?? null,
+    p_studio_id: args.studio, p_action: args.action ?? "suspend", p_studio_name: args.name ?? null, p_sid_tail: args.tail ?? null, p_location_count: args.count ?? 2,
     p_authorization_ref: args.ref === undefined ? "owner written authorization 2026-11-26" : args.ref, p_reason: args.reason === undefined ? "emergency: traffic DanceFlow did not originate" : args.reason,
     p_idempotency_key: args.key ?? `key-${hex(10)}`,
   });
@@ -119,8 +119,15 @@ const switchSet = (on: boolean) => psql(`select public.tw4susp_switch_set(${on},
 const fake = (w: World, status = "active", owner = PARENT) => new FakeSubaccountStatusProvider().add({ sid: w.account, ownerAccountSid: owner, status });
 const input = (w: World, over: Partial<ChangeInput> = {}): ChangeInput => ({
   studioId: w.studios[0], action: "suspend", studioName: w.names[0], sidTail: w.account.slice(-6), authorizationRef: "owner written authorization 2026-11-26",
-  reason: "emergency: traffic DanceFlow did not originate", idempotencyKey: `key-${hex(10)}`, ...over,
+  reason: "emergency: traffic DanceFlow did not originate", idempotencyKey: `key-${hex(10)}`, locationCount: 2, ...over,
 });
+/** lift a hold with the administrator's OWN token (the only way a hold is lifted) */
+const release = (studio: string, c: Claims | null = claims(ADMIN), reason = "lifting after review of the location's traffic") =>
+  userDb(c).rpc("tw4_traffic_hold_release", { p_studio_id: studio, p_reason: reason });
+const attest = (w: World, attemptId: string, c: Claims | null = claims(ADMIN)) =>
+  userDb(c).rpc("tw4susp_reconciliation_attest", { p_studio_id: w.studios[0], p_attempt_id: attemptId, p_evidence_ref: "inbound list and opt-out export for the window, ticket QA-1", p_note: "no unrecorded STOP found for the suspension window" });
+const attemptIds = (w: World) => psql(`select string_agg(id::text, ',' order by created_at) from public.studio_sms_suspension_attempts where legal_entity_id = '${w.entity}'`).split(",").filter(Boolean);
+const placeHold = (studio: string, reason = "manual hold placed by the QA suite") => psql(asService(`select public.tw4_traffic_hold_set('${studio}', true, '${ADMIN}', '${reason}')::text;`));
 const run = (w: World, provider: FakeSubaccountStatusProvider, over: Partial<ChangeInput> = {}, c: Claims = claims(ADMIN), parentSid = PARENT) =>
   runSubaccountStatusChange({ user: userDb(c), admin: serviceDb(), provider, parentSid }, input(w, over));
 const attempts = (w: World) =>
@@ -138,7 +145,7 @@ returning id;`;
 describe.skipIf(!enabled)("TW-4F slice E: traffic hold and emergency subaccount suspension (20270224100000, real schema, fake provider)", () => {
   beforeAll(() => {
     expect(psql("select to_regclass('public.tw4_local_qa_only') is not null")).toBe("t");
-    expect(psql("select to_regprocedure('public.tw4susp_begin(uuid,text,text,text,text,text,text)') is not null")).toBe("t");
+    expect(psql("select to_regprocedure('public.tw4susp_begin(uuid,text,text,text,int,text,text,text)') is not null")).toBe("t");
     psql(`begin;
 insert into auth.users (id, instance_id, aud, role, email, email_confirmed_at, created_at, updated_at) values
   ('${ADMIN}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'padmin-${RUN}@suspension-e2e.test', now(), now(), now()),
@@ -168,7 +175,7 @@ commit;`);
       expect(psqlError(rb)).toBe("");
       expect(psql("select to_regclass('public.studio_sms_suspension_audit') is null and not exists (select 1 from pg_trigger where tgname = 'studio_sms_usage_attempts_traffic_hold')")).toBe("t");
       expect(psqlError(readFileSync(join(MIG, MIGRATION), "utf8"))).toBe("");
-      expect(psql("select to_regprocedure('public.tw4susp_begin(uuid,text,text,text,text,text,text)') is not null")).toBe("t");
+      expect(psql("select to_regprocedure('public.tw4susp_begin(uuid,text,text,text,int,text,text,text)') is not null")).toBe("t");
     });
 
     it("dark by default: the switch is off and a well-formed request is refused (recorded) with no attempt and no hold", async () => {
@@ -185,15 +192,18 @@ commit;`);
 
     it("privileges: anon has nothing; authenticated only the two begin functions; the switch setter is reachable by NO API role; tables have no API grants", () => {
       const can = (role: string, fn: string) => psql(`select has_function_privilege('${role}', '${fn}', 'execute')`);
-      const BEGIN = "public.tw4susp_begin(uuid,text,text,text,text,text,text)";
+      const BEGIN = "public.tw4susp_begin(uuid,text,text,text,int,text,text,text)";
       const VERIFY = "public.tw4susp_verify_begin(uuid,text)";
       const RECORD = "public.tw4susp_record(uuid,text,text,text,text,text,text,text)";
       const SETTER = "public.tw4susp_switch_set(boolean,uuid,text)";
       const HOLD = "public.tw4_traffic_hold_set(uuid,boolean,uuid,text)";
-      for (const fn of [BEGIN, VERIFY, RECORD, SETTER, HOLD, "public.tw4_traffic_hold_for_account(text)", "public.tw4susp_overview(uuid)", "public._tw4susp_held(uuid)"]) expect(can("anon", fn), fn).toBe("f");
-      expect([can("authenticated", BEGIN), can("authenticated", VERIFY), can("authenticated", RECORD), can("authenticated", SETTER), can("authenticated", HOLD)]).toEqual(["t", "t", "f", "f", "f"]);
-      expect([can("service_role", RECORD), can("service_role", HOLD), can("service_role", SETTER), can("service_role", BEGIN)]).toEqual(["t", "t", "f", "f"]);
-      for (const t of ["studio_sms_traffic_hold_events", "studio_sms_suspension_switch", "studio_sms_suspension_attempts", "studio_sms_suspension_audit"]) {
+      const RELEASE = "public.tw4_traffic_hold_release(uuid,text)";
+      const ATTEST = "public.tw4susp_reconciliation_attest(uuid,uuid,text,text)";
+      const ABANDON = "public.tw4susp_attempt_abandon(uuid,uuid,text,text)";
+      for (const fn of [BEGIN, VERIFY, RECORD, SETTER, HOLD, RELEASE, ATTEST, ABANDON, "public.tw4_traffic_hold_for_account(text)", "public.tw4susp_overview(uuid)", "public._tw4susp_held(uuid)", "public._tw4susp_release_blocker(uuid)"]) expect(can("anon", fn), fn).toBe("f");
+      expect([can("authenticated", BEGIN), can("authenticated", VERIFY), can("authenticated", RELEASE), can("authenticated", ATTEST), can("authenticated", RECORD), can("authenticated", SETTER), can("authenticated", HOLD), can("authenticated", ABANDON)]).toEqual(["t", "t", "t", "t", "f", "f", "f", "f"]);
+      expect([can("service_role", RECORD), can("service_role", HOLD), can("service_role", SETTER), can("service_role", BEGIN), can("service_role", RELEASE), can("service_role", ATTEST), can("service_role", ABANDON)]).toEqual(["t", "t", "f", "f", "f", "f", "f"]);
+      for (const t of ["studio_sms_traffic_hold_events", "studio_sms_suspension_switch", "studio_sms_suspension_attempts", "studio_sms_suspension_audit", "studio_sms_optout_reconciliations"]) {
         for (const role of ["anon", "authenticated", "service_role"]) {
           expect(psql(`select has_table_privilege('${role}', 'public.${t}', 'select') or has_table_privilege('${role}', 'public.${t}', 'insert') or has_table_privilege('${role}', 'public.${t}', 'update') or has_table_privilege('${role}', 'public.${t}', 'delete')`), `${role} ${t}`).toBe("f");
         }
@@ -255,6 +265,8 @@ commit;`);
         [{ sidTail: other.account.slice(-6) }, "wrong_sid_tail"],
         [{ reason: "short" }, "missing_reason_or_authorization"],
         [{ authorizationRef: "x" }, "missing_reason_or_authorization"],
+        [{ locationCount: 1 }, "wrong_location_count"],
+        [{ locationCount: 3 }, "wrong_location_count"],
       ];
       for (const [over, code] of cases) {
         const p = fake(w);
@@ -349,13 +361,13 @@ commit;`);
 
     it("concurrent duplicates: two requests for the same business (different keys, or the same key) yield exactly one attempt", async () => {
       const w = world();
-      const sql = (key: string) => asAuth(claims(ADMIN), `select public.tw4susp_begin('${w.studios[0]}', 'suspend', ${lit(w.names[0])}, '${w.account.slice(-6)}', 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', '${key}')::text;`);
+      const sql = (key: string) => asAuth(claims(ADMIN), `select public.tw4susp_begin('${w.studios[0]}', 'suspend', ${lit(w.names[0])}, '${w.account.slice(-6)}', 2, 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', '${key}')::text;`);
       const outs = await Promise.all([psqlAsync(sql(`key-${hex(10)}`)), psqlAsync(sql(`key-${hex(10)}`))]);
       const decisions = outs.map((o) => (JSON.parse(o.split(NL).filter(Boolean).pop()!) as { decision: string; code?: string })).map((d) => d.code ?? d.decision).sort();
       expect(decisions).toEqual(["attempt_open", "proceed"]);
       const v = world();
       const k = `key-${hex(10)}`;
-      const sql2 = asAuth(claims(ADMIN), `select public.tw4susp_begin('${v.studios[0]}', 'suspend', ${lit(v.names[0])}, '${v.account.slice(-6)}', 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', '${k}')::text;`);
+      const sql2 = asAuth(claims(ADMIN), `select public.tw4susp_begin('${v.studios[0]}', 'suspend', ${lit(v.names[0])}, '${v.account.slice(-6)}', 2, 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', '${k}')::text;`);
       const outs2 = await Promise.all([psqlAsync(sql2), psqlAsync(sql2)]);
       expect(outs2.map((o) => (JSON.parse(o.split(NL).filter(Boolean).pop()!) as { decision: string }).decision).sort()).toEqual(["proceed", "replay"]);
       expect(count(`select 1 from public.studio_sms_suspension_attempts where legal_entity_id in ('${w.entity}', '${v.entity}')`)).toBe(2);
@@ -397,9 +409,9 @@ commit;`);
     it("a hold placed by a suspension attempt cannot be lost to a concurrent release (per-location lock)", async () => {
       const w = world();
       psql(`select public.tw4_traffic_hold_set('${w.studios[0]}', true, '${ADMIN}', 'manual hold before the race test')`);
-      const release = asService(`select public.tw4_traffic_hold_set('${w.studios[0]}', false, '${ADMIN}', 'concurrent release during the race test')::text, pg_sleep(1);`);
-      const susp = asAuth(claims(ADMIN), `select public.tw4susp_begin('${w.studios[0]}', 'suspend', ${lit(w.names[0])}, '${w.account.slice(-6)}', 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', 'key-${hex(10)}')::text;`);
-      const first = psqlAsync(release);
+      const releaseSql = asAuth(claims(ADMIN), `select public.tw4_traffic_hold_release('${w.studios[0]}', 'concurrent release during the race test')::text, pg_sleep(1);`);
+      const susp = asAuth(claims(ADMIN), `select public.tw4susp_begin('${w.studios[0]}', 'suspend', ${lit(w.names[0])}, '${w.account.slice(-6)}', 2, 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', 'key-${hex(10)}')::text;`);
+      const first = psqlAsync(releaseSql);
       await new Promise((r) => setTimeout(r, 300));
       await Promise.all([first, psqlAsync(susp)]);
       expect(held(w.studios[0]) && held(w.studios[1])).toBe(true);
@@ -433,10 +445,142 @@ commit;`);
     });
   });
 
+
   // -------------------------------------------------------------------------------------------------------------------------------------------
-  describe("evidence is immutable", () => {
-    it("audit rows and hold events cannot be updated, deleted or truncated by ANY role (also with the replication role); attempts change only forward through the functions", () => {
-      for (const t of ["studio_sms_suspension_audit", "studio_sms_traffic_hold_events"]) {
+  describe("F1: lifting a hold after a suspension (registered admin from the session; open attempt, suspended subaccount and opt-out reconciliation all block)", () => {
+    beforeAll(() => switchSet(true));
+
+    it("only a registered administrator in a fresh second-factor session can release or attest", async () => {
+      const w = world();
+      placeHold(w.studios[0]);
+      for (const c of [null, claims(NOT_ADMIN), claims(ADMIN, { aal: "aal1" }), claims(ADMIN, { amr: [{ method: "totp", timestamp: nowS() - 3600 }] }), claims(UNREGISTERED_ADMIN)]) {
+        expect((await release(w.studios[0], c)).error?.code).toBe("42501");
+        expect((await attest(w, randomUUID(), c)).error?.code).toBe("42501");
+      }
+      expect(held(w.studios[0])).toBe(true);
+    });
+
+    it("full path: refused while open (unknown), while suspended, after reactivation until attested; attest refused before reactivation; then released", async () => {
+      const w = world();
+      // unknown suspend: attempt open
+      await run(w, fake(w).failNextWrite("silently_ignored"));
+      expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "attempt_open" });
+      expect((await release(w.studios[1])).data).toEqual({ decision: "refused", code: "attempt_open" });
+      // verified suspended: attempt closed (reconciled), subaccount suspended
+      await runSubaccountVerification({ user: userDb(claims(ADMIN)), admin: serviceDb(), provider: fake(w, "suspended"), parentSid: PARENT }, { studioId: w.studios[0], reason: "verify the unknown suspension outcome" });
+      expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "subaccount_suspended" });
+      const [suspendId] = attemptIds(w);
+      expect((await attest(w, suspendId)).data).toEqual({ decision: "refused", code: "subaccount_not_active" });
+      // reactivated: still refused until the reconciliation is attested
+      expect(await run(w, fake(w, "suspended"), { action: "reactivate" })).toMatchObject({ outcome: "succeeded" });
+      expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "reconciliation_required" });
+      expect((await attest(w, suspendId)).data).toEqual({ decision: "recorded" });
+      expect((await release(w.studios[0])).data).toEqual({ decision: "released", replayed: false });
+      expect((await release(w.studios[1])).data).toEqual({ decision: "released", replayed: false });
+      expect(held(w.studios[0]) || held(w.studios[1])).toBe(false);
+      expect(count(`select 1 from public.studio_sms_optout_reconciliations where attempt_id = '${suspendId}'`)).toBe(1);
+      expect(count(`select 1 from public.studio_sms_suspension_audit where legal_entity_id = '${w.entity}' and event = 'refused' and action = 'release'`)).toBeGreaterThanOrEqual(4);
+    });
+
+    it("a suspension that provably never wrote (pre-check unreadable, no pre-check row) needs no reconciliation; one that wrote and FAILED does", async () => {
+      const w = world();
+      await run(w, fake(w).failNextReadOnce());
+      expect(attempts(w)[0]).toMatchObject({ outcome: "failed", before: "unreadable" });
+      expect((await attest(w, attemptIds(w)[0])).data).toEqual({ decision: "refused", code: "not_needed" });
+      expect((await release(w.studios[0])).data).toEqual({ decision: "released", replayed: false });
+      const v = world();
+      await run(v, fake(v).failNextWrite("definite"));
+      expect((await release(v.studios[0])).data).toEqual({ decision: "refused", code: "reconciliation_required" });
+      expect((await attest(v, attemptIds(v)[0])).data).toEqual({ decision: "recorded" });
+      expect((await release(v.studios[0])).data).toMatchObject({ decision: "released" });
+    });
+
+    it("a verify-resolved suspend that observed ACTIVE still needs a reconciliation (fail closed); an attestation for one attempt does not cover a later one", async () => {
+      const w = world();
+      await run(w, fake(w).failNextWrite("transient"));
+      await runSubaccountVerification({ user: userDb(claims(ADMIN)), admin: serviceDb(), provider: fake(w, "active"), parentSid: PARENT }, { studioId: w.studios[0], reason: "verify the unknown suspension outcome" });
+      expect(attempts(w)[0]).toMatchObject({ outcome: "reconciled", after: "active" });
+      expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "reconciliation_required" });
+      expect((await attest(w, attemptIds(w)[0])).data).toEqual({ decision: "recorded" });
+      // a second suspension (succeeded) and reactivation: the first attestation does not count for it
+      await run(w, fake(w));
+      await run(w, fake(w, "suspended"), { action: "reactivate" });
+      expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "reconciliation_required" });
+      const ids = attemptIds(w);
+      expect((await attest(w, ids[1])).data).toEqual({ decision: "recorded" });
+      expect((await release(w.studios[0])).data).toMatchObject({ decision: "released" });
+    });
+
+    it("concurrency: a release racing a suspension begin never leaves the location unheld", async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const w = world();
+        placeHold(w.studios[0]);
+        const rel = asAuth(claims(ADMIN), `select public.tw4_traffic_hold_release('${w.studios[0]}', 'concurrent release during the race test')::text;`);
+        const beg = asAuth(claims(ADMIN), `select public.tw4susp_begin('${w.studios[0]}', 'suspend', ${lit(w.names[0])}, '${w.account.slice(-6)}', 2, 'owner written authorization 2026-11-26', 'emergency: traffic DanceFlow did not originate', 'key-${hex(10)}')::text;`);
+        const order = i % 2 === 0 ? [rel, beg] : [beg, rel];
+        await Promise.all(order.map((q) => psqlAsync(q)));
+        expect(held(w.studios[0]) && held(w.studios[1]), `round ${i}`).toBe(true);
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------------------------------------------------------------------------------
+  describe("F8: owner-level abandon of an attempt the product cannot close", () => {
+    beforeAll(() => switchSet(true));
+
+    it("closes an open attempt without touching holds, the subaccount status or the provider; a may-have-written attempt still needs a reconciliation", async () => {
+      const w = world();
+      const p = fake(w).failNextWrite("silently_ignored");
+      await run(w, p);
+      const [id] = attemptIds(w);
+      expect(psqlError(`select public.tw4susp_attempt_abandon('${id}', '${NOT_ADMIN}', 'operator closes a stuck attempt', 'ticket QA-2 evidence')`)).toMatch(/42501/);
+      expect(psqlError(`select public.tw4susp_attempt_abandon('${id}', '${ADMIN}', 'short', 'x')`)).toMatch(/22023/);
+      const out = JSON.parse(psql(`select public.tw4susp_attempt_abandon('${id}', '${ADMIN}', 'operator closes a stuck attempt', 'ticket QA-2 evidence')::text`)) as { abandoned: boolean; needs_reconciliation: boolean };
+      expect(out).toEqual({ abandoned: true, needs_reconciliation: true });
+      expect(attempts(w)[0]).toMatchObject({ state: "closed", outcome: "abandoned" });
+      expect(acctStatus(w)).toBe("active");
+      expect(held(w.studios[0]) && held(w.studios[1])).toBe(true);
+      expect(p.writes).toHaveLength(1);
+      expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "reconciliation_required" });
+      // idempotent on a closed attempt
+      expect(JSON.parse(psql(`select public.tw4susp_attempt_abandon('${id}', '${ADMIN}', 'operator closes a stuck attempt', 'ticket QA-2 evidence')::text`))).toEqual({ abandoned: false, state: "closed" });
+    });
+
+    it("a begin made directly (environment gate off, nothing ever called) is abandoned without a reconciliation requirement", async () => {
+      const w = world();
+      const b = await begin(claims(ADMIN), { studio: w.studios[0], name: w.names[0], tail: w.account.slice(-6) });
+      const id = (b.data as { attempt_id: string }).attempt_id;
+      expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "attempt_open" });
+      expect(JSON.parse(psql(`select public.tw4susp_attempt_abandon('${id}', '${ADMIN}', 'begin without provider calls', 'ticket QA-3 evidence')::text`))).toEqual({ abandoned: true, needs_reconciliation: false });
+      expect((await release(w.studios[0])).data).toMatchObject({ decision: "released" });
+    });
+  });
+
+  // -------------------------------------------------------------------------------------------------------------------------------------------
+  describe("F4: SID case", () => {
+    beforeAll(() => switchSet(true));
+
+    it("a recorded SID that collides with another business's record when case is ignored is refused", async () => {
+      const w = world();
+      const twin = world();
+      const upper = `AC${w.account.slice(2).toUpperCase()}`;
+      psql(`begin; set local session_replication_role = replica; update public.studio_sms_twilio_accounts set twilio_account_sid = '${upper}' where legal_entity_id = '${twin.entity}'; commit;`);
+      expect(await run(w, fake(w))).toEqual({ kind: "refused", code: "sid_collision" });
+    });
+
+    it("a recorded SID equal to the parent in another case is refused by the server before any provider call", async () => {
+      const w = world();
+      const p = fake(w);
+      const r = await run(w, p, {}, claims(ADMIN), `AC${w.account.slice(2).toUpperCase()}`);
+      expect(r).toMatchObject({ outcome: "refused", code: "parent_account" });
+      expect(p.reads.length + p.writes.length).toBe(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------------------------------------------------------------------------
+  describe("evidence is append-only (triggers; not tamper-proof against owner or superuser DDL)", () => {
+    it("audit rows, hold events and reconciliations refuse update / delete / truncate for every API role and the owner in normal operation (also with the replication role; owner or superuser DDL can still disable a trigger: not tamper-proof); attempts change only forward through the functions", () => {
+      for (const t of ["studio_sms_suspension_audit", "studio_sms_traffic_hold_events", "studio_sms_optout_reconciliations"]) {
         expect(psqlError(`update public.${t} set created_at = now()`)).toMatch(/append-only/);
         expect(psqlError(`delete from public.${t}`)).toMatch(/append-only/);
         expect(psqlError(`truncate public.${t}`)).toMatch(/append-only/);
@@ -457,7 +601,7 @@ commit;`);
 
   // -------------------------------------------------------------------------------------------------------------------------------------------
   describe("(a) DanceFlow traffic hold: what it blocks and what it never blocks", () => {
-    it("hold set / release: admin only, reason required, idempotent, append-only history", () => {
+    it("hold set / release: admin only, reason required, idempotent, append-only history", async () => {
       const w = world();
       expect(psqlError(`select public.tw4_traffic_hold_set('${w.studios[0]}', true, '${NOT_ADMIN}', 'a non-admin tries a hold')`)).toMatch(/42501/);
       expect(psqlError(`select public.tw4_traffic_hold_set('${w.studios[0]}', true, '${ADMIN}', 'short')`)).toMatch(/22023/);
@@ -466,19 +610,21 @@ commit;`);
       expect(held(w.studios[0])).toBe(true);
       expect(held(w.studios[1])).toBe(false); // per location
       expect(psql(asService(`select public.tw4_traffic_hold_for_account('${w.account}')::text;`))).toBe("true"); // the business's error replies stop
-      psql(asService(`select public.tw4_traffic_hold_set('${w.studios[0]}', false, '${ADMIN}', 'released after review of the traffic')::text;`));
+      // lifting is never possible through the service-role setter
+      expect(psqlError(asService(`select public.tw4_traffic_hold_set('${w.studios[0]}', false, '${ADMIN}', 'released after review of the traffic')::text;`))).toMatch(/42501/);
+      expect((await release(w.studios[0])).data).toEqual({ decision: "released", replayed: false });
       expect(held(w.studios[0])).toBe(false);
       expect(count(`select 1 from public.studio_sms_traffic_hold_events where studio_id = '${w.studios[0]}'`)).toBe(2);
     });
 
-    it("blocks a new billed attempt and the reserved -> submitting dispatch marker (TW080) only for the held location", () => {
+    it("blocks a new billed attempt and the reserved -> submitting dispatch marker (TW080) only for the held location", async () => {
       const w = world();
       // not held: the trigger lets the row in (the transaction is rolled back)
       expect(psqlError(`${usageInsertSql(w)} rollback;`)).toBe("");
       psql(`select public.tw4_traffic_hold_set('${w.studios[0]}', true, '${ADMIN}', 'manual hold for the usage trigger test')`);
       expect(psqlError(`${usageInsertSql(w)} rollback;`)).toMatch(/TW080/);
       // a row reserved before the hold cannot be dispatched after it
-      psql(`select public.tw4_traffic_hold_set('${w.studios[0]}', false, '${ADMIN}', 'lift to reserve one before the hold')`);
+      expect((await release(w.studios[0])).data).toMatchObject({ decision: "released" });
       const dispatch = `${usageInsertSql(w).replace(/returning id;$/, "returning id \\gset")}
 insert into public.studio_sms_traffic_hold_events (studio_id, legal_entity_id, hold, actor, reason) values ('${w.studios[0]}', '${w.entity}', true, '${ADMIN}', 'hold placed after the reservation');
 update public.studio_sms_usage_attempts set state = 'submitting', submitting_at = now() where id = :'id';
@@ -503,11 +649,11 @@ rollback;`;
       expect(psql(asService(`select public.tw4_traffic_hold_for_account('${w.account}')::text;`))).toBe("true");
     });
 
-    it("lifting a hold never lifts the existing credit hold (the two are independent)", () => {
+    it("lifting a hold never lifts the existing credit hold (the two are independent)", async () => {
       const w = world();
       psql(`select public.tw4_credit_set_hold('${w.entity}', true, 'manual credit hold for the test', '${ADMIN}')`);
       psql(`select public.tw4_traffic_hold_set('${w.studios[0]}', true, '${ADMIN}', 'traffic hold for the independence test')`);
-      psql(`select public.tw4_traffic_hold_set('${w.studios[0]}', false, '${ADMIN}', 'traffic hold lifted for the independence test')`);
+      expect((await release(w.studios[0])).data).toMatchObject({ decision: "released" });
       expect(psql(`select hold from public.studio_sms_credit_accounts where legal_entity_id = '${w.entity}'`)).toBe("t");
     });
   });

@@ -150,11 +150,19 @@ describe("sendBilledSms: replay and dispatch marker", () => {
   it("TW-4F slice E: a traffic hold refuses at begin (TW080) and at the dispatch marker; the provider is never called", async () => {
     const atBegin = fakeRpc({ tw4_usage_begin: { data: null, error: { code: "TW080" } } });
     const p1 = new FakeBilledSmsProvider();
-    expect(await sendBilledSms(atBegin.client, p1, input())).toEqual({ outcome: "refused", reason: "suspended" });
-    const atDispatch = fakeRpc({ tw4_usage_dispatching: { data: null, error: { code: "TW080" } } });
+    expect(await sendBilledSms(atBegin.client, p1, input())).toEqual({ outcome: "refused", reason: "traffic_hold" });
+    expect(atBegin.count("tw4_usage_release_unprepared")).toBe(0); // nothing was reserved
+    const atDispatch = fakeRpc({ tw4_usage_dispatching: { data: null, error: { code: "TW080" } }, tw4_usage_release_unprepared: { data: { released: true }, error: null } });
     const p2 = new FakeBilledSmsProvider();
-    expect(await sendBilledSms(atDispatch.client, p2, input())).toEqual({ outcome: "refused", reason: "suspended" });
+    expect(await sendBilledSms(atDispatch.client, p2, input())).toEqual({ outcome: "refused", reason: "traffic_hold" });
+    // released at once with its own code (the attempt was still reserved: the marker was refused), distinct from TW016 "suspended"
+    expect(atDispatch.calls.filter((c) => c.name === "tw4_usage_release_unprepared").map((c) => c.args)).toEqual([{ p_attempt_id: ATTEMPT, p_code: "traffic_hold" }]);
     expect(p1.sent.length + p2.sent.length).toBe(0);
+    // other dispatch errors keep their behaviour: a replay, nothing released
+    const other = fakeRpc({ tw4_usage_dispatching: { data: null, error: { code: "XX000" } } });
+    expect(await sendBilledSms(other.client, new FakeBilledSmsProvider(), input())).toEqual({ outcome: "replay", logId: LOG, state: "reserved", providerSid: null });
+    expect(other.count("tw4_usage_release_unprepared")).toBe(0);
+    expect(BILLED_REFUSAL_MESSAGE.traffic_hold).not.toBe(BILLED_REFUSAL_MESSAGE.suspended);
   });
 
   it("dispatch:false is a replay carrying the reported state and the provider is not called", async () => {
