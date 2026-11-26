@@ -90,7 +90,7 @@ export default function AccountDeletionPage() {
             </p>
             <p>
               A login that also manages a studio, an organizer account, or the platform cannot be deleted in
-              the app. Hand over or remove those roles first, or contact support.
+              the app or on the web. Hand over or remove those roles first, or contact support.
             </p>
           </Section>
         </section>

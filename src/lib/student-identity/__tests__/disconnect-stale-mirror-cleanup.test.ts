@@ -43,6 +43,8 @@ let accountDeletionAuditTable: FakeTable;
 let userStudioRolesTable: FakeTable;
 let organizerUsersTable: FakeTable;
 let deleteUserCalls: string[];
+/** A table whose reads answer with an error, to drive the role check's failure branch. */
+let failingTable: string | null = null;
 
 function clientRow(overrides: Partial<Row> & { id: string }): Row {
   return {
@@ -103,6 +105,15 @@ function createFakeAdminClientWithDelete(tables: Record<string, FakeTable>) {
   const base = createFakeEntitlementClient(tables);
   return {
     from(table: string) {
+      if (table === failingTable) {
+        const failed = {
+          select: () => failed,
+          eq: () => failed,
+          limit: () => failed,
+          then: (onFulfilled: (v: { data: null; error: { message: string } }) => unknown) => Promise.resolve({ data: null, error: { message: `${table} unavailable` } }).then(onFulfilled),
+        };
+        return failed;
+      }
       return {
         ...base.from(table),
         ...withDelete(tables[table]),
@@ -208,6 +219,7 @@ beforeEach(() => {
   userStudioRolesTable = new FakeTable();
   organizerUsersTable = new FakeTable();
   deleteUserCalls = [];
+  failingTable = null;
 });
 
 describe("disconnectClientAccount -- H2-B3 stale-mirror cleanup", () => {
@@ -499,6 +511,24 @@ describe("account deletion through the app route and the web action", () => {
   const signIn = () => { signedInUser = { id: USER_A, email: `${USER_A}@example.test` }; };
   const request = () => new Request("https://app.test/api/student/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) });
   const confirmed = () => { const form = new FormData(); form.set("confirmation", "DELETE"); return form; };
+
+  it.each(["user_studio_roles", "organizer_users", "profiles"])("fails closed when the %s role query errors: nothing is deleted or changed, through the library, the app route and the web action", async (table) => {
+    signIn();
+    linksTable.rows = [linkRow({ id: "link-a" })];
+    failingTable = table;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(deleteDanceFlowAccount(signedInUser as never)).rejects.toThrow(`Account role check failed: ${table} unavailable`);
+    const response = await deleteRoute(request());
+    expect(response.status).toBe(500);
+    expect(((await response.json()) as { error: string }).error).toBe("Your DanceFlow account could not be deleted.");
+    await expect(deleteAccountAction(confirmed())).rejects.toThrow("redirect:/account?error=account_delete_failed");
+
+    expect(deleteUserCalls).toEqual([]);
+    expect(userAccountStatusTable.rows).toEqual([]);
+    expect(linksTable.rows[0].status).toBe("linked");
+    expect(accountDeletionAuditTable.rows).toEqual([]);
+  });
 
   it("an ordinary account with no management role deletes itself", async () => {
     signIn();

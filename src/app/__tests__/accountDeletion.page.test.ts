@@ -23,6 +23,8 @@ describe("public account-deletion page", () => {
   it("says what is removed and what may be kept", () => {
     expect(page).toContain("What is removed");
     expect(page).toContain("What may be kept");
+    // managing logins are refused by the app and by the web account page alike
+    expect(page).toContain("cannot be deleted in the app or on the web");
     expect(page).toContain("cannot be undone");
     // uploaded photos are not removed by the deletion code, so the page must not imply they are
     expect(page).toContain("not removed automatically");
