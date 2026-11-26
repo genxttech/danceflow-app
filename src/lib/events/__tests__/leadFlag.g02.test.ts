@@ -176,6 +176,32 @@ describe("safeCaptureStudioEventRegistrationLead (orderless registration path)",
     },
   );
 
+  it.each([
+    ["blank attribution", null, null],
+    ["a studio-chosen source", "Website", null],
+    ["an imported client", null, "import"],
+  ])("P2: a flagged ticket links an existing client with %s and writes nothing on the client", async (_label, referral, system) => {
+    const { supabase, ops } = fakeSupabase({
+      registration: registration(),
+      ticketKind: "general_admission",
+      flag: true,
+      existingClients: [{ id: "c-existing", referral_source: referral, source_system: system, status: "lead" }],
+    });
+    await safeCaptureStudioEventRegistrationLead({ supabase, registrationId: "reg-1" });
+    expect(clientWrites(ops)).toEqual([]);
+    expect(ops.filter((o) => o.table === "event_registrations" && o.op === "update").map((o) => o.payload)).toEqual([{ client_id: "c-existing" }]);
+  });
+
+  it("P2: the new SQL function writes no existing client and the rollback restores the G-02 body", () => {
+    const read = (file: string) => readFileSync(path.join(root, "src/lib/supabase/migrations", file), "utf8").replace(/\r\n/g, "\n");
+    const sql = read("20270226090000_p2_event_lead_attribution_preserved.sql").replace(/--.*$/gm, "");
+    expect(sql).not.toMatch(/update\s+public\.clients/i);
+    expect(sql).toMatch(/update public\.event_registrations set client_id = v_client_id/);
+    expect(sql).toMatch(/revoke all on function public\.capture_event_registration_lead\(uuid\) from public, anon, authenticated/);
+    const body = (text: string) => text.slice(text.indexOf("create or replace function public.capture_event_registration_lead("), text.indexOf("to service_role;"));
+    expect(body(read("rollback/20270226090000_p2_event_lead_attribution_preserved_rollback.sql"))).toBe(body(read("20270219100000_g02_event_lead_ticket_kind_gate.sql")));
+  });
+
   it("a registration with no ticket type cannot be classified: no lead, studio still notified", async () => {
     const { supabase, ops } = fakeSupabase({ registration: registration({ ticket_type_id: null }) });
     await safeCaptureStudioEventRegistrationLead({ supabase, registrationId: "reg-1" });

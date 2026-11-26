@@ -188,7 +188,7 @@ export async function safeCaptureStudioEventRegistrationLead(params: {
       const { data: existingClients, error: existingClientError } =
         await params.supabase
           .from("clients")
-          .select("id, referral_source, source_system, status")
+          .select("id")
           .eq("studio_id", studioId)
           .ilike("email", email)
           .order("created_at", { ascending: true })
@@ -205,31 +205,9 @@ export async function safeCaptureStudioEventRegistrationLead(params: {
       const existingClient = existingClients?.[0] ?? null;
 
       if (existingClient) {
+        // P2: an existing client is only linked. Ticket checkout never writes a client's lead attribution
+        // (referral_source, source_system) or any other column, not even a blank one.
         clientId = existingClient.id;
-
-        const clientUpdatePayload: Record<string, string | null> = {};
-
-        if (!existingClient.referral_source) {
-          clientUpdatePayload.referral_source = "Event Registration";
-        }
-
-        if (!existingClient.source_system) {
-          clientUpdatePayload.source_system = "event_registration";
-        }
-
-        if (Object.keys(clientUpdatePayload).length > 0) {
-          const { error: clientUpdateError } = await params.supabase
-            .from("clients")
-            .update(clientUpdatePayload)
-            .eq("id", existingClient.id);
-
-          if (clientUpdateError) {
-            console.error(
-              "event registration CRM capture client update failed:",
-              clientUpdateError.message,
-            );
-          }
-        }
       } else {
         const { data: insertedClient, error: insertClientError } =
           await params.supabase
