@@ -14,7 +14,7 @@ do $$
 declare
   v_sig constant text := 'public.publish_competition_schedule_version(uuid)';
   v_pre constant text := '9a61cd9bcdbe8557d76cd6ec9e72c82c';
-  v_post constant text := 'abccc653c7c2380c7ec65c97a54526dd';
+  v_post constant text := '0fbbbef9670082fbb3cb2484d966dfa3';
   v_old1 constant text := $o$ LANGUAGE plpgsql
  SET search_path TO 'public', 'extensions', 'pg_temp'
 $o$;
@@ -32,6 +32,15 @@ $o$;
   perform 1 from public.event_competition_schedule_versions where id = selected_version_id and status in ('draft', 'review') for update;
   if not found then
     raise exception 'Schedule version was not found or cannot be published.';
+  end if;
+  -- Option D: a heat under one of this order's numbered floor heats or schedule blocks must belong to this order. Otherwise it would go live
+  -- with the order while every version-based guard treats it as editable.
+  if exists (select 1 from public.event_competition_heats h
+             where h.schedule_version_id is distinct from selected_version_id
+               and (h.floor_heat_id in (select f.id from public.event_competition_floor_heats f where f.schedule_version_id = selected_version_id)
+                    or h.schedule_block_id in (select b.id from public.event_competition_schedule_blocks b where b.schedule_version_id = selected_version_id))) then
+    raise exception 'COMPD_ORDER_HEAT_VERSION_MISMATCH: a heat sits in this running order without belonging to it; remove it or place it again before publishing.'
+      using errcode = '23514';
   end if;
 $n$;
   v_def text;

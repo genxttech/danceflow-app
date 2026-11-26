@@ -99,6 +99,16 @@ insert into public.event_competition_heat_entries (event_id, division_id, heat_i
 select pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('00d051'), pg_temp.u('0080' || lpad(i::text, 2, '0')), i from generate_series(1, 2) i;
 insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number)
 select pg_temp.u('00e003'), pg_temp.u('00d051'), 'waltz', 'Waltz', 1;
+-- a draft order (event 3) that already holds a planted heat, and a draft schedule block (event 1)
+insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.u('00c008'), pg_temp.u('00e003'), 3, 'v8bad', 'draft');
+insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.u('00f081'), pg_temp.u('00e003'), pg_temp.u('00c008'), 1);
+insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, floor_heat_id, status, name) values
+  (pg_temp.u('00d081'), pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 1, pg_temp.u('002003'), pg_temp.u('00c008'), pg_temp.u('00f081'), 'scheduled', 'h81'),
+  (pg_temp.u('00d082'), pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 3, pg_temp.u('002003'), null, pg_temp.u('00f081'), 'scheduled', 'h82');
+insert into public.event_competition_schedule_sessions (id, event_id, schedule_version_id, name, session_date, starts_at, ends_at)
+values (pg_temp.u('005e02'), pg_temp.u('00e001'), pg_temp.u('00c002'), 'S', current_date + 30, now() + interval '30 days', now() + interval '30 days 4 hours');
+insert into public.event_competition_schedule_blocks (id, event_id, schedule_version_id, session_id, name, block_type, starts_at, ends_at)
+values (pg_temp.u('00b002'), pg_temp.u('00e001'), pg_temp.u('00c002'), pg_temp.u('005e02'), 'B', 'competition', now() + interval '30 days', now() + interval '30 days 1 hour');
 set session_replication_role = origin;
 
 select pg_temp.chk('S: both guards installed, ENABLE ALWAYS, security invoker; publication is security definer',
@@ -128,6 +138,16 @@ select pg_temp.refused('D: renumber an unversioned heat that already sits under 
 select pg_temp.refused('base: attach an unversioned heat to the published version', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c001'), floor_heat_id = pg_temp.u('00f002') where id = pg_temp.u('00d031')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED', 'editable draft schedule');
 select pg_temp.refused('D: attach to another event''s published floor heat', $q$update public.event_competition_heats set floor_heat_id = pg_temp.u('00f041') where id = pg_temp.u('00d031')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('base: move a draft heat into the published version', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c001'), floor_heat_id = pg_temp.u('00f002') where id = pg_temp.u('00d021')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED', 'editable draft schedule');
+
+-- ============================================================================
+-- Planted heats: a floor heat or block reference always needs the version, in a draft too
+-- ============================================================================
+select pg_temp.refused('D: insert an unversioned heat under a DRAFT floor heat', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, floor_heat_id, status) values (pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 63, pg_temp.u('002003'), pg_temp.u('00f051'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('D: detach a draft heat from its version, keeping the floor heat', $q$update public.event_competition_heats set schedule_version_id = null where id = pg_temp.u('00d051')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('D: attach an unversioned heat to a DRAFT floor heat', $q$update public.event_competition_heats set floor_heat_id = pg_temp.u('00f021') where id = pg_temp.u('00d031')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('D: insert an unversioned heat under a draft schedule block', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, schedule_block_id, status) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006003'), 64, pg_temp.u('002001'), pg_temp.u('00b002'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('D: publication refuses an order holding a planted heat', $q$select public.publish_competition_schedule_version(pg_temp.u('00c008'))$q$, 'COMPD_ORDER_HEAT_VERSION_MISMATCH');
+select pg_temp.allowed('keep: a manager repairs the planted draft heat by giving it the version', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c008') where id = pg_temp.u('00d082')$q$);
 
 -- ============================================================================
 -- Published versions

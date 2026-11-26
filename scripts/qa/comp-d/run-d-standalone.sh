@@ -32,12 +32,15 @@ git show "HEAD:$M/$MIG" > "$CHAIN/new/$MIG"; git show "HEAD:$M/rollback/${MIG%.s
 D_SUITE=test_T_competition_d_published_order_write_guard
 SUITES="test_T_competition_o1_day_of test_T_phase10d_floor_schedule test_T_phase10d1_heat_entry_eligibility test_T_competition_f2_results test_T_competition_cf1_a3_results test_T_competition_cf1_f3_publication test_T_competition_cf1_a0_tie_policy test_T_competition_cf1_a4_minimum_integration test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_ns1_no_show test_T_competition_cf1_callback_final_advancement"
 git show "HEAD:$M/sql-tests/$D_SUITE.sql" > "$CHAIN/sql-tests/$D_SUITE.sql"
+git show "HEAD:$M/sql-tests/probe_D_planted_heat.sql" > "$CHAIN/sql-tests/probe_D_planted_heat.sql"
+# the revision under which the planted-heat finding was made (before the fix)
+PREFIX=02cf1c73d; mkdir -p "$CHAIN/prefix"; git show "$PREFIX:$M/$MIG" > "$CHAIN/prefix/$MIG"
 FOUND=""
 for s in $SUITES; do if git cat-file -e "HEAD:$M/sql-tests/$s.sql" 2>/dev/null; then git show "HEAD:$M/sql-tests/$s.sql" > "$CHAIN/sql-tests/$s.sql"; FOUND="$FOUND $s"; else log "BLOCKED: suite not in this tree: $s"; echo BLOCKED > "$OUT/result.txt"; exit 4; fi; done
 SUITES="$FOUND"
 git show "HEAD:$M/sql-tests/fixtures/competition_round_ready.sql" > "$CHAIN/sql-tests/fixtures/competition_round_ready.sql"
 git show "HEAD:$M/sql-tests/concurrency/run_d_publish_race.sh" > "$CHAIN/races.sh"
-for f in "$CHAIN"/base/*.sql "$CHAIN/new/$MIG" "$CHAIN/rollback/${MIG%.sql}_rollback.sql" "$CHAIN"/sql-tests/*.sql "$CHAIN/races.sh"; do
+for f in "$CHAIN"/base/*.sql "$CHAIN/prefix/$MIG" "$CHAIN/new/$MIG" "$CHAIN/rollback/${MIG%.sql}_rollback.sql" "$CHAIN"/sql-tests/*.sql "$CHAIN/races.sh"; do
   [ -s "$f" ] || { log "BLOCKED: composed file is empty or missing: $f"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
 done
 log "HEAD $(git rev-parse HEAD); live $(git rev-parse "$LIVE"); candidate $(git rev-parse "$CAND"); base files $(wc -l < "$OUT/migrations-base.sha256"), base fingerprint $(cat "$OUT/base-fingerprint.txt"); migration sha256 $(sha256sum "$CHAIN/new/$MIG" | cut -d' ' -f1); suites:$SUITES"
@@ -71,13 +74,28 @@ races() { local r res; tr -d '\r' < "$CHAIN/races.sh" > "$CHAIN/races.run.sh"; r
 res_of() { awk -F'\t' -v t="$1" -v s="$2" '$1==t && $2==s {print $3}' "$OUT/suites.tsv" | head -1; }
 objs() { "${PSQL[@]}" -Atc "select (select count(*) from pg_trigger where tgname like 'zz_compd_%' and not tgisinternal) || '/' || (select count(*) from pg_proc where proname like 'compd\_guard\_%')" | tr -d '\r'; }
 
+probe() { local l; tr -d '\r' < "$CHAIN/sql-tests/probe_D_planted_heat.sql" | timeout 300 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/probe-$1.log" 2>&1
+  l="$(grep -m1 -E "ERROR:  D PROBE:" "$OUT/probe-$1.log" | sed 's/^.*ERROR:  //')"; [ -n "$l" ] || l="NO VERDICT: $(grep -m1 ERROR "$OUT/probe-$1.log" | cut -c1-300)"
+  log "[probe $1] $l"; echo "$l" > "$OUT/probe-$1.txt"; }
+verdict() { sed -E 's/^D PROBE: (NOT REPRODUCED|REPRODUCED).*/\1/' "$OUT/probe-$1.txt"; }
 start_db || { log "BLOCKED: database not ready"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
 base_chain || { echo BLOCKED > "$OUT/result.txt"; exit 4; }
+apply "$CHAIN/prefix/$MIG" prefix || { echo BLOCKED > "$OUT/result.txt"; exit 4; }
+probe before-fix
+check "planted heat reproduces on the revision before the fix" "$(verdict before-fix)" "REPRODUCED"
+# a planted heat already inside a published order: the fixed migration must refuse to apply
+start_db && base_chain || { log "BLOCKED: could not rebuild"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
+{ sed -n '/^begin;$/,/^set session_replication_role = origin;$/p' "$CHAIN/sql-tests/$D_SUITE.sql" | tr -d '\r'; echo "commit;"; } | "${PSQL[@]}" > "$OUT/preflight-fixtures.log" 2>&1 || log "INFO: preflight fixtures did not load: $(grep -m1 ERROR "$OUT/preflight-fixtures.log")"
+if "${PSQL[@]}" -1 < "$CHAIN/new/$MIG" > "$OUT/preflight.log" 2>&1; then PF=applied; elif grep -q "D preflight: a heat already sits" "$OUT/preflight.log"; then PF=refused; else PF=other; fi
+check "apply preflight refuses an already planted published order" "$PF" "refused"
+start_db && base_chain || { log "BLOCKED: could not rebuild"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
 for s in $D_SUITE $SUITES; do run_suite baseline "$s"; done
 races baseline          # commits fixtures: the database is rebuilt afterwards
 start_db && base_chain || { log "BLOCKED: could not rebuild"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
 apply "$CHAIN/new/$MIG" forward || { echo FAIL > "$OUT/result.txt"; exit 1; }
 check "forward: objects installed (triggers/functions)" "$(objs)" "2/2"
+probe after-fix
+check "planted heat does not reproduce with the fix" "$(verdict after-fix)" "NOT REPRODUCED"
 for s in $D_SUITE $SUITES; do run_suite forward "$s"; done
 check "baseline: the D suite ran and fails on the gap checks" "$(awk -F'\t' -v s="$D_SUITE" '$1=="baseline" && $2==s && $4 ~ /SUITE FAIL/ {print "FAIL-with-verdict"}' "$OUT/suites.tsv") $(grep -c 'SUITE FAIL.*D: move a never-run published heat to another round' "$OUT/suite-baseline-$D_SUITE.log")" "FAIL-with-verdict 1"
 check "every suite produced a verdict" "$(awk -F'\t' '$2!="races" && $4 !~ /SUITE (PASS|FAIL)/' "$OUT/suites.tsv" | wc -l | tr -d ' ')" 0
@@ -91,19 +109,6 @@ races forward
 check "forward: races pass" "$(res_of forward races)" PASS
 check "baseline: races reproduce the gap (R1, R2 and R3 not refused)" "$(grep -m1 'D RACES FAIL' "$OUT/races-baseline.log" | grep -o 'R[123][^;]*: refused' | wc -l | tr -d ' ')" 3
 
-# INFORMATION ONLY (never gates this job): the F2 lifecycle races, with the HL1 fixture fix, without and with the R-11 migration of PR 865.
-R11=origin/claude/r11-correction-migration; R11M=20270301090000_competition_r11_approval_override_scope.sql
-if git show "$R11:$M/$R11M" > "$CHAIN/r11.sql" 2>/dev/null && git show "$R11:$M/sql-tests/concurrency/run_f2_races.sh" > "$CHAIN/f2races.raw" 2>/dev/null; then
-  tr -d '\r' < "$CHAIN/f2races.raw" > "$CHAIN/f2races.sh"; log "R-11 races source $(git rev-parse "$R11")"
-  for t in without-r11 with-r11; do
-    if start_db && base_chain; then
-      # the race script submits stub result rows: the PV-1 verifier is neutralized in this throw-away database only
-      "${PSQL[@]}" -Atc 'create or replace function public._comppv1_verify(p_ev jsonb, p_rows jsonb, p_warnings jsonb) returns void language plpgsql as $b$ begin null; end $b$' >/dev/null 2>&1
-      [ "$t" = with-r11 ] && { apply "$CHAIN/r11.sql" "$t" || log "INFO: R-11 did not apply"; }
-      timeout 600 bash "$CHAIN/f2races.sh" "$NAME" > "$OUT/f2races-$t.log" 2>&1
-      log "INFO f2 races ($t): $(grep -m1 -E 'F2 RACES (PASS|FAIL)' "$OUT/f2races-$t.log" | cut -c1-700)"
-    else log "INFO: could not rebuild for the F2 races ($t)"; fi
-  done
-else log "INFO: PR 865 branch files not found; F2 races not run"; fi
+# The informational PR 865 lifecycle races of earlier revisions are not part of this job (they hit their time limit; PR 865 is outside D).
 if [ "$BAD" = 0 ]; then log "D STANDALONE: PASS"; echo PASS > "$OUT/result.txt"; exit 0; fi
 log "D STANDALONE: FAIL ($BAD expectation(s) not met)"; echo FAIL > "$OUT/result.txt"; exit 1

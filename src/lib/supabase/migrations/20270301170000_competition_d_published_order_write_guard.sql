@@ -18,13 +18,17 @@
 --            version, as far as the caller can see them (an invisible or unknown reference is NOT editable: fail closed).
 --            INSERT: the new row must be editable. DELETE: the old row must be editable. UPDATE that changes a placement column (id, event, round,
 --            division, contest, schedule version, floor heat, block, floor, heat number, order, scheduled times, status): old AND new must be
---            editable. Other columns (name, floor label, lock fields, configuration, updated_at) are not decided here.
+--            editable. Other columns (name, lock fields, configuration, updated_at) are not decided here.
+--            A client row that references a numbered floor heat or a schedule block must also carry a schedule version (the foreign key and the
+--            placement validator then force it to be that parent's version). Without this, a heat with no version under a DRAFT floor heat was
+--            published with the order while its entries and dances stayed directly writable.
+--            Publication refuses an order holding such a heat, and this migration refuses to apply while one sits in a published or past order.
 --   VERSIONS a client may create a version only as draft/review, may not move a draft/review version into any other status (publication goes through
 --            publish_competition_schedule_version), and on a version that left draft/review (published, live, superseded, archived) may change only
 --            name and updated_at: no status, publication time, number, base or event change, and no delete.
 -- Publication therefore changes: publish_competition_schedule_version becomes SECURITY DEFINER (it already requires can_manage_event_competition and
 -- pins search_path), so its status writes are the only way to publish, and it locks the version row FOR UPDATE before validating. The change is a
--- pinned exact-text replacement (pre md5 9a61cd9bcdbe8557d76cd6ec9e72c82c, post md5 abccc653c7c2380c7ec65c97a54526dd); grants are unchanged (anon keeps EXECUTE as before and is refused by the
+-- pinned exact-text replacement (pre md5 9a61cd9bcdbe8557d76cd6ec9e72c82c, post md5 0fbbbef9670082fbb3cb2484d966dfa3); grants are unchanged (anon keeps EXECUTE as before and is refused by the
 -- function's own manager check).
 -- Legitimate writers are unaffected: SECURITY DEFINER lifecycle functions (floor planner on drafts, publication, publication copy, cancel round,
 -- day-of heat calls, heat lock, CF1 advancement into the live order, and the future OD-26 audited running-order change, which writes floor heats
@@ -45,6 +49,17 @@ begin
   if to_regclass('public.event_competition_floor_heats') is null or to_regclass('public.event_competition_schedule_versions') is null
      or to_regprocedure('public.publish_competition_schedule_version(uuid)') is null then
     raise exception 'D preflight: the 10D floor schedule (20261111090000) is missing.';
+  end if;
+  -- Rows already planted before this guard: never repaired silently.
+  if exists (select 1 from public.event_competition_heats h
+             join public.event_competition_floor_heats f on f.id = h.floor_heat_id
+             join public.event_competition_schedule_versions v on v.id = f.schedule_version_id
+             where v.status not in ('draft', 'review') and h.schedule_version_id is distinct from f.schedule_version_id)
+     or exists (select 1 from public.event_competition_heats h
+             join public.event_competition_schedule_blocks b on b.id = h.schedule_block_id
+             join public.event_competition_schedule_versions v on v.id = b.schedule_version_id
+             where v.status not in ('draft', 'review') and h.schedule_version_id is distinct from b.schedule_version_id) then
+    raise exception 'D preflight: a heat already sits in a published or past running order without belonging to it; review it before applying.';
   end if;
 end $$;
 
@@ -91,6 +106,10 @@ begin
   end if;
   if tg_op = 'DELETE' then
     return old;
+  end if;
+  if new.schedule_version_id is null and (new.floor_heat_id is not null or new.schedule_block_id is not null) then
+    raise exception 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED: a heat placed in a numbered floor heat or schedule block must carry that running order''s version.'
+      using errcode = '42501';
   end if;
   if new.schedule_version_id is not null then
     perform 1 from public.event_competition_schedule_versions v where v.id = new.schedule_version_id and v.status = 'draft' for share;
@@ -161,7 +180,7 @@ do $$
 declare
   v_sig constant text := 'public.publish_competition_schedule_version(uuid)';
   v_pre constant text := '9a61cd9bcdbe8557d76cd6ec9e72c82c';
-  v_post constant text := 'abccc653c7c2380c7ec65c97a54526dd';
+  v_post constant text := '0fbbbef9670082fbb3cb2484d966dfa3';
   v_old1 constant text := $o$ LANGUAGE plpgsql
  SET search_path TO 'public', 'extensions', 'pg_temp'
 $o$;
@@ -179,6 +198,15 @@ $o$;
   perform 1 from public.event_competition_schedule_versions where id = selected_version_id and status in ('draft', 'review') for update;
   if not found then
     raise exception 'Schedule version was not found or cannot be published.';
+  end if;
+  -- Option D: a heat under one of this order's numbered floor heats or schedule blocks must belong to this order. Otherwise it would go live
+  -- with the order while every version-based guard treats it as editable.
+  if exists (select 1 from public.event_competition_heats h
+             where h.schedule_version_id is distinct from selected_version_id
+               and (h.floor_heat_id in (select f.id from public.event_competition_floor_heats f where f.schedule_version_id = selected_version_id)
+                    or h.schedule_block_id in (select b.id from public.event_competition_schedule_blocks b where b.schedule_version_id = selected_version_id))) then
+    raise exception 'COMPD_ORDER_HEAT_VERSION_MISMATCH: a heat sits in this running order without belonging to it; remove it or place it again before publishing.'
+      using errcode = '23514';
   end if;
 $n$;
   v_def text;
