@@ -354,7 +354,7 @@ begin
     v_code := 'attempt_open';
   elsif p_action = 'reactivate' and (acc.status <> 'suspended' or not exists (
           select 1 from public.studio_sms_suspension_attempts x where x.legal_entity_id = v_entity and x.account_sid = acc.twilio_account_sid
-             and x.action = 'suspend' and (x.outcome in ('succeeded', 'already_in_state') or (x.outcome = 'reconciled' and x.provider_state_after = 'suspended'))))) then
+             and x.action = 'suspend' and (x.outcome in ('succeeded', 'already_in_state') or (x.outcome = 'reconciled' and x.provider_state_after = 'suspended')))) then
     v_code := 'not_suspended';
   end if;
 
