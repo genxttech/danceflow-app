@@ -688,3 +688,46 @@ Owner decision, verbatim: "Design B2". This closes the choice left open in secti
 **Known residuals presented with the choice:** duplicate dance catalog records, a second entry set or new division for the same people, and another event. The design must either close each one or state it for a later decision.
 
 **Status:** R-11 stays an OPEN Studio/Custom release blocker; the four executed routes remain open until B2 is built, verified and applied. Option D (PR 899) continues under the section 11 approval and does not close NC, CS or CA.
+
+## 14. Scratch / withdrawal after a heat has started: Option A now, Option C design only (2026-11-26)
+
+Context: PR 877 (S6, draft) refuses scratch AND withdrawal of a whole entry once any associated heat is active, completed, danced or disqualified; the earlier rule (20260620) refused only locked or certified heats. Owner decision, verbatim:
+
+> SCRATCH / WITHDRAWAL DECISION: OPTION A NOW, DESIGN OPTION C SEPARATELY.
+>
+> Approve preserving the whole-entry Scratch and withdrawal block once ANY associated heat is active, completed, danced or disqualified.
+>
+> This is DanceFlow Studio/Custom policy, not a governing-body compliance claim.
+>
+> OPTION A REQUIREMENTS:
+>
+> 1. Preserve the fail-closed database behavior in draft PR #877 and coordinate with the in-app Scratch workflow in #878.
+> 2. Never permit whole-entry Scratch or withdrawal to erase or invalidate participation in an already-started or completed heat.
+> 3. Preserve historical ballots, placements, attendance, audit evidence and refund calculations.
+> 4. Preserve the existing per-heat No-show workflow for applicable nonattendance, without misrepresenting an advance withdrawal as a No-show.
+> 5. Add executed negative tests covering active heats, completed heats, multiple heats per entry, unauthorized changes, concurrent heat start versus Scratch, and refund/scoring consequences.
+> 6. Rework the existing concurrency test to reflect the approved policy without weakening the race-condition coverage. Do not merely delete the failing test.
+> 7. Independently review and verify #877 and #878 together before presenting them for owner approval.
+>
+> OPTION C — DESIGN ONLY:
+>
+> 8. Design a controlled, audited withdrawal/Scratch mechanism affecting only heats that have not started.
+> 9. Distinguish entry-level registration status from per-heat participation status. Preserve the original entry and all completed participation.
+> 10. Support legitimate advance notice of withdrawal without forcing organizers to wait for each later heat to start and record a No-show.
+> 11. Define effects on future heat assignments, callbacks, multi-dance scoring, minimum-couple requirements, schedule publication, ballots and eligibility.
+> 12. Preserve the distinction between Scratch, No-show, organizer exclusion and disqualification.
+> 13. Explicitly model refund eligibility where an entry has completed some heats but withdrawn from others. Do not automatically refund, restore credits or treat participation as undone.
+> 14. Include authorization, concurrency protection, immutable audit history, rollback requirements and negative-test scenarios.
+> 15. Coordinate with OD-07, OD-08, OD-21, OD-26, R-08, R-12 and the existing status-integrity guards.
+>
+> AUTHORIZATION LIMITS:
+>
+> Option A draft implementation and testing may proceed within its already approved scope.
+>
+> Option C is authorized for architecture, documentation, impact assessment and independent review only. Do not implement its SQL or application changes without separate authorization.
+>
+> No DEV/PROD SQL apply, protected merge, deployment or public Competition OS activation is authorized.
+>
+> Keep both PRs and associated test gaps open until independently verified. Report the minimum viable Option C design and whether its absence would materially impair initial Studio/Custom operations.
+
+**Coordinator note (open, not decided):** until C exists, an advance withdrawal from later heats of an entry that has already started can only be recorded as a per-heat No-show once each heat is active, or not at all. That is in tension with requirement 4 and belongs in the requirement 15 impact report.
