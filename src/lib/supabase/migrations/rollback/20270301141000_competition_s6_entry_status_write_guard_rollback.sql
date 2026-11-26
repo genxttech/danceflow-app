@@ -7,7 +7,7 @@ set local lock_timeout = '5s';
 do $$
 declare v_oid oid := to_regprocedure('public.cf1_s6_guard_entry_status()'); v_note text; v_role text;
 begin
-  if v_oid is null or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'e7ec5a02c94815954d4706a77731eb21' then
+  if v_oid is null or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from '2cc90b4198f6b0c3a5724962992efb7c' then
     raise exception 'S6 guard rollback refused: the guard is not installed or is not the 20270301141000 version.';
   end if;
   v_note := obj_description(v_oid, 'pg_proc');

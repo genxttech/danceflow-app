@@ -45,6 +45,7 @@ insert into public.event_competition_heats (id, event_id, division_id, round_id,
   values ('$HEAT', '$EV', '$DIV', '$RND', 1, 'scheduled', 'open', '$CON', '$VER', '$FH');
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values ('$EV', '$DIV', '$HEAT', '$ENT2', 1, 'scheduled');
 SQL
+[ "$(SU -c "select count(*) from public.event_competition_heat_entries where entry_id = '$ENT2'")" = "1" ] || { echo "S6 CONCURRENCY FIXTURE FAILED"; exit 3; }
 VER0=$(SU -c "select lifecycle_version from public.event_competition_entries where id = '$ENT'")
 
 CLAIMS="select set_config('request.jwt.claims', json_build_object('sub','$MGR','role','authenticated')::text, false);"

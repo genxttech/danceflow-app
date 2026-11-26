@@ -52,6 +52,9 @@ begin
      or (select pg_get_userbyid(relowner) from pg_class where oid = 'public.event_competition_entries'::regclass) not in ('postgres', 'supabase_admin') then
     raise exception 'S6 guard preflight failed: the entry audit trigger, the append-only history or the table owner is not as expected.';
   end if;
+  if (select count(*) from pg_trigger where tgrelid = 'public.event_competition_entry_changes'::regclass and tgname in ('protect_competition_entry_change_history', 'protect_competition_entry_change_history_truncate') and tgenabled <> 'D') <> 2 then
+    raise exception 'S6 guard preflight failed: the append-only history triggers are missing or disabled.';
+  end if;
   -- the privileges this migration revokes are recorded for the rollback; refuse a state it was not written for
   if not has_function_privilege('service_role', 'public._r2_withdraw_entry(uuid, text, text)', 'execute')
      or not has_function_privilege('service_role', 'public._r2_apply_participation(uuid)', 'execute')
@@ -100,7 +103,8 @@ begin
     if new.registration_id is not null or new.order_id is not null or new.order_item_id is not null or new.registration_cart_id is not null then
       raise exception 'COMP_S6_ENTRY_LINK_WRITER: an entry cannot be linked to a registration or order by a direct table write.' using errcode = '42501';
     end if;
-    if new.scratched_at is not null or new.scratch_reason is not null or new.withdrawn_at is not null or new.withdrawal_reason is not null or new.confirmed_at is not null then
+    if new.scratched_at is not null or new.scratch_reason is not null or new.withdrawn_at is not null or new.withdrawal_reason is not null or new.confirmed_at is not null
+       or new.lifecycle_version is distinct from 1 then
       raise exception 'COMP_S6_ENTRY_EVIDENCE_WRITER: scratch, withdrawal and confirmation evidence cannot be written by a direct table write.' using errcode = '42501';
     end if;
     return new;

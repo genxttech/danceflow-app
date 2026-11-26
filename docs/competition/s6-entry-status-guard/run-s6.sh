@@ -115,24 +115,26 @@ S6_OUT="$OUT" bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.
 
 # mutation checks: a deliberately broken guard or function must make the tests FAIL, otherwise the tests prove nothing about that rule
 : > "$OUT/mutants.tsv"
-mutant(){ # $1 name  $2 function signature  $3 anchor text  $4 replacement  $5 test (suite|race)
+mutant(){ # $1 name  $2 function signature  $3 anchor text  $4 replacement  $5 test (suite|race)  $6 label of the check that must fail
   printf "drop table if exists public._s6_mut; create table public._s6_mut as select pg_get_functiondef('%s'::regprocedure) as d;\ndo \$m\$ declare d text := (select d from public._s6_mut); begin if position(\$a\$%s\$a\$ in d) = 0 then raise exception 'mutant anchor missing'; end if; execute replace(d, \$a\$%s\$a\$, \$b\$%s\$b\$); end \$m\$;\n" "$2" "$3" "$3" "$4" > "$OUT/mut-$1.sql"
   if ! "${PSQL[@]}" < "$OUT/mut-$1.sql" > "$OUT/mut-$1.log" 2>&1; then printf '%s\tNOT APPLIED\n' "$1" >> "$OUT/mutants.tsv"; return; fi
   local det=NOT-DETECTED
-  if [ "$5" = race ]; then S6_OUT="$OUT" bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/mut-$1-test.log" 2>&1 || det=DETECTED
-  else "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$M/sql-tests/test_T_competition_s6_entry_status_guard.sql" > "$OUT/mut-$1-test.log" 2>&1; grep -q "SUITE PASS (" "$OUT/mut-$1-test.log" || det=DETECTED; fi
+  if [ "$5" = race ]; then mkdir -p "$OUT/mut-$1"; S6_OUT="$OUT/mut-$1" bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/mut-$1-test.log" 2>&1 || det=WRONG-REASON
+    grep -E 'S6 CONCURRENCY FAIL:' "$OUT/mut-$1-test.log" | grep -qF "$6" && det=DETECTED
+  else "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$M/sql-tests/test_T_competition_s6_entry_status_guard.sql" > "$OUT/mut-$1-test.log" 2>&1; grep -q "SUITE PASS (" "$OUT/mut-$1-test.log" || det=WRONG-REASON
+    grep -E 'SUITE FAIL:' "$OUT/mut-$1-test.log" | grep -qF "$6" && det=DETECTED; fi
   "${PSQL[@]}" -c "do \$r\$ begin execute (select d from public._s6_mut); end \$r\$; drop table public._s6_mut;" >> "$OUT/mut-$1.log" 2>&1 || det=RESTORE-FAILED
   printf '%s\t%s\n' "$1" "$det" >> "$OUT/mutants.tsv"; log "mutant $1: $det"
 }
 G='public.cf1_s6_guard_entry_status()'; L='public.change_competition_entry_lifecycle(uuid, text, text, text)'
-mutant insert-link-rule "$G" "if new.registration_id is not null or new.order_id is not null or new.order_item_id is not null or new.registration_cart_id is not null then" "if false then" suite
-mutant delete-status-rule "$G" "if old.status not in ('pending', 'confirmed')" "if false" suite
-mutant delete-order-link "$G" "or old.order_id is not null " "" suite
-mutant evidence-rule "$G" "new.scratch_reason is distinct from old.scratch_reason or " "" suite
-mutant entry-lock "$L" "for no key update;" ";" race
-mutant participation-guard 'public.cf1_s6_guard_started_participation()' "or old.status in ('danced', 'disqualified') then" "and false then" suite
+mutant insert-link-rule "$G" "if new.registration_id is not null or new.order_id is not null or new.order_item_id is not null or new.registration_cart_id is not null then" "if false then" suite "D3c inslink"
+mutant delete-status-rule "$G" "if old.status not in ('pending', 'confirmed')" "if false" suite "D4d dd_840001"
+mutant delete-order-link "$G" "or old.order_id is not null " "" suite "D4d dd_840003"
+mutant evidence-rule "$G" "new.scratch_reason is distinct from old.scratch_reason or " "" suite "D3d ev_scratch_reason"
+mutant entry-lock "$L" "for no key update;" ";" race "evidence survived"
+mutant participation-guard 'public.cf1_s6_guard_started_participation()' "or old.status in ('danced', 'disqualified') then" "and false then" suite "P4 x_del_he"
 mutant heat-lock "$L" "order by h.id
-  for share;" "order by h.id;" race
+  for share;" "order by h.id;" race "race 2: the RPC re-checked"
 "${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-after-mutants.txt"
 diff -q "$OUT/state-P2-after-140000-141000.txt" "$OUT/state-after-mutants.txt" >/dev/null || { log "mutants: state NOT restored"; echo "restore	NOT-DETECTED" >> "$OUT/mutants.tsv"; }
 
@@ -156,7 +158,16 @@ fi
 FAILS=0
 grep -q '^FAIL' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
 grep -Eq 'rc=[1-9]' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
-for tsv in suites.tsv suites-pr867.tsv suite-s6-after-reapply.tsv; do n=$(awk -F'\t' '$2!="PASS"' "$OUT/$tsv" | wc -l); [ "$n" -gt 0 ] && { log "$tsv: $n suite(s) not PASS"; FAILS=$((FAILS+1)); }; done
+# a with-S6 failure counts as pre-existing only if the same suite failed before S6 with the identical first error line
+: > "$OUT/suite-classification.tsv"
+while IFS=$'\t' read -r name res rest; do
+  [ "$res" = PASS ] && continue
+  a="$(grep -m1 -E '^ERROR' "$OUT/suite-suites-pr867-$name.log" 2>/dev/null)"; b="$(grep -m1 -E '^ERROR' "$OUT/suite-suites-$name.log" 2>/dev/null)"
+  if [ -n "$a" ] && [ "$a" = "$b" ] && grep -qP "^$name\tFAIL" "$OUT/suites-pr867.tsv"; then printf '%s\tFAIL-ALSO-WITHOUT-S6\n' "$name" >> "$OUT/suite-classification.tsv"; else printf '%s\tFAIL-NEW-OR-UNEXPLAINED\n' "$name" >> "$OUT/suite-classification.tsv"; fi
+done < "$OUT/suites.tsv"
+n=$(grep -c 'FAIL-NEW-OR-UNEXPLAINED' "$OUT/suite-classification.tsv"); [ "$n" -gt 0 ] && { log "suites.tsv: $n new or unexplained failure(s)"; FAILS=$((FAILS+1)); }
+log "failures also present without S6: $(grep -c 'FAIL-ALSO-WITHOUT-S6' "$OUT/suite-classification.tsv")"
+n=$(awk -F'\t' '$2!="PASS"' "$OUT/suite-s6-after-reapply.tsv" | wc -l); [ "$n" -gt 0 ] && { log "S6 suite after re-apply not PASS"; FAILS=$((FAILS+1)); }
 grep -q 'S6 CONCURRENCY PASS' "$OUT/concurrency.log" || FAILS=$((FAILS+1))
 if [ -z "${A5_PRE:-}" ]; then grep -q 'COMPETITION CF1 A5 CONCURRENCY PASS' "$OUT/a5-adapted-with-S6.log" || FAILS=$((FAILS+1)); fi
 awk -F'\t' '$2!="DETECTED"' "$OUT/mutants.tsv" | grep -q . && { log "mutants not all detected"; FAILS=$((FAILS+1)); }

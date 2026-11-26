@@ -32,15 +32,14 @@ Function owner / security / ACL read from DEV and PROD (identical) on 2026-11-24
 
 ## 3. Decision: a general, fail-closed guard
 
-**Chosen:** one guard function with three triggers. For any role that is not `postgres` / `supabase_admin`: `cf1_s6_guard_entry_status` (AFTER INSERT OR UPDATE) refuses every status change and any INSERT that is not an unlinked `pending` entry; `cf1_s6_guard_entry_links` (BEFORE UPDATE) refuses changes of `id`, `event_id` and the registration / order / order-item / cart links; `cf1_s6_guard_entry_delete` (BEFORE DELETE) refuses deleting an entry whose status is not `pending` or `confirmed`, whose history ever held `scratched`, `withdrawn`, `disqualified` or `complete`, or that is `confirmed` and linked to a registration or order. The link and delete rules are BEFORE triggers so that a foreign-key referential action (ON DELETE SET NULL, cascade delete), which runs as the table owner at that point, is not refused (inferred; no registration fixture exercises it yet).
+**Chosen:** fail-closed row triggers for every role that is not `postgres` / `supabase_admin`. On `event_competition_entries` (one function, three triggers): AFTER INSERT/UPDATE refuses every status change and any non-`pending` insert; BEFORE INSERT/UPDATE refuses registration/order/cart links, `id` / `event_id` changes, and writes of the lifecycle evidence (`scratched_at`, `scratch_reason`, `withdrawn_at`, `withdrawal_reason`, `confirmed_at`, `lifecycle_version`, the last only together with the late-entry flag); BEFORE DELETE allows only an entry that is pending or confirmed, unlinked, never confirmed through the product, without protected history, and whose heat entries are all `scheduled` in heats that are not active or complete. A second function protects participation: a client cannot delete, move, re-point or scratch a heat entry of an active or complete heat (or a `danced` / `disqualified` one), nor delete an active or complete heat. Link and delete rules are BEFORE triggers so that referential actions, which run as the table owner at that point, are not refused (inferred; no registration fixture exercises it).
 
 Why not narrower: direct `complete`, `scratched` and `withdrawn` writes matter as much as `disqualified` (R2 skips the cascade and exception recording; the sync skips the entry; A5/A6/advancement treat it as unavailable; `withdrawn`/`scratched` satisfies R2's `withdrawn_after_unlock` gate); `waitlisted` / `pending` flip the eligibility predicate. A per-value list leaves a gap for every value not listed and every value added later. After the one client-facing writer becomes DEFINER, **no legitimate client-role status writer exists**, so the general rule loses nothing.
 
-| Role / path | INSERT | UPDATE of `status`, identity or links | DELETE |
-|---|---|---|---|
-| anon, authenticated, service_role, any other non-owner role | unlinked `pending` only | refused (`COMP_S6_ENTRY_STATUS_WRITER`, `COMP_S6_ENTRY_LINK_WRITER`) | allowed only for a pending entry, or an unlinked confirmed one, that never held a protected status (`COMP_S6_ENTRY_DELETE_WRITER` otherwise). This keeps the two existing behaviours the 10A and callback-final suites assert |
-| owner-run definers (registration, sync, R2, lifecycle RPC) | any | any, subject to their own rules | any |
-| owner SQL session, referential cascades (run as the table owner) | any | any | any |
+| Role / path | Effect |
+|---|---|
+| anon, authenticated, service_role, any other non-owner role | the rules above |
+| owner-run definers (registration, sync, R2, lifecycle RPC), owner SQL sessions, referential cascades | unchanged; their own rules apply |
 
 All refusals are SQLSTATE `42501` and roll the statement back, including an audit row written earlier in it. A transition matrix for owner-run writers was rejected: the existing suites legitimately move entries between arbitrary states as the owner.
 
@@ -53,6 +52,12 @@ The guard reads `current_user` and row values only; it reads no custom setting. 
 Same signature; EXECUTE limited to `authenticated`. Because a definer function bypasses RLS and the invoker-side guards, `140000` makes these rules **mandatory** (each differs from June, and the owner should confirm them): (1) only `pending`, `confirmed`, `waitlisted` entries can be scratched or withdrawn (`COMP_ENTRY_LIFECYCLE_STATE`), so a disqualification or completion cannot be cleared; (2) placed entries are refused (`COMP_ENTRY_LIFECYCLE_PLACED`, the R2 locked/certified class) besides the existing locked-heat refusal; (3) repeating the call for the current state writes no audit row or version bump and, after the same checks, completes the heat-entry cascade; (4) the locked/certified and placed refusals run first **without** a row lock (a refused call must not lock an advanced couple, CF1 rows U55/U22), then heats are locked FOR SHARE in id order and the entry FOR NO KEY UPDATE and the refusals are repeated under the locks. A heat entry inserted into an active heat between the heat locks and the cascade is a narrow remaining window. The SC1 session was told the error codes and keeps the same call.
 
 The rollback restores the June invoker definition and ACL order. **"Exact" is relative to the repository text:** the hosted body contains CR characters from its original apply, so a rollback restores the CR-free repository definition; the pins compare `md5(replace(prosrc, chr(13), ''))`.
+
+## 5c. Owner decision of 2026-11-26: option A
+
+Recorded in PR 795 section 14 (`3515c5524`): whole-entry scratch **and** withdrawal stay refused once an associated heat is active, completed, danced or disqualified. DanceFlow Studio/Custom policy, not a governing-body claim. Implementation: the lifecycle refusal (R2 participation class locked/certified) is unchanged; the participation triggers above close the detach routes; per-heat No-show (NS1) is unchanged, and no advance withdrawal is recorded as a No-show.
+
+**Cases the rule does not cover (reported, not changed):** (a) a heat in `staging`: scratch is accepted (test P6); (b) a confirmed entry whose placement in an active or complete heat is **already scratched**: the R2 class ignores scratched placements, so the whole-entry scratch is accepted and refunds class the entry `open` (tests P3a/P3b); SC1 (PR 878) behaves the same; (c) the Final withdrawal workflow (A6) and the registration / refund definers keep their own rules.
 
 ## 6. Reassessment of the 2026-11-13 residual acceptance
 
@@ -79,10 +84,8 @@ Triggers on `event_competition_entries` (same-timing triggers fire in name order
 
 * A manager (or `service_role`) changing an `event_registrations` row that is **legitimately** linked to an entry still drives the sync: marking it paid/free confirms a pending entry, cancelling withdraws it (`paywh1` guards allow some of this). Closing it belongs to the registration guards, not this table.
 * Parent cascades (deleting a division, program or event) delete entries as the table owner (OD-04 covers events).
-* A client can still delete an unlinked `confirmed` entry that never held a protected status and re-create it as `pending` (kept because existing suites assert that deletion).
+* A client can still delete an unlinked, never-confirmed `confirmed` entry with no protected history and no started or non-scheduled placement, and re-create it as `pending` (existing suites assert that deletion). Parent cascades (division, program, event) are not covered.
 * `TRUNCATE` is still granted to the client roles (not reachable through the table API).
-* Further delete routes (third review): a **pending linked** entry with no restricting cart reference can be deleted and re-created unlinked; deleting a registration that has no order clears `registration_id`, after which a formerly protected confirmed entry becomes deletable; deleting a deletable entry cascades away its heat entries, including `danced` / `disqualified` ones in unlocked draft or version-less heats.
-* Lifecycle evidence columns (`scratched_at`, `scratch_reason`, `withdrawn_at`, `withdrawal_reason`, `confirmed_at`, `lifecycle_version`) are **not** guarded: a manager can erase or pre-plant them without an audit row.
 * Owner-role sessions are trusted.
 * F3 for **heat** entries (the U18-S marker) is unchanged; section 10 records what the read-back showed.
 * F7 stays limited to what was observed: published-schedule heat entries are protected by the 10D guard; draft-schedule delete/re-insert is not covered here.
