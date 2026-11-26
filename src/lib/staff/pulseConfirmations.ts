@@ -5,16 +5,16 @@ import { loadStudioClientNames } from "@/lib/staff/instructorToday";
  * Pulse "missing confirmation" read (audit decision O5, owner window 2026-11-26: 48 hours). Read only: nothing is sent, confirmed or changed.
  *
  * An appointment is waiting for a confirmation when all of these hold:
- *  - it belongs to the studio and names one dancer (`client_id`); canonical group classes have a roster instead and are not confirmed this way;
+ *  - it belongs to the studio and names one dancer (`client_id`);
  *  - its status is `scheduled` or `rescheduled` (a dancer's confirmation moves it to `confirmed`; cancelled, attended and no-show are over);
- *  - it is a lesson, not a floor space rental;
+ *  - it is not a group class (nobody can confirm one, also not an older class row that still carries a `client_id`) and not a floor space rental;
  *  - it has not started, and it starts no later than 48 elapsed hours from now (the limit itself is included).
  * Whether a confirmation link was ever sent is not considered: the confirmation tokens are not readable by staff sessions, and a dancer can confirm in the app too.
  */
 
 export const CONFIRMATION_WINDOW_HOURS = 48;
 const WAITING_STATUSES = ["scheduled", "rescheduled"];
-const NOT_CONFIRMED_BY_DANCERS = "floor_space_rental";
+const NOT_CONFIRMED_BY_DANCERS = ["floor_space_rental", "group_class"];
 const LIST_LIMIT = 5;
 
 export type PulseConfirmationItem = { id: string; startsAt: string; appointmentType: string; clientName: string | null };
@@ -44,7 +44,8 @@ export async function loadMissingConfirmations(params: {
       .eq("studio_id", studioId)
       .in("status", WAITING_STATUSES)
       .not("client_id", "is", null)
-      .neq("appointment_type", NOT_CONFIRMED_BY_DANCERS)
+      .neq("appointment_type", NOT_CONFIRMED_BY_DANCERS[0])
+      .neq("appointment_type", NOT_CONFIRMED_BY_DANCERS[1])
       .gt("starts_at", after)
       .lte("starts_at", until);
     return scope === "own" ? q.eq("instructor_id", instructorId as string) : q;

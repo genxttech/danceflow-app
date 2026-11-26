@@ -216,7 +216,7 @@ describe("not confirmed yet (48 hours)", () => {
 
   it("shows the count in Needs you and the card, the time in the studio's zone, and opens the appointment", async () => {
     renderPulse(pulse({ ...OK, confirmations }));
-    expect(await screen.findByLabelText("7 appointments not confirmed")).toBeTruthy();
+    expect(await screen.findByLabelText("7 appointments not confirmed in the next 48 hours")).toBeTruthy();
     expect(screen.getByLabelText("in the next 48 hours: 7")).toBeTruthy();
     expect(screen.getByText("Showing the soonest 1 of 7.")).toBeTruthy();
     expect(screen.queryByTestId("pulse-confirmation-bad-time")).toBeNull();
@@ -228,6 +228,23 @@ describe("not confirmed yet (48 hours)", () => {
     renderPulse(pulse({ ...OK, confirmations: { state: "ok", windowHours: 48, total: 0, truncated: false, upcoming: [] } }));
     expect(await screen.findByText("No appointments in the next 48 hours are waiting for a confirmation.")).toBeTruthy();
     expect(screen.queryByTestId("pulse-needs-confirmations")).toBeNull();
+  });
+
+  it("never claims all clear while a card it speaks for is unavailable, and still lists what is waiting", async () => {
+    const quiet = { requests: { state: "ok", total: 0, recent: [] }, leads: null, aria: null, exceptions: OK.exceptions, health: OK.health };
+    renderPulse(pulse({ ...quiet, confirmations: { state: "unavailable" } }));
+    expect(await screen.findByTestId("pulse-confirmations-unavailable")).toBeTruthy();
+    expect(screen.queryByTestId("pulse-needs-you")).toBeNull();
+    screen.unmount();
+    renderPulse(pulse({ ...quiet, requests: { state: "unavailable" }, confirmations: { state: "ok", total: 0, upcoming: [] } }));
+    expect(await screen.findByTestId("pulse-requests-unavailable")).toBeTruthy();
+    expect(screen.queryByText("Nothing is waiting on you right now.")).toBeNull();
+    screen.unmount();
+    renderPulse(pulse({ ...quiet, requests: { state: "unavailable" }, confirmations: { state: "ok", total: 2, upcoming: [] } }));
+    expect(await screen.findByTestId("pulse-needs-confirmations")).toBeTruthy();
+    screen.unmount();
+    renderPulse(pulse({ ...quiet, confirmations: { state: "ok", total: 0, upcoming: [] } }));
+    expect(await screen.findByText("Nothing is waiting on you right now.")).toBeTruthy();
   });
 
   it("draws nothing for a server that does not send the card, and an unavailable card leaves the rest", async () => {

@@ -86,9 +86,11 @@ describe("which appointments wait for a confirmation", () => {
     expect(ids(card)).toEqual(["scheduled", "rescheduled"]);
   });
 
-  it("needs one dancer and is not a floor space rental", async () => {
+  it("needs one dancer and is neither a group class nor a floor space rental", async () => {
     const { card } = await cardFor("studio_owner", [
       appointment("class", HOUR, { client_id: null, appointment_type: "group_class" }),
+      appointment("old-class", HOUR, { client_id: "c1", appointment_type: "group_class" }),
+      appointment("no-dancer", HOUR, { client_id: null }),
       appointment("rental", 2 * HOUR, { appointment_type: "floor_space_rental" }),
       appointment("intro", 3 * HOUR, { appointment_type: "intro_lesson" }),
     ]);

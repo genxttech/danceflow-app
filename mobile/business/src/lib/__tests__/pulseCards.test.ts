@@ -92,7 +92,7 @@ describe("needsYouItems", () => {
   it("lists unconfirmed appointments after requests, in the singular for one, and never for zero", () => {
     const one = toPulseCards({ ...OK_CARDS, confirmations: { state: "ok", windowHours: 48, total: 1, upcoming: [] } }) as PulseCards;
     expect(needsYouItems(one).map((item) => item.key)).toEqual(["requests", "confirmations", "leadsOverdue", "leadsUncontacted", "aria"]);
-    expect(needsYouItems(one)[1].label).toBe("appointment not confirmed");
+    expect(needsYouItems(one)[1].label).toBe("appointment not confirmed in the next 48 hours");
     const none = toPulseCards({ ...OK_CARDS, confirmations: { state: "ok", windowHours: 48, total: 0, upcoming: [] } }) as PulseCards;
     expect(needsYouItems(none).some((item) => item.key === "confirmations")).toBe(false);
   });

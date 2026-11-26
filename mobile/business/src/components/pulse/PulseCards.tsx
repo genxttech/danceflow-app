@@ -56,7 +56,9 @@ const isUnavailable = (card: unknown): card is CardUnavailable => (card as CardU
 
 export function PulseCardsView({ cards, now, onOpenLead, onOpenAppointment, scope, timeZone }: Props) {
   const needs = needsYouItems(cards);
-  const anyNeedsCard = [cards.requests, cards.confirmations, cards.leads, cards.aria].some((card) => card && !isUnavailable(card));
+  const needsSources = [cards.requests, cards.confirmations, cards.leads, cards.aria];
+  // "Nothing is waiting" is only true when every card it speaks for answered; with one unavailable the card is shown only if there is something to list.
+  const anyNeedsCard = needs.length > 0 || (needsSources.some((card) => card !== null) && !needsSources.some((card) => isUnavailable(card)));
   const { requests, confirmations, leads, aria, exceptions, health } = cards;
 
   return (
@@ -138,7 +140,7 @@ export function PulseCardsView({ cards, now, onOpenLead, onOpenAppointment, scop
                 </AppText>
               ) : null}
               <AppText variant="caption" tone="muted">
-                Dancers confirm from their reminder email or the app.
+                Dancers can confirm in the app. Reminder emails with a confirm link go out about a day before, so later appointments may not have had one yet.
               </AppText>
             </>
           )}

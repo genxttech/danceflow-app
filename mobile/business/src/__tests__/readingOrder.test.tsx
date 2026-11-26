@@ -117,7 +117,7 @@ describe("reading order of the key screens", () => {
         "Pulse",
         "Needs you",
         "2 lesson requests waiting",
-        "2 appointments not confirmed",
+        "2 appointments not confirmed in the next 48 hours",
         "1 lead follow-up overdue",
         "1 lead not contacted yet",
         "1 ARIA suggestion to review",

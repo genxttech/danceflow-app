@@ -161,7 +161,8 @@ export function needsYouItems(cards: PulseCards): NeedsYouItem[] {
     items.push({ key: "requests", count: cards.requests.total, label: plural(cards.requests.total, "lesson request waiting", "lesson requests waiting") });
   }
   if (cards.confirmations?.state === "ok" && cards.confirmations.total > 0) {
-    items.push({ key: "confirmations", count: cards.confirmations.total, label: plural(cards.confirmations.total, "appointment not confirmed", "appointments not confirmed") });
+    const within = `in the next ${cards.confirmations.windowHours} hours`;
+    items.push({ key: "confirmations", count: cards.confirmations.total, label: plural(cards.confirmations.total, `appointment not confirmed ${within}`, `appointments not confirmed ${within}`) });
   }
   if (cards.leads?.state === "ok") {
     if (cards.leads.followUpsOverdue > 0) items.push({ key: "leadsOverdue", count: cards.leads.followUpsOverdue, label: plural(cards.leads.followUpsOverdue, "lead follow-up overdue", "lead follow-ups overdue") });
