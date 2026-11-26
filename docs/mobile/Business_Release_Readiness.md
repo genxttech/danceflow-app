@@ -58,7 +58,7 @@ Without Firebase credentials and an EAS project id the More screen says notifica
 - apply `20260626_student_push_notifications_v1.sql` (table `mobile_push_tokens`) and `20270213080000_mobile_push_token_claim.sql` (the claim function; the Student release needs both too) to the target database;
 - the build needs `google-services.json` (see `Android_Push_Firebase_Setup.md`) and the EAS project id;
 - the app registers an Expo push token with `claim_mobile_push_token(..., 'danceflow-business')` (no new route or table);
-- a staff-facing **sender** does not exist yet (which events notify which staff, and the `{type, id, studioId}` payload `notificationRoute.ts` expects), and the token is not yet unbound at sign-out.
+- a staff-facing **sender** does not exist yet (which events notify which staff, and the `{type, id, studioId}` payload `notificationRoute.ts` expects), the token is unbound at sign-out (since 2026-11-26).
 
 ## 6. The build (needed)
 
