@@ -26,6 +26,10 @@ type LoadState =
 
 export type DayMode = "mine" | "studio";
 
+/** How far past studio midnight before re-reading (device clocks run a little ahead or behind), and the pause between tries when the read fails. */
+const ROLLOVER_GRACE_MS = 2 * 60_000;
+const ROLLOVER_RETRY_MS = 5 * 60_000;
+
 /** "My day" / "Studio": which schedule the Today tab shows. A radio group with the choice in words and state. */
 export function DayModeSwitch({ mode, onChange }: { mode: DayMode; onChange: (mode: DayMode) => void }) {
   const options: { value: DayMode; label: string }[] = [
@@ -130,12 +134,28 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
   }
 
   const day = state.status === "ready" ? state.day : null;
+  // Studio midnight. A screen showing "today" (no day picked) keeps the earlier day after the studio's calendar date moves on. When the date has moved SINCE THIS DAY
+  // WAS LOADED (the server stays the authority on what "today" was at load time, so a wrong device clock changes nothing then), re-read it. The grace period covers a
+  // device clock slightly ahead of the server; a failed read is tried again no more than every five minutes. Until the new day is here the old one is not called today.
+  const calendarToday = day ? dateInZone(nowMs, day.timeZone) : null;
+  const movedTo = day ? dateInZone(nowMs - ROLLOVER_GRACE_MS, day.timeZone) : null;
+  const loadedOn = state.status === "ready" ? dateInZone(state.loadedAt, state.day.timeZone) : null;
+  const rolledOver = date === null && day !== null && movedTo !== null && loadedOn !== null && movedTo > loadedOn && movedTo > day.date;
+  const lastAttempt = useRef<{ key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!rolledOver) return;
+    const key = `${studioId}:${movedTo}`;
+    const last = lastAttempt.current;
+    if (last && last.key === key && nowMs - last.at < ROLLOVER_RETRY_MS) return;
+    lastAttempt.current = { key, at: nowMs };
+    void load("refresh");
+  }, [rolledOver, movedTo, studioId, nowMs, load]);
   // The one obvious next action, for today only (a past or future day has no "next"). Today is judged by the calendar date in the studio's zone, so stepping away
   // and back to today still counts. The role must be able to mark attendance, the same condition the appointment screen needs for its controls.
   const studio = me?.workspaces.find((w) => w.studioId === studioId);
   const mayMark = studio?.accessAllowed === true && studio.capabilities?.markAttendance === true;
   const next =
-    day && mayMark && (date === null || day.date === dateInZone(nowMs, day.timeZone))
+    day && mayMark && !rolledOver && (date === null || day.date === calendarToday)
       ? nextUp(day.appointments, nowMs, { oneToOne: isStaffFeatureEnabled("appointmentAttendance"), classes: isStaffFeatureEnabled("attendance") })
       : null;
 
@@ -146,9 +166,9 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
           {workspace?.publicName || workspace?.name || "Your studio"}
         </AppText>
         <AppText variant="heading" accessibilityRole="header">
-          {date === null ? "Studio today" : shownDate ? formatDayHeading(shownDate) : "Studio schedule"}
+          {date === null && !rolledOver ? "Studio today" : shownDate ? formatDayHeading(shownDate) : "Studio schedule"}
         </AppText>
-        {date === null && shownDate ? <AppText tone="muted">{formatDayHeading(shownDate)}</AppText> : null}
+        {date === null && !rolledOver && shownDate ? <AppText tone="muted">{formatDayHeading(shownDate)}</AppText> : null}
       </View>
 
       {modeSwitch}
