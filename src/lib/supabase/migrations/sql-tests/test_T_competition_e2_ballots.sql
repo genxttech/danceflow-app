@@ -179,6 +179,9 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008019'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'E119', 'confirmed', 'eligible', '119'),
   (pg_temp.u('008020'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'E120', 'confirmed', 'eligible', '120');
 
+-- R-15 (composed runs only): obtain clearance for the seeded entries when the clearance fixture is loaded. Inert otherwise.
+do $r15$ begin if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then perform pg_temp.r15_clear_entries(); end if; end $r15$;
+
 -- Heats sit in a published schedule version. Fixture-only shortcut: replica mode skips the 10D publish flow.
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
