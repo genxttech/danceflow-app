@@ -149,7 +149,8 @@ async function markAttended(params: {
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .select("id");
-    if (error) return { ok: false, reason: "write_failed" };
+    // PKG_NO_CREDIT: the database refused because no package credit could be taken (a race for the last credit; see docs/mobile/proposals). Nothing was changed.
+    if (error) return { ok: false, reason: String(error.message ?? "").includes("PKG_NO_CREDIT") ? "payment_required" : "write_failed" };
     // Exactly one row, or nothing may follow: a zero-row update (RLS, a vanished row) must never reach the SECURITY DEFINER deduction RPC.
     if (!written || written.length !== 1) return { ok: false, reason: written && written.length === 0 ? "not_found" : "write_failed" };
   } else if (billingTypeOf(appointment) === "package_credit" && appointment.client_package_id) {

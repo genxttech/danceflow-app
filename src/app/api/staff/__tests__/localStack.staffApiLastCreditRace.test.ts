@@ -9,7 +9,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -101,26 +101,44 @@ const mark = (user: string, appointmentId: string) =>
     { params: Promise.resolve({ studioId: STUDIO, appointmentId }) },
   );
 
-/** N lessons on one package that holds `credits` credits, all marked attended at the same moment by different staff. */
-async function race(lessons: number, credits: number) {
+/** One package holding `credits` credits and `lessons` open lessons billed to it. */
+function seed(lessons: number, credits: number) {
   const pkg = id();
   const ids = Array.from({ length: lessons }, () => id());
   psql(`insert into public.client_packages (id, studio_id, client_id, name_snapshot, active, expiration_date, sold_price) values ('${pkg}', '${STUDIO}', '${ANA}', 'Race pack', true, '${day(60, "00:00").slice(0, 10)}', 500);
     insert into public.client_package_items (studio_id, client_package_id, usage_type, quantity_remaining, quantity_total, is_unlimited) values ('${STUDIO}', '${pkg}', 'private_lesson', ${credits}, 10, false);
     ${ids.map((lesson, i) => `insert into public.appointments (id, studio_id, instructor_id, appointment_type, client_id, starts_at, ends_at, title, status, billing_type, client_package_id, price_amount)
       values ('${lesson}', '${STUDIO}', '${INS}', 'private_lesson', '${ANA}', '${day(1 + i, "15:00")}', '${day(1 + i, "15:45")}', 'Race', 'scheduled', 'package_credit', '${pkg}', 80);`).join("\n")}`);
-  const users = [USERS.owner, USERS.frontDesk, USERS.instructor];
-  const responses = await Promise.all(ids.map((lesson, i) => mark(users[i % users.length], lesson)));
-  const list = ids.map((lesson) => `'${lesson}'`).join(",");
-  const count = (sql: string) => Number(psql(sql));
+  return { pkg, ids, list: ids.map((lesson) => `'${lesson}'`).join(",") };
+}
+const count = (sql: string) => Number(psql(sql));
+function state({ pkg, list }: ReturnType<typeof seed>) {
   return {
-    answers: await Promise.all(responses.map(async (response) => `${response.status}:${(await response.json()).code ?? "ok"}`)),
     attended: count(`select count(*) from public.appointments where id in (${list}) and status = 'attended';`),
     deductions: count(`select count(*) from public.lesson_transactions where appointment_id in (${list}) and transaction_type::text in ('lesson_deduction','appointment_attendance');`),
     remaining: count(`select quantity_remaining from public.client_package_items where client_package_id = '${pkg}';`),
     earnings: count(`select count(*) from public.instructor_earnings where appointment_id in (${list});`),
   };
 }
+const refusal = (sql: string) => {
+  try {
+    psql(sql);
+    return null;
+  } catch (failure) {
+    return String((failure as { stderr?: unknown }).stderr ?? failure);
+  }
+};
+
+/** Every lesson marked attended at the same moment through the API, by different staff. */
+async function race(lessons: number, credits: number) {
+  const seeded = seed(lessons, credits);
+  const users = [USERS.owner, USERS.frontDesk, USERS.instructor];
+  const responses = await Promise.all(seeded.ids.map((lesson, i) => mark(users[i % users.length], lesson)));
+  const answers = await Promise.all(responses.map(async (response) => `${response.status}:${(await response.json()).code ?? "ok"}`));
+  return { answers, ...state(seeded) };
+}
+
+const TRIALS = [[2, 1], [2, 1], [5, 1], [5, 1], [5, 2], [10, 1]] as const;
 
 describe.skipIf(!enabled)("P9: lessons racing for a package's last credit (real database)", () => {
   beforeAll(async () => {
@@ -143,31 +161,62 @@ describe.skipIf(!enabled)("P9: lessons racing for a package's last credit (real 
     attendance = (await import("../workspaces/[studioId]/appointments/[appointmentId]/attendance/route")).PUT as unknown as Handler;
   });
 
-  it("TODAY: never charges more credits than exist, but can record more lessons attended than were paid for", async () => {
-    const trials: Awaited<ReturnType<typeof race>>[] = [];
-    for (const [lessons, credits] of [[2, 1], [2, 1], [5, 1], [5, 1], [5, 2], [10, 1]] as const) {
+  it("TODAY, deterministic: one statement marking two lessons with one credit leaves two attended and one deduction", () => {
+    const seeded = seed(2, 1);
+    psql(`update public.appointments set status = 'attended' where id in (${seeded.list});`);
+    const after = state(seeded);
+    console.log("P9-TODAY-STATEMENT", JSON.stringify(after));
+    expect(after).toMatchObject({ attended: 2, deductions: 1, remaining: 0 });
+  });
+
+  it("TODAY, concurrent requests: never more charges than credits; lessons beyond the credits can be recorded attended (numbers logged)", async () => {
+    for (const [lessons, credits] of TRIALS) {
       const result = await race(lessons, credits);
-      trials.push(result);
       console.log("P9-TODAY", JSON.stringify({ lessons, credits, ...result }));
       // no overcharge, ever
       expect(result.deductions).toBeLessThanOrEqual(credits);
       expect(result.remaining).toBe(credits - result.deductions);
       expect(result.remaining).toBeGreaterThanOrEqual(0);
     }
-    // the defect: at least one trial delivered a lesson beyond the credits (attended with no deduction)
-    expect(trials.some((trial) => trial.attended > trial.deductions)).toBe(true);
   });
 
-  it("WITH THE PROPOSED GUARD: every attended lesson has its deduction; the rest stay scheduled", async () => {
-    psql(GUARD_SQL);
-    for (const [lessons, credits] of [[2, 1], [2, 1], [5, 1], [5, 1], [5, 2], [10, 1], [3, 3]] as const) {
-      const result = await race(lessons, credits);
-      console.log("P9-GUARD", JSON.stringify({ lessons, credits, ...result }));
-      expect(result.attended).toBe(Math.min(lessons, credits));
-      expect(result.deductions).toBe(Math.min(lessons, credits));
-      expect(result.remaining).toBe(credits - Math.min(lessons, credits));
-      expect(result.earnings).toBe(result.attended);
-    }
-    psql(`drop trigger appointments_require_package_credit on public.appointments; drop function public.require_package_credit_for_private_lesson();`);
+  describe("with the proposed guard", () => {
+    beforeAll(() => {
+      psql(GUARD_SQL);
+    });
+    afterAll(() => {
+      psql(`drop trigger if exists appointments_require_package_deduction on public.appointments; drop function if exists public.require_package_deduction_for_private_lesson();`);
+    });
+
+    it("refuses a direct update of a lesson once the credit is gone, a two-lesson statement as a whole, and an insert as attended", () => {
+      const one = seed(2, 1);
+      psql(`update public.appointments set status = 'attended' where id = '${one.ids[0]}';`);
+      expect(refusal(`update public.appointments set status = 'attended' where id = '${one.ids[1]}';`)).toContain("PKG_NO_CREDIT");
+      expect(state(one)).toMatchObject({ attended: 1, deductions: 1, remaining: 0 });
+
+      const both = seed(2, 1);
+      expect(refusal(`update public.appointments set status = 'attended' where id in (${both.list});`)).toContain("PKG_NO_CREDIT");
+      expect(state(both)).toMatchObject({ attended: 0, deductions: 0, remaining: 1 });
+
+      const empty = seed(0, 0);
+      expect(
+        refusal(`insert into public.appointments (id, studio_id, instructor_id, appointment_type, client_id, starts_at, ends_at, title, status, billing_type, client_package_id)
+          values ('${id()}', '${STUDIO}', '${INS}', 'private_lesson', '${ANA}', '${day(1, "15:00")}', '${day(1, "15:45")}', 'Inserted', 'attended', 'package_credit', '${empty.pkg}');`),
+      ).toContain("PKG_NO_CREDIT");
+    });
+
+    it("concurrent requests: exactly as many attended as credits, each with its deduction and earning; the rest are refused and stay scheduled", async () => {
+      for (const [lessons, credits] of [...TRIALS, [3, 3] as const]) {
+        const result = await race(lessons, credits);
+        console.log("P9-GUARD", JSON.stringify({ lessons, credits, ...result }));
+        const expected = Math.min(lessons, credits);
+        expect(result.attended).toBe(expected);
+        expect(result.deductions).toBe(expected);
+        expect(result.remaining).toBe(credits - expected);
+        expect(result.earnings).toBe(expected);
+        expect(result.answers.filter((answer) => answer === "200:ok")).toHaveLength(expected);
+        expect(result.answers.filter((answer) => answer !== "200:ok").every((answer) => answer === "409:payment_required")).toBe(true);
+      }
+    });
   });
 });
