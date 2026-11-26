@@ -23,14 +23,20 @@ jest.mock("@/lib/supabase", () => ({
 jest.mock("expo-linking", () => ({ addEventListener: () => ({ remove: jest.fn() }), getInitialURL: async () => null }));
 
 import { act, renderHook } from "@testing-library/react-native";
-import { createElement, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { AuthProvider, BEFORE_SIGN_OUT_TIMEOUT_MS, useAuth } from "@/lib/auth";
 import { createPushUnbind } from "@/lib/expoPush";
 import type { PushAdapter } from "@/lib/pushSetup";
 
 async function provider(beforeSignOut?: () => Promise<void>, onSignOutRefused?: () => Promise<void>) {
-  const wrapper = ({ children }: { children: ReactNode }) => createElement(AuthProvider, { beforeSignOut, onSignOutRefused, children });
-  const { result } = renderHook(() => useAuth(), { wrapper });
+  function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <AuthProvider beforeSignOut={beforeSignOut} onSignOutRefused={onSignOutRefused}>
+        {children}
+      </AuthProvider>
+    );
+  }
+  const { result } = renderHook(() => useAuth(), { wrapper: Wrapper });
   await act(async () => undefined);
   return result;
 }
