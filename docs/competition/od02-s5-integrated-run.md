@@ -48,9 +48,19 @@ Runner: `scripts/qa/comp-s5-integrated-run.sh` (composition follows the OD-31 `r
 
 A suite stops at its first error, so a later failure in the same suite can be hidden behind the first one. The first-cause column is what was observed, not a complete list.
 
+## The two suites that fail on the base chain alone (not passed; pre-existing, not a runner artifact)
+
+Both are run unmodified on the base chain, with no correction migration applied.
+
+| Suite | Exact first error | Assessment |
+|---|---|---|
+| `test_T_competition_r2_entry_refunds` | `ERROR:  COMPO1_HEAT_STATUS_WRITER: scheduled -> active is written only by advance_competition_floor_heat.` (`_compo1_guard_heat_status()` line 34) | The suite (R2, `20270103090000`) sets `event_competition_heats.status` directly. The later O1 migration (`20270106090000`) forbids that writer, so the suite is stale on any chain that contains O1. Its QA matrix records a pass on 2026-10-23/24. Pre-existing repository defect. |
+| `test_T_competition_e1_officials` | `ERROR:  COMPO1_ROUND_EDGE: draft -> active is not a round transition in the K0 state machine.` (`_compo1_guard_round_status()` line 40) | Same cause: the E1 suite (`20270101090000`) moves rounds directly, which O1 forbids. Pre-existing repository defect. PR 864 changes this suite; the composed version still fails with this error. |
+
 ## PENDING
 
-- Re-run after the S4 defect and fixtures are fixed, and after the S5-affected suites are given adult dates of birth.
+- **S5 fixture change (2026-11-26), not yet executed:** adult dates of birth were added to `o1_day_of`, `phase10d_floor_schedule`, `r2_refund_write_gate`, `r2_entry_refunds` and `phase10c_competitor_registration`. The age guard is unchanged; its under-18 and unknown-age negative cases stay in the S5 suite. `ns1_no_show`, `phase10d1` and `cf1_f3_publication` are changed by PR 866 instead.
+- **run5, not yet executed:** waits for the PR 866 fix of `_r15_required_criteria` (not in head `6b9f252f`). The runner now prepends PR 866's clearance fixture to every suite and fails a suite as `FAIL-PREDICATE` if the S5 age predicate's definition changes or anything tries to create, alter or drop it.
 - Suites not in the list above, the concurrency scripts, app-level tests, and any hosted apply.
 
 ## Earlier runs (superseded)
