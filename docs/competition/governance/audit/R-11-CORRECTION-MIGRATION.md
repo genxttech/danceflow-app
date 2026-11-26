@@ -39,6 +39,7 @@ Conservative consequences (intended): a correction opened from `calculated` (the
 
 * `LANGUAGE plpgsql IMMUTABLE`, no table access, no SECURITY DEFINER; `search_path` set. Execute is revoked from every API role; it is reachable only from definer functions, and `approve` is SECURITY DEFINER (the function owner holds execute). A6 already calls it from definer functions the same way (`20270120095000` L444, L655), and `20270120090000` L570.
 * Rule: `btrim` then 20-500 characters; not one of `n/a, none, test, testing, fix, fixed, asdf, tbd, ok`; not one repeated character; at least 4 whitespace-separated words and at least 3 distinct words. A one-line explanation such as "only manager present on the floor today" (39 characters, 7 words) passes; the previous suite's "sole manager on site" (exactly 20 characters, 4 words) passes at the boundary.
+* **Added in this function only** (the shared helper is unchanged because A5/A6/F1 use it): at least 12 letters or digits; at least four words holding one; at least three **different** such words with punctuation and case ignored. Digit-only or meaningless words still pass; the audit record remains the real control. The helper's placeholder list is unreachable (every entry is shorter than 20 characters).
 * Known limits of the rule (not changed here): it checks shape, not meaning ("aaaa bbbb cccc dddd" passes); it is the same bar A6 withdrawal reasons already meet; the 500 limit matches the approvals table CHECK (1-500), which is unchanged and still satisfied.
 
 ## 4. Verified-email requirement and `service_role` revocation: LEFT OUT (separate findings)
@@ -125,7 +126,7 @@ Not examined by the review and not claimed: hosted data. Approvals recorded unde
 |---|---|
 | P1 precondition: approve md5 before = `3cf63c3b...` | PASS |
 | P2 characterization on the unpatched chain | the R-11 suite FAILS as expected: one-character, placeholder, padded reasons are accepted and a corrected version is self-approved (RB-11.1 and RB-11.2 reproduced) |
-| P3 apply: approve md5 = `2d178c29...`; owner, ACL, security definer, search_path identical | PASS |
+| P3 apply: approve md5 = `5adf8f16...` (text before the later reason-rule change); owner, ACL, security definer, search_path identical | PASS |
 | P4 R-11 suite after apply | PASS (85 checks) |
 | P5 replay no-op; rollback restores `3cf63c3b...` and the same ACL; rollback replay no-op; re-apply | PASS |
 | P6 existing suites after the migration | f2 PASS (198), a3 PASS (117, 7 blocked as before), pv1 PASS (30), f3 PASS (191), a5 PASS (186, 4 blocked as before) |
@@ -141,56 +142,74 @@ The coordinator's composed run (run3: migrations apply, rollback and re-apply OK
 
 **a3 suite (same composed failure, reported by the S4 session):** `test_T_competition_cf1_a3_results.sql` now carries S4's fixture hook (call `pg_temp.r15_clear_entries()` after the entry inserts and before the published version is built). The hook is inert unless the runner prepends `fixtures/r15_clear_entries.sql` (PR 866, read at head `c1d971ae`; not part of this PR). That helper clears entries through `set_competition_entry_eligibility` as a manager, adds an adult participant where an entry has none, and, **only on a chain with S4 but without S5, plants a stand-in age predicate** inside the rolled-back suite; evidence from such a chain says nothing about the age gate. The R-11 suite does not use the helper: it seeds its own fixtures, and with the helper prepended the helper is never called by it. PENDING: no run with the hook.
 
-### 9b. Second independent review, of the current text (2026-11-26)
+### 9b. Second independent review (head `649af318`, 2026-11-26): historical
 
-The first review above ran **before** the padding hardening (and while the corrected-path error code was being changed), so it did **not** cover the final migration text (the pins moved after it) or the later test and fixture changes. A second, fresh read-only reviewer therefore reviewed head `649af318`: migration, rollback, the R-11 suite, the a3 / pv1 suite diffs, the static test and `run-r11.sh`, without reading section 9 first. **No blocker in the current migration text.** It reproduced both pins offline and confirmed condition semantics, check order, races, ACL handling and rollback fragment equality. It could not run Postgres, and it did not review `run-r11-standalone.sh` (added afterwards) or the PR 866 helper.
+It covered the text **before** the distinct-word clause and the suite rewrite. No blocker. Its findings and their state now:
 
-Nothing was changed in the migration or in any SQL suite after this review, so that the composed run4 evidence stays valid for the SQL under review. Open findings and what each means:
+| # | Finding | State |
+|---|---|---|
+| R2-1 | new error code unmapped in the UI; override box shown on corrected versions; short-reason message omits the rule | **Open app dependency** (no app change authorized). Do it before or with apply. |
+| R2-2 | punctuation tokens satisfy "three distinct words" | **Fixed** in the migration (distinct words compared with punctuation and case removed), with negative cases and a control proving the shared helper alone accepts them. |
+| R2-3 | three reason cases did not test their label | **Fixed**: 20+ character punctuation case, 500+ characters of distinct words with a control, the short placeholders relabelled (refused by length). |
+| R2-4 | no fixture isolated one history source | **Fixed**: r13 (earlier approval only), r14 (cause row only, including its opener), r15 (correction event only, including its opener). U66-then-approve is still not tested. |
+| R2-5 | PV-1 and minimum-two stubbed; withdrawal catalog check incomplete | **Fixed**: no stub remains (real engine rows via `_comppv1_run`, real PV-1 mismatch case r16, real one-couple callback Final r12); the four Final withdrawal RPCs added to the catalog check. A **behavior** test of the withdrawal window is still only in the A6 suite (run standalone). |
+| R2-6 | runner accepted any failure as reproduction | **Fixed** in the standalone runner (real verdict naming RB-11, every suite must give a verdict). The older `run-r11.sh` is unchanged and superseded. |
+| R2-7 | stored approvals not re-judged | DEV and PROD held 0 approval rows (read-only, 2026-11-26 11:25Z). Re-check before any apply. |
+| R2-N1 | cancel-and-recreate | investigated: section 9d. |
 
-| # | Severity | Finding | Status |
-|---|---|---|---|
-| R2-1 | should-fix (app) | `COMP_CORRECTION_APPROVER_REQUIRED` is unmapped; on a corrected version the calculator still sees an override box that can never succeed; the short-reason message omits the 20-character / 4-word rule. Fails closed. | Open; app change not authorized here. Reviewer advises doing it before or with apply (section 5 list). |
-| R2-2 | should-fix (rule) | "At least three distinct words" can be met with punctuation tokens: `urgent urgent urgent urgent . -` passes (the distinct count is the shared helper's, the added clause counts real tokens but not distinct real tokens). | **Open; owner choice.** Fixing it changes the function text and md5 pins and requires new composed and standalone runs and a review of the delta. |
-| R2-3 | should-fix (test) | Three reason cases do not test what their label says: the punctuation case is 19 characters (refused by length), the over-500 case is refused by the distinct-word rule, `n/a` and `testing` are refused by length, not the placeholder list. So the punctuation hardening, the 500 cap and the placeholder list have **no behavior proof**. | Open (suite follow-up). |
-| R2-4 | should-fix (test) | No fixture isolates one history source or one opener source: deleting any single clause would not fail a behavior check (only the md5 / text checks). U66 recovery then self-approval is not tested. | Open (suite follow-up). |
-| R2-5 | should-fix (claims) | The suite neutralizes the PV-1 verifier and, in r12, stubs the two minimum-two helpers (inside its rolled-back transaction). So there is **no behavior proof** that an override cannot pass a real PV-1 mismatch (static order only), and r12 proves only that the override cannot pass a raising roster gate. The withdrawal window has no behavior test in the R-11 suite, and its catalog check omits `withdraw_advanced_entry_from_final`, `reinstate_withdrawn_entry_to_final`, `cosign_final_withdrawal_request`, `cancel_final_withdrawal_request`. "No gate is stubbed" in section 9a refers to the eligibility gates only. | Open (suite follow-up); statement corrected here. |
-| R2-6 | should-fix (runner) | `run-r11.sh` P2 accepts any suite failure as "blockers reproduced"; the `refs.initial` checks also fail before the migration, so "only RB and S checks fail" is wrong. The recorded P2 output does list the one-character and corrected self-approval successes. | Open (runner follow-up). |
-| R2-7 | should-fix (data) | Approvals stored before apply are not re-judged. | **Checked read-only 2026-11-26 11:25Z: DEV and PROD both hold 0 approval rows** (so 0 self-approvals). Re-check immediately before any apply. |
-| R2-N1 | note, **owner decision** | `cancel_competition_round` (O1, read: it refuses only published/complete/cancelled rounds and running heats) can cancel a never-published approved or corrected round; a replacement round has no history, so its approval is "initial" and the self-approval override applies. Not verified end to end (judges' ballots would have to be filed again). Pre-existing capability, outside the function this PR changes; it limits how far RB-11.2 is closed. | **Open; unverified.** Recorded in RELEASE-BLOCKERS.md. |
-| R2-N2 | note | Replacement-ballot filers, correction co-signers and the U66 recovery actor may approve unless also calculator or opener (matches the stated wording; confirm intended). Preflight does not check the history triggers are enabled; the already-applied branch skips the ACL check; `[[:alnum:]]` depends on database ctype (fails closed); short honest reasons such as "Sole manager available" are refused by design; the a3 / pv1 pin lists still reject unknown text but no longer detect an absent R-11 (the R-11 suite's md5 check does). | Open, informational. |
+### 9c. Third independent review: the FINAL migration text (head `5802e4de`, 2026-11-26)
+
+Fresh read-only reviewer; covered the final migration and rollback, the rewritten R-11 suite, the probe, the standalone runner and the cancel-and-recreate question. **No blocker in the final migration text.** Verified by reading and offline reproduction: all four pins (post `2d178c29...`), rollback round-trip, condition validity (parentheses, alias, NULL reason refused, precedence, CHECK constraints), no client value in initial/corrected, order of checks, ACL preservation; no statement in the R-11 suite found that would fail at run time. It could not run Postgres. The migration, rollback and `test_T_*` suites are **unchanged after the reviewed head**.
+
+| Finding | Disposition |
+|---|---|
+| probe could report the route closed when it is not (U18 blocks the shortcut it used; no floor heats; empty draft; repoint not tried) | **Fixed after that review** (floor heats, day-of RPC path, populated draft, repoint route). The fixed probe has **not** been reviewed. |
+| runner could print PASS when something did not run | **Fixed after that review** (empty composed file = BLOCKED; verdict lines anchored; verdict required for every suite; a3 and pv1 must pass after apply; probe must complete). Not reviewed. |
+| evidence document stale | this revision |
+| app messages (R2-1) | open dependency |
+| notes: digit-only/gibberish reasons pass; `[[:alnum:]]` depends on ctype (fails closed); preflight does not pin the helper body or check history triggers enabled; already-applied branch skips the ACL check; ballot filers / co-signers / U66 actor may approve unless calculator or opener | open, informational (the last matches the stated wording; confirm intended) |
+
+### 9d. Cancel-and-recreate (R2-N1): is a self-approved replacement of a corrected, never-published round reachable?
+
+**By code reading (second and third review, and this session): YES under a precondition; executed evidence: see section 12 (probe).** Nothing here changes cancel or recreate behavior.
+
+* **Precondition:** the live published running order holds a never-run heat in the same division (a pre-published spare round, with its own numbered heat), and the replacement is not a callback Final.
+* **Who:** one manager with a verified email. No judge has to act: the manager enters paper ballots for the assigned judges.
+* **Steps:** (1) optionally `cancel_competition_round` on the corrected round (allowed for never-published calculated / approved / ballots_locked rounds with no heat on the floor; not required once the correction has been recalculated); (2) assign the panel, `schedule_competition_round`, `start_competition_round`; (3) advance the numbered heat staging, active, complete; (4) `enter_competition_paper_ballot` per judge (new ballots are required, any placements can be entered); (5) lock the heat, lock ballots, calculate; (6) approve with an override reason: the new round has no history, so it counts as **initial**; (7) `publish_competition_round_result`. The same couples take part; the old ballots are not reused.
+* **Variant:** an unrun published heat can apparently be moved to a new round by a table update of `round_id` (the day-of guard only freezes heats that have started; the 10D placement trigger omits `round_id`). That is a publication-immutability gap in its own right, independent of R-11.
+* **Refused routes (code reading):** a new round at a taken sequence number; inserting or attaching a heat into a published version; changing entries of published heats; an unplaced heat; publishing a new running order once any heat has run (`COMPO1_RUN_IN_PROGRESS`; on a chain **without** U18 a manager may mark couples danced by direct write, so if no heat ever moved through the day-of functions this refusal may never trigger); cancelling after publication.
+* **Bounded options for the owner (none implemented):**
+  * **A. Accept and disclose:** both rounds, the cancellation reason and the override audit remain; document that a second round over the same couples is organizer authority.
+  * **B. Widen the approval rule (approve only):** treat a round as corrected when another round of the same division that shares a couple has correction history or was cancelled after having a result; its openers and canceller cannot approve. Small follow-up migration; may affect legitimate multi-round divisions and needs its own tests.
+  * **C. Guard at the source:** cancelling a round that has any result version needs a second manager's co-signature.
+  * **D. Close the heat repoint** (refuse `round_id` changes on heats in a published version): worthwhile under any of A to C; separate small guard.
+  * Recommendation: B plus D, before public activation; owner decision.
 
 ## 10. Register
 
-`RELEASE-BLOCKERS.md` in this folder records RB-11.1 and RB-11.2 as **OPEN Studio/Custom release blockers** until this correction is independently reviewed, tested and APPLIED to the authorized release environment. PR 859's `it.fails` markers flip only after the migration is applied AND the markers are re-pointed (see section 5); this PR does not edit 859's files.
+`RELEASE-BLOCKERS.md` in this folder records RB-11.1 and RB-11.2 as **OPEN Studio/Custom release blockers** until this correction is independently reviewed, tested and APPLIED to the authorized release environment, and records the cancel-and-recreate question under RB-11.2. PR 859's `it.fails` markers flip only after the migration is applied AND the markers are re-pointed (see section 5); this PR does not edit 859's files.
 
 ## 11. OWNER REVIEW PACKAGE (candidate for standalone approval)
 
 * **PR:** 865 (draft), branch `claude/r11-correction-migration`, base `release/website-embeds` (base head `49dbaee1b`). The current head SHA is in the PR description.
-* **What is under review:** migration `20270301090000` + rollback; one function, `approve_competition_round_result`. md5 `3cf63c3b...` -> `2d178c29...`. The migration, rollback and every SQL suite are byte-identical from head `649af318` onward (later commits add the standalone runner and documents).
-* **Approval requested:** REVIEW and MERGE of the DRAFT only. **Applying to any hosted environment is NOT requested.**
+* **Under review:** migration `20270301090000` + rollback; one function, `approve_competition_round_result`; md5 `3cf63c3b...` -> `2d178c29...`. Migration, rollback and `test_T_*` suites are identical from head `5802e4de` onward (later commits: probe, runner, documents).
+* **Approval requested:** REVIEW and MERGE of the DRAFT only. **Applying to any hosted environment is NOT requested.** Separate owner decision requested: section 9d (cancel-and-recreate).
 
-### Evidence
+| Evidence | Head | Result |
+|---|---|---|
+| Standalone: base chain + 865 only, with rollback and probe | see section 12 | see section 12 |
+| Composed run4 (record `docs/competition/od02-s5-integrated-run.md`, PR 863; base fingerprint `d87e42858e6c...`; 864 `9d3dad16`, 866 `6b9f252f`, 863 `40eb8304`) | 865 `649af318` | R-11 and a3 suites PASS, 8/8 apply / rollback / re-apply. **Ran the OLD function text and OLD R-11 suite: it does not cover the final text.** A composed re-run is PENDING. |
+| Partial-chain run (`run-r11.sh`, 2026-11-24) | older | PASS; superseded |
+| Offline static test (vitest, 12) | current | PASS: all md5 pins, fragment reversal, text shape |
 
-| Run | Head | What | Result |
-|---|---|---|---|
-| Composed run4 (coordinator / S5 runner, 2026-11-26 10:57-11:02Z; record `docs/competition/od02-s5-integrated-run.md`, PR 863) | 865 `649af318`, 864 `9d3dad16`, 866 `6b9f252f`, 863 `40eb8304`; base chain of 37 files, **base** fingerprint `d87e42858e6c...` (release `49dbaee1b` + JC1/U18/U18-S from the CF1 candidate `92a8c17c6`) | 8 of 8 correction migrations apply, reverse rollback 8 of 8, re-apply 8 of 8 | R-11 suite **PASS** (composed and re-apply); cf1_a3 **PASS** (baseline, S5-only, composed); pv1 PASS (same three). f2 was not in that run's suite list. |
-| Standalone: base chain + 865 only, with rollback (`scripts/qa/r11/run-r11-standalone.sh`) | see section 12 | | see section 12 |
-| Earlier partial-chain run (`run-r11.sh`, 2026-11-24) | content before the slot rename and before the later suite changes | apply / replay / rollback / re-apply; R-11, f2, a3, pv1, f3, a5 | PASS; superseded as evidence for the current head |
-| Offline static test (vitest, 12) | current | md5 pins, fragment reversal, text shape | PASS |
+* **Run4 failures in other PRs** (first error per suite): S4 `_r15_required_criteria` defect; S4 clearance not seeded; S4 fixture; S5 fixtures without date of birth; pre-existing e1 and r2 entry refunds. None was in the approve function. f3 (calls approve) did not pass composed; f2 was not listed.
+* **Independent review of the final text:** section 9c, no blocker. Not reviewed: the probe and runner fixes made after it; PR 866's helper.
+* **CI:** only Vercel checks; **no repository CI job runs the vitest or SQL suites.**
+* **Dependencies:** merges alone onto `release/website-embeds` (checked at `649af318`: clean merge-tree; no file shared with 856, 859, 860, 863, 864, 866, 867; the changed-file set since then adds only files under this PR's own paths). Needs only F2, A3, PV-1, A7 and `_cf1_reason_is_substantive`. Later work that pins the approve md5 must pin `2d178c29...`.
+* **Hosted (read-only, 2026-11-26 11:25Z):** PROD approve md5 = pre pin (match); DEV = `ac33e456...` (needs PV-1 / OJ-1 first); 0 approval rows on both.
+* **App dependency:** map `COMP_CORRECTION_APPROVER_REQUIRED`, hide the override on corrected versions, state the reason rule (section 5).
+* **Remaining gaps:** RB-11.1 / RB-11.2 OPEN; section 9d decision; `service_role` and verified-email items; a one-manager studio cannot approve a corrected result (OD-07); U66-then-approve and request-id reuse untested; composed re-run on the final text.
 
-**Failures in run4 that belong to other PRs** (as recorded by that run; first error only per suite): S4 product defect in `_r15_required_criteria` (r15 and ns1 suites); S4 clearance not seeded (u18, u18s, jc1, f3 composed); S4 fixture (od31 negative); S5 fixtures without date of birth (ns1, 10d1, f3, o1, 10D, r2 write gate, 10C in S5-only); pre-existing on the base chain (e1, r2 entry refunds). **None of the recorded first causes is in the approve function or cites an R-11 code.** Limits: a suite stops at its first error, so later failures may be hidden; **f3, which calls approve, did not pass composed** (stopped at S4 clearance), so run4 says nothing about R-11 against f3; the standalone run covers f3 without S4/S5. S4 has since moved (`3975f713` seen 2026-11-26), so run4 does not cover its later head.
+## 12. Standalone run on the final content
 
-### Review, CI, dependencies
-
-* **Independent review:** the first review did not cover the final text; the second review (section 9b) covers the current migration, rollback and the test/fixture changes at `649af318`: **no blocker**; open should-fix items and one unverified path (R2-N1). Not reviewed: `run-r11-standalone.sh`, the PR 866 helper.
-* **CI:** only Vercel checks (preview comments, app, qfem: pass at the time of writing). **No repository CI job runs vitest suites or SQL suites on this PR**; SQL evidence is local runs only.
-* **Merges alone:** yes. `git merge-tree` onto `release/website-embeds@49dbaee1b` is clean, and the migration depends only on objects already on that line (F2, A3, PV-1, A7, `_cf1_reason_is_substantive`). It does not need 863, 864, 866 or 867. Pairwise merges of this head with 856, 859, 860, 863, 864, 866 and 867 are clean; **no file this PR touches is touched by any of them**, and none redefines or pins the approve function in an added line. The a3 hook is inert without PR 866's helper. Other open PRs based on other branches were not merge-tested.
-* **Hosted (read-only, 2026-11-26 11:25Z):** PROD approve md5 = pre pin `3cf63c3b...` (match). DEV = `ac33e456...`: DEV lacks PV-1, so the migration refuses until PV-1 and OJ-1 are applied there (section 5a). Both hold 0 approval rows. `service_role` has EXECUTE on approve on both (coordinator read; not changed by this PR).
-
-### Remaining gaps
-
-RB-11.1 and RB-11.2 stay OPEN until applied to the authorized release environment. Open: section 9b items (UI mapping; punctuation counted as a distinct word; test-coverage gaps; round cancel-and-recreate path, unverified); `service_role` revoke and verified-email check (separate authorization); a corrected result in a one-manager studio has no approver (OD-07); U66-then-approve and request-id reuse untested.
-
-## 12. Standalone run on the current content
-
-**PENDING.** Queued under ticket `20261126T110736Z-r11-standalone` (heavy-lock FIFO); not yet executed.
+**PENDING.** Queued under ticket `20261126T110736Z-r11-standalone` (heavy-lock FIFO) on head `725db3bd`; not yet executed.
