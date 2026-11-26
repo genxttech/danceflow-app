@@ -27,7 +27,19 @@ cleanup(){ docker rm -f -v "$NAME" >/dev/null 2>&1; [ "$TOOK" = 1 ] && rm -rf "$
 trap cleanup EXIT
 cd "$REPO" || exit 3
 
-# 1. compose from git objects
+# 2. FIFO
+deadline=$(( $(date +%s) + WAIT_MIN*60 ))
+while :; do
+  oldest="$(ls "$QUEUE" 2>/dev/null | sort | head -1)"
+  if [ "$oldest" = "$(basename "$TICKET")" ] && mkdir "$LOCK" 2>/dev/null; then TOOK=1; break; fi
+  [ "$(date +%s)" -gt "$deadline" ] && { log "BLOCKED: lock/queue not available within ${WAIT_MIN} min (oldest ticket: $oldest)"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
+  sleep 60
+done
+printf 'session: od02-s5 integrated run\njob: local Postgres (%s) composed chain + R11/R10-S3/R15/S5 migrations, suites, rollback, re-apply\nstart: %s\nexpected minutes: 60\n' "$NAME" "$(date -u +%FT%TZ)" > "$LOCK/owner.txt"
+log "lock taken"
+
+# 1. compose from git objects (AFTER the lock is held, so the heads under test are the current ones at run time)
+git fetch -q origin || log "git fetch failed: composing from the local remote-tracking refs"
 for f in $(git ls-tree --name-only "$LIVE" "$M/" | grep -E "/[0-9]{14}_.*competition.*\.sql$"); do git show "$LIVE:$f" > "$CHAIN/base/$(basename "$f")"; done
 for n in 20270215092000_competition_jc1_inactive_judge_absent 20270215093000_competition_u18_heat_entry_status_guard 20270215094000_competition_u18s_heat_entry_scratch_audit; do git show "$CAND:$M/$n.sql" > "$CHAIN/base/$n.sql"; done
 for f in $(git ls-tree --name-only "$CAND" "$M/sql-tests/" | grep -E "test_T_competition_|test_T_phase10"); do git show "$CAND:$f" > "$CHAIN/sql-tests/$(basename "$f")"; done
@@ -56,22 +68,15 @@ mkdir -p "$CHAIN/sql-tests/fixtures"; for f in $(git ls-tree -r --name-only "$P_
 rm -rf "$CHAIN/sql-tests-s5"; cp -r "$CHAIN/sql-tests-base" "$CHAIN/sql-tests-s5"
 for f in $(git ls-tree -r --name-only "$P_S5" "$M/sql-tests/" | grep -E "$S5_SUITE_RE"); do git show "$P_S5:$f" > "$CHAIN/sql-tests-s5/$(basename "$f")"; done
 for d in sql-tests-base sql-tests-s5; do git show "$P_S4:$M/sql-tests/fixtures/r15_clear_entries.sql" > "$CHAIN/$d/fixtures/r15_clear_entries.sql"; done
+P_867=origin/claude/od31-land-jc1-u18-u18s
+for n in u18_heat_entry_status_guard u18s_heat_entry_scratch_audit jc1_inactive_judge_absent; do
+  if git show "$P_867:$M/sql-tests/test_T_competition_$n.sql" 2>/dev/null | grep -q r15_clear_entries; then git show "$P_867:$M/sql-tests/test_T_competition_$n.sql" > "$CHAIN/sql-tests/test_T_competition_$n.sql"; echo "$n from PR867 $(git rev-parse "$P_867")" >> "$OUT/suite-sources.txt"; else echo "$n candidate copy (no clearance hook at PR867 $(git rev-parse "$P_867"))" >> "$OUT/suite-sources.txt"; fi
+done
 ( cd "$CHAIN/new" && sha256sum *.sql ) > "$OUT/migrations-new.sha256"
 ( cd "$CHAIN/rollback" && sha256sum *.sql ) > "$OUT/rollbacks.sha256"
 for r in "$P_R11" "$P_S3" "$P_S4" "$P_S5"; do printf '%s %s\n' "$r" "$(git rev-parse "$r")"; done > "$OUT/pr-heads.txt"
 git rev-parse "$LIVE" "$CAND" > "$OUT/source-commits.txt"
 log "base files: $(wc -l < "$OUT/migrations-base.sha256"); base fingerprint $(cat "$OUT/base-fingerprint.txt"); new files: $(wc -l < "$OUT/migrations-new.sha256"); rollbacks: $(wc -l < "$OUT/rollbacks.sha256")"
-
-# 2. FIFO
-deadline=$(( $(date +%s) + WAIT_MIN*60 ))
-while :; do
-  oldest="$(ls "$QUEUE" 2>/dev/null | sort | head -1)"
-  if [ "$oldest" = "$(basename "$TICKET")" ] && mkdir "$LOCK" 2>/dev/null; then TOOK=1; break; fi
-  [ "$(date +%s)" -gt "$deadline" ] && { log "BLOCKED: lock/queue not available within ${WAIT_MIN} min (oldest ticket: $oldest)"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
-  sleep 60
-done
-printf 'session: od02-s5 integrated run\njob: local Postgres (%s) composed chain + R11/R10-S3/R15/S5 migrations, suites, rollback, re-apply\nstart: %s\nexpected minutes: 60\n' "$NAME" "$(date -u +%FT%TZ)" > "$LOCK/owner.txt"
-log "lock taken"
 
 # 3. database
 docker run -d --name "$NAME" --label df.s5int=1 --network none -e POSTGRES_PASSWORD=postgres "$IMAGE" > /dev/null || { echo BLOCKED > "$OUT/result.txt"; log "BLOCKED: docker run failed"; exit 4; }
