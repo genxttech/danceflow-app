@@ -4,8 +4,6 @@ import {
   PERMITTED_WAIVER_CATEGORIES,
   PROHIBITED_OVERRIDE_SUBJECTS,
   STUDIO_ELIGIBILITY_DISCLOSURE,
-  buildEligibilityDetermination,
-  entryFingerprint,
   evaluateEntryOperationalGate,
   requiredCriteria,
   validateEligibilityDecision,
@@ -16,12 +14,9 @@ const NOW = new Date("2026-11-23T12:00:00Z");
 const ADULT = "1990-01-01";
 const MINOR = "2012-01-01";
 
-function determination(outcome: "eligible" | "waived", reasonCode: string, criteria: EligibilityCriterion[]) {
-  return { eligibility_determination: buildEligibilityDetermination({ by: "u1", role: "organizer_admin", outcome, reasonCode: reasonCode as never, criteria, fingerprint: "fp", now: NOW }) };
-}
 const open = { ageLabel: null, skillLabel: null, participantRoles: ["dancer", "dancer"] };
 const entry = (over: Partial<Parameters<typeof evaluateEntryOperationalGate>[0]> = {}) => ({
-  status: "confirmed", eligibilityStatus: "eligible", ...open, fingerprint: "fp", metadata: {}, participantDobs: [ADULT, ADULT], ...over,
+  status: "confirmed", eligibilityStatus: "eligible", ...open, clearance: "cleared" as const, participantDobs: [ADULT, ADULT], ...over,
 });
 
 describe("OD-18 per-division applicability (no checks for divisions that do not use the classification)", () => {
@@ -41,88 +36,39 @@ describe("OD-18 per-division applicability (no checks for divisions that do not 
   });
 });
 
-describe("OD-18 organizer determination must cover every applicable criterion", () => {
-  const classified = { skillLabel: "Novice", participantRoles: ["professional", "student"], ageLabel: "Senior I" };
-  it("clears only when the determination lists age_division, status and level", () => {
-    const all = determination("eligible", "criteria_verified_by_organizer", ["age_division", "status", "level"]);
-    expect(evaluateEntryOperationalGate(entry({ ...classified, metadata: all }), NOW).ready).toBe(true);
-    const missingLevel = determination("eligible", "criteria_verified_by_organizer", ["age_division", "status"]);
-    expect(evaluateEntryOperationalGate(entry({ ...classified, metadata: missingLevel }), NOW).reasons).toContain("criteria_determination_missing");
-    expect(evaluateEntryOperationalGate(entry({ ...classified, metadata: {} }), NOW).reasons).toContain("criteria_determination_missing");
-  });
-  it("the body-permitted-exception category still needs every criterion confirmed", () => {
-    expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: determination("eligible", "body_permitted_exception_applied", ["level"]) }), NOW).ready).toBe(true);
-    expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: determination("eligible", "body_permitted_exception_applied", []) }), NOW).ready).toBe(false);
-  });
-  it("amateur status: a division role label is a status classification, and unknown labels fail closed", () => {
-    expect(requiredCriteria({ ...open, roleLabel: "Amateur" })).toEqual(["status"]);
-    expect(requiredCriteria({ ...open, roleLabel: "???" })).toEqual(["status"]);
-    expect(requiredCriteria({ ...open, roleLabel: null })).toEqual([]);
-    expect(requiredCriteria({ ...open, roleLabel: "" })).toEqual([]);
-    expect(evaluateEntryOperationalGate(entry({ roleLabel: "Amateur" }), NOW).reasons).toContain("criteria_determination_missing");
-    expect(evaluateEntryOperationalGate(entry({ roleLabel: "Amateur", eligibilityStatus: "waived", metadata: determination("waived", "waiver_event_policy_fee", []) }), NOW).reasons).toContain("waiver_not_allowed_for_classified_division");
-  });
-  it("\"Open\" is unrestricted as an AGE label but a classification as a LEVEL label", () => {
-    expect(requiredCriteria({ ...open, ageLabel: "Open" })).toEqual([]);
-    expect(requiredCriteria({ ...open, skillLabel: "Open" })).toEqual(["level"]);
-    expect(requiredCriteria({ ...open, skillLabel: "All Levels" })).toEqual([]);
-  });
-  it("a determination is invalidated when the division, labels or participants change (fingerprint)", () => {
-    const meta = determination("eligible", "criteria_verified_by_organizer", ["level"]);
-    expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: meta }), NOW).ready).toBe(true);
-    expect(evaluateEntryOperationalGate(entry({ skillLabel: "Novice", metadata: meta, fingerprint: "changed" }), NOW).reasons).toContain("criteria_determination_missing");
-    const a = entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Bronze", roleLabel: null, competitorIds: ["c1", "c2"] });
-    expect(a).toBe(entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Bronze", roleLabel: null, competitorIds: ["c2", "c1"] }));
-    expect(a).not.toBe(entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Silver", roleLabel: null, competitorIds: ["c1", "c2"] }));
-    expect(a).not.toBe(entryFingerprint({ divisionId: "d", ageLabel: null, skillLabel: "Bronze", roleLabel: null, competitorIds: ["c1", "c3"] }));
+describe("OD-18 organizer determination: the database decides whether it still covers the entry", () => {
+  const classified = { ageLabel: "Senior I", skillLabel: "Gold", participantRoles: ["professional", "student"] };
+  it("a classified entry is ready only while the database reports it cleared (missing, outdated or insufficient determinations are not cleared there)", () => {
+    expect(evaluateEntryOperationalGate(entry(classified), NOW).ready).toBe(true);
+    for (const clearance of ["provisional", "blocked", "unavailable"] as const) {
+      expect(evaluateEntryOperationalGate(entry({ ...classified, clearance }), NOW).ready).toBe(false);
+    }
   });
   it("a missing division fails closed", () => {
     expect(evaluateEntryOperationalGate(entry({ divisionFound: false }), NOW).reasons).toContain("division_not_found");
   });
-  it("records actor, role, time, criteria and outcome without sensitive detail", () => {
-    const record = buildEligibilityDetermination({ by: "u1", role: "organizer_admin", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["level", "age_division"], fingerprint: "fp", now: NOW });
-    expect(record).toEqual({ by: "u1", role: "organizer_admin", at: "2026-11-23T12:00:00.000Z", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["age_division", "level"], fingerprint: "fp" });
-    expect(JSON.stringify(record)).not.toMatch(/birth|dob|membership|points|registration number/i);
-  });
 });
 
 describe("OD-18 gate matrix: independent dimensions with no conflicting gates", () => {
-  const level = { skillLabel: "Novice" };
-  const eligibleLevel = determination("eligible", "criteria_verified_by_organizer", ["level"]);
-
-  it("under-18 + eligible status + full criteria stays blocked (OD-02 absolute)", () => {
-    const result = evaluateEntryOperationalGate(entry({ ...level, metadata: eligibleLevel, participantDobs: [ADULT, MINOR] }), NOW);
-    expect(result.ready).toBe(false);
-    expect(result.reasons).toEqual(["adult_not_verified"]);
+  it("under-18 + eligible status + cleared answer stays blocked (OD-02 absolute)", () => {
+    expect(evaluateEntryOperationalGate(entry({ participantDobs: [ADULT, MINOR] }), NOW).reasons).toEqual(["adult_not_verified"]);
   });
   it("under-18 + waived status stays blocked, and the waiver does not clear an age block", () => {
-    const waived = determination("waived", "waiver_event_policy_fee", []);
-    const result = evaluateEntryOperationalGate(entry({ eligibilityStatus: "waived", metadata: waived, participantDobs: [MINOR, MINOR] }), NOW);
-    expect(result.ready).toBe(false);
-    expect(result.reasons).toContain("adult_not_verified");
+    expect(evaluateEntryOperationalGate(entry({ eligibilityStatus: "waived", participantDobs: [MINOR] }), NOW).ready).toBe(false);
   });
   it("a waived status does not clear a level, status or age requirement", () => {
-    const waived = determination("waived", "waiver_event_policy_fee", []);
-    for (const over of [{ skillLabel: "Novice" }, { ageLabel: "Masters" }, { participantRoles: ["professional", "student"] }]) {
-      const result = evaluateEntryOperationalGate(entry({ ...over, eligibilityStatus: "waived", metadata: waived }), NOW);
-      expect(result.ready).toBe(false);
-      expect(result.reasons).toContain("waiver_not_allowed_for_classified_division");
+    for (const over of [{ skillLabel: "Novice" }, { participantRoles: ["professional", "student"] }, { ageLabel: "Masters" }]) {
+      expect(evaluateEntryOperationalGate(entry({ ...over, eligibilityStatus: "waived" }), NOW).reasons).toContain("waiver_not_allowed_for_classified_division");
     }
   });
-  it("missing criteria fail closed: unknown-label divisions and entries with no determination are not ready", () => {
-    expect(evaluateEntryOperationalGate(entry({ skillLabel: "???" }), NOW).ready).toBe(false);
-    expect(evaluateEntryOperationalGate(entry({ ageLabel: "???" }), NOW).ready).toBe(false);
+  it("an adult open-division entry with a waiver the database cleared is ready; an uncleared one is not", () => {
+    expect(evaluateEntryOperationalGate(entry({ eligibilityStatus: "waived" }), NOW).ready).toBe(true);
+    expect(evaluateEntryOperationalGate(entry({ eligibilityStatus: "waived", clearance: "provisional" }), NOW).reasons).toEqual(["clearance_not_recorded"]);
   });
-  it("an adult open-division entry with a categorised event-policy waiver is ready; an uncategorised waiver is not", () => {
-    expect(evaluateEntryOperationalGate(entry({ eligibilityStatus: "waived", metadata: determination("waived", "waiver_event_policy_documents", []) }), NOW).ready).toBe(true);
-    expect(evaluateEntryOperationalGate(entry({ eligibilityStatus: "waived", metadata: {} }), NOW).reasons).toContain("waiver_category_missing");
-  });
-  it("combination sweep: ready only when ALL of adult, applicable criteria and a permitted decision hold", () => {
-    const dims = { adult: [true, false], level: [true, false], covered: [true, false] };
-    for (const adult of dims.adult) for (const hasLevel of dims.level) for (const covered of dims.covered) {
-      const metadata = covered ? eligibleLevel : determination("eligible", "criteria_verified_by_organizer", []);
-      const result = evaluateEntryOperationalGate(entry({ skillLabel: hasLevel ? "Novice" : null, metadata, participantDobs: adult ? [ADULT] : [MINOR] }), NOW);
-      expect(result.ready).toBe(adult && (!hasLevel || covered));
+  it("combination sweep: ready only when the participants are adults and the database reports the entry cleared", () => {
+    for (const adult of [true, false]) for (const level of [null, "Novice"]) for (const clearance of ["cleared", "provisional"] as const) {
+      const result = evaluateEntryOperationalGate(entry({ skillLabel: level, clearance, participantDobs: adult ? [ADULT] : [MINOR] }), NOW);
+      expect(result.ready).toBe(adult && clearance === "cleared");
     }
   });
 });
@@ -136,7 +82,7 @@ describe("OD-18 waiver vs override categories (legitimate event-policy exception
     for (const category of PERMITTED_WAIVER_CATEGORIES) expect(waive(category)).toBeNull();
   });
   it("refuses a waiver carrying any non-waiver reason (age, status, level, membership, exception, other)", () => {
-    for (const reason of ["age_division_not_met", "status_not_established", "level_not_met", "criteria_verified_by_organizer", "body_permitted_exception_applied", "other_organizer_review"]) {
+    for (const reason of ["age_division_not_met", "status_not_established", "level_not_met", "criteria_verified_by_organizer", "other_organizer_review"]) {
       expect(waive(reason)).toMatch(/event-policy/);
     }
   });

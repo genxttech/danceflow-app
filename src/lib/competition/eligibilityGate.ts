@@ -6,7 +6,8 @@
   membership or WSDC Points Registry eligibility. Studio / Custom eligibility is determined by the organizer. Nothing
   here may be described in product copy as checking or enforcing those classes.
 
-  GATE MATRIX (evaluated per entry before it counts as ready, heat-planned or floor-scheduled):
+  GATE MATRIX (evaluated per entry before it counts as ready, heat-planned or floor-scheduled; "eligible" and "waived" count only while the database reports
+  the entry cleared, R-15):
 
   | dimension                    | source of truth                         | clearable by waiver? | clearable by organizer determination? |
   |------------------------------|-----------------------------------------|----------------------|---------------------------------------|
@@ -21,10 +22,10 @@
   fails closed (counts as a classification). Whose age counts in Pro-Am and Couples is UNRESOLVED (AE-16, NOT
   SPECIFIED IN PROVIDED SOURCE); the software never infers it and relies on the organizer.
 
-  Privacy: nothing here returns or stores a birthdate, an age or credential detail. A determination holds a user id,
-  an actor role, a timestamp, an outcome, a reason code and the list of criteria the organizer confirmed.
+  Privacy: nothing here returns or stores a birthdate, an age or credential detail. The decision itself is recorded by the database function (see eligibilityRpc.ts).
 */
 
+import type { ClearanceState } from "@/lib/competition/eligibilityRpc";
 import { classifyDateOfBirth } from "@/lib/competition/minorsGate";
 
 export const ELIGIBILITY_STATUSES = ["unverified", "eligible", "needs_review", "ineligible", "waived"] as const;
@@ -34,7 +35,7 @@ export const ELIGIBILITY_CRITERIA = ["age_division", "status", "level"] as const
 export type EligibilityCriterion = (typeof ELIGIBILITY_CRITERIA)[number];
 
 /** Reasons that accompany an "eligible" decision on an entry with required criteria. */
-export const POSITIVE_REASON_CODES = ["criteria_verified_by_organizer", "body_permitted_exception_applied"] as const;
+export const POSITIVE_REASON_CODES = ["criteria_verified_by_organizer"] as const;
 /** Legitimate EVENT-POLICY exceptions: the only things a waiver may cover. */
 export const PERMITTED_WAIVER_CATEGORIES = ["waiver_event_policy_documents", "waiver_event_policy_fee", "waiver_event_policy_scheduling"] as const;
 /** Reasons for ineligible / needs-review / unverified decisions. */
@@ -63,17 +64,6 @@ export const PROHIBITED_OVERRIDE_SUBJECTS = [
   "body_membership_or_registration_requirement",
 ] as const;
 
-export type EligibilityDetermination = {
-  by: string;
-  role: string;
-  at: string;
-  outcome: EligibilityStatus;
-  reasonCode: EligibilityReasonCode;
-  criteria: EligibilityCriterion[];
-  /** What was verified (see entryFingerprint). A changed division, labels or participants invalidate the determination. */
-  fingerprint: string;
-};
-
 export const AGE_VERIFICATION_DISCLOSURE =
   "DanceFlow does not yet automatically verify governing-body age divisions. The organizer verifies each entry's age-division eligibility and records the decision here.";
 export const STUDIO_ELIGIBILITY_DISCLOSURE =
@@ -101,14 +91,6 @@ export function isStatusRestrictedDivision(roleLabel: string | null | undefined)
   return restrictedLabel(roleLabel, UNCLASSIFIED_LABELS);
 }
 
-/** Non-sensitive deterministic fingerprint of what an organizer verified (division id, labels, competitor ids). No names, dates or credentials. */
-export function entryFingerprint(parts: { divisionId: string; ageLabel: string | null | undefined; skillLabel: string | null | undefined; roleLabel: string | null | undefined; competitorIds: Array<string | null> }): string {
-  const text = [parts.divisionId, parts.ageLabel ?? "", parts.skillLabel ?? "", parts.roleLabel ?? "", ...parts.competitorIds.map((id) => id ?? "").sort()].join("|");
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 0x01000193) >>> 0; }
-  return hash.toString(16).padStart(8, "0") + ":" + text.length;
-}
-
 /** Participant roles that make amateur/professional status relevant (a Pro-Am or Pro-Pro relationship). */
 export const STATUS_RELEVANT_ROLES = ["professional", "student"] as const;
 
@@ -120,34 +102,15 @@ export function requiredCriteria(input: { ageLabel: string | null | undefined; s
   return required;
 }
 
-export function parseEligibilityDetermination(metadata: unknown): EligibilityDetermination | null {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const raw = (metadata as Record<string, unknown>).eligibility_determination;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const value = raw as Record<string, unknown>;
-  const by = typeof value.by === "string" ? value.by : "";
-  const role = typeof value.role === "string" ? value.role : "";
-  const at = typeof value.at === "string" && !Number.isNaN(Date.parse(value.at)) ? value.at : "";
-  const outcome = value.outcome as EligibilityStatus;
-  const reasonCode = value.reasonCode as EligibilityReasonCode;
-  const criteria = Array.isArray(value.criteria) ? (value.criteria as unknown[]) : null;
-  const fingerprint = typeof value.fingerprint === "string" ? value.fingerprint : "";
-  if (!by || !role || !at || !criteria || !fingerprint) return null;
-  if (!(ELIGIBILITY_STATUSES as readonly string[]).includes(outcome)) return null;
-  if (!(ELIGIBILITY_REASON_CODES as readonly string[]).includes(reasonCode)) return null;
-  if (!criteria.every((item) => (ELIGIBILITY_CRITERIA as readonly string[]).includes(item as string))) return null;
-  return { by, role, at, outcome, reasonCode, criteria: criteria as EligibilityCriterion[], fingerprint };
-}
-
 export type EntryGateReason =
   | "not_confirmed"
   | "ineligible"
   | "adult_not_verified"
   | "division_not_found"
   | "eligibility_not_decided"
-  | "criteria_determination_missing"
   | "waiver_not_allowed_for_classified_division"
-  | "waiver_category_missing";
+  | "clearance_not_recorded"
+  | "clearance_unavailable";
 
 export type EntryGateInput = {
   status: string;
@@ -158,9 +121,8 @@ export type EntryGateInput = {
   participantRoles: string[];
   /** false when the entry division row could not be read: fails closed. */
   divisionFound?: boolean;
-  /** Fingerprint of the entry as it is now; a stored determination must match it. */
-  fingerprint: string;
-  metadata: unknown;
+  /** The database's own answer for this entry (competition_entry_clearance_state). */
+  clearance: ClearanceState;
   /** Stored dates of birth of every participant (null = none stored). An entry with no participants fails closed. */
   participantDobs: Array<string | null>;
 };
@@ -182,20 +144,11 @@ export function evaluateEntryOperationalGate(input: EntryGateInput, now: Date = 
 
   if (input.divisionFound === false) reasons.push("division_not_found");
   const required = requiredCriteria({ ageLabel: input.ageLabel, skillLabel: input.skillLabel, roleLabel: input.roleLabel, participantRoles: input.participantRoles });
-  const determination = parseEligibilityDetermination(input.metadata);
 
-  if (input.eligibilityStatus === "waived") {
-    if (required.length > 0) reasons.push("waiver_not_allowed_for_classified_division");
-    else if (!determination || determination.outcome !== "waived" || !(PERMITTED_WAIVER_CATEGORIES as readonly string[]).includes(determination.reasonCode)) reasons.push("waiver_category_missing");
-  } else if (input.eligibilityStatus === "eligible") {
-    if (required.length > 0) {
-      const valid = determination
-        && determination.outcome === "eligible"
-        && (POSITIVE_REASON_CODES as readonly string[]).includes(determination.reasonCode)
-        && includesAll(determination.criteria, required)
-        && determination.fingerprint === input.fingerprint;
-      if (!valid) reasons.push("criteria_determination_missing");
-    }
+  if (input.eligibilityStatus === "waived" && required.length > 0) reasons.push("waiver_not_allowed_for_classified_division");
+  else if (input.eligibilityStatus === "waived" || input.eligibilityStatus === "eligible") {
+    if (input.clearance === "unavailable") reasons.push("clearance_unavailable");
+    else if (input.clearance !== "cleared") reasons.push("clearance_not_recorded");
   } else if (input.eligibilityStatus !== "ineligible") {
     reasons.push("eligibility_not_decided");
   }
@@ -231,24 +184,11 @@ export function validateEligibilityDecision(input: {
   }
   if (reasonIsWaiver) return "Waiver reasons can only be used with the Waived decision.";
   if (input.outcome === "eligible") {
-    if (!reasonIsPositive && input.required.length > 0) return "Marking an entry eligible requires the reason \"criteria verified by organizer\" or \"body-permitted exception applied\".";
+    if (!reasonIsPositive && input.required.length > 0) return "Marking an entry eligible requires the reason \"criteria verified by organizer\".";
     if (!reasonIsPositive) return "Marking an entry eligible requires a verification reason.";
     if (!includesAll(input.verifiedCriteria, input.required)) return "Confirm every applicable criterion (age division, status, level) before marking this entry eligible.";
     return null;
   }
   if (reasonIsPositive) return "A verification reason can only be used with the Eligible decision.";
   return null;
-}
-
-export function buildEligibilityDetermination(input: {
-  by: string;
-  role: string;
-  outcome: EligibilityStatus;
-  reasonCode: EligibilityReasonCode;
-  criteria: EligibilityCriterion[];
-  fingerprint: string;
-  now?: Date;
-}): EligibilityDetermination {
-  const criteria = ELIGIBILITY_CRITERIA.filter((item) => input.criteria.includes(item));
-  return { by: input.by, role: input.role, at: (input.now ?? new Date()).toISOString(), outcome: input.outcome, reasonCode: input.reasonCode, criteria, fingerprint: input.fingerprint };
 }

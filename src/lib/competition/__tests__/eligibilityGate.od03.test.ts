@@ -3,23 +3,18 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AGE_VERIFICATION_DISCLOSURE,
-  buildEligibilityDetermination,
+  ELIGIBILITY_REASON_CODES,
   evaluateEntryOperationalGate,
   isAgeRestrictedDivision,
-  parseEligibilityDetermination,
   validateEligibilityDecision,
 } from "../eligibilityGate";
 import { loadEntryOperationalGates } from "../eligibilityGateServer";
-import { entryFingerprint } from "../eligibilityGate";
 import { isSchedulableEntry } from "../floorPlanner";
 
 const NOW = new Date("2026-11-23T12:00:00Z");
 const ADULT = "1990-01-01";
 const MINOR = "2012-01-01";
-const good = buildEligibilityDetermination({ by: "user-1", role: "organizer_admin", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["age_division"], fingerprint: "fp", now: NOW });
-// An age-restricted division with no level label and no pro/am participants: only the age criterion applies.
-const base = { status: "confirmed", eligibilityStatus: "eligible", ageLabel: "Senior I", skillLabel: null, participantRoles: ["dancer", "dancer"], fingerprint: "fp", metadata: { eligibility_determination: good }, participantDobs: [ADULT, ADULT] };
-const waiverDetermination = buildEligibilityDetermination({ by: "user-1", role: "organizer_admin", outcome: "waived", reasonCode: "waiver_event_policy_fee", criteria: [], fingerprint: "fp", now: NOW });
+const base: Parameters<typeof evaluateEntryOperationalGate>[0] = { status: "confirmed", eligibilityStatus: "eligible", ageLabel: "Senior I", skillLabel: null, participantRoles: ["dancer"], clearance: "cleared", participantDobs: [ADULT, ADULT] };
 
 describe("OD-03 age-restricted division detection", () => {
   it.each([["Senior I", true], ["Junior", true], ["Masters", true], ["mystery label", true], ["", false], [null, false], ["Open", false], ["All Ages", false]])(
@@ -29,58 +24,58 @@ describe("OD-03 age-restricted division detection", () => {
 });
 
 describe("OD-03 entry operational gate", () => {
-  it("clears an adult entry in an age-restricted division only with an eligible status AND an organizer determination", () => {
+  it("clears an adult entry only when the database reports it cleared", () => {
     expect(evaluateEntryOperationalGate(base, NOW)).toEqual({ ready: true, reasons: [] });
-    expect(evaluateEntryOperationalGate({ ...base, metadata: {} }, NOW).reasons).toContain("criteria_determination_missing");
-    expect(evaluateEntryOperationalGate({ ...base, metadata: { eligibility_determination: { ...good, by: "" } } }, NOW).ready).toBe(false);
-    expect(evaluateEntryOperationalGate({ ...base, metadata: { eligibility_determination: { ...good, reasonCode: "other_organizer_review" } } }, NOW).ready).toBe(false);
+    expect(evaluateEntryOperationalGate({ ...base, ageLabel: "Open", eligibilityStatus: "waived" }, NOW).ready).toBe(true);
+    expect(evaluateEntryOperationalGate({ ...base, clearance: "provisional" }, NOW).reasons).toEqual(["clearance_not_recorded"]);
+    expect(evaluateEntryOperationalGate({ ...base, clearance: "blocked" }, NOW).reasons).toEqual(["clearance_not_recorded"]);
+    expect(evaluateEntryOperationalGate({ ...base, clearance: "unavailable" }, NOW).reasons).toEqual(["clearance_unavailable"]);
   });
   it("a waiver never clears an age-restricted entry", () => {
-    const result = evaluateEntryOperationalGate({ ...base, eligibilityStatus: "waived", metadata: { eligibility_determination: waiverDetermination } }, NOW);
+    const result = evaluateEntryOperationalGate({ ...base, eligibilityStatus: "waived" }, NOW);
     expect(result.ready).toBe(false);
     expect(result.reasons).toContain("waiver_not_allowed_for_classified_division");
   });
-  it("OD-02 stays absolute: a minor, a missing DOB or no participants blocks even with eligible + determination, and with a waiver on an open division", () => {
-    for (const dobs of [[ADULT, MINOR], [ADULT, null], [], ["garbage"]]) {
-      expect(evaluateEntryOperationalGate({ ...base, participantDobs: dobs }, NOW).reasons).toContain("adult_not_verified");
-      expect(evaluateEntryOperationalGate({ ...base, ageLabel: null, eligibilityStatus: "waived", metadata: { eligibility_determination: waiverDetermination }, participantDobs: dobs }, NOW).ready).toBe(false);
+  it("a status alone never clears an entry: eligible or waived without a database clearance is not ready", () => {
+    for (const eligibilityStatus of ["eligible", "waived"]) {
+      expect(evaluateEntryOperationalGate({ ...base, ageLabel: null, eligibilityStatus, clearance: "provisional" }, NOW).ready).toBe(false);
     }
   });
-  it("open (non-classified) divisions: a categorised waiver or eligible clears; an undecided entry does not", () => {
-    expect(evaluateEntryOperationalGate({ ...base, ageLabel: "Open", metadata: { eligibility_determination: waiverDetermination }, eligibilityStatus: "waived" }, NOW).ready).toBe(true);
-    expect(evaluateEntryOperationalGate({ ...base, ageLabel: null, metadata: {}, eligibilityStatus: "eligible" }, NOW).ready).toBe(true);
-    expect(evaluateEntryOperationalGate({ ...base, ageLabel: null, metadata: {}, eligibilityStatus: "unverified" }, NOW).reasons).toContain("eligibility_not_decided");
+  it("OD-02 stays absolute: a minor, a missing DOB or no participants blocks even when the database says cleared", () => {
+    for (const dobs of [[ADULT, MINOR], [ADULT, null], [], ["garbage"]]) {
+      expect(evaluateEntryOperationalGate({ ...base, participantDobs: dobs }, NOW).reasons).toContain("adult_not_verified");
+      expect(evaluateEntryOperationalGate({ ...base, eligibilityStatus: "waived", participantDobs: dobs }, NOW).ready).toBe(false);
+    }
   });
   it("unconfirmed, ineligible and undecided entries are not ready", () => {
     expect(evaluateEntryOperationalGate({ ...base, status: "pending" }, NOW).reasons).toContain("not_confirmed");
-    expect(evaluateEntryOperationalGate({ ...base, eligibilityStatus: "ineligible" }, NOW).reasons).toContain("ineligible");
+    expect(evaluateEntryOperationalGate({ ...base, eligibilityStatus: "ineligible" }, NOW).reasons).toEqual(["ineligible"]);
     expect(evaluateEntryOperationalGate({ ...base, eligibilityStatus: "needs_review" }, NOW).reasons).toContain("eligibility_not_decided");
-  });
-  it("determination parsing rejects malformed records and carries no birthdate or age", () => {
-    expect(parseEligibilityDetermination(null)).toBeNull();
-    expect(parseEligibilityDetermination({ eligibility_determination: { ...good, at: "nope" } })).toBeNull();
-    expect(parseEligibilityDetermination({ eligibility_determination: { ...good, criteria: ["bogus"] } })).toBeNull();
-    expect(Object.keys(good).sort()).toEqual(["at", "by", "criteria", "fingerprint", "outcome", "reasonCode", "role"]);
-    expect(JSON.stringify(good)).not.toMatch(/birth/i);
+    expect(evaluateEntryOperationalGate({ ...base, eligibilityStatus: "unverified" }, NOW).reasons).toContain("eligibility_not_decided");
   });
 });
 
 describe("OD-03 eligibility decision validation (organizer action)", () => {
-  const ok = { outcome: "eligible", reasonCode: "criteria_verified_by_organizer", required: ["age_division"] as Array<"age_division">, verifiedCriteria: ["age_division"], participantsAdult: true };
+  const ok = { outcome: "eligible", reasonCode: "criteria_verified_by_organizer", required: ["age_division" as const], verifiedCriteria: ["age_division"], participantsAdult: true };
   it("accepts the verified-by-organizer decision", () => expect(validateEligibilityDecision(ok)).toBeNull());
   it("refuses eligible or waived when stored data does not show every competitor is an adult (waiver cannot bypass OD-02)", () => {
     expect(validateEligibilityDecision({ ...ok, participantsAdult: false })).toMatch(/18 or older/);
     expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "waiver_event_policy_fee", required: [], participantsAdult: false })).toMatch(/18 or older/);
   });
   it("refuses a waiver on an age-restricted division, a wrong reason, and a missing reason", () => {
-    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "waiver_event_policy_fee" })).toMatch(/age, status or level requirements/);
-    expect(validateEligibilityDecision({ ...ok, reasonCode: "other_organizer_review" })).toMatch(/requires the reason/);
+    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "waiver_event_policy_fee" })).toMatch(/requirements/);
+    expect(validateEligibilityDecision({ ...ok, reasonCode: "other_organizer_review" })).toMatch(/requires the reason|verification reason/);
+    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "other_organizer_review", required: [] })).toMatch(/event-policy/);
     expect(validateEligibilityDecision({ ...ok, reasonCode: "" })).toMatch(/reason/);
     expect(validateEligibilityDecision({ ...ok, outcome: "bogus" })).toMatch(/valid eligibility/);
   });
   it("allows an event-policy waiver on an open division and marking an entry ineligible without extra conditions", () => {
     expect(validateEligibilityDecision({ outcome: "waived", reasonCode: "waiver_event_policy_documents", required: [], verifiedCriteria: [], participantsAdult: true })).toBeNull();
     expect(validateEligibilityDecision({ outcome: "ineligible", reasonCode: "age_division_not_met", required: ["age_division"], verifiedCriteria: [], participantsAdult: false })).toBeNull();
+  });
+  it("offers only reason codes the database function accepts", () => {
+    const sql = [...ELIGIBILITY_REASON_CODES].sort();
+    expect(sql).toEqual(["age_division_not_met", "age_not_established", "criteria_verified_by_organizer", "documents_pending", "level_not_met", "other_organizer_review", "status_not_established", "waiver_event_policy_documents", "waiver_event_policy_fee", "waiver_event_policy_scheduling", "whose_age_rule_unresolved"]);
   });
 });
 
@@ -94,35 +89,33 @@ describe("OD-03 scheduling and copy", () => {
     expect(AGE_VERIFICATION_DISCLOSURE).toMatch(/does not yet automatically verify/);
     expect(AGE_VERIFICATION_DISCLOSURE).not.toMatch(/enforces age|checks age/i);
   });
-  it("loader fails closed on a load error and clears nothing for entries without participants", async () => {
+  it("loader fails closed on a load error, clears only what the database clears, and treats a missing function as not ready", async () => {
     const table = (data: unknown[], error: unknown = null) => ({ select: () => ({ eq: async () => ({ data, error }) }) });
-    const client = (tables: Record<string, ReturnType<typeof table>>) => ({ from: (name: string) => tables[name] }) as never;
-    const entries = [{ id: "e1", division_id: "d1", status: "confirmed", eligibility_status: "eligible", metadata: { eligibility_determination: good } }];
+    const client = (tables: Record<string, ReturnType<typeof table>>, answer: { data: unknown; error: unknown } = { data: "cleared", error: null }) =>
+      ({ from: (name: string) => tables[name], rpc: async () => answer }) as never;
+    const entries = [{ id: "e1", division_id: "d1", status: "confirmed", eligibility_status: "eligible" }];
     const tables = {
       event_competition_entries: table(entries),
-      event_competition_divisions: table([{ id: "d1", age_label: "Senior I", skill_label: null }]),
-      event_competition_entry_participants: table([]),
-      event_competition_competitors: table([]),
+      event_competition_divisions: table([{ id: "d1", age_label: "Senior I", skill_label: null, role_label: null }]),
+      event_competition_entry_participants: table([{ entry_id: "e1", competitor_id: "c1", participant_role: "dancer" }]),
+      event_competition_competitors: table([{ id: "c1", date_of_birth: ADULT }]),
     };
-    expect((await loadEntryOperationalGates(client(tables), "ev", NOW)).get("e1")?.ready).toBe(false);
+    const ready = async (c: never) => (await loadEntryOperationalGates(c, "ev", NOW)).get("e1")?.ready;
+    expect(await ready(client(tables))).toBe(true);
+    expect(await ready(client(tables, { data: "provisional", error: null }))).toBe(false);
+    expect(await ready(client(tables, { data: null, error: { code: "PGRST202" } }))).toBe(false);
+    expect(await ready(client({ ...tables, event_competition_entry_participants: table([]) }))).toBe(false);
+    await expect(loadEntryOperationalGates(client(tables, { data: null, error: { code: "57014", message: "timeout" } }), "ev", NOW)).rejects.toThrow();
     await expect(loadEntryOperationalGates(client({ ...tables, event_competition_competitors: table([], { message: "x" }) }), "ev", NOW)).rejects.toThrow();
-    const fp = entryFingerprint({ divisionId: "d1", ageLabel: "Senior I", skillLabel: null, roleLabel: null, competitorIds: ["c1"] });
-    const stale = [{ ...entries[0], metadata: { eligibility_determination: { ...good, fingerprint: "old" } } }];
-    const fresh = [{ ...entries[0], metadata: { eligibility_determination: { ...good, fingerprint: fp } } }];
-    const people = { event_competition_entry_participants: table([{ entry_id: "e1", competitor_id: "c1", participant_role: "dancer" }]), event_competition_competitors: table([{ id: "c1", date_of_birth: ADULT }]) };
-    expect((await loadEntryOperationalGates(client({ ...tables, ...people, event_competition_entries: table(stale) }), "ev", NOW)).get("e1")?.ready).toBe(false);
-    expect((await loadEntryOperationalGates(client({ ...tables, ...people, event_competition_entries: table(fresh) }), "ev", NOW)).get("e1")?.ready).toBe(true);
-    // a missing division row fails closed
-    expect((await loadEntryOperationalGates(client({ ...tables, ...people, event_competition_entries: table(fresh), event_competition_divisions: table([]) }), "ev", NOW)).get("e1")?.reasons).toContain("division_not_found");
-    const withPeople = { ...tables, event_competition_entry_participants: table([{ entry_id: "e1", competitor_id: "c1", participant_role: "dancer" }]), event_competition_competitors: table([{ id: "c1", date_of_birth: ADULT }]) };
-    expect((await loadEntryOperationalGates(client(withPeople), "ev", NOW)).get("e1")?.ready).toBe(false); // stored fingerprint does not match: determination is stale
   });
   it("the organizer action, heat generation and planner loader call the gate (source wiring)", () => {
     const root = join(__dirname, "..", "..", "..");
     const actions = readFileSync(join(root, "app/app/events/[id]/competition/registrations/actions.ts"), "utf8");
     expect(actions).toContain("validateEligibilityDecision");
     expect(actions).toContain("entryParticipantsAdultVerified");
-    expect(actions).toContain("eligibility_determination");
+    expect(actions).toContain("recordEligibilityDecision");
+    expect(actions).not.toContain("eligibility_status:");
+    expect(actions).not.toContain("eligibility_determination");
     expect(readFileSync(join(root, "app/app/events/[id]/competition/readiness/actions.ts"), "utf8")).toContain("loadEntryOperationalGates");
     expect(readFileSync(join(root, "lib/competition/floorScheduleServer.ts"), "utf8")).toContain("age_gate_ok");
   });
