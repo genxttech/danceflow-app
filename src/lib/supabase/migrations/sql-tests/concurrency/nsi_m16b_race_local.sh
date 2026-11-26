@@ -4,7 +4,7 @@
 #   B1 revoke-all vs finalize (finalize waits, then refuses); B2 erase vs verify, both orders
 #   C1 concurrent wrong verifies never lose an attempt and never pass five; C2 two requests leave one open row;
 #   C3 two issues leave one open challenge; P1 purge skips a client whose lock a writer holds; E1 isolation guards
-# usage: nsi_m16b_race_local.sh <container> [run-offset]   (MUST run on an M16b database; committed fixtures: discard the container)
+# usage: nsi_m16b_race_local.sh <container> [run-offset] [scenario]   (MUST run on an M16b database; committed fixtures: discard the container)
 set -u
 DB="${1:?container}"; OFF="${2:-0}"
 case "$DB" in nsi-i2-*|supabase_db_nsi*) ;; *) echo "refused: container must be a disposable local stack"; exit 2;; esac
@@ -36,8 +36,25 @@ svc() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role se
 last() { tail -1 "$1" | tr -d '\r'; }
 lastv() { tail -1 | tr -d '\r'; }
 lockkey() { echo "hashtextextended('intake:client:$S:$1', 0)"; }
-holder() { ( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select pg_advisory_xact_lock($(lockkey "$1")); select pg_sleep($2); commit;" > /dev/null 2>&1 ) & }
-advwait() { q "select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory';"; }
+# Ordering never depends on timing (a docker exec can take seconds on a loaded host). A GATE is a session lock (7160, n) held by its
+# own backend; a transaction ending in gate_wait n keeps all its locks until gate_open n ends that backend. Client locks are the
+# one-key advisory locks (objsubid 1), gates the two-key ones (objsubid 2).
+seen() { local i; for i in $(seq 1 120); do [ "$(q "$1" | tr -d '\r')" -ge 1 ] 2>/dev/null && return 0; sleep 0.5; done; return 1; }
+gatesql() { echo "select count(*) from pg_locks where locktype = 'advisory' and objsubid = 2 and classid = 7160 and objid = $1 and $2;"; }
+gate_close() { ( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "select pg_advisory_lock(7160, $1); select pg_sleep(600);" > /dev/null 2>&1 ) & seen "$(gatesql "$1" granted)" || echo "gate $1 never closed"; }
+gate_wait() { echo "reset role; select pg_advisory_xact_lock(7160, $1);"; }
+at_gate() { seen "$(gatesql "$1" "not granted")" || echo "the first transaction never reached gate $1"; }
+gate_open() { q "select count(pg_terminate_backend(pid)) from pg_locks where locktype = 'advisory' and objsubid = 2 and classid = 7160 and objid = $1 and granted;" > /dev/null; }
+CLIENTWAIT="select count(*) from pg_locks where locktype = 'advisory' and objsubid = 1 and not granted"
+# blocked <pid>: 1 once a caller waits on a client lock; 0 when the background caller ended without ever waiting
+blocked() { local i; for i in $(seq 1 60); do [ "$(q "$CLIENTWAIT;" | tr -d '\r')" -ge 1 ] 2>/dev/null && { echo 1; return; }; kill -0 "$1" 2>/dev/null || break; sleep 0.5; done; echo 0; }
+allblocked() { seen "select (($CLIENTWAIT) >= $1)::int;" || echo "fewer than $1 callers waited on the client lock"; }
+# holder <client> <gate>: another writer holds the client lock until gate_open <gate>
+holder() { gate_close "$2"; ( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select pg_advisory_xact_lock($(lockkey "$1")); $(gate_wait "$2") commit;" > /dev/null 2>&1 ) & at_gate "$2"; }
+# ONLY=<scenario> (third argument) runs one scenario group, for the mutation probes
+ONLY="${3:-}"; ran=0
+want() { local t; [ -z "$ONLY" ] && return 0; for t in "$@"; do [ "$t" = "$ONLY" ] && return 0; done; return 1; }
+G0=$((OFF + 1))
 reqsql() { echo "select public.intake_guardian_request_invitation('$S', '$1', '$2', 1::smallint);"; }
 finsql() { echo "select public.intake_guardian_finalize_invitation('$1', '$2', $3, 'kid00001', decode('$SALT', 'hex'), decode('$(hexhash "$4")', 'hex'), now() + interval '7 days');"; }
 isssql() { echo "select public.intake_issue_email_challenge(decode('$(hexhash "$1")', 'hex'), '$2', decode('$(hexhash "$3")', 'hex'), decode('$(hexhash "ip-$2")', 'hex'), decode('$(hexhash "em-$2")', 'hex'), '$4', 1::smallint);"; }
@@ -64,122 +81,148 @@ seed() {
 f() { echo "$1" | cut -d'|' -f"$2"; }
 fail=0
 note() { echo "$*"; }
-must() { if [ "$2" = "1" ]; then note "$1: ok"; else fail=$((fail+1)); note "$1: FAIL"; fi; }
+must() { ran=$((ran+1)); if [ "$2" = "1" ]; then note "$1: ok"; else fail=$((fail+1)); note "$1: FAIL"; fi; }
 col() { q "select $2 from public.intake_email_challenges where id = '$1';"; }
 
 # ---- A1 request takes the client lock before it writes
+if want A1; then
 X=$(seed 11 pending); C=$(f "$X" 1); R=$(f "$X" 2)
-holder "$C" 6; sleep 1; t0=$(date +%s)
-( as_staff "$U" "$(reqsql "$R" again)" > $TD/m16b_a1.out 2>&1 ) &
-sleep 2; w=$(advwait); wait; t1=$(date +%s)
-ok=0; [ "$w" -ge 1 ] && last $TD/m16b_a1.out | grep -q '^requested:' && [ $((t1 - t0)) -ge 4 ] && ok=1
-note "A1 request: waiting=$w result=$(last $TD/m16b_a1.out | cut -c1-20) elapsed=$((t1 - t0))s"
+holder "$C" $G0
+gen() { q "select count(*) || '/' || max(id::text) from public.intake_guardian_invitation_requests where request_id = '$R';"; }
+b=$(gen)
+( as_staff "$U" "$(reqsql "$R" again)" > $TD/m16b_a1.out 2>&1 ) & p=$!
+w=$(blocked $p); m=$(gen); gate_open $G0; wait
+ok=0; [ "$w" = "1" ] && [ "$m" = "$b" ] && last $TD/m16b_a1.out | grep -q '^requested:' && ok=1
+note "A1 request: waiting=$w unchanged-while-held=$([ "$m" = "$b" ] && echo yes || echo no) result=$(last $TD/m16b_a1.out | cut -c1-20)"
 must "A1 the staff request takes the client lock before it writes" "$ok"
+fi
 
 # ---- A2 issue and A3 verify take the client lock
+if want A2 A3; then
 X=$(seed 12); C=$(f "$X" 1); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 12)
-holder "$C" 6; sleep 1
-( svc "$(isssql "$SS" "$CH" right "$H")" > $TD/m16b_a2.out 2>&1 ) &
-sleep 2; w=$(advwait); n0=$(q "select count(*) from public.intake_email_challenges where id = '$CH';"); wait
-ok=0; [ "$w" -ge 1 ] && [ "$n0" = "0" ] && [ "$(last $TD/m16b_a2.out)" = "ok" ] && ok=1
+holder "$C" $((G0 + 1))
+( svc "$(isssql "$SS" "$CH" right "$H")" > $TD/m16b_a2.out 2>&1 ) & p=$!
+w=$(blocked $p); n0=$(q "select count(*) from public.intake_email_challenges where id = '$CH';"); gate_open $((G0 + 1)); wait
+ok=0; [ "$w" = "1" ] && [ "$n0" = "0" ] && [ "$(last $TD/m16b_a2.out)" = "ok" ] && ok=1
 note "A2 issue: waiting=$w rows-while-held=$n0 result=$(last $TD/m16b_a2.out)"
 must "A2 issue takes the client lock before it writes" "$ok"
-holder "$C" 6; sleep 1
-( svc "$(versql "$SS" "$CH" wrong)" > $TD/m16b_a3.out 2>&1 ) &
-sleep 2; w=$(advwait); n0=$(col "$CH" attempts); wait
-ok=0; [ "$w" -ge 1 ] && [ "$n0" = "0" ] && [ "$(last $TD/m16b_a3.out)" = "invalid" ] && [ "$(col "$CH" attempts)" = "1" ] && ok=1
+holder "$C" $((G0 + 2))
+( svc "$(versql "$SS" "$CH" wrong)" > $TD/m16b_a3.out 2>&1 ) & p=$!
+w=$(blocked $p); n0=$(col "$CH" attempts); gate_open $((G0 + 2)); wait
+ok=0; [ "$w" = "1" ] && [ "$n0" = "0" ] && [ "$(last $TD/m16b_a3.out)" = "invalid" ] && [ "$(col "$CH" attempts)" = "1" ] && ok=1
 note "A3 verify: waiting=$w attempts-while-held=$n0 result=$(last $TD/m16b_a3.out) attempts=$(col "$CH" attempts)"
 must "A3 verify takes the client lock before it counts" "$ok"
+fi
 
 # ---- B1 revoke-all holds the lock; finalize waits and then refuses
+if want B1; then
 X=$(seed 13 pending); R=$(f "$X" 2); P=$(f "$X" 4); GI=$(uid 4 13)
-( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role authenticated; set local request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; select public.intake_revoke_invitations('$S', '$R'); reset role; select pg_sleep(6); commit;" > $TD/m16b_b1_rev.out 2>&1 ) &
-sleep 2
-( svc "$(finsql "$P" "$GI" 1 "gt-b1-$OFF")" > $TD/m16b_b1.out 2>&1 ) &
-sleep 2; w=$(advwait); wait
+gate_close $((G0 + 3))
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role authenticated; set local request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; select public.intake_revoke_invitations('$S', '$R'); $(gate_wait $((G0 + 3))) commit;" > $TD/m16b_b1_rev.out 2>&1 ) &
+at_gate $((G0 + 3))
+( svc "$(finsql "$P" "$GI" 1 "gt-b1-$OFF")" > $TD/m16b_b1.out 2>&1 ) & p=$!
+w=$(blocked $p); gate_open $((G0 + 3)); wait
 n=$(q "select count(*) from public.intake_invitations where id = '$GI';")
-ok=0; [ "$w" -ge 1 ] && [ "$(last $TD/m16b_b1.out)" = "superseded" ] && [ "$n" = "0" ] && ok=1
+ok=0; [ "$w" = "1" ] && [ "$(last $TD/m16b_b1.out)" = "superseded" ] && [ "$n" = "0" ] && ok=1
 note "B1 revoke first: waiting=$w result=$(last $TD/m16b_b1.out) invitations=$n"
 must "B1 finalize waits for revoke-all and then refuses without issuing" "$ok"
+fi
 
 # ---- B2a erase first, verify waits; B2b verify first, erase waits
+if want B2a B2b; then
 X=$(seed 14); C=$(f "$X" 1); R=$(f "$X" 2); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 14)
 svc "$(isssql "$SS" "$CH" right "$H")" >/dev/null
-( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role authenticated; set local request.jwt.claims = '{\"sub\":\"$PA\",\"role\":\"authenticated\"}'; select public.intake_erase_client('$S', '$C', 'data_subject_request')::text; reset role; select pg_sleep(6); commit;" > $TD/m16b_b2e.out 2>&1 ) &
-sleep 2
-( svc "$(versql "$SS" "$CH" right)" > $TD/m16b_b2.out 2>&1 ) &
-sleep 2; w=$(advwait); wait
+gate_close $((G0 + 4))
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role authenticated; set local request.jwt.claims = '{\"sub\":\"$PA\",\"role\":\"authenticated\"}'; select public.intake_erase_client('$S', '$C', 'data_subject_request')::text; $(gate_wait $((G0 + 4))) commit;" > $TD/m16b_b2e.out 2>&1 ) &
+at_gate $((G0 + 4))
+( svc "$(versql "$SS" "$CH" right)" > $TD/m16b_b2.out 2>&1 ) & p=$!
+w=$(blocked $p); gate_open $((G0 + 4)); wait
 left=$(q "select (select count(*) from public.intake_email_challenges where request_id = '$R') + (select count(*) from public.intake_requests where id = '$R');")
-ok=0; [ "$w" -ge 1 ] && [ "$(last $TD/m16b_b2.out)" = "invalid" ] && [ "$left" = "0" ] && ok=1
+ok=0; [ "$w" = "1" ] && [ "$(last $TD/m16b_b2.out)" = "invalid" ] && [ "$left" = "0" ] && ok=1
 note "B2a erase first: waiting=$w result=$(last $TD/m16b_b2.out) left=$left"
 must "B2a verify waits for the erase and answers invalid" "$ok"
 X=$(seed 15); C=$(f "$X" 1); R=$(f "$X" 2); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 15)
 svc "$(isssql "$SS" "$CH" right "$H")" >/dev/null
-( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role service_role; $(versql "$SS" "$CH" right) select pg_sleep(6); commit;" > $TD/m16b_b3v.out 2>&1 ) &
-sleep 2
-( as_staff "$PA" "select public.intake_erase_client('$S', '$C', 'data_subject_request')::text;" > $TD/m16b_b3.out 2>&1 ) &
-sleep 2; w=$(advwait); wait
+gate_close $((G0 + 5))
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role service_role; $(versql "$SS" "$CH" right) $(gate_wait $((G0 + 5))) commit;" > $TD/m16b_b3v.out 2>&1 ) &
+at_gate $((G0 + 5))
+( as_staff "$PA" "select public.intake_erase_client('$S', '$C', 'data_subject_request')::text;" > $TD/m16b_b3.out 2>&1 ) & p=$!
+w=$(blocked $p); gate_open $((G0 + 5)); wait
 left=$(q "select (select count(*) from public.intake_email_challenges where request_id = '$R') + (select count(*) from public.intake_requests where id = '$R');")
-ok=0; [ "$w" -ge 1 ] && grep -q '^ok' $TD/m16b_b3v.out && grep -q '"erased"' $TD/m16b_b3.out && [ "$left" = "0" ] && ok=1
+ok=0; [ "$w" = "1" ] && grep -q '^ok' $TD/m16b_b3v.out && grep -q '"erased"' $TD/m16b_b3.out && [ "$left" = "0" ] && ok=1
 note "B2b verify first: waiting=$w left=$left"
 must "B2b erase waits for the verify and then removes everything" "$ok"
+fi
 
 # ---- B4 finalize holds the lock first; revoke-all waits and then ends the new invitation
+if want B4; then
 X=$(seed 21 pending); R=$(f "$X" 2); P=$(f "$X" 4); GI=$(uid 4 21)
-( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role service_role; $(finsql "$P" "$GI" 1 "gt-b4-$OFF") select pg_sleep(6); commit;" > $TD/m16b_b4_fin.out 2>&1 ) &
-sleep 2
-( as_staff "$U" "select public.intake_revoke_invitations('$S', '$R');" > $TD/m16b_b4.out 2>&1 ) &
-sleep 2; w=$(advwait); wait
+gate_close $((G0 + 6))
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role service_role; $(finsql "$P" "$GI" 1 "gt-b4-$OFF") $(gate_wait $((G0 + 6))) commit;" > $TD/m16b_b4_fin.out 2>&1 ) &
+at_gate $((G0 + 6))
+( as_staff "$U" "select public.intake_revoke_invitations('$S', '$R');" > $TD/m16b_b4.out 2>&1 ) & p=$!
+w=$(blocked $p); gate_open $((G0 + 6)); wait
 st=$(q "select coalesce(revoked_reason, 'live') from public.intake_invitations where id = '$GI';")
-ok=0; [ "$w" -ge 1 ] && grep -q '^issued:1' $TD/m16b_b4_fin.out && [ "$st" = "staff_revoked" ] && ok=1
+ok=0; [ "$w" = "1" ] && grep -q '^issued:1' $TD/m16b_b4_fin.out && [ "$st" = "staff_revoked" ] && ok=1
 note "B4 finalize first: waiting=$w invitation=$st"
 must "B4 revoke-all waits for the finalize and then revokes the new guardian invitation" "$ok"
+fi
 
 # ---- B5 a re-request holds the lock first; an issue on the old link waits and is refused
+if want B5; then
 X=$(seed 22); R=$(f "$X" 2); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 22)
-( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role authenticated; set local request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; $(reqsql "$R" b5) select pg_sleep(6); commit;" > $TD/m16b_b5_req.out 2>&1 ) &
-sleep 2
-( svc "$(isssql "$SS" "$CH" right "$H")" > $TD/m16b_b5.out 2>&1 ) &
-sleep 2; w=$(advwait); wait
+gate_close $((G0 + 7))
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role authenticated; set local request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; $(reqsql "$R" b5) $(gate_wait $((G0 + 7))) commit;" > $TD/m16b_b5_req.out 2>&1 ) &
+at_gate $((G0 + 7))
+( svc "$(isssql "$SS" "$CH" right "$H")" > $TD/m16b_b5.out 2>&1 ) & p=$!
+w=$(blocked $p); gate_open $((G0 + 7)); wait
 n=$(q "select count(*) from public.intake_email_challenges where request_id = '$R';")
-ok=0; [ "$w" -ge 1 ] && grep -q '^requested:' $TD/m16b_b5_req.out && [ "$(last $TD/m16b_b5.out)" = "invalid" ] && [ "$n" = "0" ] && ok=1
+ok=0; [ "$w" = "1" ] && grep -q '^requested:' $TD/m16b_b5_req.out && [ "$(last $TD/m16b_b5.out)" = "invalid" ] && [ "$n" = "0" ] && ok=1
 note "B5 re-request first: waiting=$w issue=$(last $TD/m16b_b5.out) challenges=$n"
 must "B5 an issue on the old link waits for the re-request and writes nothing" "$ok"
+fi
 
 # ---- C1 eight concurrent wrong verifies: exactly five counted
+if want C1; then
 X=$(seed 16); C=$(f "$X" 1); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 16)
 svc "$(isssql "$SS" "$CH" right "$H")" >/dev/null
-holder "$C" 4; sleep 1
+holder "$C" $((G0 + 8))
 for k in 1 2 3 4 5 6 7 8; do ( svc "$(versql "$SS" "$CH" wrong)" > $TD/m16b_c1_$k.out 2>&1 ) & done
-wait
+allblocked 8; gate_open $((G0 + 8)); wait
 inv=0; lk=0; for k in 1 2 3 4 5 6 7 8; do case "$(last $TD/m16b_c1_$k.out)" in invalid) inv=$((inv+1));; locked) lk=$((lk+1));; esac; done
 ok=0; [ "$inv" = "5" ] && [ "$lk" = "3" ] && [ "$(col "$CH" attempts)" = "5" ] && ok=1
 note "C1 eight wrong codes: invalid=$inv locked=$lk attempts=$(col "$CH" attempts)"
 must "C1 concurrent verifies never lose an attempt and never pass five" "$ok"
+fi
 
 # ---- C2 two concurrent requests leave one open row
+if want C2; then
 X=$(seed 17 pending); C=$(f "$X" 1); R=$(f "$X" 2)
-holder "$C" 4; sleep 1
+holder "$C" $((G0 + 9))
 ( as_staff "$U" "$(reqsql "$R" c2a)" > $TD/m16b_c2a.out 2>&1 ) &
 ( as_staff "$U" "$(reqsql "$R" c2b)" > $TD/m16b_c2b.out 2>&1 ) &
-wait
+allblocked 2; gate_open $((G0 + 9)); wait
 n=$(q "select count(*) from public.intake_guardian_invitation_requests where request_id = '$R' and finalized_at is null and superseded_at is null;")
 ok=0; last $TD/m16b_c2a.out | grep -q '^requested:' && last $TD/m16b_c2b.out | grep -q '^requested:' && [ "$n" = "1" ] && ok=1
 note "C2 two requests: open=$n"
 must "C2 two concurrent requests both succeed and leave one open row" "$ok"
+fi
 
 # ---- C3 two concurrent issues leave one open challenge
+if want C3; then
 X=$(seed 18); C=$(f "$X" 1); R=$(f "$X" 2); SS=$(f "$X" 3); H=$(f "$X" 5)
-holder "$C" 4; sleep 1
+holder "$C" $((G0 + 10))
 ( svc "$(isssql "$SS" "$(uid 6 181)" a "$H")" > $TD/m16b_c3a.out 2>&1 ) &
 ( svc "$(isssql "$SS" "$(uid 6 182)" b "$H")" > $TD/m16b_c3b.out 2>&1 ) &
-wait
+allblocked 2; gate_open $((G0 + 10)); wait
 n=$(q "select count(*) filter (where consumed_at is null and superseded_at is null) || '/' || count(*) from public.intake_email_challenges where request_id = '$R';")
 ok=0; [ "$(last $TD/m16b_c3a.out)" = "ok" ] && [ "$(last $TD/m16b_c3b.out)" = "ok" ] && [ "$n" = "1/2" ] && ok=1
 note "C3 two issues: $(last $TD/m16b_c3a.out) / $(last $TD/m16b_c3b.out) open/all=$n"
 must "C3 two concurrent issues both succeed and leave one open challenge" "$ok"
+fi
 
 # ---- P1 the purge skips a client whose lock a writer holds, without failing
+if want P1; then
 X=$(seed 19); C=$(f "$X" 1); R=$(f "$X" 2); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 19)
 svc "$(isssql "$SS" "$CH" right "$H")" >/dev/null
 docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local session_replication_role = replica;
@@ -187,14 +230,16 @@ docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local se
   update public.intake_email_challenges set expires_at = now() - interval '100 days' where request_id = '$R';
   update public.intake_sessions set created_at = now() - interval '200 days', absolute_expires_at = now() - interval '150 days', idle_expires_at = now() - interval '150 days' where request_id = '$R'; commit;" >/dev/null 2>&1
 rows() { q "select (select count(*) from public.intake_email_challenges where request_id = '$R') || '/' || (select count(*) from public.intake_guardian_invitation_requests where request_id = '$R');"; }
-holder "$C" 6; sleep 1
-p1=$(svc "select public.intake_purge_expired(500)::text;" | lastv); mid=$(rows); wait
+holder "$C" $((G0 + 11))
+p1=$(svc "select public.intake_purge_expired(500)::text;" | lastv); mid=$(rows); gate_open $((G0 + 11)); wait
 p2=$(svc "select public.intake_purge_expired(500)::text;" | lastv); end=$(rows)
 ok=0; echo "$p1" | grep -q '"challenges"' && [ "$mid" = "1/1" ] && echo "$p2" | grep -q '"challenges"' && [ "$end" = "0/0" ] && ok=1
 note "P1 purge under a held lock: rows=$mid then=$end first=$(echo "$p1" | cut -c1-120)"
 must "P1 the purge skips a locked client without failing and removes it on the next run" "$ok"
+fi
 
 # ---- E1 isolation guards (entry checks, so they hold on the early-return paths too)
+if want E1; then
 X=$(seed 20); SS=$(f "$X" 3); R=$(f "$X" 2)
 rr() { docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin isolation level $1; select 1; set local role $2; set local request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; $3 rollback;" 2>&1 | tr '\n' ' '; }
 r1=$(rr "repeatable read" authenticated "$(reqsql "$(uid 7 1)" x)")
@@ -204,7 +249,9 @@ r4=$(rr "repeatable read" service_role "$(versql unknown-session "$(uid 7 5)" c)
 r5=$(rr "read uncommitted" service_role "$(versql "$SS" "$(uid 7 6)" c)")
 ok=1; i=0; for r in "$r1" "$r2" "$r3" "$r4" "$r5"; do i=$((i+1)); echo "$r" | grep -q "READ COMMITTED" || { ok=0; note "E1 call $i not refused: $(echo "$r" | cut -c1-150)"; }; done
 must "E1 every writer refuses REPEATABLE READ / READ UNCOMMITTED (55000), including on unknown ids" "$ok"
+fi
 
 printf '%s\n' "$ORIG" | docker exec -i "$DB" psql -U postgres -d postgres -X -q -v ON_ERROR_STOP=1 >/dev/null 2>&1; ORIG=""
+[ "$ran" -gt 0 ] || { echo "no scenario matched '$ONLY'"; exit 2; }
 echo "SUMMARY m16b races: failures=$fail"
 [ "$fail" = "0" ]

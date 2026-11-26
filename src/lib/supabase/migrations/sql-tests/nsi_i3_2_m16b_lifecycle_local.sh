@@ -2,7 +2,8 @@
 # NSI I3-2 (M16b) lifecycle harness. LOCAL DISPOSABLE CONTAINERS ONLY (nsi-i2-*). Builds its own containers.
 #   container 1 (LC): M1-M16a -> M16b; suites; suite-level mutation probes; replays and refusals; rollback to M16a exact; preflight
 #   container 2 (RACE): M1-M16b; M16b races, M16a / M15 / M14 races (regression); harness-level probes
-# usage: nsi_i3_2_m16b_lifecycle_local.sh <public-schema-dump.sql> [all|suite|probes|rest|race]
+# usage: nsi_i3_2_m16b_lifecycle_local.sh <public-schema-dump.sql> [all|suite|probes|rest|race|m16brace]
+#   m16brace = the race container with the M16b races and probes only (harness-only rerun after the regression races passed on the same SQL)
 set -u
 PUB="${1:?schema dump}"; STAGE="${2:-all}"
 D="$(cd "$(dirname "$0")" && pwd)"; M="$D/.."; R="$M/rollback"
@@ -181,17 +182,19 @@ apply $C 17; [ "$(fp $C)" = "$F17" ] && say "   re-applied M16b fingerprint iden
 fi
 [ "$STAGE" = "all" ] && docker rm -f $C >/dev/null 2>&1
 
-if [ "$STAGE" = "all" ] || [ "$STAGE" = "race" ]; then
+if [ "$STAGE" = "all" ] || [ "$STAGE" = "race" ] || [ "$STAGE" = "m16brace" ]; then
 say "== container RACE: M1-M16b; M16b races, M16a / M15 / M14 races (regression), harness-level probes"
 C=nsi-i2-m16br; upto $C 17 || exit 1
 r=$(bash "$D/concurrency/nsi_m16b_race_local.sh" $C 0 2>&1 | tail -40); echo "$r" | sed 's/^/   [M16b] /'
 echo "$r" | grep -q "SUMMARY m16b races: failures=0" || bad "M16b race harness"
+if [ "$STAGE" != "m16brace" ]; then
 r=$(bash "$D/concurrency/nsi_m16a_race_local.sh" $C 0 2>&1 | tail -30); echo "$r" | sed 's/^/   [M16a on M16b] /'
 echo "$r" | grep -q "SUMMARY m16a races: failures=0" || bad "M16a race harness on M16b"
 r=$(bash "$D/concurrency/nsi_m15_race_local.sh" $C 100 2>&1 | tail -30); echo "$r" | sed 's/^/   [M15 on M16b] /'
 echo "$r" | grep -q "SUMMARY m15 races: failures=0" || bad "M15 race harness on M16b"
 r=$(bash "$D/concurrency/nsi_m14_race_local.sh" $C fixed 200 2>&1 | tail -22); echo "$r" | sed 's/^/   [M14 on M16b] /'
 echo "$r" | grep -q "SUMMARY m14 races (fixed): failures=0" || bad "M14 race harness on M16b"
+fi
 raceprobe() { # label offset scenario function from to
   node -e '
     const fs = require("fs"); const [src, out, fn, from, to] = process.argv.slice(1);
@@ -201,7 +204,7 @@ raceprobe() { # label offset scenario function from to
     fs.writeFileSync(out, s.slice(0, a) + body.replace(from, () => to) + s.slice(b));
   ' "$M/$M16B.sql" "$TMPD/m16b_race_mut.sql" "$4" "$5" "$6" || { bad "race probe $1: the mutation did not apply"; return; }
   o=$(applyfile $C "$TMPD/m16b_race_mut.sql") || { bad "race probe $1: mutated file did not apply: $o"; apply $C 17; return; }
-  r=$(bash "$D/concurrency/nsi_m16b_race_local.sh" $C $2 2>&1 | tail -40)
+  r=$(bash "$D/concurrency/nsi_m16b_race_local.sh" $C $2 $3 2>&1 | tail -40)
   if echo "$r" | grep -q "SUMMARY m16b races: failures=[1-9]" && echo "$r" | grep -E "FAIL" | grep -q "$3"; then say "   race probe $1: detected ($3)"; else bad "race probe $1 NOT detected ($3)"; fi
   apply $C 17 || true
 }

@@ -26,7 +26,7 @@ say "   up exit code $rc"; tail -3 "$OUT/up_a.err" | cut -c1-300 | sed 's/^/   /
 CA=$(dbof nsira); [ -n "$CA" ] || { bad "no db container for A"; fail=99; }
 if [ -n "$CA" ] && [ $rc -eq 0 ]; then
   FPA=$(fp "$CA"); APA=$(apfp "$CA"); say "   NSI catalog fingerprint A: $FPA   appointments fp A: $APA"
-  [ "$(echo "$FPA" | tr "	" "|")" = "${NSI_EXPECT_FP:-__M16B_FP__}" ] || bad "A NSI fingerprint is not the M16b value (got $FPA)"
+  [ "$(echo "$FPA" | tr "	" "|")" = "${NSI_EXPECT_FP:-072acfaac996fcc3042d426983569802|884}" ] || bad "A NSI fingerprint is not the M16b value (got $FPA)"
   docker exec "$CA" psql -U postgres -At -c "select intake_private.assert_catalog(); select 'assert_catalog ok'" 2>&1 | tail -1 | sed 's/^/   /'
   dump "$CA" > "$OUT/schema_a.sql"; wc -l "$OUT/schema_a.sql" | sed 's/^/   dump lines: /'
   docker rename "$CA" nsi-i2-replay-a
