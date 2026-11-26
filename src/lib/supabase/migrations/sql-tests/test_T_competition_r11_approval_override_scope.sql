@@ -5,6 +5,9 @@
 -- through scripts/qa/r11/run-r11.sh. One transaction, synthetic fixtures only (UUID block ...-b11ff4XXXXXX). The final block ALWAYS raises, so
 -- nothing persists:   "COMPETITION R11 SQL SUITE PASS (<n> checks)"  or  "COMPETITION R11 SQL SUITE FAIL: <failures>".
 --
+-- Composed chains: when S4 / R-15 is installed the fixtures clear every entry through set_competition_entry_eligibility (needs the S5 age predicate);
+-- without S4 that step is skipped. The suite never stubs, disables or writes around an eligibility gate.
+--
 -- Run BEFORE the migration (characterization), the suite must FAIL exactly on the RB-11.1 / RB-11.2 / structural checks (prefix "RB-11.1", "RB-11.2",
 -- "S:") and pass everything else; run AFTER it, every check must pass. The PR 859 static `it.fails` markers read only the F2 migration file, so they do
 -- not flip by themselves; their flip condition is a re-point to this migration's text (see R-11-CORRECTION-MIGRATION.md).
@@ -265,6 +268,40 @@ select pg_temp.rid(n), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(n),
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
 select pg_temp.eid(n, i), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(n), 'E' || n || i, 'confirmed', 'eligible', (n * 10 + i)::text
 from generate_series(1, 12) n cross join generate_series(1, 3) i;
+
+-- S4 / R-15 (20270301110000+), when installed: an entry takes part only after the organizer clears it, and clearance needs an established adult age
+-- (S5, 20270301120000). The suite establishes this the authorized way and ONLY that way: adult competitors as participants, then
+-- set_competition_entry_eligibility called by manager A1 (before any heat placement, because the ENABLE ALWAYS placement gate also fires in replica
+-- mode). No determination row is written directly, no gate or predicate is replaced or disabled. Without S4 nothing here runs. With S4 but without the
+-- S5 age predicate clearance cannot be established, so the suite stops instead of working around it.
+do $s4$
+begin
+  if to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is null then
+    return;
+  end if;
+  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
+    raise exception 'R11 suite: S4 (R-15 clearance) is installed without the S5 age predicate; entries cannot be cleared through the lifecycle function. Install S5 (the suite never stubs or bypasses it).';
+  end if;
+  execute $i$
+    insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, date_of_birth)
+    select pg_temp.u('07' || lpad(n::text, 2, '0') || lpad(i::text, 2, '0')), pg_temp.u('00e001'), 'Dancer', 'R11-' || n || '-' || i, 'staff', date '1985-06-15'
+    from generate_series(1, 12) n cross join generate_series(1, 3) i $i$;
+  execute $i$
+    insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name)
+    select pg_temp.u('00e001'), pg_temp.eid(n, i), pg_temp.u('07' || lpad(n::text, 2, '0') || lpad(i::text, 2, '0')), 'dancer', 'leader', 'R11 ' || n || '-' || i
+    from generate_series(1, 12) n cross join generate_series(1, 3) i $i$;
+  perform pg_temp.as_user(pg_temp.u('000001'));
+  execute $i$
+    select public.set_competition_entry_eligibility(pg_temp.eid(n, i), 'eligible', 'criteria_verified_by_organizer', '{}'::text[], gen_random_uuid())
+    from generate_series(1, 12) n cross join generate_series(1, 3) i $i$;
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claims', '', true);
+end $s4$;
+reset role;
+select pg_temp.chk('fixture (S4 present only): all 36 entries are cleared through set_competition_entry_eligibility and available for execution',
+  case when to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is null then true
+       else (select count(*) = 36 and bool_and(public._cf1_entry_unavailable_reason(e.id) is null)
+             from public.event_competition_entries e where e.event_id = pg_temp.u('00e001')) end);
 
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
