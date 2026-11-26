@@ -27,4 +27,20 @@ An independent reviewer of the first draft found one blocker (a manager could st
 
 ## Tests
 
-`sql-tests/test_T_competition_d_published_order_write_guard.sql`, `sql-tests/concurrency/run_d_publish_race.sh`, runner `scripts/qa/comp-d/run-d-standalone.sh` (baseline, apply, existing suites, rollback, re-apply, races; F2 races with PR 865 as information only). **Execution: PENDING** (heavy-lock queue).
+`sql-tests/test_T_competition_d_published_order_write_guard.sql`, `sql-tests/concurrency/run_d_publish_race.sh`, runner `scripts/qa/comp-d/run-d-standalone.sh` (baseline, apply, existing suites, rollback, re-apply, races; F2 races with PR 865 as information only).
+
+### Executed 2026-11-26 (local, disposable database; nothing hosted)
+
+Head `60b4edd7e`, migration sha256 `1607747d…`, composed base (`release/website-embeds` competition files plus JC1 / U18 / U18-S), base fingerprint `d87e42858e6c…`. S3 to S6 are not in this chain. Runner verdict: **D STANDALONE: PASS** (22 expectations met, 0 failed), finished 20:37Z.
+
+| Step | Result |
+|---|---|
+| Baseline (without D) | the D suite fails on its gap checks; races R1, R2, R3 are **not** refused (gap reproduced) |
+| Forward | applies, including the pinned pre and post publication md5 checks; 2/2 triggers; D suite **PASS (45 checks)**; D races **PASS (11 checks)** |
+| Existing suites, forward | O1, 10D, 10D.1, F2, A3, F3, A0 tie policy, A4, A5, A6, HL1, NS1: same passing verdicts as baseline (A3, A0 tie, A4, A5, A6 keep their own reported blocked checks) |
+| **Not covered** | callback-Final advancement suite: **fails on the base chain too** (`COMP_U18S_SCRATCH_UNAUDITED` on a direct scratch), so D's effect on advancement is **not** shown by it |
+| Rollback, replay, re-apply | no D object left; replay clean; re-apply 2/2 and D suite passes |
+| Information only: F2 lifecycle races (PR 865 branch script, PV-1 verifier neutralized), **without** PR 865 | PASS (25 checks; its step Z skipped, no node modules) |
+| Information only: the same **with** PR 865 (`d5c3bed52`) | **No verdict.** The log stops after step D; steps E and Z and the final check did not run, consistent with the runner's 600-second limit (the run without PR 865 took nearly as long). **Concurrency of the PR 865 approval change remains unverified.** |
+
+D does not close the spare-round replacement routes, and this run does not change that.
