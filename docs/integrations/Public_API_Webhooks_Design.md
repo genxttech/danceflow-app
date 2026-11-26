@@ -111,3 +111,9 @@ Total about 44-58 engineer-days. A private Zapier/Make app (B4) follows only aft
 
 ## 13. Owner decisions and open items
 1. Scope of v1 routes (proposal: leads write/read-own, public schedule/events read; nothing else). 2. Whether API-created leads may ever carry SMS consent (proposal: no; the TWILIO coordinator should confirm). 3. Default contact opt-in for `lead.created` webhooks and the consent acknowledgement wording. 4. Key expiry default (12 months) and max keys/endpoints per studio. 5. API versioning/deprecation notice period. 6. Whether `membership.*` and `document.signed` are in v1 or follow later (proposal: after leads/appointments prove out). 7. Retention (events/deliveries 30 days). 8. Per-studio daily lead cap default. 9. Sequencing with Slice 0 (vault v2, audit events) and the heavy-job lock for the SQL suites. 10. Any pricing or plan gating is NOT decided (OD-5); engineering ships behind flags only. 11. Provider enrollments for Zapier/Make remain separate authorizations (OD-9).
+
+## 14. Owner dispositions, 2026-11-26
+- **I11 (approved as design policy, subject to contract and compatibility review):** small initial scope as in section 4 (lead create and read-own; public schedule and events read). **Deprecation notice target: six months** before a breaking change removes or alters a published `v1` behaviour; a breaking change ships as `v2`.
+- **I10:** API-driven SMS consent changes are **OFF by default** pending TW-4F confirmation. No route or webhook field sets, changes or exports SMS consent. No SMS activation or consent bypass is authorized.
+- **I9 / I8:** Zapier and Make adapters stay private initially; each enrollment and fee needs its own authorization.
+- Implementation remains held on the Slice 0 foundations (vault v2, audit events) and the coordinator's sequencing.

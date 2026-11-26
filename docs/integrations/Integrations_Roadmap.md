@@ -88,3 +88,17 @@ Provider policy churn (Meta, Google, Spotify, Intuit, Xero changed terms/pricing
 
 ## 8. Definition of done per integration (developer-owned QA)
 QA matrix entry per capability (PASS only with evidence; BLOCKED where a live provider account is needed and not authorized); RLS cross-tenant tests; vault/rotation tests; outbox crash/duplicate tests; revoke/disconnect/purge tests; KB article and support runbook; flag/allowlist wiring; audit events; ARIA tools tested for role limits.
+
+## 9. Owner dispositions, 2026-11-26 (integrations items)
+Source: `docs/ops/APPS_Owner_Dispositions_2026-11-26.md` (verbatim owner message). These authorize design, bounded draft implementation, read-only checks, review and local QA only: no merge, hosted SQL, deployment, flag, enrollment or fee.
+| ID | Disposition (summary) | Effect here |
+|---|---|---|
+| I3 | Feed title, window, cancellation and revocation design accepted subject to privacy, least-privilege and token-revocation verification | Verification is recorded in the coordinator review package (kept outside the repository) |
+| I4 | Durable database-backed rate-limit counter with concurrency protection | Matches the built limiter (single atomic upsert per window) |
+| I5 | DEV QA studio first, then one specifically authorized pilot studio | DEV QA plan is part of the same review package |
+| I8 | Apple Wallet, Google Wallet, Zapier and Make enrollments and fees each need independent authorization when ready | Nothing enrolled; supersedes nothing in OD-9 |
+| I9 | Zapier and Make adapters private initially; metered accounting APIs deferred | OD-11 answered: private. OD-13 answered: defer |
+| I10 | API-driven SMS consent changes OFF by default pending TW-4F confirmation | API design: no endpoint or field sets SMS consent |
+| I11 | Small initial API scope and a six-month deprecation-notice target, subject to contract and compatibility review | Recorded in the API design |
+| I12 | Wallet and ARIA design direction accepted; source-specific validation required before implementation approval | Source validation recorded in each design; implementation not approved |
+B4 (continue calendar DEV QA, prepare #820-#823 individually; public routes and authorization changes are owner-gated) and B5 (CODEOWNERS for the feed paths, PR #915) also apply.
