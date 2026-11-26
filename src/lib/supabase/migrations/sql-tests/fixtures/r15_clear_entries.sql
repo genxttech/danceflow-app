@@ -1,31 +1,80 @@
--- WARNING: test-only. Plants a stand-in for the S5 age predicate in schema public when S5 is absent. Run ONLY on an isolated local Postgres inside a suite transaction that always rolls back; never on DEV/PROD or any database that persists.
--- Test-only fixture helper (never part of a migration). After 20270301130000 predicate P requires eligibility CLEARANCE, so every existing Competition suite that
--- seeds `eligible`/`waived` entries directly must also seed their clearance. Load this AFTER the fixture rows exist and call it before the first gated step:
+-- WARNING: test-only. Never run on DEV/PROD or any database that persists: when the S5 age predicate is absent it plants a stand-in for it in schema public. Run ONLY
+-- on an isolated local Postgres, inside a suite transaction that always rolls back.
 --
---   cat sql-tests/fixtures/r15_clear_entries.sql sql-tests/<suite>.sql | psql ...      -- the suite then runs  select pg_temp.r15_clear_entries();
+-- Test-only fixture helper (never part of a migration). After 20270301130000 an entry needs eligibility CLEARANCE before it is placed in a published or running
+-- order, so every existing Competition suite that seeds `eligible`/`waived` entries must also obtain their clearance. It does so the way an organizer does:
+-- through public.set_competition_entry_eligibility, called as an authenticated event manager. It does not insert determination rows and does not disable a gate.
 --
--- It (a) installs a STAND-IN for the S5 age predicate when S5 is not applied (every competitor 'allowed'; a competitor whose first_name is 'Minor' or
--- 'Unknown' keeps blocked_under_18 / unknown_age, so age probes still work) and (b) inserts, as the owner role, one determination per eligible/waived entry
--- that has none: criteria = the entry's required criteria, waiver category 'waiver_event_policy_scheduling' for waived entries. It changes NO entry status.
+--   cat sql-tests/fixtures/r15_clear_entries.sql sql-tests/<suite>.sql | psql ...
+--   -- after the suite seeds its entries (and any participants of its own), and before it places them:
+--   select pg_temp.r15_clear_entries();                 -- or pg_temp.r15_clear_entries('<event uuid>')
+--
+-- What it does for every eligible/waived entry (status pending, confirmed or waitlisted) that is not currently cleared:
+--   1. as the fixture owner, if the entry has NO participant, adds one adult competitor (date of birth 1985-06-15) as its participant: an entry without a
+--      participant has no established age and can never be cleared. Existing participants are never modified (their dates of birth are the suite's business).
+--   2. as a manager of the event, records the determination for the entry's CURRENT status with the required criteria. Any refusal propagates and fails the suite.
+-- It never changes an entry's status. Call it again after a suite changes a roster: the stale determination is then renewed, as an organizer would.
 create or replace function pg_temp.r15_clear_entries(p_event uuid default null) returns integer
 language plpgsql as $$
 declare
-  v_n integer;
+  v_e record;
+  v_m record;
+  v_n integer := 0;
+  v_comp uuid;
+  v_req text[];
+  v_actor uuid;
+  v_role text;
+  v_claims text;
 begin
+  -- Baseline databases (R-15 not applied): nothing to clear, so the same suite runs before and after the migrations.
+  if to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is null then
+    return 0;
+  end if;
   if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
     execute $f$create function public._comp_participant_age_clearance(p_competitor_id uuid) returns text language sql stable as $b$
       select coalesce((select case c.first_name when 'Minor' then 'blocked_under_18' when 'Unknown' then 'unknown_age' else 'allowed' end
                        from public.event_competition_competitors c where c.id = p_competitor_id), 'unknown_age') $b$ $f$;
   end if;
-  insert into public.event_competition_eligibility_determinations (event_id, entry_id, outcome, reason_code, waiver_category, criteria, fingerprint, decided_by, decided_role, request_id)
-  select e.event_id, e.id, e.eligibility_status,
-         case e.eligibility_status when 'eligible' then 'criteria_verified_by_organizer' else 'waiver_event_policy_scheduling' end,
-         case e.eligibility_status when 'waived' then 'waiver_event_policy_scheduling' end,
-         case e.eligibility_status when 'eligible' then public._r15_required_criteria(e.id) else '{}'::text[] end,
-         public._r15_entry_fingerprint(e.id), '00000000-0000-0000-0000-000000000001'::uuid, 'fixture', gen_random_uuid()
-  from public.event_competition_entries e
-  where e.eligibility_status in ('eligible', 'waived') and (p_event is null or e.event_id = p_event)
-    and not exists (select 1 from public.event_competition_eligibility_determinations d where d.entry_id = e.id);
-  get diagnostics v_n = row_count;
+  for v_e in
+    select e.id, e.event_id, e.eligibility_status, e.display_name
+    from public.event_competition_entries e
+    where e.eligibility_status in ('eligible', 'waived') and e.status in ('pending', 'confirmed', 'waitlisted')
+      and (p_event is null or e.event_id = p_event)
+      and public._r15_entry_clearance_reason(e.id) is not null
+    order by e.id
+  loop
+    if not exists (select 1 from public.event_competition_entry_participants p where p.entry_id = v_e.id) then
+      insert into public.event_competition_competitors (event_id, first_name, last_name, created_via, date_of_birth)
+      values (v_e.event_id, 'Fixture', 'Adult ' || v_e.id, 'staff', date '1985-06-15') returning id into v_comp;
+      insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, display_name)
+      values (v_e.event_id, v_e.id, v_comp, 'dancer', v_e.display_name);
+    end if;
+    v_req := public._r15_required_criteria(v_e.id);
+    v_role := current_setting('role');
+    v_claims := coalesce(current_setting('request.jwt.claims', true), '');
+    v_actor := null;
+    for v_m in
+      select r.user_id from public.user_studio_roles r join public.events ev on ev.studio_id = r.studio_id
+      where ev.id = v_e.event_id and r.active order by r.role desc, r.user_id
+    loop
+      perform set_config('request.jwt.claims', json_build_object('sub', v_m.user_id, 'role', 'authenticated')::text, true);
+      if public.can_manage_event_competition(v_e.event_id) then
+        v_actor := v_m.user_id;
+        exit;
+      end if;
+    end loop;
+    if v_actor is null then
+      raise exception 'r15 fixture: no studio manager can manage event %', v_e.event_id;
+    end if;
+    perform set_config('role', 'authenticated', true);
+    perform public.set_competition_entry_eligibility(
+      v_e.id, v_e.eligibility_status,
+      case v_e.eligibility_status when 'eligible' then 'criteria_verified_by_organizer' else 'waiver_event_policy_scheduling' end,
+      case v_e.eligibility_status when 'eligible' then v_req else '{}'::text[] end,
+      gen_random_uuid());
+    perform set_config('role', v_role, true);
+    perform set_config('request.jwt.claims', v_claims, true);
+    v_n := v_n + 1;
+  end loop;
   return v_n;
 end $$;

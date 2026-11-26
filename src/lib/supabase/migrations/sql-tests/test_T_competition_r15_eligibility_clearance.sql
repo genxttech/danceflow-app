@@ -177,6 +177,17 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008014'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'E14 Pending', 'pending', 'unverified'),
   (pg_temp.u('008015'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'E15 Second Cleared', 'confirmed', 'unverified');
 -- Participants: entry N uses competitor N (E10 the Minor, E11 the Unknown); E07 is a team of three.
+-- With the real S5 installed its participant guard refuses a minor or unknown-age participant, so those rows are planted as pre-guard (legacy) data: the guard is
+-- disabled for the seeding statements only and re-enabled immediately; its refusal is asserted below and covered by the S5 suite.
+create or replace function pg_temp.s5_guard(p_enable boolean) returns void language plpgsql as $$
+begin
+  set constraints all immediate;
+  set constraints all deferred;
+  if exists (select 1 from pg_trigger where tgname = 'event_competition_entry_participants_s5_age_guard' and tgrelid = 'public.event_competition_entry_participants'::regclass) then
+    execute format('alter table public.event_competition_entry_participants %s trigger event_competition_entry_participants_s5_age_guard', case when p_enable then 'enable always' else 'disable' end);
+  end if;
+end $$;
+select pg_temp.s5_guard(false);
 insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name)
 select pg_temp.u('00e001'), pg_temp.u('0080' || lpad(n::text, 2, '0')), pg_temp.u('0070' || lpad(n::text, 2, '0')), 'dancer', 'leader', 'P' || n
 from generate_series(1, 15) n where n not in (7, 10, 11, 13);
@@ -187,6 +198,12 @@ insert into public.event_competition_entry_participants (event_id, entry_id, com
   (pg_temp.u('00e001'), pg_temp.u('008010'), pg_temp.u('007091'), 'dancer', 'leader', 'Minor'),
   (pg_temp.u('00e001'), pg_temp.u('008011'), pg_temp.u('007092'), 'dancer', 'leader', 'Unknown'),
   (pg_temp.u('00e002'), pg_temp.u('008013'), pg_temp.u('007093'), 'dancer', 'leader', 'Sanctioned');
+set constraints all immediate;
+set constraints all deferred;
+select pg_temp.s5_guard(true);
+select pg_temp.expect_msg('with the real S5, a new under-18 participant is refused at the database boundary',
+  $q$insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name) values (pg_temp.u('00e001'), pg_temp.u('008001'), pg_temp.u('007091'), 'alternate', 'follower', 'Minor probe')$q$, 'COMP_S5_AGE_BLOCKED')
+where to_regprocedure('public._comp_s5_participant_age_guard()') is not null;
 insert into public.event_competition_entry_dances (event_id, entry_id, division_dance_id, dance_key, dance_label)
 select e.event_id, e.id, case e.division_id when pg_temp.u('003001') then pg_temp.u('005011') when pg_temp.u('003002') then pg_temp.u('005012') else pg_temp.u('005013') end, 'offering', 'Offering'
 from public.event_competition_entries e where e.event_id = pg_temp.u('00e001') and e.division_id in (pg_temp.u('003001'), pg_temp.u('003002'), pg_temp.u('003003'));
@@ -198,7 +215,13 @@ create temp table t_audit_before as select count(*)::int as n from public.event_
 -- ============================================================================
 -- A. Fail closed while the S5 age predicate does not exist
 -- ============================================================================
-select pg_temp.chk('S5 age predicate is absent at this point (the stub is created later)', to_regprocedure('public._comp_participant_age_clearance(uuid)') is null);
+do $hide$
+begin
+  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is not null then
+    alter function public._comp_participant_age_clearance(uuid) rename to _comp_participant_age_clearance_r15hidden;
+  end if;
+end $hide$;
+select pg_temp.chk('S5 age predicate is absent for this section', to_regprocedure('public._comp_participant_age_clearance(uuid)') is null);
 select pg_temp.chk('absent S5: an entry is never cleared (age not established)', pg_temp.clr('008005') in ('entry_determination_missing', 'entry_age_not_established'));
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('absent S5: marking eligible is refused (fails closed)', pg_temp.decide('008003', 'eligible', 'criteria_verified_by_organizer', $$'{}'::text[]$$, 1), 'COMP_R15_DETERMINATION_INVALID');
@@ -207,6 +230,9 @@ reset role;
 -- The S5 stand-in is created only when S5 is not applied (rolled back with the suite): Minor -> blocked_under_18, Unknown -> unknown_age, else allowed.
 do $stub$
 begin
+  if to_regprocedure('public._comp_participant_age_clearance_r15hidden(uuid)') is not null then
+    alter function public._comp_participant_age_clearance_r15hidden(uuid) rename to _comp_participant_age_clearance;
+  end if;
   if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
     execute $f$create function public._comp_participant_age_clearance(p_competitor_id uuid) returns text language sql stable as $b$
       select case c.first_name when 'Minor' then 'blocked_under_18' when 'Unknown' then 'unknown_age' else 'allowed' end
@@ -303,9 +329,16 @@ select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('re-determination after the roster change clears the team again', pg_temp.decide('008007', 'eligible', 'criteria_verified_by_organizer', $$'{}'::text[]$$, 31));
 reset role;
 select pg_temp.chk('team cleared again', pg_temp.reason('008007') is null, coalesce(pg_temp.reason('008007'), 'null'));
+select pg_temp.expect_msg('with the real S5, swapping in an unknown-age member is refused at the database boundary',
+  $q$update public.event_competition_entry_participants set competitor_id = pg_temp.u('007092') where entry_id = pg_temp.u('008007') and competitor_id = pg_temp.u('007028')$q$, 'COMP_S5_AGE_BLOCKED')
+where to_regprocedure('public._comp_s5_participant_age_guard()') is not null;
+select pg_temp.s5_guard(false);
 update public.event_competition_entry_participants set competitor_id = pg_temp.u('007092') where entry_id = pg_temp.u('008007') and competitor_id = pg_temp.u('007028');
 select pg_temp.chk('replacing a member with an unknown-age competitor: stale first, never cleared', pg_temp.reason('008007') is not null, coalesce(pg_temp.reason('008007'), 'null'));
 update public.event_competition_entry_participants set competitor_id = pg_temp.u('007028') where entry_id = pg_temp.u('008007') and competitor_id = pg_temp.u('007092');
+set constraints all immediate;
+set constraints all deferred;
+select pg_temp.s5_guard(true);
 update public.event_competition_divisions set age_label = 'Junior' where id = pg_temp.u('003001');
 select pg_temp.chk('a division label change makes a determination stale (recoverable by re-determination)', pg_temp.reason('008003') in ('entry_determination_stale'), coalesce(pg_temp.reason('008003'), 'null'));
 update public.event_competition_divisions set age_label = null where id = pg_temp.u('003001');
@@ -355,8 +388,8 @@ update public.event_competition_heat_entries set status = 'scratched' where heat
 select pg_temp.expect_ok('after scratching the provisional placement the version can be published', $q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = pg_temp.id('v1')$q$);
 select pg_temp.expect_err('a provisional entry cannot be placed into a heat of a PUBLISHED version (10D freezes it; R15 refuses too)',
   $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.id('heat'), pg_temp.u('008002'), 9)$q$);
-select pg_temp.expect_msg('un-scratching a provisional placement in a published version is refused',
-  $q$update public.event_competition_heat_entries set status = 'scheduled' where heat_id = pg_temp.id('heat') and entry_id = pg_temp.u('008001')$q$, 'COMP_R15_ENTRY_NOT_CLEARED');
+select pg_temp.expect_err('un-scratching a provisional placement in a published version is refused',
+  $q$update public.event_competition_heat_entries set status = 'scheduled' where heat_id = pg_temp.id('heat') and entry_id = pg_temp.u('008001')$q$);
 
 -- Structural checks for the stages that need panel/ballot fixtures (their behavior is covered by predicate P, proven strict above).
 select pg_temp.chk('round start, floor call, heat-entry and version triggers are installed and enabled',

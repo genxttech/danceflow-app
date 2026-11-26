@@ -13,7 +13,7 @@ Design and path investigation: PR 862 (`docs/competition/r15-eligibility-enforce
 | `20270301131000_..._r15_eligibility_write_guard.sql` | AFTER trigger refusing client writes of `eligibility_status` / `metadata.eligibility_determination` and client INSERT of anything but `unverified`; TRIGGER privilege revoked from clients on entries |
 | `rollback/...` x3 | Reverse order 131000, 130000, 110000; the core rollback refuses while determinations exist or while the gates are installed |
 | `sql-tests/test_T_competition_r15_eligibility_clearance.sql`, `fixtures/r15_clear_entries.sql` | New suite (about 85 checks) and a fixture helper that seeds clearance for suites that seed `eligible`/`waived` directly |
-| `test_T_phase10d1_*`, `test_T_competition_ns1_*` | Adapted: trigger-name allowlists and clearance seeding |
+| `test_T_phase10d1_*`, `test_T_competition_ns1_*`, `test_T_competition_cf1_f3_*`, `fixtures/competition_round_ready.sql` | Adapted: clearance seeding through the RPC (inert on a database without R-15 or without the fixture), adult dates of birth for the S5 guard, trigger allowlists |
 
 ## Behavior after apply (provisional vs executable)
 
@@ -44,7 +44,7 @@ Reported 2 high, 4 medium, 10 low. Dispositions:
 
 - H1 freeze if gates apply before S5: **fixed** by a hard preflight and by renumbering the gates/guard after S5 (D-R15-1 resolved by the coordinator).
 - H2 callback correction / A6 withdrawal / reinstatement now refuse provisional couples and can dead-end: **documented, accepted behavior with the recovery route** (re-determine through the RPC; A5 exclusion for danced couples; S5 required first). The correction guard and A6 minimum count are intentionally strict.
-- M1 suites would not pass: **fixed** the ones in this PR (stub only when S5 absent, published-placement expectation, trigger count, clearance seeding in 10D.1 and NS1). **Not fixed: the other suites that seed `eligible`/`waived` and then publish, start, check in, lock or calculate (cf1_*, e2, f2, f3, o1, hl1, pv1, ...) are not adapted yet**; they need `select pg_temp.r15_clear_entries();` after their fixtures. PENDING.
+- M1 suites would not pass: **partly fixed** in this PR (see the run3 triage below) (stub only when S5 absent, published-placement expectation, trigger count, clearance seeding in 10D.1 and NS1). **Not fixed: the other suites that seed `eligible`/`waived` and then publish, start, check in, lock or calculate (cf1_*, e2, f2, f3, o1, hl1, pv1, ...) are not adapted yet**; they need `select pg_temp.r15_clear_entries();` after their fixtures. PENDING.
 - M2 S5 function trusted by name: **fixed** (owner must equal the owner of `_r15_age_state`); fixture carries a test-only warning.
 - M3 app still shows uncleared entries as ready: **open** (app work, see dependencies).
 - M4 weak waiver basis: waivers now refused for any declared sanctioning (including `other`); who counts as "authorized" (role, verified email, co-sign) is **open decision D-R15-4**.
@@ -55,11 +55,41 @@ Reported 2 high, 4 medium, 10 low. Dispositions:
 | Item | Status |
 |---|---|
 | SQL syntax and PL/pgSQL bodies of all 3 migrations, 3 rollbacks, new suite, fixture, 2 adapted suites | **Parsed OK** with libpg-query (syntax only) |
-| New SQL suite and the adapted 10D.1/NS1 suites | **PENDING**: not executed (no local Postgres run; heavy-lock queue not entered; share the OD-31 / R-12 slot when run) |
+| New SQL suite and the adapted suites | **PENDING after the fixes below**: the integrated run3 (S5 session, 2026-11-24, PR head `4fc61fb2`) applied, rolled back and re-applied all 8 migrations without error; its suite failures are triaged below. The fixed suites have not been re-executed |
 | Stages needing panel/ballot fixtures (round start, floor call via `advance_competition_floor_heat`, lock, calculate, approve, F3 publish, advancement apply, A5, A6) | **PENDING** in the integrated chain suite (they all call the now-strict P, proven in the new suite) |
-| Existing competition suites after the change | **NOT run**; many need the clearance fixture (see M1) |
+| Existing competition suites after the change | run3 executed them; failures triaged below. Suites that stopped at their first error may hide further failures: **PENDING** until the next integrated run |
 | CI | see the PR checks (record in the PR once green); CI does not run the SQL suites |
 | Hosted apply | **not requested**; nothing applied to DEV or PROD |
+
+## Integrated run3 triage (2026-11-24, evidence: `C:/dfr/s5int-out/run3/suite-forward-*.log`; each failure shows the FIRST error only)
+
+| Suite (forward run) | First error | Cause | Verdict and fix | Owner |
+|---|---|---|---|---|
+| r15 eligibility clearance | `COMP_S5_AGE_BLOCKED (blocked_under_18)` | my fixtures plant minor/unknown participants, which the real S5 guard refuses | suite defect. Fixed: those rows are planted as pre-guard (legacy) data with the S5 participant trigger disabled for the seeding statements only, its refusal is asserted, and the "predicate absent" section hides a real S5 by rename | S4 (this PR) |
+| ns1 no-show | `COMP_R15_ENTRY_NOT_CLEARED` stage `place`, reason `entry_determination_missing` (baseline/s5only: helper function missing, my defect) | eligible entries seeded with no determination are placed into published/running heats | **gate correct** (publishing or running order needs clearance). Fixed: authorized seeding through `set_competition_entry_eligibility`; the call is inert on databases without R-15; adult DOBs | S4 |
+| phase 10D.1 | S5 `unknown_age` (s5only); baseline: helper missing and trigger count 5 vs 4, my defects | competitors seeded without DOB; my edit broke the baseline | Fixed: DOBs, conditional call, count that follows the installed triggers | S4 |
+| cf1 F3 publication | `COMP_R15_ENTRY_NOT_CLEARED` `place` (s5only: S5 `unknown_age`) | same as ns1 | **gate correct**. Fixed: entrant participants seeded before placement, clearance through the RPC after both entry blocks, DOBs | S4 |
+| cf1 A3 results, R-11 approval override | `COMP_R15_ENTRY_NOT_CLEARED` `place` | same | **gate correct**. Patch proposed to the owner (files are modified by PR 865) | S1/S2 session |
+| U18, U18-S, JC1 | `COMP_R15_ENTRY_NOT_CLEARED` `place` | same: the guard tests place real couples in an active round | **gate correct** (placing into a running round is participation). Patch proposed (files not on this base) | CF1 U18 / JC1 owners |
+| OD-31 negative | `COMP_R15_ENTRY_NOT_CLEARED` `place` | same | **gate correct**. Patch proposed (PR 856) | OD-31 session |
+| o1, r2 refunds, r2 write gate, 10D floor, 10C registration | S5 `unknown_age` (also fail with S5 alone) | competitors without DOB | S5 effect, not R-15; may reveal R-15 `place`/publish refusals once DOBs are added (same remedy) | S5 session |
+| e1 officials | `COMPO1_ROUND_EDGE draft -> active` (also in baseline) | pre-existing fixture/runner issue | not R-15 | runner owner |
+| R-10 S3 panel readiness | its own assertions | S3 | not R-15 | S3 session |
+
+No gate was weakened for any suite. Provisional planning in draft schedule versions was not blocked by any failure.
+
+**Patch recipe for the proposed suites** (add the block after the suite has seeded its entries and its own participants, before the first heat placement; run with `fixtures/r15_clear_entries.sql` prepended):
+
+```sql
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+```
+
+Insert points: A3 and R-11 before the `set session_replication_role = replica` that precedes the schedule version/heats; U18 between the entry insert and the heat-entry insert; U18-S the same and again before the later `e6` placement; JC1 before the replica block that places heat entries; OD-31 before each heat-entry insert that follows an entry insert. Suites that publish through `compo1_fixture_publish_rounds` are covered by the shared fixture when the clearance fixture is loaded. Runner: prepend `fixtures/r15_clear_entries.sql` (before `competition_round_ready.sql` or after; both are pg_temp definitions) for every suite on the forward and re-apply phases; it is harmless on the baseline.
 
 ## Known gaps
 
