@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- loose PostgREST client shape */
 import { createHash } from "node:crypto";
 import { etagFor, renderCalendar } from "./ics";
+import { isSubjectEligible } from "./eligibility";
 import { loadFeedEvents, type FeedSubject, type SupabaseLike } from "./events";
 import { hashFeedSecret, parseFeedSecret } from "./token";
 
@@ -131,6 +132,14 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
   const tok = await rateCheck(deps.admin, `tok:${tokenHash.slice(0, 24)}`, TOKEN_LIMIT.limit, TOKEN_LIMIT.windowSeconds);
   if (!tok) return fault();
   if (!tok.allowed) return unavailable(429, tok.retryAfter);
+
+  // A link must not outlive the account or workspace behind it. A denial is final even in fall-through mode: the legacy
+  // response must never serve what this check refused.
+  try {
+    if (!(await isSubjectEligible(deps.admin, subject, deps.now()))) return notFound();
+  } catch {
+    return fault();
+  }
 
   let body: string;
   try {

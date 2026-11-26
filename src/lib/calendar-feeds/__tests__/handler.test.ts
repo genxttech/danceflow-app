@@ -9,7 +9,7 @@ const U = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 function setup(opts: { resolve?: "ok" | "none" | "error"; rate?: "ok" | "deny-ip" | "deny-token" | "error"; hash?: string } = {}) {
   const admin = new FakeAdmin({
-    studios: [{ id: S1, name: "Studio One", public_name: null }],
+    studios: [{ id: S1, name: "Studio One", public_name: null, subscription_status: "active" }],
     instructors: [{ id: "i1", studio_id: S1, user_id: U, active: true, first_name: "Sam" }],
     user_studio_roles: [{ studio_id: S1, user_id: U, active: true, role: "instructor" }],
     appointments: [
@@ -180,5 +180,31 @@ describe("fall-through mode (legacy routes)", () => {
     expect(await ok!.text()).toContain("BEGIN:VCALENDAR");
     const limited = await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "deny-token" })));
     expect(limited?.status).toBe(429);
+  });
+});
+
+describe("account and workspace gate", () => {
+  it("a banned account or paused workspace gets the uniform 404, also in fall-through mode (no legacy fallback)", async () => {
+    const { secret } = generateFeedSecret();
+    const banned = setup({ hash: hashFeedSecret(secret) });
+    banned.users[U] = { id: U, banned_until: "2099-01-01T00:00:00Z" };
+    const normal = await handleFeedRequest(req(), secret, deps(banned));
+    expect(normal.status).toBe(404);
+    expect(await normal.text()).toBe("Not found");
+    expect((await tryHandleFeedRequest(req(), secret, deps(banned)))?.status).toBe(404);
+    const paused = setup({ hash: hashFeedSecret(secret) });
+    paused.tables.studios[0].subscription_status = "past_due";
+    expect((await handleFeedRequest(req(), secret, deps(paused))).status).toBe(404);
+    expect(paused.queries.map((q) => q.table)).not.toContain("appointments");
+  });
+
+  it("a failing account check is a server fault, never an allow", async () => {
+    const { secret } = generateFeedSecret();
+    const down = setup({ hash: hashFeedSecret(secret) });
+    down.authError = { status: 500, message: "secret detail" };
+    const res = await handleFeedRequest(req(), secret, deps(down));
+    expect(res.status).toBe(503);
+    expect(await res.text()).not.toContain("secret detail");
+    expect(await tryHandleFeedRequest(req(), secret, deps(down))).toBeNull();
   });
 });
