@@ -34,8 +34,8 @@ create role anon nologin; create role authenticated nologin; create role service
 create schema auth;
 create table auth.users (id uuid primary key);
 create table public.studios (id uuid primary key);
-create table public.instructors (id uuid primary key, studio_id uuid not null references public.studios(id), user_id uuid, active boolean not null default true);
-create table public.user_studio_roles (user_id uuid not null, studio_id uuid not null, active boolean not null default true, role text not null);
+create table public.instructors (id uuid primary key, studio_id uuid not null references public.studios(id) on delete cascade, user_id uuid, active boolean not null default true);
+create table public.user_studio_roles (user_id uuid not null, studio_id uuid not null references public.studios(id) on delete cascade, active boolean not null default true, role text not null);
 -- Supabase default privileges: new public objects are open to the API roles until the migration revokes them
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
@@ -55,6 +55,10 @@ echo "$out" | grep -q "ALL CALENDAR FEED SQL CHECKS PASSED" || fail=1
 pass=$(echo "$out" | grep -c "PASS:")
 echo "PASS count: $pass"
 
+echo "== rollback refuses while the legacy sync trigger exists"
+psql_in -c "create function public.zz_noop() returns trigger language plpgsql as 'begin return new; end'; create trigger calendar_feed_sync_legacy_instructor_trg before insert on public.studios for each row execute function public.zz_noop();" || fail=1
+if psql_in < "$RB" >/dev/null 2>&1; then echo "FAIL: rollback ran with the legacy trigger present" >&2; fail=1; else echo "PASS: rollback refused"; fi
+psql_in -c "drop trigger calendar_feed_sync_legacy_instructor_trg on public.studios; drop function public.zz_noop();" || fail=1
 echo "== rollback"
 psql_in < "$RB" || fail=1
 left=$(psql_in -At -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname like 'calendar_feed_%'" )

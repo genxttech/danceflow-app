@@ -200,7 +200,7 @@ begin
     insert into public.user_studio_roles(user_id, studio_id, active, role) values (u4, s1, true, 'instructor');
     perform public.calendar_feed_issue_token(s1, 'staff', u4, pg_temp.hex('e1'), 'rrrr0001', 'minimal', null, u4, 0);
     update public.user_studio_roles set role = 'front_desk' where user_id = u4 and studio_id = s1;
-    perform pg_temp.ok((select count(*) from public.calendar_feed_resolve(pg_temp.hex('e1'))) = 0, 'role change revokes staff token');
+    perform pg_temp.ok((select count(*) from public.calendar_feed_resolve(pg_temp.hex('e1'))) = 1, 'an ordinary role change does not revoke (eligibility is re-checked per request)');
     perform public.calendar_feed_issue_token(s1, 'staff', u4, pg_temp.hex('e2'), 'ssss0001', 'minimal', null, u4, 0);
     delete from public.user_studio_roles where user_id = u4 and studio_id = s1;
     perform pg_temp.ok((select count(*) from public.calendar_feed_resolve(pg_temp.hex('e2'))) = 0, 'role deletion revokes staff token');
@@ -211,6 +211,31 @@ begin
     perform public.calendar_feed_issue_token(s1, 'staff', u2, pg_temp.hex('e4'), 'vvvv0001', 'minimal', null, u2, 0);
     delete from public.instructors where id = '00000000-0000-0000-0000-0000000000c4';
     perform pg_temp.ok((select count(*) from public.calendar_feed_resolve(pg_temp.hex('e4'))) = 0, 'instructor deletion revokes staff token');
+  end;
+
+  -- 11f. revocation is final and identity is fixed; the API role cannot write
+  perform pg_temp.raises('update public.calendar_feed_tokens set status = ''active'', revoked_at = null, revoked_reason = null where status = ''revoked''', 'a revoked token cannot be reactivated');
+  perform pg_temp.raises('update public.calendar_feed_tokens set token_hash = repeat(''0'', 64) where status = ''active''', 'token hash cannot be changed');
+  perform pg_temp.raises(format('update public.calendar_feed_tokens set studio_id = %L where status = ''active'' and studio_id <> %L', s2, s2), 'token studio cannot be changed');
+  perform pg_temp.ok((select count(*) from pg_class c join pg_namespace ns on ns.oid = c.relnamespace where ns.nspname = 'public' and c.relkind = 'r' and c.relname like 'calendar_feed_%'
+     and has_table_privilege('service_role', c.oid, 'insert,update,delete,truncate')) = 0, 'service_role cannot write any feed table');
+  perform pg_temp.ok(has_table_privilege('service_role', 'public.calendar_feed_tokens', 'select'), 'service_role keeps read access');
+  perform pg_temp.raises(format('select public.calendar_feed_revoke_subject(%L, ''staff'', %L, null, null)', s1, u2), 'revoke_subject requires a reason');
+  perform pg_temp.raises(format('select public.calendar_feed_revoke_studio(%L, null, null)', s1), 'revoke_studio requires a reason');
+
+  -- 11g. deleting a studio that still has a live staff token succeeds and removes its feed rows
+  declare
+    s3 uuid := '00000000-0000-0000-0000-0000000000b3';
+    u5 uuid := '00000000-0000-0000-0000-0000000000a5';
+  begin
+    insert into auth.users(id) values (u5);
+    insert into public.studios(id) values (s3);
+    insert into public.instructors(id, studio_id, user_id, active) values ('00000000-0000-0000-0000-0000000000c5', s3, u5, true);
+    insert into public.user_studio_roles(user_id, studio_id, active, role) values (u5, s3, true, 'instructor');
+    perform public.calendar_feed_set_studio_enabled(s3, true, u5);
+    perform public.calendar_feed_issue_token(s3, 'staff', u5, pg_temp.hex('e5'), 'eeee0005', 'minimal', null, u5, 0);
+    delete from public.studios where id = s3;
+    perform pg_temp.ok((select count(*) from public.calendar_feed_tokens where studio_id = s3) = 0, 'studio delete with a live staff token succeeds');
   end;
 
   -- 12. account deletion cascades

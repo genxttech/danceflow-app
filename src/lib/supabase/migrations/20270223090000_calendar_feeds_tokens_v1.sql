@@ -139,6 +139,32 @@ revoke all on public.calendar_feed_tokens       from public, anon, authenticated
 revoke all on public.calendar_feed_audit_events from public, anon, authenticated;
 revoke all on public.calendar_feed_rate_buckets from public, anon, authenticated;
 
+-- Writes go ONLY through the SECURITY DEFINER functions below: the API service role keeps read access and nothing else,
+-- so a revocation cannot be undone and audit rows cannot be removed through the API.
+revoke insert, update, delete, truncate on public.calendar_feed_settings     from service_role;
+revoke insert, update, delete, truncate on public.calendar_feed_tokens       from service_role;
+revoke insert, update, delete, truncate on public.calendar_feed_audit_events from service_role;
+revoke insert, update, delete, truncate on public.calendar_feed_rate_buckets from service_role;
+
+-- A token's identity is fixed and revocation is final, whoever performs the update.
+create or replace function public.calendar_feed_token_guard()
+returns trigger language plpgsql as $fn$
+begin
+  if old.status = 'revoked' and new.status is distinct from 'revoked' then
+    raise exception 'a revoked calendar feed token cannot be reactivated';
+  end if;
+  if new.token_hash is distinct from old.token_hash or new.studio_id is distinct from old.studio_id
+     or new.subject_kind is distinct from old.subject_kind or new.subject_user_id is distinct from old.subject_user_id then
+    raise exception 'calendar feed token identity cannot be changed';
+  end if;
+  return new;
+end;
+$fn$;
+drop trigger if exists calendar_feed_token_guard_trg on public.calendar_feed_tokens;
+create trigger calendar_feed_token_guard_trg
+  before update on public.calendar_feed_tokens
+  for each row execute function public.calendar_feed_token_guard();
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- Functions (all SECURITY DEFINER, service_role only).
 -- ---------------------------------------------------------------------------------------------------------------
@@ -171,6 +197,7 @@ declare
   v_old public.calendar_feed_tokens%rowtype;
   v_new uuid;
   v_had boolean;
+  v_stale record;
   v_overlap integer := greatest(0, least(coalesce(p_overlap_seconds, 0), 86400));
 begin
   if p_include_client_ids is not null and coalesce(array_length(p_include_client_ids, 1), 0) > 50 then
@@ -185,10 +212,15 @@ begin
   perform pg_advisory_xact_lock(hashtextextended(p_studio::text || ':' || p_kind || ':' || p_user::text, 0));
 
   -- Any previously superseded token still inside its overlap window dies now: at most ONE previous token is ever valid.
-  update public.calendar_feed_tokens
-     set status = 'revoked', revoked_at = now(), revoked_reason = 'rotated'
-   where studio_id = p_studio and subject_kind = p_kind and subject_user_id = p_user
-     and status = 'active' and superseded_at is not null;
+  for v_stale in
+    update public.calendar_feed_tokens
+       set status = 'revoked', revoked_at = now(), revoked_reason = 'rotated'
+     where studio_id = p_studio and subject_kind = p_kind and subject_user_id = p_user
+       and status = 'active' and superseded_at is not null
+    returning id
+  loop
+    perform public.calendar_feed_audit(p_studio, v_stale.id, p_actor, 'user', 'revoked', 'rotated', '{}'::jsonb);
+  end loop;
 
   select * into v_old from public.calendar_feed_tokens
    where studio_id = p_studio and subject_kind = p_kind and subject_user_id = p_user
@@ -258,6 +290,9 @@ declare
   v_row record;
   v_count integer := 0;
 begin
+  if p_reason is null then
+    raise exception 'reason is required' using errcode = '22023';
+  end if;
   for v_row in
     update public.calendar_feed_tokens
        set status = 'revoked', revoked_at = now(), revoked_reason = p_reason
@@ -281,6 +316,9 @@ declare
   v_row record;
   v_count integer := 0;
 begin
+  if p_reason is null then
+    raise exception 'reason is required' using errcode = '22023';
+  end if;
   for v_row in
     update public.calendar_feed_tokens
        set status = 'revoked', revoked_at = now(), revoked_reason = p_reason
@@ -412,6 +450,10 @@ $fn$;
 create or replace function public.calendar_feed_on_instructor_deactivated()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $fn$
 begin
+  -- Part of a studio delete cascade: the tokens go with the studio, and an audit row could no longer reference it.
+  if not exists (select 1 from public.studios s where s.id = old.studio_id) then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
   if tg_op = 'DELETE' then
     if old.user_id is not null then
       perform public.calendar_feed_revoke_subject(old.studio_id, 'staff', old.user_id, 'staff_deactivated', null, 'system');
@@ -431,12 +473,14 @@ $fn$;
 create or replace function public.calendar_feed_on_role_deactivated()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $fn$
 begin
+  if not exists (select 1 from public.studios s where s.id = old.studio_id) then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
   if tg_op = 'DELETE' then
     perform public.calendar_feed_revoke_subject(old.studio_id, 'staff', old.user_id, 'role_lost', null, 'system');
     return old;
   end if;
   if (old.active is true and new.active is not true)
-     or new.role is distinct from old.role
      or new.user_id is distinct from old.user_id
      or new.studio_id is distinct from old.studio_id then
     perform public.calendar_feed_revoke_subject(old.studio_id, 'staff', old.user_id, 'role_lost', null, 'system');
@@ -452,7 +496,7 @@ create trigger calendar_feed_instructor_deactivated_trg
 
 drop trigger if exists calendar_feed_role_deactivated_trg on public.user_studio_roles;
 create trigger calendar_feed_role_deactivated_trg
-  after update of active, role, user_id, studio_id or delete on public.user_studio_roles
+  after update of active, user_id, studio_id or delete on public.user_studio_roles
   for each row execute function public.calendar_feed_on_role_deactivated();
 
 -- Function privileges: service_role only.
@@ -473,6 +517,7 @@ revoke all on function public.calendar_feed_audit(uuid, uuid, uuid, text, text, 
 revoke all on function public.calendar_feed_on_instructor_deactivated() from service_role;
 revoke all on function public.calendar_feed_on_role_deactivated() from service_role;
 revoke all on function public.calendar_feed_audit_no_update() from service_role;
+revoke all on function public.calendar_feed_token_guard() from public, anon, authenticated, service_role;
 
 grant execute on function public.calendar_feed_issue_token(uuid, text, uuid, text, text, text, uuid[], uuid, integer) to service_role;
 grant execute on function public.calendar_feed_revoke(uuid, uuid, uuid, text, uuid, text) to service_role;

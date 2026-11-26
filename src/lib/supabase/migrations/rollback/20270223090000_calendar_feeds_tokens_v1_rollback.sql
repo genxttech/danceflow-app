@@ -2,6 +2,14 @@
 -- WARNING: drops every feed token and audit row. Run only while CALENDAR_FEEDS_ENABLED is off everywhere.
 begin;
 set local lock_timeout = '5s';
+-- The legacy-token step (20270223120000) writes into these tables from a trigger on instructor_calendar_feeds: roll it back FIRST,
+-- otherwise every legacy feed write would fail after the tables are gone.
+do $$
+begin
+  if exists (select 1 from pg_trigger where tgname = 'calendar_feed_sync_legacy_instructor_trg' and not tgisinternal) then
+    raise exception 'run the 20270223120000 rollback first. Nothing was changed.';
+  end if;
+end $$;
 drop trigger if exists calendar_feed_instructor_deactivated_trg on public.instructors;
 drop trigger if exists calendar_feed_role_deactivated_trg on public.user_studio_roles;
 drop function if exists public.calendar_feed_on_instructor_deactivated();
@@ -19,6 +27,7 @@ drop table if exists public.calendar_feed_rate_buckets;
 drop table if exists public.calendar_feed_audit_events;
 drop function if exists public.calendar_feed_audit_no_update();
 drop table if exists public.calendar_feed_tokens;
+drop function if exists public.calendar_feed_token_guard();
 drop table if exists public.calendar_feed_settings;
 notify pgrst, 'reload schema';
 commit;
