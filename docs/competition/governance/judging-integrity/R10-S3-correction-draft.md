@@ -12,8 +12,9 @@ UCWDC Rule #3) stay in PR #834. Design history: PR #858. **This PR does not clos
 | Base | `release/website-embeds` at `49dbaee1b` (branch 0 behind) |
 | Migration files (the three `20270301100000/101000/102000` files and rollbacks) | **byte-identical since `9d3dad169ebd6dd682ef762fcc886b6fce3b087f`**; later commits change only tests and this document |
 | Composed run (run4, S5 runner, all 8 correction migrations, head `9d3dad16`) | **EXECUTED**: S3 suite PASS 88 checks forward and after re-apply; reverse rollback of all 8 OK; re-apply OK. **13 of 20 forward suites FAILED** (7 passed, S3 included; 10 of the failures passed before apply): see section 5. Hashes in `run4/migrations-new.sha256` match `9d3dad16` |
-| STANDALONE run 1 (S3 as the only correction PR; chain in section 5) | **EXECUTED 2026-11-26 13:22-13:26Z**: S3 applies, passes (88), rolls back and re-applies. The rollback schema comparison was **incomplete**. Run 2 is queued; **tests changed after run 1 have not been executed** |
-| CI | three Vercel checks passed on `cdac85fb0`; not rechecked on later commits. **No GitHub Actions workflow runs for this PR** (the only workflow's path filter matches neither migrations nor docs): CI verifies none of the SQL |
+| STANDALONE run 1 (S3 as the only correction PR; chain in section 5) | EXECUTED 2026-11-26 13:22-13:26Z, S3 head `9d3dad16`: apply, suite (88), rollback and re-apply OK; schema comparison incomplete. Superseded by run 2 |
+| **STANDALONE run 2** (head `cde6b1225`) | **EXECUTED 2026-11-26 19:09-19:14Z**: S3 suite PASS 92 checks after apply and after re-apply; schema comparison after rollback IDENTICAL to before apply (object types in section 5); four races, no deadlock. Two committed suites still fail with and without S3 |
+| CI | three Vercel checks passed on `a1b0eb9d`; see the PR for later commits, which change only this document. **No GitHub Actions workflow runs for this PR** (the only workflow's path filter matches neither migrations nor docs): CI verifies none of the SQL |
 | Hosted counts (read-only 2026-11-24) | DEV 73 rounds, PROD 8, all draft, no assigned panel, 0 misleading-ready, 0 stuck, 0 `min_panel_judges`, 0 absences. The apply gate must re-run them (and add `minimum_panel_size`) |
 
 ## 2. What changed since the first review (head `5eea51ff`)
@@ -27,7 +28,7 @@ S3 changes in `102000` since `5eea51ff`: new trigger `compr10_official_status_pa
 attendance now inserts first and evaluates the real resulting panel (a refusal rolls back); confirmation is required for the change that turns a valid panel invalid, for `present` as well as `absent`, and not again for later changes on an already
 invalid panel; audit refs now separate `panel_break_confirmed` and `recovery_case_opened`. `101000`: comment only. `100000`: unchanged. Tests: S3 suite updated; E1 and E2 suites adjusted (section 6).
 
-At S4 (R-15) request, the E2 suite later gained a clearance call that does nothing unless S4's test fixture is loaded. **Not executed** by any run recorded here (run 2 pins `cde6b1225`, before it).
+At S4 (R-15) request, the E2 suite later gained a clearance call that does nothing unless S4's test fixture is loaded. **Not executed** by any run recorded here (run 2 pins `cde6b1225`, before it); it has not been independently reviewed.
 
 ## 3. What ships
 
@@ -60,14 +61,32 @@ Authority (unchanged): assign/unassign = event manager, draft/scheduled only; at
 | S3 suite after apply and after re-apply | EXECUTED, PASS (88) both times |
 | With S3 applied: E2 (211), JC1 (15), O1 (95), NS1 (152), PV-1 (30), CF1 A2 (35, 1 blocked), A3 (119, 5 blocked), OD17 (59), F3 (191), U18 (21), U18S (17), R2 write gate (21), phase 10D (79) | EXECUTED, PASS; same counts before apply and after rollback (before apply and after rollback E2 ran the base-branch copy) |
 | E1 suite and R2 entry-refunds suite | **FAIL in all three phases with the same first error, with and without S3** (`COMPO1_ROUND_EDGE`; `COMPO1_HEAT_STATUS_WRITER`): the fixtures predate the O1 guards. E1 stops before reaching any S3-related step |
-| Schema comparison after rollback | **INCOMPLETE**: a harness query error stopped the comparison after `public` functions, and for those only the definition hash and grants were captured. One difference: the grants of the restored five-argument function name a different grantor (owner inferred, not captured; the harness applied as `supabase_admin`; body hash and API-role grants equal). Triggers, relations, constraints, policies and columns were **not** compared |
+| Schema comparison after rollback | INCOMPLETE in run 1 (harness query error); completed by run 2 |
 | Races R1 (two absences) and R3 (deactivation then attendance) | EXECUTED: the second session finished only after the first's hold ended (commit time inferred, not logged); no deadlock; no round had more than one open case |
-| Race R4 (attendance then deactivation) | **Confounded in run 1**: R3 had already opened a case on that round, so it shows only that the second session waited. Run 2 uses a round and judge the other races never touch |
+| Race R4 (attendance then deactivation) | Confounded in run 1 (R3 had already opened a case on that round); redone in run 2 |
 | Race R2 (attendance then ballot lock) | EXECUTED, partial: the lock saw the committed attendance (4 judges present) and then refused because the fixture round has no heat. A successful lock racing attendance is not exercised |
 | Rollback with open cases | EXECUTED: refused as designed |
 | Composed run4 on `9d3dad169` (all 8 correction migrations) | EXECUTED: S3 PASS (88); reverse rollback and re-apply of all 8 OK. FAIL with the 8 applied: E1, JC1, U18, U18-S, F3, O1, NS1, OD-31 negative, R2 refunds, R2 write gate, phase 10D, phase 10C, R15 (E1 and R2 refunds also failed before apply; R15 is a new suite and also failed after re-apply). The first errors are R15 and S5 gates, an R15 fixture helper, and the O1 edge (E1); none names an S3 object. Those suites stopped early, so **run4 gives no S3 compatibility evidence for them**, and E2 is not in run4 |
-| **Run 2** (head `cde6b1225`): S3 suite including the new raised-minimum checks; schema comparison of `public` functions, triggers, relations, constraints, policies, columns, indexes, views and types with S3 applied and rolled back as `postgres`; E2 five-argument fallback; E1 with a QA-only, uncommitted edit that gets past the O1 edge; corrected R4 | **PENDING**: one FIFO ticket queued 2026-11-26T14:39Z (`comp-r10s3-rerun`). Not covered even then: comments, sequence settings, other schemas, non-function routines. An E1 pass with the QA edit is not a pass of the committed suite |
+
+**Standalone run 2** (same image, isolation and base chain composition as run 1, including JC1/U18/U18-S from `92a8c17c0`; S3 files from `cde6b1225`, applied, rolled back and re-applied as role `postgres`). The S3 suite (run only with S3 applied), E2 and the QA variant of E1 are the PR copies in every phase they run in; committed E1 is the PR copy with S3 applied. The other suites come from `92a8c17c0`.
+
+| Item | Status |
+|---|---|
+| Apply (3), rollback (3), re-apply (3) | EXECUTED, all OK |
+| S3 suite, including the raised-minimum checks | EXECUTED, PASS (92) after apply and after re-apply |
+| E2 suite | EXECUTED, PASS (211) before apply, with S3 and after rollback: five-argument fallback and six-argument path both run |
+| With and without S3: JC1 (15), O1 (95), NS1 (152), PV-1 (30), CF1 A2 (35, 1 blocked), A3 (119, 5 blocked), OD17 (59), F3 (191), U18 (21), U18S (17), R2 write gate (21), phase 10D (79) | EXECUTED, PASS in all three phases |
+| E1 with a **QA-only, uncommitted** two-line setup edit (replica mode around one round activation, to get past the O1 edge) | EXECUTED, PASS (109) in all three phases, so both branches of the changed E1 check ran. **This is not a pass of the committed suite** |
+| Committed E1 suite and R2 entry-refunds suite | **FAIL in all three phases** (`COMPO1_ROUND_EDGE`; `COMPO1_HEAT_STATUS_WRITER`), with and without S3: the fixtures predate the O1 guards |
+| Schema comparison, `public`: functions (definition, owner, grants), triggers, relations, constraints, policies, columns, indexes, views, types | EXECUTED: 21,435 rows **identical** before apply and after rollback; re-apply identical to first apply. Not compared: comments, sequence settings, other schemas, non-function routines |
+| Race R1 (two absences) | EXECUTED: first opened a case, second closed it as restored with 3 present; the second waited |
+| Race R3 (deactivation then attendance) | EXECUTED: the second waited; one open case on each affected round |
+| Race R4 (attendance then deactivation), on a round no other race touches | EXECUTED: no case and 3 present beforehand; attendance opened the case; deactivation waited; one open case |
+| Race R2 (attendance then ballot lock) | EXECUTED, partial as in run 1: the fixture round has no heat, so a successful lock racing attendance is not exercised |
+| All races | no deadlock in the server log; at most one open case per round |
+| Rollback with open cases | EXECUTED: refused as designed |
 | Start-vs-attendance and start-vs-deactivation races; ballot-lock-first ordering | PENDING, in no script |
+| E2 clearance call added after `cde6b1225`; composed compatibility with the other correction PRs | PENDING: not covered by this run |
 
 ## 6. Independent review of head `9d3dad16` (subagent, read-only, waited for)
 
@@ -76,8 +95,8 @@ Verdict: **acceptable for owner review of a draft: yes; not ready for hosted app
 | # | Sev | Finding | Disposition |
 |---|---|---|---|
 | 1 | major | "SQL-before-app is safe" is wrong (see section 4) | Document corrected; app change is an apply prerequisite. OPEN until built |
-| 2 | major | E1 suite changed `min_panel_judges` on an active round and would abort under S3 | FIXED in tests (asserts the freeze; the original check still applies without S3). **Not yet executed**: the suite stops earlier on an O1 guard (section 5) |
-| 3 | major | E2 suite's six-argument call fails on older runner chains | FIXED in tests (conditional on the function existing). Six-argument path executed; five-argument fallback PENDING (run 2) |
+| 2 | major | E1 suite changed `min_panel_judges` on an active round and would abort under S3 | FIXED in tests (asserts the freeze; the original check still applies without S3). Both branches passed in run 2 **only with the QA-only edit**; the committed suite still stops on an O1 guard (section 5) |
+| 3 | major | E2 suite's six-argument call fails on older runner chains | FIXED in tests (conditional on the function existing). Both paths passed in run 2 |
 | 4 | major | Package and some SQL comments stale | Document rewritten. SQL comments left unchanged to keep the tested files byte-identical: `100000` header says after start ready follows the rule only (ineligible judges and unsupported methods also block); `102000` header omits the status trigger; a comment says an invalid started panel always has an open case (not true, see gaps); table comment says cases come from a confirmed absence only |
 | 5 | minor | Cancelling a round leaves its case open forever (no `closed_cancelled` status) | OPEN |
 | 6 | minor | Team removal or credential loss after start: readiness blocks, lock still counts the judge, no case | OPEN |
@@ -93,13 +112,13 @@ Verdict: **not accurate enough as written until its four majors were corrected; 
 
 | # | Sev | Finding | Disposition |
 |---|---|---|---|
-| M1 | major | Race R4 confounded by R3 | Stated in section 5; race script corrected for run 2 (not yet run) |
+| M1 | major | Race R4 confounded by R3 | Stated in section 5; redone on an untouched round in run 2, passed |
 | M2 | major | run4 rows omitted the failed suites | Stated in sections 1 and 5 |
 | M3 | major | "Base chain + this PR only" omitted JC1/U18 from another commit | Stated in section 5 |
-| M4 | major | No assertion that a raised minimum blocks a valid draft panel | Assertions for `min_panel_judges`, `minimum_panel_size` and `meets_configured_minimum` added to the S3 suite (not yet executed) |
+| M4 | major | No assertion that a raised minimum blocks a valid draft panel | Assertions for `min_panel_judges`, `minimum_panel_size` and `meets_configured_minimum` added to the S3 suite; passed in run 2 |
 | m1-m2 | minor | Schema caveat and absence wording | Corrected |
 | m3, m5 | minor | Stale S3 suite header; loose E1 error match | Fixed in tests |
-| m4 | minor | The saved run 1 script alone does not reproduce run 1 (E1/E2 copies replaced afterwards) | Recorded here; run 2 pins one commit |
+| m4 | minor | The saved run 1 script alone does not reproduce run 1 (E1/E2 copies replaced afterwards) | Recorded here; run 2 pinned one commit |
 
 The changes made after this review have not been independently re-reviewed.
 
