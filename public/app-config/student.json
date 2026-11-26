@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "apps": {
+    "student": {
+      "android": { "recommendedCode": 0, "storeUrl": "https://play.google.com/store/apps/details?id=com.idanceflow.student" },
+      "ios": { "recommendedCode": 0, "storeUrl": null }
+    }
+  }
+}
