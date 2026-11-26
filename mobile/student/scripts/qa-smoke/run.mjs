@@ -8,8 +8,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
+import { createRequire } from "node:module";
 
 const here = dirname(fileURLToPath(import.meta.url));
+const reach = createRequire(import.meta.url)("./reachability.js"); // Wi-Fi/reach preflight + baked-config check (shared helpers with the Business smoke)
 const repoRoot = resolve(here, "..", "..", "..", "..");
 
 const args = process.argv.slice(2);
@@ -33,8 +35,17 @@ const cfg = {
   skipBuild: flag("skip-build"),
   apiCheck: flag("api-check"), // with --claim: call the function over HTTP as each user (no APK, no emulator)
   claimVisual: flag("claim-visual"), // implies --claim: the claim flow (create-password routing, Wallet, tickets) at font 1.0/2.0 x light/dark
-  claim: flag("claim") || flag("claim-visual"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
-  events: flag("events"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
+  claimWithheld: flag("claim-withheld"), // implies --claim: Gate 1 as on PROD (20270222090500 revokes execute): the claim RPC must answer 42501 and the app stays silent and fail-closed
+  claim: flag("claim") || flag("claim-visual") || flag("claim-withheld"), // verified-email claim device QA (needs the 604 claim migrations from git; applies them on the disposable stack only)
+  realWeb: flag("real-web"), // serve the app's web API with the repo's REAL Next.js routes (next dev on the mock port, pointed at this stack) instead of mock-web.mjs; QA only, the stack's service key never leaves this PC
+  sessionDiag: flag("session-diag"), // does the signed-in session survive an app kill? harness force-stop vs user-style kills vs emulator reboot vs offline start; evidence per step
+  pastRegistrations: flag("past-registrations"), // Tickets & registrations > Past events: ended registrations with/without a ticket, cancelled+refunded, the 12-item page and Show more, tap-through to the ended event, font 2.0 + dark
+  pastEvents: flag("past-events"), // regression smoke for the past-events fix (#700): seeded events in several time zones, Events/home/saved/studio lists, Past segment, ended-event detail, history, empty state
+  events: flag("events") || flag("past-events") || flag("past-registrations"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
+  viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
+  cutover: flag("cutover"), // with --claim: also apply the dancer cutover (drop the direct dancer read policies), as after Gate 2
+  a1: flag("a1"), // A1 assistant device checks (shared/qa-a1): Part A with no --features (flags OFF), Part B with --features lumiAssistant
+  features: opt("features", ""), // baked as EXPO_PUBLIC_DANCER_FEATURES in this QA build only; with a value, the mock web also answers lumiEnabled=true
   noTeardown: flag("keep"), // debugging only
   email: "dana.dancer@example.test",
   email2: "evan.other@example.test",
@@ -78,6 +89,20 @@ function psql(sqlFile, vars = []) {
   if (r.status !== 0) throw new Error(`psql failed: ${(r.stderr || r.stdout).slice(0, 400)}`);
 }
 
+// A migration file read from git (never the working tree): the first ref that has it.
+function migrationFromGit(file) {
+  for (const ref of [cfg.viewsRef, "origin/main", "origin/claude/claim-column-restricted-read"].filter(Boolean)) {
+    const r = run("git", ["-C", repoRoot, "show", `${ref}:src/lib/supabase/migrations/${file}`]);
+    if (r.status === 0 && r.stdout) { log(`applying ${file} from ${ref}`); return r.stdout; }
+  }
+  throw new Error(`migration ${file} not found at any ref (try --views-ref <ref>)`);
+}
+
+function psqlText(sql, what) {
+  const r = run("docker", ["exec", "-i", `df-isoqa-${cfg.name}-db`, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], { input: sql });
+  if (r.status !== 0) throw new Error(`psql failed for ${what}: ${(r.stderr || r.stdout).slice(0, 400)}`);
+}
+
 async function stackUp() {
   log("starting the local stack (about 5 minutes)");
   const r = run("node", [join(repoRoot, "scripts", "qa", "iso-qa.mjs"), "up", "main", "--name", cfg.name, "--auth"], { cwd: repoRoot });
@@ -87,21 +112,33 @@ async function stackUp() {
   const grab = (k) => (text.match(new RegExp(`${k}["']?\\s*[=:]\\s*["']?([A-Za-z0-9._-]+)`)) || [])[1];
   const anon = grab("ISO_QA_ANON_KEY");
   const service = grab("ISO_QA_SERVICE_ROLE_KEY");
+  state.jwtSecret = grab("TW4A_LOCAL_JWT_SECRET") || null;
   if (!anon || !service) throw new Error("could not read the stack keys from the iso-qa output");
   psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270213080000_mobile_push_token_claim.sql"));
   if (cfg.claim) {
     // LAUNCH-SEC-1C-A (verified-email proof) is listed as unreplayable in the baseline (it needs the GoTrue auth.users columns), so it is
     // applied here, after --auth, exactly like the 604 SQL run: it provides my_verified_email(), which the 604 function calls.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20261008090000_launchsec1ca_verified_email_proof.sql"));
-    // PR 604: the function, then the index (a separate non-transactional file). Disposable stack only, never hosted.
+    // PR 604: the function. Disposable stack only, never hosted.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221090000_event_registration_claim_function.sql"));
-    psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"));
     // PR 627: the FINAL function (allowlist: only registration_source public_event_page claims; admin, NULL and unknown sources never do). Replaces the 604 body.
     psql(join(repoRoot, "src", "lib", "supabase", "migrations", "20270222090000_event_registration_claim_buyer_sources_only.sql"));
+    // PR 647: the plain transactional index (replaces the retired CONCURRENTLY file 20270221091000) and the dancer views my_event_registrations /
+    // my_event_registration_attendees. Taken from a git ref (--views-ref, then origin/main, then the 647 branch) because they may not be on main yet.
+    // The cutover (--cutover) also drops the direct dancer read policies, so the app can only read through the views, as after Gate 2.
+    for (const file of ["20270222091000_event_registrations_unclaimed_email_index.sql", "20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) {
+      psqlText(migrationFromGit(file), file);
+    }
     // Call counter (case 6): the real function is renamed and a thin wrapper with the SAME name, signature and grants is put in front of it.
     // The wrapper records one row per call (who called, when) and then runs the real body unchanged. PostgREST, pg_stat_user_functions and
     // statement logging gave no usable count on this stack; a row written by the call itself cannot be missed. Disposable stack only.
     psql(join(here, "claim-call-counter.sql"));
+    // Gate 1 as applied on PROD: execute withheld from every client role (applied AFTER the counter wrapper so the wrapper is the revoked object).
+    if (cfg.claimWithheld) psqlText(migrationFromGit("20270222090500_claim_function_execute_withheld.sql"), "20270222090500_claim_function_execute_withheld.sql");
+  }
+  if (!cfg.claim && (cfg.cutover || flag("views") || cfg.pastEvents || cfg.pastRegistrations)) {
+    // The screen matrix (--events) with the dancer views (and, with --cutover, the direct dancer read policies dropped): the Wallet must still show the tickets.
+    for (const file of ["20270222092000_dancer_event_registration_views.sql", ...(cfg.cutover ? ["20270222093000_dancer_direct_read_policies_cutover.sql"] : [])]) psqlText(migrationFromGit(file), file);
   }
   return { anon, service };
 }
@@ -131,8 +168,40 @@ async function makeDancer(service) {
   };
 }
 
+/**
+ * --real-web: the repo's own Next.js routes against the disposable stack (the real GET /api/student/events/{id}/availability, studio-links, profile).
+ * next dev, not a production build: one route compiles on first use, so it is warmed here before the emulator boots. The ticket type gets capacity 4
+ * (one seeded paid registration of quantity 1) so the real route must answer remaining 3. Teardown kills the whole process tree.
+ */
+async function startRealWeb(anon, service, link) {
+  q("update public.event_ticket_types set capacity = 4 where id = '55555555-5555-4555-8555-555555555551'");
+  const nextBin = join(repoRoot, "node_modules", "next", "dist", "bin", "next");
+  const env = { ...process.env, NEXT_TELEMETRY_DISABLED: "1", NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:" + cfg.kong, NEXT_PUBLIC_SUPABASE_ANON_KEY: anon, SUPABASE_SERVICE_ROLE_KEY: service };
+  const child = spawn(process.execPath, [nextBin, "dev", "-p", String(cfg.mockPort), "-H", "0.0.0.0"], { cwd: repoRoot, env, stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  child.stdout.on("data", (d) => { out += d; });
+  child.stderr.on("data", (d) => { out += d; });
+  state.mock = { kill: () => { try { run("taskkill", ["/PID", String(child.pid), "/T", "/F"]); } catch { /* gone */ } writeFileSync(join(cfg.out, "real-web.log"), out); } };
+  const base = "http://127.0.0.1:" + cfg.mockPort;
+  const eventUrl = base + "/api/student/events/44444444-4444-4444-8444-444444444441/availability";
+  const up = await waitFor(async () => { try { const r = await fetch(eventUrl); return r.status === 401; } catch { return false; } }, "the real web API (next dev) to answer 401 on the availability route without a session", 240_000, 5000).then(() => true, () => false);
+  record("real web: next dev serves the availability route (401 without a session)", up, up ? "" : out.slice(-400));
+  if (!up) throw new Error("the real web API did not start");
+  const verifyUrl = new URL((await link(cfg.email)).replace("danceflow://", "https://x/")).searchParams.get("token_hash");
+  const v = await (await fetch("http://127.0.0.1:" + cfg.kong + "/auth/v1/verify", { method: "POST", headers: { apikey: anon, "content-type": "application/json" }, body: JSON.stringify({ type: "magiclink", token_hash: verifyUrl }) })).json();
+  const auth = { authorization: "Bearer " + v.access_token };
+  const r = await fetch(eventUrl, { headers: auth });
+  const text = (await r.text()).slice(0, 400);
+  let j = null; try { j = JSON.parse(text); } catch { /* record below */ }
+  const t = j?.tickets?.[0];
+  record("real web: GET availability as the signed-in dancer returns 200 with capacity 4 and remaining 3", r.status === 200 && t?.capacity === 4 && t?.remaining === 3 && t?.soldOut === false && j.tickets.length === 1, r.status + " " + text);
+  record("real web: the response carries no registration, attendee, order or email data", !/@|ticket_code|first_name|attendee|order/i.test(text.replace(/"eventId"|"ticketTypeId"/g, "")), "");
+  // Warm the other routes the app calls so the first screen is not a cold compile.
+  for (const path of ["/api/student/studio-links", "/api/student/profile"]) { try { await fetch(base + path, { headers: auth }); } catch { /* warm only */ } }
+}
+
 function startMock() {
-  state.mock = spawn("node", [join(here, "mock-web.mjs")], { stdio: "ignore" });
+  state.mock = spawn("node", [join(here, "mock-web.mjs")], { stdio: "ignore", env: { ...process.env, ...(cfg.features ? { QA_LUMI_ENABLED: "1" } : {}) } });
 }
 
 function build(anon) {
@@ -150,7 +219,7 @@ function build(anon) {
   const orig = readFileSync(manifest, "utf8");
   state.restoreManifest = () => writeFileSync(manifest, orig);
   if (!orig.includes("usesCleartextTraffic")) writeFileSync(manifest, orig.replace("<application", '<application android:usesCleartextTraffic="true"'));
-  writeFileSync(join(app, ".env"), [`EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:${cfg.kong}`, `EXPO_PUBLIC_SUPABASE_ANON_KEY=${anon}`, `EXPO_PUBLIC_DANCEFLOW_WEB_URL=http://10.0.2.2:${cfg.mockPort}`, ""].join("\n"));
+  writeFileSync(join(app, ".env"), [`EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:${cfg.kong}`, `EXPO_PUBLIC_SUPABASE_ANON_KEY=${anon}`, `EXPO_PUBLIC_DANCEFLOW_WEB_URL=http://10.0.2.2:${cfg.mockPort}`, ...(cfg.features ? [`EXPO_PUBLIC_DANCER_FEATURES=${cfg.features}`] : []), ""].join("\n"));
   state.envFile = join(app, ".env");
   for (const d of ["generated/assets", "intermediates/assets", "intermediates/merged_assets", "intermediates/compressed_assets", "intermediates/incremental", "outputs/apk/release"]) {
     rmSync(join(app, "android", "app", "build", d), { recursive: true, force: true });
@@ -173,6 +242,50 @@ function build(anon) {
   return apkPath;
 }
 
+/**
+ * Before the emulator is touched: the APK's Hermes bundle must carry THIS run's stack URL, mock web URL and anon key. A stale APK (reused with --apk, or a
+ * stale Metro cache) otherwise fails at sign-in with a misleading "could not reach DanceFlow".
+ */
+function checkBakedConfig(apk, anon) {
+  const dir = join(os.tmpdir(), `smoke-bundle-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  try {
+    const tar = process.platform === "win32" ? join(process.env.SystemRoot || "C:/Windows", "System32", "tar.exe") : "tar";
+    const x = run(tar, ["-xf", apk, "-C", dir, "assets/index.android.bundle"]);
+    if (x.status !== 0) throw new Error(`could not read the JS bundle from the APK: ${(x.stderr || "").slice(-200)}`);
+    const strings = reach.hermesStrings(readFileSync(join(dir, "assets", "index.android.bundle")));
+    const problems = reach.studentBakedConfigProblems(strings, { stackPort: cfg.kong, mockPort: cfg.mockPort, anonKey: anon, jwtSecret: state.jwtSecret || undefined });
+    // The URLs are hard requirements (a stale port can never reach the stack). The anon key is only a warning: it is sent as the apikey header, the
+    // iso-qa gateway does not validate it, and magic-link sign-in works with a key from another stack (reused APKs ran green); a key mismatch is recorded, not fatal.
+    const keyProblems = problems.filter((p) => /anon key/.test(p));
+    const urlProblems = problems.filter((p) => !/anon key/.test(p));
+    record("APK carries this run's stack URL and mock web URL", urlProblems.length === 0, urlProblems.join("; "));
+    if (keyProblems.length) record("APK anon key differs from this stack (warning only: reused APK; magic-link sign-in does not need it)", true, keyProblems.join("; "));
+    if (urlProblems.length) throw new Error(`stale or foreign APK: ${urlProblems.join("; ")}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * After the emulator is up and before any sign-in: its own network must reach the stack and the mock web API on 10.0.2.2. The emulator's Wi-Fi joins tens
+ * of seconds after sys.boot_completed and can flap for a few minutes after a cold boot, so this waits (Wi-Fi address up to 2 min, then a steady HTTP answer
+ * up to 8 min, confirmed by a second answer 15 s later). If it never answers, the run fails here with a named reason instead of as a sign-in failure.
+ */
+async function checkReachable() {
+  const wifi = await reach.waitForWifiAddress({ probe: () => sh(["shell", "ip", "-4", "addr", "show", "wlan0"]).stdout, sleep });
+  record("emulator Wi-Fi has an address", wifi.ok, wifi.ok ? `after ${wifi.tries} check(s)` : "wlan0 never got an address within 2 minutes of boot");
+  if (!wifi.ok) throw new Error("the emulator never got a network address");
+  for (const [name, port, urlPath] of [["stack API", cfg.kong, "/auth/v1/health"], ["mock web API", cfg.mockPort, "/"]]) {
+    const answer = await reach.waitForSteadyAnswer({
+      probe: () => { const r = sh(["shell", reach.reachProbeCommand(port, urlPath)]); return `${r.stdout} ${r.stderr}`; },
+      sleep,
+    });
+    record(`emulator reaches the ${name} (10.0.2.2:${port})`, answer.ok, answer.ok ? "" : `no steady HTTP answer from inside the emulator within 8 min (last output: ${reach.oneLine(answer.last)})`);
+    if (!answer.ok) throw new Error(`the emulator cannot reach the ${name} at 10.0.2.2:${port}`);
+  }
+}
+
 async function emulatorUp() {
   state.emulator = spawn(join(cfg.sdk, "emulator", "emulator.exe"), ["-avd", cfg.avd, "-no-snapshot", "-no-boot-anim", "-gpu", "swiftshader_indirect", "-memory", "2048", "-no-audio"], { stdio: "ignore", detached: false });
   await waitFor(() => sh(["shell", "getprop", "sys.boot_completed"]).stdout.trim() === "1", "the emulator to boot", 300_000);
@@ -183,13 +296,64 @@ async function emulatorUp() {
   sh(["shell", "input", "keyevent", "224"]);
   writeFileSync(join(cfg.out, "talkback.txt"), sh(["shell", "pm", "list", "packages", "talkback"]).stdout || "TalkBack package not installed on this image");
   state.prevFont = sh(["shell", "settings", "get", "system", "font_scale"]).stdout.trim();
-  const d = /(d+)s*$/.exec(sh(["shell", "wm", "density"]).stdout.trim())?.[1];
-  if (d) writeFileSync(join(cfg.out, "density.txt"), d); // px per 160 dpi, for the touch-target check
+  const d = /(\d+)\s*$/.exec(sh(["shell", "wm", "density"]).stdout.trim())?.[1];
+  if (d) { state.density = Number(d); writeFileSync(join(cfg.out, "density.txt"), d); } // px per 160 dpi, for the touch-target check
 }
 
+/*
+  Emulator System UI ANR ("System UI isn't responding", package android). RC5 lost three smokes to it right after boot while another build was
+  starving the PC of RAM. It is the emulator's system process, not the app, so: (1) before anything else wait until the guest is quiet (load average),
+  (2) when the dialog shows anyway, capture what the system knows (load, memory, top, ApplicationExitInfo of com.android.systemui, ANR lines of logcat)
+  into <out>/systemui-anr-N-diag.txt BEFORE touching it, then tap "Wait" on the dialog. It is counted and reported in results.json, never hidden.
+*/
+state.anrDismissed = 0;
+/** Host free RAM and the biggest process groups, into <out>/host-memory-<tag>.txt (a System UI ANR on the emulator is classified against this). */
+function hostMemory(tag) {
+  const ps = "$os=Get-CimInstance Win32_OperatingSystem; 'Free {0:N1} GB of {1:N1} GB' -f ($os.FreePhysicalMemory/1MB),($os.TotalVisibleMemorySize/1MB); Get-Process | Group-Object Name | % { [pscustomobject]@{Name=$_.Name;N=$_.Count;MB=[int](($_.Group|Measure-Object WorkingSet64 -Sum).Sum/1MB)} } | Sort MB -Desc | Select -First 8 | Format-Table -Auto | Out-String";
+  const r = spawnSync("powershell", ["-NoProfile", "-Command", ps], { encoding: "utf8" });
+  const text = String(r.stdout ?? "").trim();
+  writeFileSync(join(cfg.out, "host-memory-" + tag + ".txt"), text);
+  log("host memory (" + tag + "): " + text.split("\n")[0]);
+}
+function captureDiag(tag) {
+  const parts = [
+    ["date", ["shell", "date"]],
+    ["loadavg", ["shell", "cat", "/proc/loadavg"]],
+    ["meminfo", ["shell", "head", "-n", "6", "/proc/meminfo"]],
+    ["top", ["shell", "top", "-n", "1", "-b", "-m", "12"]],
+    ["exit-info systemui", ["shell", "dumpsys", "activity", "exit-info", "com.android.systemui"]],
+    ["anr in logcat", ["shell", "logcat", "-d", "-b", "all", "-t", "400", "-v", "time", "ActivityManager:W", "*:S"]],
+  ];
+  const text = parts.map(([name, a]) => { const r = sh(a); return "=== " + name + " ===\n" + r.stdout + (r.stderr ? "\n" + r.stderr : ""); }).join("\n");
+  writeFileSync(join(cfg.out, tag + "-diag.txt"), text);
+}
+const hasSystemUiAnr = (xml) => /System UI isn't responding/i.test(xml);
+function dismissSystemUiAnr(xml) {
+  const m = /<node[^>]*text="Wait"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+  state.anrDismissed++;
+  captureDiag("systemui-anr-" + state.anrDismissed);
+  if (m) sh(["shell", "input", "tap", String(Math.round((+m[1] + +m[3]) / 2)), String(Math.round((+m[2] + +m[4]) / 2))]);
+  else sh(["shell", "input", "keyevent", "4"]);
+}
+/** Waits until the guest is quiet: a 1-minute load average below the CPU count for two checks 10 s apart (max 4 min). Never fails the run. */
+async function settleSystemUi() {
+  const cpus = Math.max(1, parseInt(sh(["shell", "nproc"]).stdout.trim(), 10) || 2);
+  let quiet = 0, last = "";
+  for (let i = 0; i < 24 && quiet < 2; i++) {
+    last = sh(["shell", "cat", "/proc/loadavg"]).stdout.trim();
+    quiet = parseFloat(last.split(" ")[0]) < cpus ? quiet + 1 : 0;
+    if (quiet < 2) await sleep(10000);
+  }
+  log("System UI settle: " + (quiet >= 2 ? "quiet" : "still busy after 4 min") + " (loadavg " + last + ", " + cpus + " CPUs)");
+  state.settle = { quiet: quiet >= 2, loadavg: last, cpus };
+}
 const hierarchy = () => {
-  sh(["shell", "uiautomator", "dump", "/sdcard/ui.xml"]);
-  return sh(["exec-out", "cat", "/sdcard/ui.xml"]).stdout;
+  for (let tries = 0; ; tries++) {
+    sh(["shell", "uiautomator", "dump", "/sdcard/ui.xml"]);
+    const xml = sh(["exec-out", "cat", "/sdcard/ui.xml"]).stdout;
+    if (!hasSystemUiAnr(xml) || tries >= 3) return xml;
+    dismissSystemUiAnr(xml);
+  }
 };
 const shot = (file) => {
   const r = spawnSync(adb, ["exec-out", "screencap", "-p"], { maxBuffer: 64 << 20 });
@@ -201,6 +365,7 @@ const SCREENS = [
   ...(cfg.events
     ? [
         { id: "event-detail", link: "danceflow://events/44444444-4444-4444-8444-444444444441", expect: /QA Social Dance Night/ },
+        { id: "event-availability", link: "danceflow://events/44444444-4444-4444-8444-444444444441", expect: /3 admission spots left/ },
         { id: "event-ticket", link: "danceflow://wallet/event-tickets", expect: /QA Social Dance Night|QA-DANA-0001|Dana/ },
       ]
     : []),
@@ -243,6 +408,28 @@ async function screens(link) {
       }
     }
   }
+}
+
+// ---- A1 assistant device checks (shared with the Business harness) ----
+async function a1Scenario(link) {
+  const { run: runA1 } = createRequire(import.meta.url)("../../../shared/qa-a1/a1-device-checks.js");
+  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  await sleep(15000);
+  const ok = await freshSignIn(link, cfg.email, "a1-dana");
+  if (!ok) throw new Error("a1: sign-in did not complete");
+  const open = (url) => async () => { openLink(url); await sleep(3500); };
+  await runA1({
+    adb: (a) => sh(a), hierarchy, shot, record, sleep, out: cfg.out, pkg: cfg.pkg, assistantName: "LUMI", flagsOn: !!cfg.features, density: state.density,
+    writeFile: (p, t) => writeFileSync(p, t),
+    screens: [
+      { id: "home", open: open("danceflow://home"), launcher: true },
+      { id: "schedule", open: open("danceflow://schedule"), launcher: true },
+      { id: "wallet", open: open("danceflow://wallet"), launcher: true },
+      { id: "events-list", open: open("danceflow://discover/events"), launcher: true },
+      { id: "lumi-screen", open: open("danceflow://lumi"), launcher: false, allowName: /LUMI/ },
+    ],
+    secondUser: async () => (await freshSignIn(link, cfg.email2, "a1-evan")) === true,
+  });
 }
 
 // ---- verified-email claim scenario (--claim): 604 function on a disposable stack, Dana, Evan, function missing, offline ----
@@ -428,6 +615,43 @@ async function claimScenario(link) {
 
 
 // ---- --claim --api-check: the same ownership cases over HTTP with real user tokens (no device) ----
+// The dancer views (PR 647) over PostgREST with Dana's user JWT: only her own rows and the safe columns, embeds work, studio-sold and NULL-source rows are absent,
+// and (with --cutover) the base tables return nothing and the attendee self-insert is refused.
+const REG_VIEW_COLS = ["id", "event_id", "ticket_type_id", "studio_id", "user_id", "status", "payment_status", "attendee_first_name", "attendee_last_name", "attendee_email", "attendee_phone", "quantity", "unit_price", "total_price", "total_amount", "currency", "checked_in_at", "cancelled_at", "created_at", "updated_at"];
+const ATT_VIEW_COLS = ["id", "registration_id", "event_id", "ticket_type_id", "first_name", "last_name", "email", "phone", "attendee_role", "sort_order", "waiver_signed_at", "checked_in_at", "ticket_code", "ticket_issued_at", "created_at"];
+async function viewsApiChecks(base, anon, token) {
+  const get = async (path) => {
+    const r = await fetch(`${base}/rest/v1/${path}`, { headers: { apikey: anon, authorization: `Bearer ${token}` } });
+    let body = null;
+    try { body = await r.json(); } catch { /* not json */ }
+    return { status: r.status, body };
+  };
+  const tag = cfg.cutover ? "views+cutover" : "views";
+  const regs = await get("my_event_registrations?select=*&order=id");
+  const regIds = Array.isArray(regs.body) ? regs.body.map((r) => r.id) : [];
+  const regCols = new Set(Array.isArray(regs.body) ? regs.body.flatMap((r) => Object.keys(r)) : []);
+  record(`api ${tag}: my_event_registrations returns exactly Dana's own rows (661 bought in the app, 662 claimed web cart); no studio-sold (663), NULL-source (667), gift (664), Evan's (665) or nobody's (666)`, regs.status === 200 && same(regIds.map((i) => i.slice(-3)), ["661", "662"]), `status ${regs.status} ids ${regIds.map((i) => i.slice(-3)).join(",")}`);
+  record(`api ${tag}: my_event_registrations exposes only the safe columns (no client_id, notes, stripe ids, registration_source, order_id, portal_user_id)`, regs.status === 200 && [...regCols].every((c) => REG_VIEW_COLS.includes(c)), `extra: ${[...regCols].filter((c) => !REG_VIEW_COLS.includes(c)).join(",") || "none"}`);
+  const embed = await get("my_event_registrations?select=id,events(name,slug),event_ticket_types(attendees_per_ticket)");
+  const row = Array.isArray(embed.body) ? embed.body[0] : null;
+  record(`api ${tag}: embeds events(...) and event_ticket_types(...) work through the view`, embed.status === 200 && !!row && !!row.events && !!row.event_ticket_types, `status ${embed.status} ${JSON.stringify(row).slice(0, 160)}`);
+  const atts = await get("my_event_registration_attendees?select=*&order=ticket_code");
+  const codes = Array.isArray(atts.body) ? atts.body.map((a) => a.ticket_code).filter(Boolean).sort() : [];
+  const attCols = new Set(Array.isArray(atts.body) ? atts.body.flatMap((a) => Object.keys(a)) : []);
+  record(`api ${tag}: my_event_registration_attendees returns exactly Dana's tickets (QA-CLAIM-0001, QA-DANA-0001)`, atts.status === 200 && same(codes, ["QA-CLAIM-0001", "QA-DANA-0001"]), `status ${atts.status} codes ${codes.join(",")}`);
+  record(`api ${tag}: attendee view has no ticket_token or checked_in_by`, atts.status === 200 && [...attCols].every((c) => ATT_VIEW_COLS.includes(c)), `extra: ${[...attCols].filter((c) => !ATT_VIEW_COLS.includes(c)).join(",") || "none"}`);
+  const baseRegs = await get("event_registrations?select=id");
+  const baseAtts = await get("event_registration_attendees?select=id");
+  const baseN = (r) => (Array.isArray(r.body) ? r.body.length : -1);
+  if (cfg.cutover) {
+    record("api cutover: direct reads of event_registrations and event_registration_attendees return nothing for a dancer", baseRegs.status === 200 && baseN(baseRegs) === 0 && baseAtts.status === 200 && baseN(baseAtts) === 0, `regs ${baseN(baseRegs)} attendees ${baseN(baseAtts)}`);
+    const forge = await fetch(`${base}/rest/v1/event_registration_attendees`, { method: "POST", headers: { apikey: anon, authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ registration_id: regIds[0], first_name: "Forged", last_name: "Ticket", ticket_code: "QA-FORGED-0001" }) });
+    record("api cutover: a dancer can no longer insert an attendee row (self-insert policy removed)", forge.status >= 400, `status ${forge.status}`);
+  } else {
+    record("api Gate 1 (views only): the base tables still return Dana's own rows, so installed builds keep working until the cutover", baseRegs.status === 200 && baseN(baseRegs) >= 1 && baseAtts.status === 200 && baseN(baseAtts) >= 1, `regs ${baseN(baseRegs)} attendees ${baseN(baseAtts)}`);
+  }
+}
+
 async function claimApiCheck(link, service, anon) {
   const base = `http://127.0.0.1:${cfg.kong}`;
   const snapBase = snapshot();
@@ -463,6 +687,7 @@ async function claimApiCheck(link, service, anon) {
   tablesSame("after Dana");
   const r2 = await rpc(danaTok);
   record("api case 7: second call returns 0 and changes nothing", r2.status === 200 && r2.body.trim() === "0" && eq(owners(), { 662: "Dana", 663: "unclaimed", 664: "unclaimed", 665: "Evan", 666: "unclaimed" }), `status ${r2.status} body ${r2.body}`);
+  await viewsApiChecks(base, anon, danaTok);
   const evanTok = await tokenFor(cfg.email2);
   const r3 = await rpc(evanTok);
   record("api case 5: Evan returns 1 (the gift c3 he bought); Dana's rows stay Dana's", r3.status === 200 && r3.body.trim() === "1" && eq(owners(), { 662: "Dana", 663: "unclaimed", 664: "Evan", 665: "Evan", 666: "unclaimed" }), `status ${r3.status} body ${r3.body}`);
@@ -520,6 +745,402 @@ async function claimVisualScenario(link) {
   }
 }
 
+async function claimWithheldScenario(link, anon) {
+  const crashed = (x) => /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(x);
+  const base = "http://127.0.0.1:" + cfg.kong;
+  // HTTP: the RPC as Dana (bound) must be refused with permission denied (42501), and must claim nothing.
+  for (const [uid, email] of [[state.uid, cfg.email], [state.uid2, cfg.email2]]) {
+    const insErr = q(`insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at) values ('${uid}', '${email}', now() - interval '2 days', now() - interval '1 day', 'otp', 'mobile_app', 'bound', now() - interval '1 day') on conflict (user_id, email) do update set credential_status = 'bound', bound_at = now() - interval '1 day', binding_session_id = null, binding_started_at = null`);
+    if (/^ERR/.test(insErr)) throw new Error("could not bind the QA user: " + insErr);
+  }
+  const url = await link(cfg.email);
+  const hashed = new URL(url.replace("danceflow://", "https://x/")).searchParams.get("token_hash");
+  const v = await (await fetch(base + "/auth/v1/verify", { method: "POST", headers: { apikey: anon, "content-type": "application/json" }, body: JSON.stringify({ type: "magiclink", token_hash: hashed }) })).json();
+  const r = await fetch(base + "/rest/v1/rpc/claim_my_event_registrations", { method: "POST", headers: { apikey: anon, authorization: "Bearer " + v.access_token, "content-type": "application/json" }, body: "{}" });
+  const body = (await r.text()).slice(0, 200);
+  record("withheld: the claim RPC as a bound signed-in user is refused with 42501 (permission denied)", r.status === 403 && /42501/.test(body), "status " + r.status + " " + body);
+  let sn = snapshot();
+  record("withheld: nothing claimed by the refused call (662 and 663 still unclaimed)", ownerName(sn, "662") === "unclaimed" && ownerName(sn, "663") === "unclaimed", "");
+  // Device: the app's silent fail-closed behaviour.
+  for (const c of [{ tag: "1.0-light", night: false, scale: "1.0" }, { tag: "2.0-dark", night: true, scale: "2.0" }]) {
+    sh(["shell", "cmd", "uimode", "night", c.night ? "yes" : "no"]);
+    sh(["shell", "settings", "put", "system", "font_scale", c.scale]);
+    await sleep(3000);
+    if (!(await freshSignIn(link, cfg.email, "wh-dana-" + c.tag))) continue;
+    const d = await readTickets("wh-" + c.tag);
+    record("withheld " + c.tag + ": Dana sees only the ticket she already owns (QA-DANA-0001); the claimable guest ticket is NOT linked", same(d.codes, ["QA-DANA-0001"]), "codes: " + d.codes.join(", "));
+    record("withheld " + c.tag + ": no error or claim wording and no crash on the tickets screen", !/claim|linking your|verif|could not|unavailable|error|denied|42501/i.test(d.xml.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")) && !crashed(d.xml), "");
+    openLink("danceflow://wallet");
+    await sleep(8000);
+    const w = hierarchy();
+    writeFileSync(join(cfg.out, "wh-wallet-" + c.tag + ".xml"), w);
+    shot(join(cfg.out, "wh-wallet-" + c.tag + ".png"));
+    record("withheld " + c.tag + ": Wallet loads, no crash, no error wording", /Wallet/i.test(w) && !crashed(w) && !/claim|linking your|could not|denied|42501/i.test(w.replace(/QA-CLAIM-\d{4}|Q A - C L A I M[^"]*/g, "")), "");
+    sn = snapshot();
+    record("withheld " + c.tag + ": owners unchanged after the app run (662, 663 unclaimed)", ownerName(sn, "662") === "unclaimed" && ownerName(sn, "663") === "unclaimed", "");
+  }
+}
+
+/**
+ * --past-events: the past-events fix against the disposable stack with seeded events (seed-past-events.sql). Everything is read from the live screens.
+ * Time-zone rows double as the on-device Intl check: Pacific/Auckland (UTC+13) and Pacific/Honolulu (UTC-10) rows that end 25 minutes from now / 30-60 minutes
+ * ago. An implementation that ignored the event's zone, or whose Intl does not know the zone, gets at least one of those four wrong.
+ */
+async function pastEventsScenario(link) {
+  const crashed = (x) => /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(x);
+  const NAMES = {
+    endedLastWeek: "QA Ended Last Week", endedTwoDays: "QA Ended Two Days Ago", multiDay: "QA Multi Day Last Day", soonAkl: "QA Ends Soon Auckland",
+    endedAkl: "QA Ended Hour Ago Auckland", soonHnl: "QA Ends Soon Honolulu", endedHnl: "QA Ended Half Hour Honolulu", dstFall: "QA DST Fall Ambiguous Hour",
+    dstSpring: "QA DST Spring Missing Hour", baseline: "QA Social Dance Night",
+  };
+  const ID = { endedLastWeek: "44444444-4444-4444-8444-4444444444a1" };
+  // 2027-03-14 02:30 America/New_York does not exist; the event stays upcoming until the end of that day's 02:30 (07:30Z). After that the expectation flips.
+  const dstSpringUpcoming = Date.now() < Date.UTC(2027, 2, 14, 7, 30);
+
+  // Seed right before the app starts (home and Saved read their saved items at sign-in; the "ends in 25 minutes" rows stay in the future for the ~10 minutes of reads).
+  psql(join(here, "seed-past-events.sql"), ["-v", "uid='" + state.uid + "'"]);
+  const seeded = q("select count(*) from public.events where id::text like '44444444-4444-4444-8444-4444444444a%'");
+  record("past-events: fixtures seeded (9 events)", seeded === "9", "count " + seeded);
+  writeFileSync(join(cfg.out, "pe-seeded-events.txt"), q("select name, timezone, start_date, end_date, start_time, end_time, now() at time zone 'utc' as now_utc from public.events where id::text like '44444444-4444-4444-8444-4444444444a%' order by name"));
+
+  // Sign in (same steps as the screen matrix).
+  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  await sleep(15000);
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    openLink(await link());
+    ok = await waitFor(() => /Today|Discover|Wallet|Settings/.test(hierarchy()), "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
+  }
+  record("past-events: sign-in via magic link", ok, ok ? "" : "see sign-in screen");
+  if (!ok) throw new Error("sign-in did not complete");
+
+  // Reads a screen, scrolling to the end, and returns every dump concatenated in scroll order (names are searched in it).
+  const read = async (tag, url, { scrolls = 8, wait = 9000, before } = {}) => {
+    sh(["shell", "input", "keyevent", "224"]);
+    if (url) openLink(url);
+    await sleep(wait);
+    for (let i = 0; i < 12 && /Loading events|Loading event|Loading/.test(hierarchy()); i++) await sleep(3000);
+    if (before) await before();
+    let all = "", last = "";
+    for (let i = 0; i < scrolls; i++) {
+      const xml = hierarchy();
+      if (i === 0) shot(join(cfg.out, "pe-" + tag + ".png"));
+      all += xml;
+      if (xml === last) break;
+      last = xml;
+      sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+      await sleep(1200);
+    }
+    writeFileSync(join(cfg.out, "pe-" + tag + ".xml"), all);
+    return all;
+  };
+  const has = (xml, name) => xml.includes('"' + name + '"') || xml.includes(name);
+  const order = (xml, names) => names.map((n) => xml.indexOf(n));
+  const checkLists = (tag, xml, shouldHave, shouldNot) => {
+    for (const k of shouldHave) record("past-events " + tag + ": lists " + NAMES[k], has(xml, NAMES[k]), "");
+    for (const k of shouldNot) record("past-events " + tag + ": does NOT list " + NAMES[k], !has(xml, NAMES[k]), "");
+    record("past-events " + tag + ": no crash or ANR dialog", !crashed(xml), "");
+  };
+  const upcomingNames = ["multiDay", "soonAkl", "soonHnl", "baseline", ...(dstSpringUpcoming ? ["dstSpring"] : [])];
+  const endedNames = ["endedLastWeek", "endedTwoDays", "endedAkl", "endedHnl", "dstFall", ...(dstSpringUpcoming ? [] : ["dstSpring"])];
+
+  // 1. Events list (upcoming segment is the default).
+  const list = await read("events-list", "danceflow://discover/events/all", { scrolls: 10 });
+  checkLists("Events list", list, upcomingNames, endedNames);
+  record("past-events Events list: the Upcoming segment is selected by default", /content-desc="Show upcoming events"[^>]*selected="true"/.test(list) || /selected="true"[^>]*content-desc="Show upcoming events"/.test(list), "");
+  // On-device Intl check, named for what it proves.
+  const intlOk = has(list, NAMES.soonAkl) && !has(list, NAMES.endedAkl) && has(list, NAMES.soonHnl) && !has(list, NAMES.endedHnl);
+  record("past-events Hermes/Android Intl time zones: Auckland +25 min listed, Auckland -60 min gone, Honolulu +25 min listed, Honolulu -30 min gone", intlOk,
+    JSON.stringify({ soonAkl: has(list, NAMES.soonAkl), endedAkl: has(list, NAMES.endedAkl), soonHnl: has(list, NAMES.soonHnl), endedHnl: has(list, NAMES.endedHnl) }));
+
+  // 2. Home (saved events) and Saved: the dancer saved one ended and one upcoming event.
+  const home = await read("home", "danceflow://home", { scrolls: 6 });
+  // Home shows only a COUNT of saved items ("N studio(s) and events you follow"). The dancer saved one upcoming and one ended event: if the ended one were
+  // counted it would read "2 studios and events you follow".
+  record("past-events home: the saved count counts the saved upcoming event and NOT the saved ended event (reads '1 studio and events you follow')", /1 studio and events you follow/.test(home) && !/2 studios and events you follow/.test(home), "");
+  const fav = await read("favorites", "danceflow://favorites", { scrolls: 6 });
+  record("past-events Saved: the saved upcoming event shows and the saved ENDED event does not", has(fav, NAMES.baseline) && !has(fav, NAMES.endedLastWeek), "baseline " + has(fav, NAMES.baseline) + ", ended " + has(fav, NAMES.endedLastWeek));
+
+  // 3. Studio page, Events section.
+  const studio = await read("studio-events", "danceflow://studios/11111111-1111-4111-8111-111111111111/events", { scrolls: 10 });
+  checkLists("studio Events", studio, upcomingNames, endedNames);
+
+  // 4. Past segment: ended events only, newest first.
+  const tapPast = async () => {
+    const xml = hierarchy();
+    const m = /content-desc="Show past events"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(xml);
+    if (m) sh(["shell", "input", "tap", String(Math.round((+m[1] + +m[3]) / 2)), String(Math.round((+m[2] + +m[4]) / 2))]);
+    await sleep(8000);
+    for (let i = 0; i < 10 && /Loading events/.test(hierarchy()); i++) await sleep(3000);
+  };
+  // The saved ended event also shows in a "Favorited Events" card that scrolls with the list and would pollute the order measurement: unsave it first (the Saved/home checks are done).
+  q("delete from public.user_favorites where event_id = '44444444-4444-4444-8444-4444444444a1'");
+  const past = await read("events-past", "danceflow://discover/events/all", { scrolls: 10, before: tapPast });
+  checkLists("Past segment", past, endedNames, upcomingNames);
+  // The favourited ended event also shows once in the "Favorited Events" block above the list; only the list after "N matching events" gives the order.
+  const listFrom = past.search(/\d+ matching events?/);
+  const idx = order(listFrom >= 0 ? past.slice(listFrom) : past, [NAMES.endedAkl, NAMES.endedHnl, NAMES.endedTwoDays, NAMES.endedLastWeek, NAMES.dstFall]);
+  const recentFirst = idx.every((i) => i >= 0) && Math.max(idx[0], idx[1]) < idx[2] && idx[2] < idx[3] && idx[3] < idx[4];
+  record("past-events Past segment: newest first (the two hours-old events, then 2 days, then 7 days, then the 2026-11-01 DST event)", recentFirst, "positions " + JSON.stringify(idx));
+
+  // 5. Ended event by direct link: loads, says it ended, no checkout.
+  const detail = await read("ended-detail", "danceflow://events/" + ID.endedLastWeek, { scrolls: 4 });
+  record("past-events ended event by direct link: loads (name shown)", has(detail, NAMES.endedLastWeek), "");
+  record("past-events ended event by direct link: says 'This event has ended'", detail.includes("This event has ended"), "");
+  record("past-events ended event by direct link: no register or sign-in-to-register action and no ticket list", !/Register in app|Sign in to register|Past General Admission/.test(detail), "");
+  const register = await read("ended-register", "danceflow://events/" + ID.endedLastWeek + "/register", { scrolls: 3 });
+  record("past-events ended event register link: shows the ended state, not the checkout form", register.includes("This event has ended") && !/Event Registration/.test(register), "");
+
+  // 6. History: the ticket and the registration for the ended event are still there.
+  const tickets = await read("ended-tickets", "danceflow://wallet/event-tickets", { scrolls: 8, wait: 12000 });
+  record("past-events history: the wallet ticket screen still shows the ended event's ticket QA-PAST-0001", /QA-PAST-0001|Q A - P A S T/.test(tickets) || has(tickets, NAMES.endedLastWeek), "");
+  // The Tickets & registrations screen (schedule/events) has only an "Upcoming events" section by design (it was like that before the past-events fix);
+  // an ended registration is reached through the wallet ticket screen above and the event's own page. Recorded as an observation, not a pass of a new behaviour.
+  const regs = await read("ended-registrations", "danceflow://schedule/events", { scrolls: 6, wait: 12000 });
+  record("past-events history (observation): the Tickets & registrations screen lists upcoming events only (" + (has(regs, NAMES.endedLastWeek) ? "ended event shown" : "ended event not shown, as before the fix") + ")", has(regs, NAMES.baseline), "unchanged behaviour; the baseline upcoming registration is listed");
+  // The order screen for the ended event's paid order (a mock-web fixture; the app reads it through the same API call it uses in production).
+  const endedOrder = await read("ended-order", "danceflow://events/orders/99999999-9999-4999-8999-999999999991", { scrolls: 3, wait: 12000 });
+  record("past-events history: the paid order for an ended event is still reachable and shows its status", endedOrder.includes("Tickets are ready") && /\$25/.test(endedOrder), "");
+  record("past-events history: the ended event's order offers Open Wallet", endedOrder.includes("Open Wallet"), "");
+
+  // 7. Empty state: make every public event ended, then read the lists again.
+  const upd = q("update public.events set start_date = current_date - 30, end_date = current_date - 29, start_time = '19:00', end_time = '22:00', timezone = 'America/New_York' where studio_id = '11111111-1111-4111-8111-111111111111'");
+  record("past-events empty state: every event made ended", !/^ERR/.test(upd), upd);
+  const empty = await read("empty-list", "danceflow://discover/events/all", { scrolls: 3 });
+  record("past-events empty state: zero upcoming reads 'No upcoming events' with a check-back hint, not an error", empty.includes("No upcoming events") && /Check back soon/.test(empty) && !/need attention|Try again/.test(empty), "");
+  const emptyStudio = await read("empty-studio", "danceflow://studios/11111111-1111-4111-8111-111111111111/events", { scrolls: 3 });
+  record("past-events empty state: the studio page says 'No upcoming events'", emptyStudio.includes("No upcoming events") && !crashed(emptyStudio), "");
+}
+
+/**
+ * --session-diag: is a signed-in session still there after the app process dies? Compares the harness's own "am force-stop" with what a user does
+ * (swipe the app away in Recents), the system's background kill ("am kill"), a reboot of the emulator, and a start with NO network (airplane mode).
+ * Each step records whether the process was alive before and gone after, whether Today shows, the relaunch logcat, and (when the emulator is rootable)
+ * the NAMES of the secure-storage keys that hold the session (never values).
+ */
+async function sessionDiagScenario(link) {
+  const pidof = () => sh(["shell", "pidof", cfg.pkg]).stdout.trim();
+  const signedInNow = () => { const x = hierarchy(); return /Today|Wallet|Settings/.test(x) && !/Continue with email|Start exploring/.test(x); };
+  const launch = () => sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  // Root is only available on non-Play emulator images; without it the secure-storage key names are UNVERIFIED, never guessed.
+  const rooted = (() => { sh(["root"]); return /uid=0/.test(sh(["shell", "id"]).stdout); })();
+  const keyNames = () => {
+    if (!rooted) return null;
+    const r = sh(["shell", "cat", "/data/data/" + cfg.pkg + "/shared_prefs/SecureStore.xml"]);
+    return [...String(r.stdout).matchAll(/name="([^"]+)"/g)].map((m) => m[1]).filter((n) => /auth-token/.test(n)).sort();
+  };
+  record("session-diag: emulator rootable (needed to list secure-storage key names)", true, rooted ? "yes" : "NO: key names UNVERIFIED on this image");
+  const settle = async (tag, ms = 30000) => {
+    let ok = await waitFor(signedInNow, "the app to show a signed-in screen", ms, 3000).then(() => true, () => false);
+    if (ok) { await sleep(12000); ok = signedInNow(); } // the app first shows the STORED session, then asks the server about it and may sign out: only a look that holds 12 s later counts
+    shot(join(cfg.out, "sd-" + tag + ".png"));
+    writeFileSync(join(cfg.out, "sd-" + tag + ".xml"), hierarchy());
+    return ok;
+  };
+  const relaunch = async (tag) => {
+    sh(["logcat", "-c"]);
+    launch();
+    const ok = await settle(tag);
+    const l = sh(["logcat", "-d", "-v", "time", "-t", "800"]);
+    writeFileSync(join(cfg.out, "sd-" + tag + "-logcat.txt"), l.stdout + "\n" + l.stderr);
+    return ok;
+  };
+  const wifi = () => reach.oneLine(sh(["shell", "ip", "-4", "addr", "show", "wlan0"]).stdout, 120);
+
+  // 0. sign in
+  launch();
+  await sleep(15000);
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    openLink(await link());
+    ok = await waitFor(signedInNow, "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
+  }
+  record("session-diag 0: signed in with the magic link", ok, ok ? "" : "sign-in failed");
+  if (!ok) throw new Error("sign-in did not complete");
+  await sleep(8000);
+  const keys0 = keyNames();
+  writeFileSync(join(cfg.out, "sd-keys-0.json"), JSON.stringify(keys0));
+  record("session-diag 0: session keys present in secure storage right after sign-in", keys0 === null ? true : keys0.length > 0, keys0 === null ? "UNVERIFIED (not rooted)" : JSON.stringify(keys0));
+
+  const killCase = async (n, label, kill, expectAlive) => {
+    const before = pidof();
+    kill();
+    await sleep(4000);
+    const after = pidof();
+    const dead = after === "" || after !== before;
+    const kept = await relaunch("k" + n);
+    const keys = keyNames();
+    record("session-diag " + n + " (" + label + "): process " + (before ? "was alive" : "was NOT alive") + ", " + (dead ? "was killed" : "SURVIVED the kill") + "; after relaunch the dancer is " + (kept ? "still signed in" : "SIGNED OUT"),
+      kept, "pid before " + before + ", after " + after + "; secure keys now " + (keys === null ? "UNVERIFIED" : JSON.stringify(keys)));
+    if (!kept) { // continue the walk from a signed-in state
+      openLink(await link());
+      await waitFor(signedInNow, "re-sign-in", 60_000, 4000).catch(() => undefined);
+    }
+    return kept;
+  };
+
+  await killCase(1, "harness style: am force-stop", () => sh(["shell", "am", "force-stop", cfg.pkg]));
+  await killCase(2, "user style: swipe the app away in Recents", () => {
+    sh(["shell", "input", "keyevent", "3"]); await_(1500);
+    sh(["shell", "input", "keyevent", "187"]); await_(2500);
+    const x = hierarchy();
+    const m = /<node[^>]*(?:content-desc|text)="[^"]*DanceFlow[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(x);
+    const cx = m ? Math.round((+m[1] + +m[3]) / 2) : 540;
+    const cy = m ? Math.round((+m[2] + +m[4]) / 2) : 1100;
+    writeFileSync(join(cfg.out, "sd-recents.xml"), x);
+    sh(["shell", "input", "swipe", String(cx), String(cy), String(cx), "120", "150"]);
+  });
+  await killCase(3, "system style: Home then am kill (background process kill)", () => {
+    sh(["shell", "input", "keyevent", "3"]); await_(2500);
+    sh(["shell", "am", "kill", cfg.pkg]);
+  });
+
+  // 4. reboot the emulator (userdata persists); the network is not up the moment the app can first be launched.
+  sh(["reboot"]);
+  await sleep(15000);
+  await waitFor(() => sh(["shell", "getprop", "sys.boot_completed"]).stdout.trim() === "1", "the emulator to boot again", 300_000).catch(() => undefined);
+  sh(["root"]);
+  await sleep(4000);
+  sh(["shell", "input", "keyevent", "224"]);
+  const wifiAtLaunch = wifi();
+  const keptReboot = await relaunch("k4");
+  record("session-diag 4 (emulator reboot, app launched as soon as boot completed; wlan0 at launch: " + wifiAtLaunch + "): the dancer is " + (keptReboot ? "still signed in" : "SIGNED OUT"), keptReboot, "keys " + JSON.stringify(keyNames()));
+  if (!keptReboot) { openLink(await link()); await waitFor(signedInNow, "re-sign-in", 60_000, 4000).catch(() => undefined); }
+
+  // 5. start with NO network, then with network again.
+  sh(["shell", "cmd", "connectivity", "airplane-mode", "enable"]);
+  state.airplane = true;
+  await sleep(8000);
+  sh(["shell", "am", "force-stop", cfg.pkg]);
+  await sleep(2000);
+  const keptOffline = await relaunch("k5-offline");
+  record("session-diag 5 (start with no network): the dancer is " + (keptOffline ? "still signed in (offline start keeps the session)" : "SIGNED OUT by an offline start"), keptOffline, "keys " + JSON.stringify(keyNames()));
+  sh(["shell", "cmd", "connectivity", "airplane-mode", "disable"]);
+  state.airplane = false;
+  await sleep(25000);
+  sh(["shell", "am", "force-stop", cfg.pkg]);
+  const keptBack = await relaunch("k5-online-again");
+  record("session-diag 5b (network back, app started again): the dancer is " + (keptBack ? "signed in" : "SIGNED OUT (the offline start destroyed the session)"), keptBack, "keys " + JSON.stringify(keyNames()));
+}
+const await_ = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/**
+ * --past-registrations: Tickets & registrations (danceflow://schedule/events) with the dancer's ended registrations, read through the real dancer views and the
+ * real events embed on the disposable stack (so this is also the real-DB proof that the event's end date/time/zone reach the app WITHOUT any SQL change).
+ */
+async function pastRegistrationsScenario(link) {
+  const crashed = (x) => /isn't responding|has stopped|keeps stopping|Unfortunately/i.test(x);
+  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  await sleep(15000);
+  psql(join(here, "seed-past-registrations.sql"), ["-v", "uid='" + state.uid + "'"]);
+  const regCount = q("select count(*) from public.event_registrations where id::text like '66666666-6666-4666-8666-6666%'");
+  const privateProbe = q("select count(*) from public.events where name = 'QA Private Ended'") === "1";
+  record("past-registrations: fixtures seeded (registrations)", Number(regCount) >= 17, "count " + regCount + ", private probe " + (privateProbe ? "present" : "SKIPPED (visibility value not allowed)"));
+  writeFileSync(join(cfg.out, "pr-seeded.txt"), q("select e.name, e.visibility, e.end_date, r.status, r.payment_status from public.event_registrations r join public.events e on e.id = r.event_id where r.user_id = '" + state.uid + "' order by e.end_date desc"));
+
+  let ok = false;
+  for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+    openLink(await link());
+    ok = await waitFor(() => /Today|Discover|Wallet|Settings/.test(hierarchy()), "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
+  }
+  record("past-registrations: sign-in via magic link", ok, ok ? "" : "see sign-in screen");
+  if (!ok) throw new Error("sign-in did not complete");
+
+  const read = async (tag, url, { scrolls = 10, wait = 9000 } = {}) => {
+    sh(["shell", "input", "keyevent", "224"]);
+    if (url) openLink(url);
+    await sleep(wait);
+    for (let i = 0; i < 12 && /Loading/.test(hierarchy()); i++) await sleep(3000);
+    let all = "", last = "";
+    for (let i = 0; i < scrolls; i++) {
+      const xml = hierarchy();
+      if (i === 0) shot(join(cfg.out, "pr-" + tag + ".png"));
+      all += xml;
+      if (xml === last) break;
+      last = xml;
+      sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+      await sleep(1200);
+    }
+    writeFileSync(join(cfg.out, "pr-" + tag + ".xml"), all);
+    return all;
+  };
+  const tapNode = (xml, pattern) => {
+    const m = new RegExp(pattern + '[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"').exec(xml);
+    if (!m) return false;
+    sh(["shell", "input", "tap", String(Math.round((+m[1] + +m[3]) / 2)), String(Math.round((+m[2] + +m[4]) / 2))]);
+    return true;
+  };
+  const pastNames = (xml) => new Set([...xml.matchAll(/text="(QA (?:Past With Ticket|Past No Ticket|Past Cancelled Refunded|Bulk Past \d\d|Private Ended))"/g)].map((m) => m[1]));
+
+  // 1. The screen: upcoming stays, Past events below, 12 then Show more.
+  const first = await read("schedule-events", "danceflow://schedule/events");
+  record("past-registrations: Upcoming events still lists the upcoming registrations (the seeded baseline and 'QA Upcoming Registered')", first.includes("QA Social Dance Night") && first.includes("QA Upcoming Registered"), "");
+  record("past-registrations: a 'Past events' section exists below Upcoming", first.includes("Past events"), "");
+  record("past-registrations: ended registrations WITH a ticket, WITHOUT a ticket and cancelled+refunded are all in history (newest ended first)", ["QA Past With Ticket", "QA Past No Ticket", "QA Past Cancelled Refunded"].every((n) => first.includes(n)) && first.indexOf("QA Past With Ticket") < first.indexOf("QA Past No Ticket") && first.indexOf("QA Past No Ticket") < first.indexOf("QA Past Cancelled Refunded"), "");
+  record("past-registrations: the cancelled+refunded registration shows its own status wording ('refunded'), the no-ticket one shows 'Registration'", /text="REFUNDED"/.test(first) && /text="Registration"/.test(first), "");
+  const shown = pastNames(first);
+  const moreM = /text="Show more \((\d+) more\)"/.exec(first);
+  const privateResolved = first.includes("QA Private Ended");
+  const privateGeneric = /text="Event"/.test(first) && /Not set/.test(first);
+  const expectedTotal = 16 + (privateResolved ? 1 : 0);
+  record("past-registrations: exactly 12 past items are shown first, then 'Show more (" + (expectedTotal - 12) + " more)'", shown.size === 12 && moreM && Number(moreM[1]) === expectedTotal - 12,
+    "shown " + [...shown].length + " named cards; button " + (moreM ? moreM[0] : "absent"));
+  record("past-registrations: no crash or ANR dialog", !crashed(first), "");
+
+  // Private-event probe (observation, not a pass/fail of the feature): does the events embed return a private event's end date to the registered dancer?
+  record("past-registrations (observation, real DB): the PRIVATE ended event the dancer registered for " + (privateResolved ? "RESOLVES (name shown, in history): the events embed returns private events to their registrant" : privateGeneric ? "is NOT resolved: the card reads 'Event' / 'Not set' in UPCOMING (the events embed returns null for a private event, so no name and no end date; it can never move to Past)" : "was not found (see pr-schedule-events.xml)"), true, "probe " + (privateProbe ? "seeded" : "skipped"));
+
+  // 2. Show more reveals the rest and removes itself.
+  // scroll down to the button, tap it, read again to the end
+  let all2 = "";
+  for (let i = 0; i < 12; i++) {
+    const x = hierarchy();
+    if (/Show more past events/.test(x)) { tapNode(x, 'content-desc="Show more past events'); await sleep(2500); break; }
+    sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+    await sleep(1200);
+  }
+  for (let i = 0; i < 12; i++) {
+    const x = hierarchy();
+    all2 += x;
+    sh(["shell", "input", "swipe", "540", "1900", "540", "700", "450"]);
+    await sleep(1200);
+  }
+  writeFileSync(join(cfg.out, "pr-after-show-more.xml"), all2);
+  const allNames = pastNames(all2 + first);
+  record("past-registrations: after Show more every ended registration is listed and the button is gone", allNames.size >= 16 + 0 && !/text="Show more \(/.test(all2.slice(-20000)), "distinct past names " + allNames.size);
+
+  // 3. Tapping an ended registration opens the event page: ended state, no checkout.
+  sh(["shell", "input", "keyevent", "224"]);
+  openLink("danceflow://schedule/events");
+  await sleep(9000);
+  for (let i = 0; i < 10; i++) { sh(["shell", "input", "swipe", "540", "700", "540", "1900", "300"]); await sleep(400); } // the route keeps its scroll position: back to the top first
+  await sleep(1500);
+  let tapped = false;
+  for (let i = 0; i < 6 && !tapped; i++) {
+    tapped = tapNode(hierarchy(), 'text="QA Past No Ticket"');
+    if (!tapped) { sh(["shell", "input", "swipe", "540", "1900", "540", "900", "450"]); await sleep(1200); }
+  }
+  await sleep(9000);
+  const detail = hierarchy();
+  writeFileSync(join(cfg.out, "pr-ended-detail.xml"), detail);
+  shot(join(cfg.out, "pr-ended-detail.png"));
+  record("past-registrations: tapping an ended registration opens its event with 'This event has ended' and no register action", tapped && detail.includes("This event has ended") && detail.includes("QA Past No Ticket") && !/Register in app|Sign in to register/.test(detail), tapped ? "" : "card not found to tap");
+
+  // 4. Tickets of ended events are untouched (Wallet > Event tickets), and the cancelled registration has no ticket there.
+  const tickets = await read("event-tickets", "danceflow://wallet/event-tickets", { scrolls: 8, wait: 12000 });
+  record("past-registrations: Wallet event tickets still shows the ended event's ticket (QA-PASTREG-0001) and none for the cancelled registration", /QA-PASTREG-0001|Q A - P A S T R E G/.test(tickets) && !/Cancelled Refunded/.test(tickets), "");
+
+  // 5. Font 2.0 and dark: the section, its headings and the Show more button are reachable and nothing is clipped into a crash.
+  sh(["shell", "cmd", "uimode", "night", "yes"]);
+  sh(["shell", "settings", "put", "system", "font_scale", "2.0"]);
+  await sleep(4000);
+  const big = await read("schedule-events-2.0-dark", "danceflow://schedule/events", { scrolls: 14 });
+  record("past-registrations font 2.0 + dark: Upcoming and Past events headings present, Show more reachable, no crash", big.includes("Upcoming events") && big.includes("Past events") && /text="Show more \(/.test(big) && !crashed(big), "");
+  const lowest = [...big.matchAll(/content-desc="Show more past events[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)].map((m) => Number(m[4]) - Number(m[2]));
+  const dpr = Number(state.density ?? 420) / 160;
+  record("past-registrations font 2.0: the Show more button (the control, not its label) is at least 44dp tall", lowest.length > 0 && lowest.every((h) => h >= 44 * dpr), "heights px " + JSON.stringify(lowest.slice(0, 3)) + " = " + lowest.slice(0, 1).map((h) => (h / dpr).toFixed(1) + "dp").join(""));
+}
+
 async function teardown() {
   log("tearing down");
   const quiet = (f) => { try { f(); } catch { /* best effort */ } };
@@ -544,19 +1165,32 @@ try {
     await claimApiCheck(link, service, anon);
     throw Object.assign(new Error("api-check done"), { done: true });
   }
-  startMock();
+  if (cfg.realWeb) await startRealWeb(anon, service, link);
+  else startMock();
   const apk = cfg.apk || (cfg.skipBuild ? "" : build(anon));
   if (!apk) throw new Error("--skip-build needs --apk <path>");
+  checkBakedConfig(apk, anon);
+  hostMemory("before-boot");
   await emulatorUp();
+  await settleSystemUi();
+  hostMemory("after-settle");
   const inst = sh(["install", "-r", apk]);
   if (!/Success/.test(inst.stdout)) throw new Error(`install failed: ${inst.stdout}${inst.stderr}`);
   state.installed = true;
-  if (cfg.claimVisual) await claimVisualScenario(link);
+  await checkReachable();
+  if (cfg.a1) await a1Scenario(link);
+  else if (cfg.pastRegistrations) await pastRegistrationsScenario(link);
+  else if (cfg.pastEvents) await pastEventsScenario(link);
+  else if (cfg.claimWithheld) await claimWithheldScenario(link, anon);
+  else if (cfg.claimVisual) await claimVisualScenario(link);
   else if (cfg.claim) await claimScenario(link);
+  else if (cfg.sessionDiag) await sessionDiagScenario(link);
   else await screens(link);
 } catch (e) {
   if (!e.done) record("run", false, e.message);
 } finally {
+  if (state.anrDismissed) record("System UI ANR dialog (emulator environment, not the app) dismissed with Wait", true, state.anrDismissed + " time(s); see systemui-anr-*-diag.txt; settle: " + JSON.stringify(state.settle ?? null));
+  try { hostMemory("end"); } catch {}
   if (!cfg.noTeardown) await teardown();
   const failed = results.filter((r) => !r.ok);
   writeFileSync(join(cfg.out, "results.json"), JSON.stringify(results, null, 2));

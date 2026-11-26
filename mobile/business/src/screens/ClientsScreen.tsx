@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Announce } from "@/components/Announce";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -55,7 +55,8 @@ function ClientRow({ client, onPress }: { client: ClientSummary; onPress: () => 
 
 function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolean }) {
   const api = useStaffApi();
-  const { reload: reloadWorkspaces, signOut } = useStaffSession();
+  const { reload: reloadWorkspaces, signOut, workspace } = useStaffSession();
+  const canAdd = isStaffFeatureEnabled("clientCreate") && workspace?.capabilities?.editClients === true;
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -82,6 +83,19 @@ function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolea
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Coming back to the list (after adding a client, or opening one) re-reads it, so a client added in the app is there without a new search. The first focus is the mount, which already loaded.
+  const focusedBefore = useRef(false);
+  const latestLoad = useRef(load);
+  useEffect(() => {
+    latestLoad.current = load;
+  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      if (focusedBefore.current) void latestLoad.current();
+      focusedBefore.current = true;
+    }, []),
+  );
 
   async function loadMore() {
     if (state.status !== "ready" || !state.nextCursor || state.loadingMore) return;
@@ -110,6 +124,7 @@ function ClientLookup({ studioId, ownOnly }: { studioId: string; ownOnly: boolea
 
   return (
     <>
+      {canAdd ? <AppButton label="Add a client" variant="secondary" onPress={() => router.push({ pathname: "/clients/new", params: { studioId } })} /> : null}
       <View style={styles.searchField}>
         <AppText variant="label" nativeID="client-search-label">
           Search clients

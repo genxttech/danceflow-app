@@ -277,19 +277,38 @@ describe.skipIf(!enabled)("staff API slice 2 against real RLS", () => {
   });
 
   describe("client search", () => {
-    it("gives front desk the studio's active clients only, ordered, with no contact or money fields", async () => {
+    it("gives front desk the studio's non-archived clients (leads included), ordered, with no contact or money fields", async () => {
       const response = await search(USERS.frontDesk, "?limit=50");
       expect(response.status).toBe(200);
       const body = await response.json();
       const ids = body.clients.map((c: { id: string }) => c.id);
-      expect(ids).toEqual(expect.arrayContaining([ANA, COLIN, DEE, PCT]));
-      expect(ids).not.toContain(LEE); // a lead
+      expect(ids).toEqual(expect.arrayContaining([ANA, COLIN, DEE, PCT, LEE])); // LEE is a lead: the web pickers list leads too
       expect(ids).not.toContain(BEA); // studio B
-      expect(body.clients.every((c: { status: string }) => c.status === "active")).toBe(true);
+      expect(body.clients.find((c: { id: string }) => c.id === LEE).status).toBe("lead");
+      expect(body.clients.find((c: { id: string }) => c.id === ANA).status).toBe("active");
       expect(Object.keys(body.clients[0]).sort()).toEqual(["firstName", "id", "lastName", "status"]);
       expect(JSON.stringify(body)).not.toMatch(/example\.test|555-|referral|price/);
       const names = body.clients.map((c: { lastName: string }) => c.lastName);
       expect(names).toEqual([...names].sort());
+    });
+
+    it("hides archived clients by default, and the status filter narrows to one status (archived included)", async () => {
+      const archived = id();
+      psql(`insert into public.clients (id, studio_id, first_name, last_name, status) values ('${archived}', '${STUDIO_A}', 'Old', 'Archived', 'archived');`);
+      try {
+        const idsOf = async (query: string) => ((await (await search(USERS.frontDesk, query)).json()).clients as { id: string }[]).map((c) => c.id);
+        expect(await idsOf("?limit=50")).not.toContain(archived);
+        expect(await idsOf("?limit=50&status=archived")).toEqual([archived]);
+        expect(await idsOf("?limit=50&status=lead")).toEqual([LEE]);
+        expect(await idsOf("?limit=50&status=active")).toEqual(expect.arrayContaining([ANA, COLIN]));
+        expect(await idsOf("?limit=50&status=active")).not.toContain(LEE);
+        expect(await idsOf("?q=Dunn&status=active")).toEqual([]);
+        expect(await idsOf("?q=Dunn&status=lead")).toEqual([LEE]);
+        await expectCode(await search(USERS.frontDesk, "?status=bogus"), 400, "invalid_request");
+        await expectCode(await search(USERS.frontDesk, "?status="), 400, "invalid_request");
+      } finally {
+        psql(`delete from public.clients where id = '${archived}';`);
+      }
     });
 
     it("matches q case-insensitively and treats wildcard characters literally", async () => {
@@ -332,6 +351,7 @@ describe.skipIf(!enabled)("staff API slice 2 against real RLS", () => {
       await expectCode(await search(USERS.independent), 403, "role_not_permitted");
       await expectCode(await search(USERS.instructorB), 403, "not_a_member");
       await expectCode(await search(USERS.frontDesk, "?limit=0"), 400, "invalid_request");
+      await expectCode(await search(USERS.frontDesk, "?status=nope"), 400, "invalid_request");
       await expectCode(await search(USERS.frontDesk, "?limit=51"), 400, "invalid_request");
       await expectCode(await search(USERS.frontDesk, "?cursor=not-a-cursor"), 400, "invalid_request");
       await expectCode(await search(USERS.frontDesk, `?q=${"x".repeat(81)}`), 400, "invalid_request");

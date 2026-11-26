@@ -1,6 +1,6 @@
 # Google Play internal testing: upload procedure and compliance drafts
 
-Status 2026-11-17 (checked against main c47e3ae17, see section 11; the Business device-IDs row was corrected). Earlier status 2026-11-14. Draft prepared by engineering. **Nothing has been uploaded or submitted.** Facts below were verified in the repo on the date shown; anything not verifiable is marked **OWNER INPUT**. Companion documents: `Android_Release_Audit.md` (build and signing), `Android_Push_Firebase_Setup.md` (FCM).
+Status 2026-11-17 (re-checked against main 20e5bacdb (RC4), see section 11; the Business device-IDs row was corrected). Earlier status 2026-11-14. Draft prepared by engineering. **Nothing has been uploaded or submitted.** Facts below were verified in the repo on the date shown; anything not verifiable is marked **OWNER INPUT**. Companion documents: `Android_Release_Audit.md` (build and signing), `Android_Push_Firebase_Setup.md` (FCM).
 
 ## 1. Apps
 
@@ -133,3 +133,35 @@ Status key: PASSED = run with evidence; UNVERIFIED = not run or inconclusive; BL
 4. Decide when the web account-deletion page and privacy policy URL go live (the Data safety form needs the deletion URL before submission) and confirm the A7 purchasability decision.
 5. Confirm the Data safety OWNER INPUT items (name sharing, location retention, LUMI processor, crash/diagnostics), the content rating answers and the store listing.
 6. Approve the first internal-testing build (unminified), then upload by hand per section 2.
+
+
+### RC4 update (main `20e5bacdb`, 2026-11-18)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Release AABs build from main (both) with a private `TEMP`; QA-signed | PASSED | `rc4/` |
+| Baked `EXPO_PUBLIC_*` decoded from each final AAB (Student, Business, Student R8): placeholders only, no JWT, no secret, no stack URL | PASSED (required pre-upload step; re-run on the real release artifact against the production values) | audit section 10 |
+| targetSdk 36, v1/0.1.0, not debuggable, no cleartext, allowBackup false, blocked permissions absent, 16 KB | PASSED | `rc4/` |
+| Business device smoke | PASSED 22/22 | `qa-rc4/business-smoke` |
+| Student device smoke (unminified) | PASSED 13/13 on the third attempt (one transient sign-in connection failure, one stack-guard refusal; see audit section 10) | `qa-rc4/student-smoke3` |
+| R8 / minified Student | PASSED: build with `:app:minifyReleaseWithR8` (91.2 MB vs 99.1 MB) and smoke 13/13 on a forced-R8 QA APK. The first release can still be the unminified AAB; R8 is a candidate, not yet the default | `qa-rc4/student-smoke-r8`, `rc4/student-rc4-r8.aab` |
+| Signing guard negative test; R-3b live font change; Android 12 and older; EAS cloud build | UNVERIFIED / UNTESTED | - |
+
+The RC3 rows above that call R8 "FAILED in dark mode" are superseded: that smoke was unminified (audit section 9 correction). The owner queue above is unchanged.
+### RC5 update (main `8535bedc2`, 2026-11-18)
+
+Build, manifest, targetSdk 36, 16 KB and baked-config decode: PASSED for both AABs (SHA-256 in `Android_Release_Audit.md` section 11). Device smokes (Student matrix, Student `--events` with the dancer views, Business): BLOCKED by an emulator System UI ANR, so the wallet-reads-the-views check is UNVERIFIED on RC5; RC4 smokes passed (section 10). Owner queue unchanged.
+
+### MILESTONE 2026-11-20: Student version code 1 is live on the internal track
+
+Owner-confirmed 2026-11-20: **DanceFlow (Student) 0.1.0, version code 1 is ACTIVE and AVAILABLE TO INTERNAL TESTERS** on the existing internal testing track. Not production, not open testing. The Console's *upload key certificate* SHA-256 matched the pin in `docs/mobile/tools/upload-cert.json` exactly (`12:E5:24:0E:...:A1:EE:AF`).
+
+| | |
+|---|---|
+| Artifact | `C:\dfr-out\release\student-f5f31103.aab` (99,116,172 B), outside the repo; keep it |
+| SHA-256 | `f67a39a52d15f503b79f62a408746da4f8592e6566320a3830a2bee31b8fbda7` |
+| Built from | main `f5f31103f2ed` via `Build-ReleaseAab.ps1` (worktree `C:\dfr\rel-student`); read-only artifact checks all PASS (`Android_First_Internal_Release_Prep.md` section 8) |
+| Version | versionName 0.1.0, **versionCode 1**; the next upload needs **versionCode 2** |
+| Tester steps | `Student_Internal_Tester_Smoke.md` (message to forward, 8-step smoke, what we watch server-side, housekeeping) |
+
+Still UNVERIFIED: device behavior of this exact production-valued AAB (only the QA build of the same inputs was smoke-tested), push delivery (DEV Firebase project), and the Play pre-launch report. Business was not uploaded on 2026-11-20 when this was written; superseded: a read-only Console check on 2026-11-22 showed Business **version code 1 (0.1.0) Available to internal testers**, released Nov 20 4:47 PM (`Business_Release_Package_Internal_Testing.md`, 2026-11-23 status).

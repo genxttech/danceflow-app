@@ -11,22 +11,27 @@ const DEFAULTS = {
   memory: 2048,
   dryRun: false,
   a11y: false,
+  writes: false,
   allowBusy: false,
   keepEmulator: false,
   apk: null,
   keysFrom: null,
   buildDir: null,
+  expectCommit: null,
 };
 
 /** `--apk <file>` skips the Gradle build; otherwise `--build-dir <short-path worktree>` builds it (see DEVICE_QA.md). */
 function parseArgs(argv) {
   const opts = { ...DEFAULTS };
-  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--memory": "memory", "--apk": "apk", "--keys-from": "keysFrom", "--build-dir": "buildDir" };
+  const takes = { "--out": "out", "--stack-name": "stackName", "--web-port": "webPort", "--avd": "avd", "--memory": "memory", "--apk": "apk", "--keys-from": "keysFrom", "--build-dir": "buildDir", "--expect-commit": "expectCommit" };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--allow-busy") opts.allowBusy = true;
     else if (arg === "--a11y") opts.a11y = true;
+    else if (arg === "--writes") opts.writes = true;
+    else if (arg === "--a1") opts.a1 = true; // A1 assistant device checks (mobile/shared/qa-a1); Part A with no --aria
+    else if (arg === "--aria") opts.aria = true; // bakes the ariaAssistant word into this QA build only (Part B)
     else if (arg === "--keep-emulator") opts.keepEmulator = true;
     else if (takes[arg]) {
       const value = argv[++i];
@@ -47,6 +52,7 @@ function buildPlan(opts) {
   steps.push(`emulator: boot ${opts.avd} if none is running, wait for the system UI to be quiet, record font scale and night mode, check the emulator reaches the stack and web app on 10.0.2.2`);
   steps.push("flows: owner light 1.0, dark 1.0, dark 2.0, light 2.0, live font change, empty day, 403 and recovery, 401 and re-sign-in, instructor");
   if (opts.a11y) steps.push("a11y: also save the accessibility tree (.xml) of every check, plus sign-in, class roster, client and More; then run node scripts/a11y-audit.js <out>");
+  if (opts.writes) steps.push("WRITES mode: the build carries the four Phase 1A write words and the web app runs with STAFF_API_WRITE_POLICY enabling them; flows replace the default matrix: quick-add client and duplicate_client, add note and notes list, private-lesson attended and no-show, roster add and remove, writes_disabled (policy off), upgrade_required (minimum above the build), then a 2.0 font + dark pass; emits business-writes-isoqa-smoke.txt (the evidence the release build gate reads)");
   steps.push("summary: out/summary.json, screenshots, exit code 0 only if every check passed");
   steps.push("teardown (always): restore font scale and night mode, uninstall the app, stop web, remove the stack, stop the emulator only if this run started it");
   return steps;
@@ -260,4 +266,62 @@ function dropLogNoise(text, keep = 3000) {
 }
 
 
-module.exports = { dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };
+/** The four Phase 1A write words, the same keys as the server gate (src/lib/staff/writeGuard.ts) and the app flags (src/lib/features.ts). */
+const WRITE_WORDS = ["appointmentAttendance", "clientNotes", "clientCreate", "classRoster"];
+
+/**
+ * Seed statements for the --writes flows, run once after the standard seed (disposable stack only). Pure strings so they can be validated against a real database
+ * without the emulator (each `expect` is a count query and the number it must return).
+ *  1. lessons are free/comped, so "attended" needs no payment and a package charge has nothing to take from (the charge_failed scenario);
+ *  2. clients are ACTIVE: the staff client search lists active clients only (Staff_API_Contract), and seeded clients start as leads;
+ *  3. two more open private lessons, clones of the 10:00 one at 14:00 (Colin) and 15:00 (Ana), for the outcome_conflict and charge_failed scenarios.
+ */
+const WRITES_SEED = [
+  { sql: "update public.appointments set billing_type='free_comped' where appointment_type in ('private_lesson','intro_lesson')", expect: null },
+  { sql: "update public.clients set status='active'", expect: null },
+  ...[[4, "Colin"], [5, "Ana"]].map(([hours, client]) => ({
+    // an explicit column list: duration_minutes (and others) are generated columns and cannot be copied (run 2 never had these lessons; found by validating the seed on a real stack)
+    sql: `insert into public.appointments (id, studio_id, instructor_id, appointment_type, client_id, room_id, starts_at, ends_at, title, notes, status, price_amount, billing_type) select gen_random_uuid(), a.studio_id, a.instructor_id, a.appointment_type, (select id from public.clients where first_name='${client}' and studio_id=a.studio_id limit 1), a.room_id, a.starts_at + interval '${hours} hours', a.ends_at + interval '${hours} hours', a.title, a.notes, 'scheduled', a.price_amount, a.billing_type from public.appointments a where a.appointment_type='private_lesson' and a.status='scheduled' and a.starts_at = (select min(starts_at) from public.appointments where appointment_type='private_lesson' and status='scheduled' and studio_id=a.studio_id and instructor_id=a.instructor_id and starts_at::date = a.starts_at::date) and a.studio_id=(select id from public.studios where name='Maple Street Dance' limit 1) limit 1`,
+    expect: null,
+  })),
+];
+/** Counts that must hold after WRITES_SEED (name, query, expected). */
+const WRITES_SEED_CHECKS = [
+  ["four open private lessons in the Maple Street studio (the seed's two plus the two clones)", "select count(*) from public.appointments where appointment_type='private_lesson' and status in ('scheduled','confirmed') and studio_id=(select id from public.studios where name='Maple Street Dance' limit 1)", "4"],
+  ["a 2:00 PM Colin lesson that is open", "select count(*) from public.appointments a join public.clients c on c.id=a.client_id where a.appointment_type='private_lesson' and a.status='scheduled' and c.first_name='Colin' and (a.starts_at at time zone 'America/New_York')::time = time '14:00'", "1"],
+  ["a 3:00 PM Ana lesson that is open", "select count(*) from public.appointments a join public.clients c on c.id=a.client_id where a.appointment_type='private_lesson' and a.status='scheduled' and c.first_name='Ana' and (a.starts_at at time zone 'America/New_York')::time = time '15:00'", "1"],
+  ["no lesson has a package linked (a package charge cannot succeed: charge_failed)", "select count(*) from public.appointments where appointment_type='private_lesson' and client_package_id is not null", "0"],
+  ["every seeded client is active", "select count(*) from public.clients where status <> 'active'", "0"],
+];
+
+/** The exact check names (device-smoke.js --writes) that must all pass for a write word to be called proven. */
+const WRITE_CAPABILITY_CHECKS = {
+  clientCreate: ["writes: quick-add client creates and opens the client", "writes: the same phone again offers the existing client (duplicate_client)"],
+  clientNotes: ["writes: add a note, it is saved and appears in the notes list"],
+  appointmentAttendance: ["writes: private lesson marked attended (final, no undo)", "writes: private lesson marked no-show with no charge", "writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", "writes: a no-show whose charge could not be applied says so and offers Try again"],
+  classRoster: ["writes: add a dancer to the class roster", "writes: remove a dancer from the class roster"],
+};
+
+/**
+ * The evidence file docs/mobile/tools/Test-StaffFeatures.ps1 reads before a build may carry a write word. `results` are the smoke's check results (name, ok); `capabilityChecks` maps each
+ * word to the exact check names that prove it. A word gets its CAPABILITY line only when every one of its checks passed; RESULT is PASS only when the whole run passed.
+ * `commit` is the commit the APP was built from; `web` the commit of the server code the smoke ran against. Never says production: the stack is always iso-qa.
+ */
+function writesEvidence({ date, commit, web, results, capabilityChecks, runOk }) {
+  const byName = new Map(results.map((r) => [r.name, r.ok]));
+  const lines = [
+    "Business Phase 1A write smoke (iso-qa device smoke, disposable stack; never production)",
+    `Date: ${date}`,
+    `kind=iso-qa-device-smoke  stack=iso-qa  commit=${commit}  web=${web}`,
+  ];
+  for (const word of WRITE_WORDS) {
+    const names = capabilityChecks[word] ?? [];
+    if (names.length > 0 && names.every((n) => byName.get(n) === true)) lines.push(`CAPABILITY ${word} PASS`);
+    else lines.push(`CAPABILITY ${word} NOT-PROVEN`);
+  }
+  const allWords = WRITE_WORDS.every((w) => (capabilityChecks[w] ?? []).length > 0 && capabilityChecks[w].every((n) => byName.get(n) === true));
+  lines.push(`RESULT: ${runOk && allWords ? "PASS" : "FAIL"}`);
+  return lines.join(String.fromCharCode(10)) + String.fromCharCode(10);
+}
+
+module.exports = { WRITES_SEED, WRITES_SEED_CHECKS, WRITE_WORDS, WRITE_CAPABILITY_CHECKS, writesEvidence, dropLogNoise, hermesStrings, bakedConfigProblems, hasWifiAddress, reachProbeCommand, probeAnswered, secretFromStackJson, systemUiTrouble, isAnrExit, isLauncherTop, topActivity, isAppForeground, parseArgs, buildPlan, busyReason, parseNodes, findNode, findTappable, hasLabel, centerOf, makeResult, summarize };

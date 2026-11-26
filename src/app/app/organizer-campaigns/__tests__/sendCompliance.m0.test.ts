@@ -6,6 +6,7 @@ import { createFakeDb, seedToken, type FakeDb, type Row } from "@/lib/usage/__te
 const h = vi.hoisted(() => ({
   db: null as unknown as { from: (t: string) => unknown; rpc: (n: string, a: Record<string, unknown>) => Promise<unknown> },
   send: vi.fn(),
+  hideCampaigns: false,
   rpcOverride: null as null | ((name: string, args: Record<string, unknown>) => Promise<unknown> | null),
 }));
 
@@ -19,7 +20,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1", email: "owner@example.test" } }, error: null }) },
-    from: (table: string) => h.db.from(table),
+    // Models the "m0 freeze hides campaigns" policy: while set, the signed-in client's campaign updates match no row.
+    from: (table: string) =>
+      h.hideCampaigns && table.endsWith("marketing_campaigns")
+        ? { update: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) }) }
+        : h.db.from(table),
     rpc: (name: string, args: Record<string, unknown>) => h.rpcOverride?.(name, args) ?? h.db.rpc(name, args),
   }),
 }));
@@ -98,6 +103,7 @@ beforeEach(() => {
   process.env.MARKETING_FROM_EMAIL = "news@example.test";
   process.env.NEXT_PUBLIC_SITE_URL = "https://www.idanceflow.com";
   h.rpcOverride = null;
+  h.hideCampaigns = false;
   h.send.mockReset();
   h.send.mockResolvedValue({ data: { id: "msg-1" }, error: null });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -225,5 +231,19 @@ describe("organizer campaign test send: D3", () => {
       "campaign_error=test_recipient_not_allowed",
     );
     expect(h.send).not.toHaveBeenCalled();
+  });
+});
+
+describe("organizer campaign send: freeze applied during the batch (M-0 F3)", () => {
+  it("restores the campaign status even though the signed-in client can no longer see the campaign", async () => {
+    seed(pending(2));
+    h.rpcOverride = (name) => {
+      if (name !== "marketing_claim_campaign_recipient") return null;
+      h.hideCampaigns = true;
+      return Promise.resolve({ data: { outcome: "frozen" }, error: null });
+    };
+    expect(await run(sendOrganizerCampaignAction, { campaignId: "c1", confirmSend: "yes", confirmSendPhrase: "SEND 2" })).toContain("campaign_error=marketing_paused");
+    expect(h.send).not.toHaveBeenCalled();
+    expect(db.tables.organizer_marketing_campaigns[0].status).toBe("draft");
   });
 });

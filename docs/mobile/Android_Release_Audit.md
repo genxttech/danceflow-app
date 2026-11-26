@@ -223,7 +223,7 @@ Lockfiles did not change since RC2. The `app.json` changes since RC2 are the iOS
 | Manifest, SDK, signer, 16 KB (both) | **PASSED** (table above) | `C:\dfr-out\rc3\` |
 | Student signed-in smoke on the unminified QA variant (df-api35, API 35): magic-link sign-in, settings, payment-requests, wallet, font 1.0 and 2.0, light and dark | **PASSED 13/13** | `C:\dfr-out\qa-rc3\student-smoke2\` |
 | Student R8 build (`-Pandroid.enableMinifyInReleaseBuilds=true -Pandroid.enableShrinkResourcesInReleaseBuilds=true`) | **PASSED to build** in 10 m 7 s; AAB 91,178,013 B (7.9 MB smaller than unminified) | `C:\dfr\rc3-r8-student.log`, `C:\dfr-out\rc3\student-rc3-r8.aab` |
-| Student smoke on the R8 QA variant | **FAILED, not ready**: sign-in and every light-mode step pass; dark-mode steps show a blank screen (run 1: 2 of 13 failed; run 2: 6 of 13, every dark step). The unminified build passed all dark steps in the same session. Cause not diagnosed (an R8 rule, or a night-mode recreation problem that only shows when minified). | `C:\dfr-out\qa-rc3\student-smoke-r8\`, `student-smoke-r8b\` (blank `*.xml` hierarchies) |
+| Student smoke on the "R8 QA variant" | **CORRECTED 2026-11-18: this was NOT an R8 result.** The harness passes its own Gradle arguments and the `ORG_GRADLE_PROJECT_android.*` variables I meant to force R8 with were never set (bash cannot `export` names containing dots), so those APKs were unminified: no `:app:minifyReleaseWithR8` in their `gradle.log`. The dark-mode blank screens (2 of 13, then 6 of 13) were therefore an unminified-build flake of unknown cause. See section 10 for the real forced-R8 run. | `C:\dfr-out\qa-rc3\student-smoke-r8\`, `student-smoke-r8b\` |
 | Business device smoke | **UNVERIFIED (corrected 2026-11-17)**. Run 1 failed in the harness (`next build` needs the full repo `node_modules`). Run 2 ("Can't reach DanceFlow"): the QA APK baked the **placeholder** `https://qa-placeholder.invalid`, not the stack URL, because a Metro cache in the shared `TEMP` replayed the shipping build's inlined values (see baked-config decode below). Run 3 ("no HTTP answer from inside the emulator"): the same stale APK, and the reachability probe itself was defective (`nc` half-close made Kong drop the request; the emulator Wi-Fi address appears ~25 s after boot), fixed on main in #631/#633. This is a harness result, not an app result, and not proof of a network problem. Needs a re-run on current main with a private `TEMP` (Business PR 634 adds a baked-config check). | `C:\dfr-out\qa-rc3\business-smoke\`, `business-smoke2\`, `business-smoke3\` |
 | Student smoke harness on current main | iso-qa refuses scenario `main` on `origin/main` because #620 added `20270219090000_twilio_price_request_sweep.sql`, which `scripts/qa/scenarios.json` does not list. Worked around with the supported `ISO_QA_REF_MAIN=c47e3ae17`; the real fix is a manifest entry (not mine). | `C:\dfr-out\qa-rc3\student-smoke.log` |
 | R-3b: live font-size change on the Student release build | **UNVERIFIED on device** (not re-shot) | - |
@@ -250,3 +250,63 @@ Effect on the RC3 claims above: the build, manifest, 16 KB and Student 13/13 res
 ### Why the real release path cannot inherit a stale cache
 
 The stale-value risk is specific to **local Gradle/Metro builds** that reuse `%TEMP%\metro-cache` (the harness sets `CI=1`, which makes `@expo/cli` skip the Metro cache reset). An EAS cloud build runs on a fresh build VM per job, with no cache carried over from this PC, and takes `EXPO_PUBLIC_*` from the build profile's environment variables (`environment: production` in `eas.json`). So a cloud production build cannot replay a local cache. That is an inference from how EAS builds work, not something verified here (no cloud build was run). A **local** release build for upload must use a private empty `TEMP`/`TMP` per build and delete `app/build/generated/assets/createBundleReleaseJsAndAssets`, and in all cases the final artifact is decoded before upload (Runbook step 1b).
+
+## 10. Release candidate 4 from main `20e5bacdb` (2026-11-17/18)
+
+Built locally from `C:\dfr\r` at main `20e5bacdb` (#646; RC3 plus Student #611-#614, #621, #626, #641-#646 and Business #624/#625/#631/#633/#634/#636), QA-only key, one Gradle build at a time, a separate empty `TEMP` per build (never shared), `CI` unset, nothing uploaded, no production credentials. Outputs in `C:\dfr-out\rc4\`; smoke evidence in `C:\dfr-out\qa-rc4\`.
+
+| | Student | Business | Student R8 |
+|---|---|---|---|
+| AAB | `student-rc4.aab`, 99,116,689 B | `business-rc4.aab`, 64,766,173 B | `student-rc4-r8.aab`, 91,178,169 B |
+| versionCode / versionName / targetSdk | 1 / 0.1.0 / 36 | 1 / 0.1.0 / 36 | (R8 build of the Student app) |
+| Signer | QA key SHA-256 `93:F4:E4:5E:...:F0:99` | same | same |
+| debuggable / cleartext / allowBackup | absent / absent / false | absent / absent / false | not re-inspected |
+| Blocked permissions (CAMERA, RECORD_AUDIO, SYSTEM_ALERT_WINDOW, external storage) | absent | absent | not re-inspected |
+| 16 KB `zipalign -c -P 16 4` / ELF `p_align` | exit 0 / 46 libs, 0 below 16384 | exit 0 / 36 libs, 0 below | not re-checked |
+| `:app:minifyReleaseWithR8` in the Gradle log | no (not requested) | no | **yes** (`C:\dfr\rc4-r8-student.log`, 8 m 7 s) |
+| **Baked `EXPO_PUBLIC_*` (decoded from the final artifact, Hermes bundle)** | `https://qa-placeholder.invalid`, `qa-placeholder-anon`, `https://idanceflow.com`; 0 JWT-shaped strings; no `10.0.2.2`, `56600`/`56601`, `service_role`, `sk_`/`pk_`/`whsec_`, private key | same | same (0 JWT, placeholders only) |
+
+Signing guard (release builds fail without `DANCEFLOW_UPLOAD_*` unless `EAS_BUILD=true`): unchanged in this range; negative test not re-run.
+
+### RC4 device results (df-api35, API 35, disposable iso-qa stacks, one at a time)
+
+| Check | Result | Evidence |
+|---|---|---|
+| Business smoke (`device-smoke.js --build-dir`, with the #634 baked-config check, private `TEMP`) | **PASSED 22/22** (owner and instructor paths, light/dark, font 1.0/2.0, 401 session end) | `qa-rc4\business-smoke` |
+| Student smoke, unminified QA variant | **PASSED 13/13 on the third attempt.** Attempt 1 was refused by the one-stack guard (another session's `colq2` stack was up; not bypassed). Attempt 2 failed at sign-in ("Sign in needs another try / We could not reach DanceFlow"); its QA APK was decoded and bakes the right stack URL `10.0.2.2:56600` and one anon JWT, so it was not stale config. Attempt 3 passed. One transient connection failure at sign-in, cause not proven (the Student harness has no wait for the post-boot Wi-Fi address that #631 added for Business). | `qa-rc4\student-smoke2` (failure, with the APK `student-smoke2-qa.apk`), `student-smoke3` (pass) |
+| Student smoke with R8 forced (`env "ORG_GRADLE_PROJECT_android.enableMinifyInReleaseBuilds=true" ...`) | **PASSED 13/13**, and its Gradle log shows `:app:minifyReleaseWithR8` | `qa-rc4\student-smoke-r8` |
+| Student R8 AAB build | **PASSED** (8 m 7 s, 91.2 MB vs 99.1 MB unminified) | `rc4\student-rc4-r8.aab` |
+| R-3b live font-size change; Android 12 and older; EAS cloud build | **UNVERIFIED / UNTESTED** (unchanged) | - |
+
+Correction to RC3: the RC3 R8 *build* ran R8 (its Gradle log has the task) but its AAB was contaminated by a shared-`TEMP` Metro cache (section 9); the RC3 "R8 smoke" was unminified and its failures are not R8 evidence. RC4 supersedes both: R8 builds and passes the Student smoke.
+## 11. Release candidate 5 from main `8535bedc2` (2026-11-18)
+
+Built from `C:\dfr\r` at main `8535bedc2` (Student wallet reads the dancer views, #649; the commit title still says "DRAFT, DO NOT MERGE before the SQL views are applied on PROD", which the coordinator reports as now satisfied: Gate 1 applied on PROD). QA-only key, one Gradle build at a time, a private empty `TEMP` per build, `CI` unset, nothing uploaded, no production credentials. Outputs in `C:\dfr-out\rc5\`, smoke evidence in `C:\dfr-out\qa-rc5\`. Main has moved on since (#665 at the time of this PR); no mobile build input changed between `20e5bacdb` and `8535bedc2` (lockfiles, `app.json`, `android/`, plugins, `package.json` identical).
+
+| | Student | Business |
+|---|---|---|
+| AAB | `student-rc5.aab`, 99,116,880 B, SHA-256 `1d1ad9550a5bde681499044f9cdea91867028b9bb866262eaac40780246283b5` | `business-rc5.aab`, 64,766,173 B, SHA-256 `db03e882a80de2cc73e9d6110f3e133adf08a2b138e7dd0a710240a3016f0a5d` |
+| versionCode / versionName / targetSdk | 1 / 0.1.0 / 36 | 1 / 0.1.0 / 36 |
+| Signer | QA key SHA-256 `93:F4:E4:5E:...:F0:99` (not the debug key) | same |
+| debuggable / cleartext / allowBackup | absent / absent / false | absent / absent / false |
+| Blocked permissions (CAMERA, RECORD_AUDIO, SYSTEM_ALERT_WINDOW, external storage) | absent | absent |
+| 16 KB `zipalign -c -P 16 4` / ELF `p_align` | exit 0 / 46 libs, 0 below 16384 | exit 0 / 36 libs, 0 below |
+| **Baked `EXPO_PUBLIC_*` decoded from the final AAB** | `https://qa-placeholder.invalid`, placeholder anon key, `https://idanceflow.com`; 0 JWT-shaped strings; no `10.0.2.2`, `56600`/`56601`, `service_role`, `sk_`/`pk_`/`whsec_`, private key | same | 
+
+Build, manifest, SDK, 16 KB and baked-config checks: **PASSED** for both. Signing guard: unchanged; negative test not re-run.
+
+### RC5 device smokes: BLOCKED (emulator System UI ANR), not an app result
+
+The three smokes were run once each on harness-booted emulators (Student 13/13 matrix, Student `--events` with the dancer views from main refs, Business). All three were derailed by the same emulator fault, not by the app:
+
+| Smoke | Result | Evidence |
+|---|---|---|
+| Student 13/13 matrix | **BLOCKED**: preflights PASS (APK carries this run's stack and mock-web URLs, emulator Wi-Fi address, emulator reaches the stack API and the mock web API), then sign-in did not complete because the screen shows Android's "System UI isn't responding" dialog (`sign-in-failed.xml`), 4 of 6 steps passed | `qa-rc5\student-smoke` |
+| Student `--events` (wallet reading the views) | **BLOCKED**: same System UI ANR dialog at sign-in, 4 of 6 steps passed. The events and views assertions were never reached. | `qa-rc5\student-events` |
+| Business smoke | **BLOCKED**: preflights PASS (APK stack/web URL and anon key, Wi-Fi, stack API, web app); the run failed with "no Email field" while the harness logged "system UI still unstable". | `qa-rc5\business-smoke` |
+
+A re-run on an emulator I booted myself and pre-warmed (Google Messages disabled, as in RC2) was refused by the harnesses ("An emulator is already running", needs `--force` / `--allow-busy`). Adding those flags was not allowed in this session, so it was not run; the emulator was shut down and Google Messages re-enabled. The Student wallet-reads-the-views check on a stack with the views applied is therefore **UNVERIFIED for RC5**. Whoever owns the device slot should re-run the three smokes (Student matrix, `--events`, Business) on RC5 or on the same commit, ideally after a longer emulator settle time or with an approved `--force` on a pre-warmed emulator. For RC4 (`20e5bacdb`, section 10) the same three smokes passed, so there is no evidence of an app regression, only no RC5 device evidence.
+
+Not re-run this round: R8 (RC4's R8 AAB and forced-R8 Student smoke stand for `20e5bacdb`), R-3b live font change, Android 12 and older, EAS cloud build: **UNVERIFIED / UNTESTED**.
+
+Owner queue unchanged (Play upload keystore and Play App Signing; Firebase release project and key rotation; `eas init` for Business and `GOOGLE_SERVICES_JSON`; account-deletion page and privacy URL timing, A7; Data safety inputs, rating and listing; approve the first internal-testing build and upload by hand). Before any upload, decode the baked `EXPO_PUBLIC_*` values from the actual release artifact and compare with the production environment (Runbook step 1b).

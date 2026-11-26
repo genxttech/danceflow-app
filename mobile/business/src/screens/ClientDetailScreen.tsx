@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
+import { Announce } from "@/components/Announce";
+import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { ClientNoteSheet } from "@/components/ClientNoteSheet";
+import { ClientNotesList } from "@/components/ClientNotesList";
 import { Screen } from "@/components/Screen";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
+import { isStaffFeatureEnabled } from "@/lib/features";
 import { appointmentTypeLabel, clientStatusLabel, formatTime, personName } from "@/lib/format";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import type { ClientDetail, ClientPackage, ClientPackageItem } from "@/lib/staffApi";
@@ -62,8 +67,12 @@ function PackageRow({ pkg }: { pkg: ClientPackage }) {
  */
 export function ClientDetailScreen({ clientId, studioId }: { clientId: string; studioId: string }) {
   const api = useStaffApi();
-  const { reload: reloadWorkspaces, signOut } = useStaffSession();
+  const { reload: reloadWorkspaces, signOut, workspace } = useStaffSession();
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const [notesKey, setNotesKey] = useState(0);
+  const canAddNote = isStaffFeatureEnabled("clientNotes") && workspace?.capabilities?.editClients === true;
 
   // Retry: show the loading state, then fetch again.
   const load = useCallback(async () => {
@@ -166,6 +175,43 @@ export function ClientDetailScreen({ clientId, studioId }: { clientId: string; s
           {client.activePackages.map((pkg) => (
             <PackageRow key={pkg.id} pkg={pkg} />
           ))}
+        </View>
+      ) : null}
+
+      {canAddNote ? (
+        <View style={styles.section} testID="client-notes">
+          <AppText variant="label" tone="muted" accessibilityRole="header">
+            Notes
+          </AppText>
+          {noteSaved ? (
+            <>
+              <Announce message="Note saved." />
+              <AppText tone="success" accessibilityLiveRegion="polite" testID="note-saved">
+                Note saved.
+              </AppText>
+            </>
+          ) : null}
+          <AppButton
+            label="Add a note"
+            variant="secondary"
+            onPress={() => {
+              setNoteSaved(false);
+              setNoteOpen(true);
+            }}
+          />
+          <ClientNotesList studioId={studioId} clientId={client.id} timeZone={client.timeZone} reloadKey={notesKey} />
+          <ClientNoteSheet
+            studioId={studioId}
+            clientId={client.id}
+            clientName={name}
+            visible={noteOpen}
+            onClose={() => setNoteOpen(false)}
+            onSaved={() => {
+              setNoteOpen(false);
+              setNoteSaved(true);
+              setNotesKey((k) => k + 1);
+            }}
+          />
         </View>
       ) : null}
 

@@ -19,9 +19,19 @@ export function clientLookupScope(role: string): ClientLookupScope | null {
   return null;
 }
 
+// The CRM statuses a client can have (the web clients list filter). The default search shows every status except archived, like the web
+// enroll-student and new-appointment pickers; `status` narrows it to one status (archived included).
+export const CLIENT_STATUSES = ["lead", "contacted", "consultation_booked", "converted", "lost", "active", "inactive", "archived"] as const;
+export type ClientStatus = (typeof CLIENT_STATUSES)[number];
+export const isClientStatus = (value: string): value is ClientStatus => (CLIENT_STATUSES as readonly string[]).includes(value);
+
 export type ClientListItem = { id: string; firstName: string; lastName: string; status: string | null };
 
 type Cursor = { l: string; f: string; i: string };
+
+// A cursor is data a client sends back: its id must be a UUID and its names bounded, so a hand-made one is a 400, never a failing query (503).
+const MAX_CURSOR_NAME = 200;
+const CURSOR_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function encodeCursor(item: { lastName: string; firstName: string; id: string }) {
   return Buffer.from(JSON.stringify({ l: item.lastName, f: item.firstName, i: item.id } satisfies Cursor)).toString("base64url");
@@ -31,7 +41,14 @@ export function decodeCursor(value: string | null): Cursor | null | "invalid" {
   if (!value) return null;
   try {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<Cursor>;
-    if (typeof parsed.l === "string" && typeof parsed.f === "string" && typeof parsed.i === "string" && parsed.i.length <= 64) {
+    if (
+      typeof parsed.l === "string" &&
+      typeof parsed.f === "string" &&
+      typeof parsed.i === "string" &&
+      parsed.l.length <= MAX_CURSOR_NAME &&
+      parsed.f.length <= MAX_CURSOR_NAME &&
+      CURSOR_UUID.test(parsed.i)
+    ) {
       return { l: parsed.l, f: parsed.f, i: parsed.i };
     }
   } catch {
@@ -82,10 +99,11 @@ export async function searchClients(params: {
   studioId: string;
   scope: ClientLookupScope;
   q: string;
+  status?: ClientStatus | null;
   cursor: Cursor | null;
   limit: number;
 }) {
-  const { supabase, studioId, scope, q, cursor, limit } = params;
+  const { supabase, studioId, scope, q, status = null, cursor, limit } = params;
 
   if (scope === "teaching") {
     const needle = q.toLocaleLowerCase();
@@ -101,8 +119,8 @@ export async function searchClients(params: {
   let query = supabase
     .from("clients")
     .select("id, first_name, last_name, status")
-    .eq("studio_id", studioId)
-    .eq("status", "active");
+    .eq("studio_id", studioId);
+  query = status ? query.eq("status", status) : query.or("status.is.null,status.neq.archived");
 
   if (q) {
     const pattern = quoted(containsPattern(q));

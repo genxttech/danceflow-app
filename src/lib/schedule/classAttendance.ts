@@ -20,6 +20,11 @@ export async function upsertAttendanceRecord(params: {
   checkedInAt?: string | null;
   markedAttendedAt?: string | null;
   notes?: string | null;
+  /**
+   * An UPDATE of an existing record leaves its notes untouched unless `notes` is passed. Off by default: the web actions pass neither and keep their
+   * behaviour (the update writes notes null). The staff API sets it so a mobile status change cannot erase notes written on the web.
+   */
+  preserveNotes?: boolean;
 }) {
   const {
     supabase,
@@ -31,6 +36,7 @@ export async function upsertAttendanceRecord(params: {
     checkedInAt = null,
     markedAttendedAt = null,
     notes = null,
+    preserveNotes = false,
   } = params;
 
   const { data: existingAttendance, error: existingAttendanceError } = await supabase
@@ -51,7 +57,7 @@ export async function upsertAttendanceRecord(params: {
         status,
         checked_in_at: checkedInAt,
         marked_attended_at: markedAttendedAt,
-        notes,
+        ...(preserveNotes && params.notes === undefined ? {} : { notes }),
       })
       .eq("id", existingAttendance.id);
 

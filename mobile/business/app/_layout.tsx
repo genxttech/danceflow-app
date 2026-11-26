@@ -4,13 +4,15 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { AriaAssistantRoot } from "@/assistant/AriaAssistantRoot";
 import { LayoutProbe } from "@/components/LayoutProbe";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useFontScale } from "@/lib/fontScale";
-import { PushProvider, usePushTaps } from "@/lib/push";
-import { nativePush } from "@/lib/pushNative";
+import { PushProvider, usePushTaps, usePushSetup } from "@/lib/push";
+import { nativePush, rebindNativePush, unbindNativePush } from "@/lib/pushNative";
 import { stackAnimation, useReduceMotion } from "@/lib/motion";
 import { StaffApiProvider, StaffSessionProvider } from "@/lib/staff";
+import { currentAppHeader } from "@/lib/appVersion";
 import { createStaffApi } from "@/lib/staffApi";
 import { colors } from "@/theme";
 
@@ -22,6 +24,9 @@ if (!webUrl) {
 
 /** Opens the screen a notification names. Inert until a push adapter with a tap source is provided. */
 function PushTapRouter() {
+  // Reading the status registers the token when notifications are already allowed (it never prompts). Sign-out removes the token, so a new sign-in
+  // must bind it here rather than wait for the notification card on More.
+  usePushSetup();
   usePushTaps((target) => router.push(target as Parameters<typeof router.push>[0]));
   return null;
 }
@@ -29,7 +34,7 @@ function PushTapRouter() {
 function StaffProviders({ children }: { children: React.ReactNode }) {
   const { getAccessToken, refreshAccessToken, signOut, signOutEverywhere, session } = useAuth();
   const api = useMemo(
-    () => createStaffApi({ baseUrl: webUrl!, getAccessToken, refreshAccessToken }),
+    () => createStaffApi({ baseUrl: webUrl!, getAccessToken, refreshAccessToken, appHeader: currentAppHeader() }),
     [getAccessToken, refreshAccessToken],
   );
 
@@ -40,7 +45,7 @@ function StaffProviders({ children }: { children: React.ReactNode }) {
         {/* The real adapter (expo-notifications) is provided here once the dependency lands; null means no push UI. */}
         <PushProvider value={nativePush}>
           <PushTapRouter />
-          {children}
+          <AriaAssistantRoot>{children}</AriaAssistantRoot>
         </PushProvider>
       </StaffSessionProvider>
     </StaffApiProvider>
@@ -96,7 +101,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
-      <AuthProvider>
+      <AuthProvider beforeSignOut={unbindNativePush} onSignOutRefused={rebindNativePush}>
         <LayoutProbe name="root">
           <RootNavigator />
         </LayoutProbe>

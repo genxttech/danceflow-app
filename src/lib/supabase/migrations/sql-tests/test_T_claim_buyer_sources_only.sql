@@ -181,16 +181,17 @@ select pg_temp.chk('re-claim after deletion + re-signup (same verified email): a
 -- The claim makes the existing self-read policy work, without any new read surface
 -- ---------------------------------------------------------------------------------------------------------------
 do $$
-declare v_regs integer; v_foreign integer;
+declare v_regs integer; v_foreign integer; v_src text := case when to_regclass('public.my_event_registrations') is not null then 'public.my_event_registrations' else 'public.event_registrations' end;
 begin
+  -- the dancer reads through the column-restricted view once 20270222092000 exists (the direct self policy is removed by 20270222093000)
   set local role authenticated;
   perform pg_temp.as_user('00000000-0000-0000-0000-00c1a0001001', '00000000-0000-0000-0000-00c1a000a01b');
-  select count(*) into v_regs from public.event_registrations where lower(btrim(attendee_email)) = 'cl-a@example.test';
-  select count(*) into v_foreign from public.event_registrations where user_id is distinct from '00000000-0000-0000-0000-00c1a0001001';
+  execute format('select count(*) from %s where lower(btrim(attendee_email)) = %L', v_src, 'cl-a@example.test') into v_regs;
+  execute format('select count(*) from %s where user_id is distinct from %L', v_src, '00000000-0000-0000-0000-00c1a0001001') into v_foreign;
   reset role;
   perform set_config('test.read', v_regs || '/' || v_foreign, true);
 end $$;
-select pg_temp.chk('after claiming, the user reads their own registrations (existing self policy) and no one else''s',
+select pg_temp.chk('after claiming, the user reads their own registrations (own-row read path) and no one else''s',
   split_part(current_setting('test.read'), '/', 1)::int = 4 and split_part(current_setting('test.read'), '/', 2)::int = 0, current_setting('test.read'));
 
 -- ---------------------------------------------------------------------------------------------------------------

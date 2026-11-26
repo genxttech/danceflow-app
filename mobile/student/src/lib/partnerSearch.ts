@@ -1,3 +1,4 @@
+import { File } from "expo-file-system";
 import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { supabase } from "@/lib/supabase";
 import { UserFacingError } from "@/lib/userFacingError";
@@ -227,13 +228,15 @@ export async function uploadPartnerProfilePhoto({
   uri: string;
   userId: string;
 }) {
-  const response = await fetch(uri);
-  const blob = await response.blob();
+  // Send the file's bytes, not a Blob: React Native cannot put a Blob into the multipart body the storage client builds for one (Android reports
+  // "Unrecognized FormData part", the request goes out without the file and the app sees a network failure; iOS looks like it would send an
+  // empty part). storage-js documents the same.
+  const bytes = await new File(uri).bytes();
   const filePath = `${userId}/profile-${Date.now()}.${photoExtension(contentType)}`;
 
   const { error } = await supabase.storage
     .from("partner-profile-photos")
-    .upload(filePath, blob, {
+    .upload(filePath, bytes, {
       cacheControl: "3600",
       contentType: contentType || "image/jpeg",
       upsert: true

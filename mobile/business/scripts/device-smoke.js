@@ -51,7 +51,7 @@ const JAVA_HOME = process.env.JAVA_HOME || (WIN ? "C:\\Android\\jdk-17" : "");
 const ADB = path.join(ANDROID_HOME, "platform-tools", WIN ? "adb.exe" : "adb");
 const EMULATOR = path.join(ANDROID_HOME, "emulator", WIN ? "emulator.exe" : "emulator");
 
-const state = { stack: null, seed: null, webProc: null, startedEmulator: false, installed: false, original: { font: "1.0", night: "no" }, results: [] };
+const state = { anrDismissed: 0, stack: null, seed: null, webProc: null, startedEmulator: false, installed: false, original: { font: "1.0", night: "no" }, results: [] };
 const log = (m) => console.log(`[smoke] ${m}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -61,15 +61,48 @@ function run(cmd, args, o = {}) {
 }
 const adb = (...args) => run(ADB, args);
 const sh = (cmd) => adb("shell", cmd).stdout.replace(/\r/g, "").trim();
+/** Like psql but a failed statement stops the run, naming it: a seed statement that silently did nothing must never turn into a misleading on-screen failure later. */
+function psqlOk(sql) {
+  const r = psql(sql);
+  if (r.status !== 0) throw new Error(`seed SQL failed: ${sql.slice(0, 80)}... ${r.stderr.slice(-300)}`);
+  return r.stdout.trim();
+}
 const psql = (sql) => run("docker", ["exec", "-i", `df-isoqa-${opts.stackName}-db`, "psql", "-U", "postgres", "-At", "-q", "-v", "ON_ERROR_STOP=1", "-c", sql]);
 
 // ---------------------------------------------------------------- device helpers
+/** Host free RAM and the biggest process groups into <out>/host-memory-<tag>.txt: a System UI ANR on the emulator is classified against this (environmental vs harness). */
+function hostMemory(tag) {
+  const ps = "$os=Get-CimInstance Win32_OperatingSystem; 'Free {0:N1} GB of {1:N1} GB' -f ($os.FreePhysicalMemory/1MB),($os.TotalVisibleMemorySize/1MB); Get-Process | Group-Object Name | % { [pscustomobject]@{Name=$_.Name;N=$_.Count;MB=[int](($_.Group|Measure-Object WorkingSet64 -Sum).Sum/1MB)} } | Sort MB -Desc | Select -First 8 | Format-Table -Auto | Out-String";
+  try {
+    const r = WIN ? run("powershell", ["-NoProfile", "-Command", ps]) : run("sh", ["-c", "free -m; ps aux --sort=-rss | head -9"]);
+    const text = r.stdout.trim();
+    fs.writeFileSync(path.join(OUT, "host-memory-" + tag + ".txt"), text);
+    log("host memory (" + tag + "): " + text.split(String.fromCharCode(10))[0]);
+  } catch {
+    /* a record, never a failure */
+  }
+}
+/** What the system knows when "System UI isn't responding" shows: saved BEFORE the dialog is tapped, so it can be classified afterwards. Never hides the ANR. */
+function captureAnrDiag() {
+  state.anrDismissed++;
+  const parts = [
+    ["date", ["shell", "date"]],
+    ["loadavg", ["shell", "cat", "/proc/loadavg"]],
+    ["meminfo", ["shell", "head", "-n", "6", "/proc/meminfo"]],
+    ["top", ["shell", "top", "-n", "1", "-b", "-m", "12"]],
+    ["exit-info systemui", ["shell", "dumpsys", "activity", "exit-info", "com.android.systemui"]],
+    ["anr in logcat", ["shell", "logcat", "-d", "-b", "all", "-t", "400", "-v", "time", "ActivityManager:W", "*:S"]],
+  ];
+  const text = parts.map(([name, a]) => { const r = adb(...a); return "=== " + name + " ===" + String.fromCharCode(10) + r.stdout + (r.stderr ? String.fromCharCode(10) + r.stderr : ""); }).join(String.fromCharCode(10));
+  fs.writeFileSync(path.join(OUT, "systemui-anr-" + state.anrDismissed + "-diag.txt"), text);
+}
 function dump() {
   let nodes = lib.parseNodes(adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
   // A cold swiftshader emulator raises "System UI isn't responding" style dialogs that cover the app: tap Wait and look again.
   for (let i = 0; i < 3 && lib.hasLabel(nodes, /isn't responding|isn.t responding/i); i++) {
     const wait = lib.findNode(nodes, /^Wait$/);
     if (!wait) break;
+    captureAnrDiag();
     tapNode(wait);
     nodes = lib.parseNodes(adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout);
   }
@@ -219,7 +252,7 @@ async function check(name, fn) {
   }
   try {
     shot(slug(name));
-    if (opts.a11y) saveTree(slug(name));
+    if (opts.a11y || (opts.writes && !ok)) saveTree(slug(name)); // a failed write check keeps the screen tree, so a selector miss can be diagnosed from the evidence
   } catch {
     /* a screenshot failure never hides the result */
   }
@@ -273,6 +306,7 @@ async function signIn(email) {
     while (Date.now() < end) {
       const nodes = dump();
       if (lib.hasLabel(nodes, /^Today$/)) return;
+      if (lib.hasLabel(nodes, "Temporarily unavailable")) throw new Error("signed in, but the first screen shows 'Temporarily unavailable' (a staff API call failed; see web-server.log and diag.json)");
       if (lib.hasLabel(nodes, "did not match")) {
         log(`sign-in refused on attempt ${attempt}; retyping`);
         break;
@@ -292,6 +326,27 @@ function preflight() {
   if (reason && !opts.allowBusy) throw new Error(`the machine is in use: ${reason}. Wait for the other session, or pass --allow-busy if it is yours.`);
   if (!fs.existsSync(ADB)) throw new Error(`adb not found at ${ADB}: set ANDROID_HOME (docs/mobile/Local_Android_QA.md)`);
   if (run("docker", ["info", "--format", "{{.ServerVersion}}"]).status !== 0) throw new Error("docker is not running");
+}
+
+/** The build tree, the web server tree and (when given) --expect-commit must all be the same commit and clean, or the evidence file would name a build that was not tested. A stale build already cost a run. */
+function commitPreflight() {
+  if (!opts.buildDir) return;
+  const build = headOf(path.resolve(opts.buildDir));
+  const web = headOf(REPO);
+  log(`commits: build tree ${build}  web tree ${web}  expected ${opts.expectCommit ?? "(not given)"}`);
+  // A1 compares a PINNED pre-A1 app build against the same current web server: both SHAs are recorded in the evidence, and staff API behavior is unchanged by A1.
+  if (opts.a1) {
+    if (build === "unknown") throw new Error("the build tree commit is unknown");
+    fs.writeFileSync(path.join(OUT, "a1-trees.txt"), `build tree ${build}
+web tree ${web}
+`);
+  } else if (build === "unknown" || build !== web) throw new Error(`the build tree (${build}) and the web server tree (${web}) are not the same commit`);
+  if (opts.expectCommit && !build.startsWith(opts.expectCommit)) throw new Error(`the trees are at ${build}, not the expected ${opts.expectCommit}`);
+  for (const [name, dir] of [["build", path.resolve(opts.buildDir)], ["web", REPO]]) {
+    const dirty = run("git", ["-C", dir, "status", "--porcelain", "--untracked-files=no", "--", "src", "mobile/business/src", "mobile/business/app"]).stdout.trim();
+    if (dirty) throw new Error(`the ${name} tree has uncommitted app changes:
+${dirty}`);
+  }
 }
 
 async function bringUpStack() {
@@ -316,12 +371,43 @@ async function bringUpStack() {
   }
 }
 
+/** In WRITES mode the server policy enables the four Phase 1A write capabilities (src/lib/staff/writeGuard.ts); everywhere else the variable stays unset (writes disabled, fail closed). */
+function webEnv(policy) {
+  return { ...process.env, NEXT_PUBLIC_SUPABASE_URL: state.stack.TW4A_LOCAL_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY: state.stack.ISO_QA_SERVICE_ROLE_KEY, NODE_OPTIONS: "--max-old-space-size=8192", ...(policy ? { STAFF_API_WRITE_POLICY: policy } : {}) };
+}
+
+async function waitWebUp() {
+  for (let i = 0; i < 60; i++) {
+    try {
+      const r = await fetch(`http://localhost:${opts.webPort}/api/staff/me`);
+      if (r.status === 401) return;
+    } catch {
+      /* not up yet */
+    }
+    await sleep(2000);
+  }
+  throw new Error("the web app did not come up");
+}
+
+/** Restart `next start` (the build is kept) with another write policy: the kill switch and the minimum-version gate are driven by this variable. */
+async function restartWeb(policy) {
+  if (state.webProc) (WIN ? run("taskkill", ["/PID", String(state.webProc.pid), "/T", "/F"]) : state.webProc.kill());
+  await sleep(3000);
+  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env: webEnv(policy), stdio: "ignore", shell: WIN });
+  await waitWebUp();
+  log(`web restarted with policy ${policy}`);
+}
+
 async function startWeb() {
-  const env = { ...process.env, NEXT_PUBLIC_SUPABASE_URL: state.stack.TW4A_LOCAL_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY: state.stack.ISO_QA_SERVICE_ROLE_KEY, NODE_OPTIONS: "--max-old-space-size=8192" };
+  const env = webEnv(opts.writes ? WRITE_POLICY() : null);
   log("next build (production; several minutes)");
+  // A web server left behind by an earlier (killed) run keeps the port, the new `next start` dies with EADDRINUSE, and the old server (pointing at a stack that is gone) answers 401 to the readiness probe: the app then signs in and every staff call returns 503.
+  const stale = await fetch(`http://localhost:${opts.webPort}/api/staff/me`, { signal: AbortSignal.timeout(5000) }).then(() => true, (error) => error?.name === "TimeoutError");
+  if (stale) throw new Error(`port ${opts.webPort} is already served by another process (a stale next start from an earlier run?): stop it before running`);
   const build = run("npx", ["next", "build"], { cwd: REPO, env });
   if (build.status !== 0) throw new Error(`next build failed (exit ${build.status}): ${(build.stderr || build.stdout).slice(-400)}`);
-  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env, stdio: "ignore", shell: WIN });
+  const webLog = fs.openSync(path.join(OUT, "web-server.log"), "a");
+  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env, stdio: ["ignore", webLog, webLog], shell: WIN });
   for (let i = 0; i < 60; i++) {
     try {
       const r = await fetch(`http://localhost:${opts.webPort}/api/staff/me`);
@@ -368,7 +454,8 @@ function buildApk() {
     EXPO_PUBLIC_SUPABASE_URL: `http://10.0.2.2:${port}`,
     EXPO_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY,
     EXPO_PUBLIC_DANCEFLOW_WEB_URL: `http://10.0.2.2:${opts.webPort}`,
-    EXPO_PUBLIC_STAFF_FEATURES: "pulse,studioSchedule",
+    // WRITES mode builds with the four Phase 1A write words too; they are OFF in every shipping build unless Build-ReleaseAab.ps1 passes its evidence gate.
+    EXPO_PUBLIC_STAFF_FEATURES: (opts.writes ? ["pulse", "studioSchedule", ...lib.WRITE_WORDS] : opts.aria ? ["pulse", "studioSchedule", "ariaAssistant"] : ["pulse", "studioSchedule"]).join(","),
     DANCEFLOW_UPLOAD_STORE_FILE: process.env.DANCEFLOW_UPLOAD_STORE_FILE || "C:/dfr-qa/qa-only-DO-NOT-UPLOAD.keystore",
     DANCEFLOW_UPLOAD_STORE_PASSWORD: process.env.DANCEFLOW_UPLOAD_STORE_PASSWORD || "qa-only-throwaway",
     DANCEFLOW_UPLOAD_KEY_ALIAS: process.env.DANCEFLOW_UPLOAD_KEY_ALIAS || "qa-only",
@@ -445,6 +532,8 @@ async function flows(apk) {
   if (adb("install", "-r", apk).status !== 0) throw new Error("adb install failed");
   state.installed = true;
   const owner = "owen.owner@example.test";
+  if (opts.writes) return writeFlows(owner);
+  if (opts.a1) return a1Flows(owner);
   const ownerScreens = async (tag) => {
     await check(`${tag}: Today has the My day / Studio switch and a Pulse tab`, async () => {
       await tapLabel(/^Today$/);
@@ -468,8 +557,8 @@ async function flows(apk) {
   setFont("1.0");
   setNight(false);
   if (opts.a11y) {
-    fs.writeFileSync(path.join(OUT, "density.txt"), (/(d+)s*$/.exec(sh("wm density")) ?? [, "420"])[1]);
-    fs.writeFileSync(path.join(OUT, "height.txt"), (/x(d+)/.exec(sh("wm size")) ?? [, "0"])[1]);
+    fs.writeFileSync(path.join(OUT, "density.txt"), (/(\d+)\s*$/.exec(sh("wm density")) ?? [, "420"])[1]);
+    fs.writeFileSync(path.join(OUT, "height.txt"), (/x(\d+)/.exec(sh("wm size")) ?? [, "0"])[1]);
   }
   launch();
   if (opts.a11y) {
@@ -565,6 +654,296 @@ async function flows(apk) {
   }
 }
 
+// ---------------------------------------------------------------- WRITES mode (Phase 1A): add note + list, quick-add client + duplicate, private-lesson attended / no-show, roster add / remove,
+// writes_disabled, upgrade_required, 2.0 font + dark. Every check asserts on the screen's text. The evidence file for the release build gate is written from these results.
+
+const WRITE_POLICY = (extra = {}) => JSON.stringify({ enabled: lib.WRITE_WORDS, ...extra });
+
+/** The checks that must all pass for each write word to be called proven (names are the exact check() names below). */
+const CAP_CHECKS = lib.WRITE_CAPABILITY_CHECKS;
+const GATE_CHECKS = ["writes: policy off shows 'This change is turned off'", "writes: build below the minimum shows 'Update DanceFlow Business'", "writes: 2.0 font + dark, notes and check-in screens usable"];
+
+async function a1Flows(owner) {
+  const { run: runA1 } = require("../../shared/qa-a1/a1-device-checks.js");
+  setFont("1.0");
+  setNight(false);
+  // The AVD keeps the app's data between runs (`adb install -r`), so a session from an earlier run's stack can come back signed in against THIS stack. Record what the app
+  // shows first (screens, host-side probes of the stack and the web app, the app's JS log), then clear the app data so every run starts signed out.
+  const diag = { probes: {}, steps: [] };
+  for (const [name, url] of [["web /api/staff/me", `http://localhost:${opts.webPort}/api/staff/me`], ["stack auth health", `${state.stack.TW4A_LOCAL_URL}/auth/v1/health`]]) {
+    try {
+      diag.probes[name] = (await fetch(url)).status;
+    } catch (error) {
+      diag.probes[name] = `unreachable: ${error.message}`;
+    }
+  }
+  try {
+    const tok = await (await fetch(`${state.stack.TW4A_LOCAL_URL}/auth/v1/token?grant_type=password`, { method: "POST", headers: { "content-type": "application/json", apikey: state.stack.ISO_QA_ANON_KEY }, body: JSON.stringify({ email: owner, password: PASSWORD }) })).json();
+    const bearer = { authorization: `Bearer ${tok.access_token}` };
+    const me = await fetch(`http://localhost:${opts.webPort}/api/staff/me`, { headers: bearer });
+    const meText = await me.text();
+    diag.probes["signed-in /api/staff/me"] = `${me.status} ${meText.slice(0, 300)}`;
+    const ws = /"(?:workspaceId|workspace_id|id)":"([0-9a-f-]{36})"/.exec(meText)?.[1];
+    if (ws) {
+      const today = await fetch(`http://localhost:${opts.webPort}/api/staff/workspaces/${ws}/today`, { headers: bearer });
+      diag.probes["signed-in today"] = `${today.status} ${(await today.text()).slice(0, 300)}`;
+    }
+  } catch (error) {
+    diag.probes["signed-in probe"] = `failed: ${error.message}`;
+  }
+  launch();
+  await sleep(12000);
+  shot("diag-0-launch-persisted-data");
+  diag.steps.push({ step: "after launch with the data of earlier runs", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  const tryAgain = lib.findTappable(dump(), /^Try again$/);
+  if (tryAgain) {
+    tapNode(tryAgain);
+    await sleep(8000);
+    shot("diag-1-after-try-again");
+    diag.steps.push({ step: "after tapping Try again", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  }
+  fs.writeFileSync(path.join(OUT, "diag-logcat-js.txt"), adb("logcat", "-d", "-t", "3000", "-s", "ReactNativeJS:*").stdout);
+  adb("shell", "pm", "clear", APP);
+  launch();
+  await sleep(8000);
+  shot("diag-2-after-pm-clear");
+  diag.steps.push({ step: "after pm clear + cold launch", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  fs.writeFileSync(path.join(OUT, "diag.json"), JSON.stringify(diag, null, 2));
+  log(`diag: ${JSON.stringify(diag)}`);
+  await signIn(owner);
+  const tab = (label) => async () => {
+    await home();
+    await tapLabel(label);
+    await sleep(2000);
+  };
+  const raw = () => adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout;
+  await runA1({
+    adb: (a) => adb(...a),
+    hierarchy: raw,
+    shot: (file) => shot(path.basename(file, ".png")),
+    record: (name, ok, detail = "") => {
+      state.results.push(lib.makeResult(name, ok, detail));
+      log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+    },
+    sleep,
+    out: OUT,
+    pkg: APP,
+    assistantName: "ARIA",
+    promptText: "show me pulse", // matches ARIA stub rule words ["pulse"]: reply "Preview answer" + the Open Pulse chip
+    flagsOn: !!opts.aria,
+    density: Number((/(\d+)\s*$/.exec(sh("wm density")) ?? [, "420"])[1]),
+    writeFile: (p, t) => fs.writeFileSync(p, t),
+    screens: [
+      { id: "today", open: tab(/^Today$/), launcher: true },
+      { id: "pulse", open: tab(/^Pulse$/), launcher: true },
+      { id: "clients", open: tab(/^Clients$/), launcher: true },
+      { id: "more", open: tab(/^More$/), launcher: true },
+    ],
+    secondUser: async () => {
+      adb("shell", "am", "force-stop", APP);
+      adb("shell", "pm", "clear", APP);
+      launch();
+      try {
+        await signIn("ida.instructor@example.test");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+}
+
+async function openStudioDay() {
+  await tapLabel(/^Today$/);
+  await tapLabel(/^Studio$/);
+  await expectLabel("Studio today", { timeout: 30000 });
+}
+
+/** Back out of whatever is open (keyboard, sheet, detail screens) until the tab bar is showing, so each flow starts from a known place and one failed check cannot cascade into the next. */
+async function home() {
+  hideKeyboard();
+  for (let i = 0; i < 6; i++) {
+    if (lib.findTappable(dump(), /^Today$/)) return;
+    adb("shell", "input", "keyevent", "4");
+    await sleep(1500);
+  }
+  throw new Error("could not get back to the tab bar");
+}
+
+async function writeFlows(owner) {
+  setFont("1.0");
+  setNight(false);
+  launch();
+  await signIn(owner);
+
+  // seed for the flows: free/comped lessons so "attended" needs no payment, a free-comped path for enrolment
+  for (const step of lib.WRITES_SEED) psqlOk(step.sql);
+  for (const [name, query, want] of lib.WRITES_SEED_CHECKS) {
+    const got = psqlOk(query);
+    if (got !== want) throw new Error(`seed check failed: ${name} (got ${got}, wanted ${want})`);
+  }
+
+  await check("writes: quick-add client creates and opens the client", async () => {
+    await tapLabel(/^Clients$/);
+    await tapLabel("Add a client", { timeout: 30000 });
+    await expectLabel("First name", { cls: "EditText", timeout: 30000 });
+    await typeInto("First name", "Zed");
+    await typeInto("Last name", "Newperson");
+    await typeInto("Phone", "5550109999");
+    hideKeyboard();
+    await tapLabel("Add client");
+    await expectLabel("Zed Newperson", { timeout: 60000 });
+  });
+
+  await check("writes: add a note, it is saved and appears in the notes list", async () => {
+    await expectLabel("Notes", { scroll: true, timeout: 30000 });
+    await tapLabel("Add a note", { scroll: true });
+    await typeInto("Note", "Smokenoteone");
+    hideKeyboard();
+    await tapLabel("Save note");
+    await expectLabel("Note saved.", { scroll: true, timeout: 60000 });
+    await expectLabel(/Smokenoteone/, { scroll: true, timeout: 60000 });
+  });
+
+  await check("writes: the same phone again offers the existing client (duplicate_client)", async () => {
+    await home();
+    await tapLabel(/^Clients$/);
+    await tapLabel("Add a client", { timeout: 30000 });
+    await typeInto("First name", "Dup");
+    await typeInto("Last name", "Test");
+    await typeInto("Phone", "5550109999");
+    hideKeyboard();
+    await tapLabel("Add client");
+    await expectLabel("This client may already exist", { timeout: 60000 });
+    await tapLabel("Open that client");
+    await expectLabel("Zed Newperson", { timeout: 60000 });
+  });
+
+  await check("writes: private lesson marked attended (final, no undo)", async () => {
+    await home();
+    await openStudioDay();
+    await tapLabel(/Ana Rivera/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await tapLabel("Mark attended", { scroll: true });
+    await tapLabel("Yes, mark attended", { timeout: 30000 });
+    await expectLabel(/Marked attended/, { timeout: 60000, scroll: true });
+    if (lib.hasLabel(dump(), "No-show")) throw new Error("a recorded outcome must not offer No-show again");
+  });
+
+  await check("writes: private lesson marked no-show with no charge", async () => {
+    await home();
+    await tapLabel(/Sam Okafor/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await tapLabel("No-show", { scroll: true });
+    await expectLabel("No charge", { timeout: 30000 });
+    await tapLabel("Yes, mark no-show");
+    await expectLabel(/Marked no-show/, { timeout: 60000, scroll: true });
+  });
+
+  await check("writes: a stale screen marking an already-recorded lesson shows Already recorded (outcome_conflict)", async () => {
+    await home();
+    await tapLabel(/2:00\sPM.*Colin Marsh.*Private lesson/, { timeout: 30000, scroll: true }); // not the cancelled 1:00 PM intro lesson
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    // someone else records it while this screen is open
+    psql("update public.appointments set status='attended' where appointment_type='private_lesson' and client_id=(select id from public.clients where first_name='Colin' and last_name='Marsh' limit 1)");
+    await tapLabel("No-show", { scroll: true });
+    await tapLabel("Yes, mark no-show", { timeout: 30000 });
+    await expectLabel("Already recorded", { timeout: 60000, scroll: true });
+    await expectLabel(/Status: Attended/, { timeout: 30000, scroll: true });
+  });
+
+  await check("writes: a no-show whose charge could not be applied says so and offers Try again", async () => {
+    await home();
+    await tapLabel(/3:00\sPM.*Ana Rivera.*Private lesson/, { timeout: 30000, scroll: true }); // below the fold in a six-row day
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await tapLabel("No-show", { scroll: true });
+    await tapLabel(/^Use a package credit/, { timeout: 30000 });
+    await tapLabel("Yes, mark no-show");
+    await expectLabel("No-show saved, charge not applied", { timeout: 60000, scroll: true });
+    await expectLabel("Try again", { scroll: true });
+  });
+
+  // Zed was quick-added in the app, so he is a lead: the staff search lists leads (PR 741) and the roster takes him. Nothing here makes him active.
+
+  await check("writes: add a dancer to the class roster", async () => {
+    await home();
+    await tapLabel(/Beginner Salsa/, { timeout: 30000, scroll: true }); // the 7:00 PM row is below the fold
+    await expectLabel("Add a dancer", { timeout: 30000, scroll: true });
+    await tapLabel("Add a dancer", { scroll: true });
+    await typeInto("Find a client", "Zed");
+    await expectLabel(/^Zed Newperson, Lead/, { timeout: 30000 }); // the picker labels a lead
+    await tapLabel(/^Zed Newperson, Lead/, { timeout: 30000 });
+    await tapLabel(/^Free \(comped\)/);
+    await tapLabel("Add to class");
+    await expectLabel("Dancer added.", { timeout: 60000, scroll: true });
+  });
+
+  await check("writes: remove a dancer from the class roster", async () => {
+    await tapLabel(/^Remove Colin/, { timeout: 30000, scroll: true });
+    await tapLabel("Yes, remove", { timeout: 30000 });
+    await expectLabel("Dancer removed.", { timeout: 60000, scroll: true });
+  });
+
+  // the kill switch: same build, server policy off -> a write is refused in words
+  await restartWeb(WRITE_POLICY({ enabled: [] }));
+  await check("writes: policy off shows 'This change is turned off'", async () => {
+    await home();
+    await tapLabel(/^Clients$/);
+    // regression check for #746: the quick-added lead is in the Clients list after coming back to the tab, with no search typed
+    await expectLabel(/^Zed Newperson, Lead/, { timeout: 30000, scroll: true });
+    await tapLabel(/^Zed Newperson/, { timeout: 30000, scroll: true });
+    await tapLabel("Add a note", { scroll: true });
+    await typeInto("Note", "Shouldberefused");
+    hideKeyboard();
+    await tapLabel("Save note");
+    await expectLabel("This change is turned off", { timeout: 60000, scroll: true });
+  });
+
+  await restartWeb(WRITE_POLICY({ minimumCode: { android: 9999 } }));
+  await check("writes: build below the minimum shows 'Update DanceFlow Business'", async () => {
+    await tapLabel("Dismiss", { scroll: true });
+    await tapLabel("Save note", { scroll: true });
+    await expectLabel("Update DanceFlow Business", { timeout: 60000, scroll: true });
+  });
+
+  // back to a working policy, then the large-text dark pass on the screens this build added
+  await restartWeb(WRITE_POLICY());
+  setFont("2.0");
+  setNight(true);
+  launch();
+  await check("writes: 2.0 font + dark, notes and check-in screens usable", async () => {
+    await expectLabel(/^Today$/, { timeout: 60000 });
+    await tapLabel(/^Clients$/);
+    await tapLabel("Add a client", { timeout: 30000, scroll: true });
+    await expectLabel("First name", { cls: "EditText", timeout: 30000 });
+    await home();
+    await openStudioDay();
+    await tapLabel(/Ana Rivera/, { timeout: 30000 });
+    await expectLabel("Check in", { timeout: 30000, scroll: true });
+    await expectLabel(/Status: Attended/, { timeout: 30000, scroll: true });
+  });
+}
+
+/** The commit a directory is at, or "unknown". */
+function headOf(dir) {
+  const r = run("git", ["-C", dir, "rev-parse", "HEAD"]);
+  return r.status === 0 ? r.stdout.trim() : "unknown";
+}
+
+/** WRITES mode: the evidence file Build-ReleaseAab.ps1 (Test-StaffFeatures.ps1) reads before a build may carry a write word. */
+function emitWritesEvidence(runOk) {
+  const text = lib.writesEvidence({
+    date: new Date().toISOString(),
+    commit: opts.buildDir ? headOf(path.resolve(opts.buildDir)) : "unknown",
+    web: headOf(REPO),
+    results: state.results.map((r) => ({ name: r.name, ok: r.result === "PASS" })),
+    capabilityChecks: CAP_CHECKS,
+    runOk,
+  });
+  fs.writeFileSync(path.join(OUT, "business-writes-isoqa-smoke.txt"), text);
+  log(`evidence file: ${path.join(OUT, "business-writes-isoqa-smoke.txt")}`);
+}
+
 // ---------------------------------------------------------------- teardown (always)
 async function teardown() {
   log("teardown");
@@ -590,6 +969,7 @@ async function teardown() {
   try {
     log("preflight");
     preflight();
+    commitPreflight();
     if (opts.apk && !opts.keysFrom) throw new Error("an APK holds the anon key of the stack that built it: pass --keys-from <stack.json of that build run> (or build with --build-dir)");
     if (opts.keysFrom) process.env.ISO_QA_JWT_SECRET = lib.secretFromStackJson(fs.readFileSync(opts.keysFrom, "utf8"));
     log("stack");
@@ -597,7 +977,9 @@ async function teardown() {
     await startWeb();
     const apk = buildApk();
     checkBakedConfig(apk);
+    hostMemory("before-boot");
     await bootEmulator();
+    hostMemory("after-settle");
     await checkReachable();
     await flows(apk);
   } catch (error) {
@@ -613,9 +995,12 @@ async function teardown() {
       }
     }
   } finally {
+    if (state.anrDismissed) state.results.push(lib.makeResult("System UI ANR dialog (emulator environment, not the app) dismissed with Wait", true, state.anrDismissed + " time(s); see systemui-anr-*-diag.txt"));
+    hostMemory("end");
     await teardown();
   }
   const summary = lib.summarize(state.results);
+  if (opts.writes) emitWritesEvidence(!fatal && summary.ok);
   fs.writeFileSync(path.join(OUT, "summary.json"), JSON.stringify({ ...summary, results: state.results }, null, 2));
   console.log(`\n${summary.passed}/${summary.total} passed${summary.ok ? "" : `; FAILED: ${summary.failed.join(" | ")}`}`);
   console.log(`evidence: ${OUT}`);

@@ -54,6 +54,26 @@ const COPY: Record<StaffErrorKind, Copy> = {
     body: "This appointment is gone, moved, or is not yours to view.",
     testID: "error-not-found",
   },
+  rate_limited: {
+    title: "Too many requests",
+    body: "DanceFlow is getting a lot of requests from this device. Try again in a moment.",
+    testID: "error-rate-limited",
+  },
+  writes_disabled: {
+    title: "This change is turned off",
+    body: "Making this change is turned off right now. You can still look things up. Try again later.",
+    testID: "error-writes-disabled",
+  },
+  upgrade_required: {
+    title: "Update DanceFlow Business",
+    body: "This change needs a newer version of the app. Update it from Google Play, then try again.",
+    testID: "error-upgrade-required",
+  },
+  conflict: {
+    title: "This changed while you were editing",
+    body: "Someone else changed this. Refresh to see the latest, then try again.",
+    testID: "error-conflict",
+  },
   unavailable: {
     title: "Temporarily unavailable",
     body: "DanceFlow could not load this right now. Check your connection and try again in a moment.",

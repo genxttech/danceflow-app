@@ -1,6 +1,6 @@
 # Marketing M-0 — Email Compliance and Suppression Integrity
 
-Status: implementation candidate (M-0A–M-0C) plus the final-audit remediation (A–D). The revised stage-1 SQL is applied to DEV (landing frozen); stage 2 and the application are not merged or released.
+Status: M-0A–M-0C plus the final-audit remediation (A–D) were MERGED in PR #218 on 2026-10-14 (merge commit `13c4d547f`). Per a read-only PROD query on 2026-11-21, the stage-1 SQL is applied on PROD and `marketing_send_controls.frozen = true` since 2026-10-14, so campaign sending is frozen in production. The state of stage 2, the C1 repair, the PROD preflight and M-0D is not verified by this note and remains owner-gated.
 Scope comes from the owner decisions D1–D4 and implementation safeguards 1–10 (M-0 authorization, 2026-10-13).
 M-0D (provider event ingestion) is planned below and is **not** part of this change.
 
@@ -307,10 +307,10 @@ pass. Items 1 and 3 were partial, with two P2 findings, both fixed in this PR:
   (documentation):** it is described as returning to S0 and equivalent to releasing the freeze, needing the same separate
   authorization, with the application already below M-0 (§6 "Stage-1 rollback").
 
-Tracked P3 findings (not blocking):
-- **F3:** freezing during a running M-0 batch leaves the campaign in `sending`, because the final status update goes through
+Tracked P3 findings (not blocking). Status 2026-11-27: F3 fixed on main (#870) and F4 fixed on main (#871); neither is on the live release line yet. F5-F7 remain tracked (smoke tooling and SQL coverage). P3-5/6/8/9 above concern the pre-M-0 application or client-role writes in S1, which stage 2 (applied on PROD) and the M-0 application have superseded; P3-6 would only recur after an application rollback.
+- **F3 (fixed, #870):** freezing during a running M-0 batch leaves the campaign in `sending`, because the final status update goes through
   the session client. It is recoverable by the existing abandoned-send resume.
-- **F4:** creating a campaign is not freeze-guarded. The studio draft is created but hidden; organizer create shows a
+- **F4 (fixed, #871):** before the fix, creating a campaign is not freeze-guarded. The studio draft is created but hidden; organizer create shows a
   generic error. There is no send risk.
 - **F5:** the smoke script cannot bind a URL to the recorded deployment; the runbook procedure does.
 - **F6:** column-level grants, policy helper bodies, triggers and views are outside the signature (mostly fail-closed).

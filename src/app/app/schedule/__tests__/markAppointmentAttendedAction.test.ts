@@ -63,6 +63,7 @@ function makeChain(resolve: () => FakeResult | Promise<FakeResult>) {
     eq: (...args: unknown[]) => typeof chain;
     in: (...args: unknown[]) => typeof chain;
     limit: (...args: unknown[]) => typeof chain;
+    select: (...args: unknown[]) => typeof chain;
     maybeSingle: () => Promise<FakeResult>;
     single: () => Promise<FakeResult>;
     then: (
@@ -73,6 +74,7 @@ function makeChain(resolve: () => FakeResult | Promise<FakeResult>) {
     eq: () => chain,
     in: () => chain,
     limit: () => chain,
+    select: () => chain,
     async maybeSingle() {
       const result = await resolve();
       if (result.error) return { data: null, error: result.error };
@@ -144,8 +146,19 @@ function createFakeSupabase(options: {
           update: (payload: Record<string, unknown>) => {
             state.appointmentUpdateCalls.push(payload);
             Object.assign(state.appointment, payload);
-            return makeChain(() => ({ error: null }));
+            return makeChain(() => ({ data: [{ id: APPOINTMENT_ID }], error: null }));
           },
+        };
+      }
+
+      if (table === "lesson_transactions") {
+        // The replay guard reads which package the lesson was already charged to.
+        return {
+          select: () =>
+            makeChain(() => ({
+              data: options.rpcAlreadyDeducted ? [{ client_package_id: PACKAGE_ID, transaction_type: "lesson_deduction" }] : [],
+              error: null,
+            })),
         };
       }
 

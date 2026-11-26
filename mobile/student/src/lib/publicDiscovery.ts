@@ -1,4 +1,13 @@
+import {
+  EVENT_LIST_PAST_BUFFER,
+  eventEndDateLowerBound,
+  eventPastEndDateUpperBound,
+  filterNotPastEvents,
+  filterPastEvents,
+  isEventPast,
+} from "@/lib/eventTiming";
 import { supabase } from "@/lib/supabase";
+import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { effectiveTicketPrice } from "./ticketPricing";
 import { UserFacingError } from "@/lib/userFacingError";
 
@@ -158,6 +167,8 @@ export type PublicEventItem = {
   registrationRequired: boolean;
   favorited: boolean;
   webUrl: string;
+  /** True once the event end (end_date + end_time in its own time zone) has passed. History stays reachable; registering does not. */
+  ended: boolean;
 };
 
 export type PublicStudioTag = {
@@ -311,6 +322,7 @@ type EventRow = {
   end_date: string | null;
   start_time: string | null;
   end_time: string | null;
+  timezone?: string | null;
   visibility: string | null;
   status: string | null;
   public_summary: string | null;
@@ -355,12 +367,6 @@ type TicketTypeRow = {
   sort_order?: number | null;
 };
 
-type TicketCapacityRegistrationRow = {
-  ticket_type_id: string | null;
-  quantity: number | null;
-  event_ticket_types?: { attendees_per_ticket: number | null } | { attendees_per_ticket: number | null }[] | null;
-};
-
 /** CI-A: the shared effective-price rule (identical copy of the web rule; early bird strictly before its cutoff). */
 function activeTicketPrice(ticket: TicketTypeRow, nowMs: number) {
   const pricing = effectiveTicketPrice(ticket, nowMs);
@@ -374,63 +380,42 @@ function activeTicketPrice(ticket: TicketTypeRow, nowMs: number) {
   };
 }
 
-function admissionCountFor(row: TicketCapacityRegistrationRow) {
-  const ticketType = firstJoin(row.event_ticket_types);
-  const admitsPerTicket = Math.max(1, Number(ticketType?.attendees_per_ticket ?? 1) || 1);
-  return Math.max(1, Number(row.quantity ?? 1) || 1) * admitsPerTicket;
-}
+type TicketAvailabilityResponse = {
+  eventId?: string;
+  tickets?: Array<{ ticketTypeId?: string; capacity?: number | null; remaining?: number | null; soldOut?: boolean }>;
+};
 
-async function loadTicketAdmissionCounts(ticketTypeIds: string[]) {
-  if (!ticketTypeIds.length) return new Map<string, number>();
+/**
+ * Admission spots left per ticket type, from the web API (counted server-side with the same rule as the capacity trigger:
+ * paid or confirmed, plus live checkout holds). A dancer can only read their own registrations, so counting here would
+ * overstate what is left. Returns null, never a guess, when there is no signed-in session, the event is not available, the
+ * request is rate limited, offline or the answer is malformed: the screen then shows no count and the checkout says
+ * "Only N spots remain" if it is needed.
+ */
+export async function loadTicketAvailability(eventId: string): Promise<Map<string, number | null> | null> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    if (!data?.session) return null;
 
-  const [confirmedResult, heldResult] = await Promise.all([
-    supabase
-      .from("event_registrations")
-      .select("ticket_type_id, quantity, event_ticket_types ( attendees_per_ticket )")
-      .in("ticket_type_id", ticketTypeIds)
-      .or("payment_status.eq.paid,status.in.(confirmed,checked_in,attended)"),
-    supabase
-      .from("event_registrations")
-      .select(
-        `
-        ticket_type_id,
-        quantity,
-        event_ticket_types (
-          attendees_per_ticket
-        ),
-        event_orders!inner (
-          status,
-          payment_status,
-          expires_at
-        )
-      `
-      )
-      .in("ticket_type_id", ticketTypeIds)
-      .eq("status", "pending")
-      .eq("payment_status", "pending")
-      .eq("event_orders.status", "pending")
-      .eq("event_orders.payment_status", "pending")
-      .gt("event_orders.expires_at", new Date().toISOString())
-  ]);
+    const response = await danceflowApiFetch<TicketAvailabilityResponse>(`/api/student/events/${encodeURIComponent(eventId)}/availability`);
+    if (!response || !Array.isArray(response.tickets)) return null;
 
-  if (confirmedResult.error) throw confirmedResult.error;
-  if (heldResult.error) throw heldResult.error;
-
-  const counts = new Map<string, number>();
-  for (const row of [
-    ...((confirmedResult.data ?? []) as TicketCapacityRegistrationRow[]),
-    ...((heldResult.data ?? []) as TicketCapacityRegistrationRow[])
-  ]) {
-    if (!row.ticket_type_id) continue;
-    counts.set(row.ticket_type_id, (counts.get(row.ticket_type_id) ?? 0) + admissionCountFor(row));
+    const remaining = new Map<string, number | null>();
+    for (const ticket of response.tickets) {
+      if (!ticket || typeof ticket.ticketTypeId !== "string") return null;
+      if (ticket.soldOut === true) remaining.set(ticket.ticketTypeId, 0);
+      else if (typeof ticket.remaining === "number" && Number.isFinite(ticket.remaining)) remaining.set(ticket.ticketTypeId, Math.max(0, Math.floor(ticket.remaining)));
+      else remaining.set(ticket.ticketTypeId, null); // unlimited
+    }
+    return remaining;
+  } catch {
+    return null;
   }
-
-  return counts;
 }
 
-function remainingAdmissionSpotsFor(ticket: TicketTypeRow, reservedAdmissionCount: number) {
-  if (ticket.capacity == null) return null;
-  return Math.max(0, Number(ticket.capacity) - reservedAdmissionCount);
+function remainingAdmissionSpotsFor(availability: Map<string, number | null> | null, ticketTypeId: string) {
+  if (!availability) return null;
+  return availability.get(ticketTypeId) ?? null;
 }
 
 type EventDocumentRequirementRow = {
@@ -686,7 +671,37 @@ export async function getPublicStudiosForMobile(userId?: string | null) {
   );
 }
 
-export async function getPublicEventsForMobile(userId?: string | null) {
+/** The most events one list shows (the same cap as before; past rows no longer count toward it in the upcoming list). */
+const EVENT_LIST_LIMIT = 100;
+
+export type PublicEventScope = "upcoming" | "past" | "all";
+
+export type PublicEventsOptions = {
+  /** "upcoming" (default): events that have not ended. "past": ended events, newest first. "all": no timing filter (used with eventId). */
+  scope?: PublicEventScope;
+  /** Load only this event (any timing). The detail screens use it so an ended event still opens. */
+  eventId?: string;
+  /** The clock, for tests. */
+  now?: Date;
+};
+
+export async function getPublicEventsForMobile(userId?: string | null, options: PublicEventsOptions = {}) {
+  const scope: PublicEventScope = options.eventId ? "all" : (options.scope ?? "upcoming");
+  const now = options.now ?? new Date();
+  let eventsQuery = supabase
+    .from("events")
+    .select(
+      "id, slug, studio_id, organizer_id, name, event_type, public_cover_image_url, cover_image_url, start_date, end_date, start_time, end_time, timezone, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude, venue_name, city, state"
+    )
+    .eq("visibility", "public")
+    .eq("public_directory_enabled", true)
+    .in("status", ["published", "open"]);
+  if (options.eventId) eventsQuery = eventsQuery.eq("id", options.eventId);
+  // Database prefilter first (so ended history does not fill the page), then the exact rule in JS below. Same shape as the web lists.
+  if (scope === "upcoming") eventsQuery = eventsQuery.gte("end_date", eventEndDateLowerBound(now)).order("start_date", { ascending: true }).limit(EVENT_LIST_LIMIT + EVENT_LIST_PAST_BUFFER);
+  else if (scope === "past") eventsQuery = eventsQuery.lte("end_date", eventPastEndDateUpperBound(now)).order("start_date", { ascending: false }).limit(EVENT_LIST_LIMIT + EVENT_LIST_PAST_BUFFER);
+  else eventsQuery = eventsQuery.order("start_date", { ascending: true }).limit(EVENT_LIST_LIMIT);
+
   const [
     { data: events, error: eventsError },
     { data: studios, error: studiosError },
@@ -694,16 +709,7 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     { data: locations, error: locationsError },
     { data: styles, error: stylesError }
   ] = await Promise.all([
-    supabase
-      .from("events")
-      .select(
-        "id, slug, studio_id, organizer_id, name, event_type, public_cover_image_url, cover_image_url, start_date, end_date, start_time, end_time, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude, venue_name, city, state"
-      )
-      .eq("visibility", "public")
-      .eq("public_directory_enabled", true)
-      .in("status", ["published", "open"])
-      .order("start_date", { ascending: true })
-      .limit(100),
+    eventsQuery,
     supabase
       .from("studios")
       .select(
@@ -750,12 +756,27 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     stylesByEventId.set(style.event_id, current);
   }
 
-  const rows = ((events ?? []) as EventRow[]).filter((event) => {
+  // A timing failure (an unusable time zone, say) must never hide an event: treat it as not ended.
+  const timingSafe = (fn: (list: EventRow[]) => EventRow[], list: EventRow[]) => {
+    try {
+      return fn(list);
+    } catch {
+      return list;
+    }
+  };
+  const timed = (list: EventRow[]) =>
+    scope === "upcoming"
+      ? timingSafe((l) => filterNotPastEvents(l, now), list)
+      : scope === "past"
+        ? timingSafe((l) => filterPastEvents(l, now), list)
+        : list;
+
+  const rows = timed((events ?? []) as EventRow[]).filter((event) => {
     if (!event.slug || !event.public_directory_enabled) return false;
     if (!event.studio_id || !studioById.has(event.studio_id)) return false;
     if (event.organizer_id && !organizerById.has(event.organizer_id)) return false;
     return true;
-  });
+  }).slice(0, EVENT_LIST_LIMIT);
 
   const favoriteIds = new Set<string>();
 
@@ -802,7 +823,14 @@ export async function getPublicEventsForMobile(userId?: string | null) {
       beginnerFriendly: event.beginner_friendly === true,
       registrationRequired: event.registration_required === true,
       favorited: favoriteIds.has(event.id),
-      webUrl: `${danceFlowWebUrl()}/events/${event.slug}`
+      webUrl: `${danceFlowWebUrl()}/events/${event.slug}`,
+      ended: (() => {
+        try {
+          return isEventPast(event, now);
+        } catch {
+          return false;
+        }
+      })()
     };
   });
 }
@@ -897,7 +925,7 @@ export async function getPublicEventDetailForMobile(
   userId?: string | null
 ): Promise<PublicEventDetail | null> {
   const [events, eventResult, ticketsResult, documentsResult] = await Promise.all([
-    getPublicEventsForMobile(userId),
+    getPublicEventsForMobile(userId, { eventId }),
     supabase
       .from("events")
       .select(
@@ -958,7 +986,7 @@ export async function getPublicEventDetailForMobile(
   if (!event || !eventRow) return null;
 
   const ticketRows = (ticketsResult.data ?? []) as TicketTypeRow[];
-  const admissionCounts = await loadTicketAdmissionCounts(ticketRows.map((ticket) => ticket.id));
+  const availability = await loadTicketAvailability(eventId);
 
   const pricingNowMs = Date.now();
   const ticketTypes = ticketRows.map((ticket) => {
@@ -977,7 +1005,7 @@ export async function getPublicEventDetailForMobile(
       regularPrice: activePrice.regularPrice,
       currency: ticket.currency ?? "USD",
       capacity: ticket.capacity,
-      remainingAdmissionSpots: remainingAdmissionSpotsFor(ticket, admissionCounts.get(ticket.id) ?? 0),
+      remainingAdmissionSpots: remainingAdmissionSpotsFor(availability, ticket.id),
       active: ticket.active === true && priceable,
       saleStartsAt: ticket.sale_starts_at,
       saleEndsAt: ticket.sale_ends_at,

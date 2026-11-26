@@ -4,7 +4,12 @@ import { StaffApiError, type ClientPage } from "@/lib/staffApi";
 import { ClientsScreen, SEARCH_DEBOUNCE_MS } from "@/screens/ClientsScreen";
 import { deferred, fakeApi, STUDIO_ID, StaffTestProviders, workspace } from "@/test-utils/staff";
 
-jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+jest.mock("expo-router", () => ({ router: { push: jest.fn() }, useFocusEffect: (effect: () => void | (() => void)) => {
+    mockFocus.current = effect;
+    jest.requireActual<typeof import("react")>("react").useEffect(effect, [effect]);
+  },
+}));
+const mockFocus: { current: (() => void | (() => void)) | null } = { current: null };
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");
   return { SafeAreaView: View };
@@ -97,6 +102,20 @@ describe("ClientsScreen", () => {
     expect(screen.getByTestId("clients-list")).toBeTruthy();
     expect(screen.getByLabelText("Ana Rivera, Active")).toBeTruthy();
     expect(screen.getByText("Lead")).toBeTruthy();
+  });
+
+  it("re-reads the list when the screen is focused again, not on the first focus and not once per keystroke", async () => {
+    const api = renderClients(fakeApi({ searchClients: jest.fn(async () => PAGE_1) }));
+    await settle();
+    expect(api.searchClients).toHaveBeenCalledTimes(1); // mount: one read
+    await act(async () => {
+      mockFocus.current?.(); // back from adding a client
+    });
+    expect(api.searchClients).toHaveBeenCalledTimes(2);
+    expect(api.searchClients).toHaveBeenLastCalledWith(STUDIO_ID, { q: "", limit: 25 });
+    fireEvent.changeText(screen.getByLabelText("Search clients"), "ana");
+    await settle();
+    expect(api.searchClients).toHaveBeenCalledTimes(3); // one read for the new search, no extra focus read
   });
 
   it("debounces typing into one search", async () => {

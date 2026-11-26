@@ -2,7 +2,7 @@ import type React from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as Linking from "expo-linking";
 import type { Session } from "@supabase/supabase-js";
-import { clearPersistedSupabaseSessions, supabase } from "@/lib/supabase";
+import { clearPersistedSupabaseSessions, supabase, hasPendingSignInRequest } from "@/lib/supabase";
 import { parseAuthLink, resolveEmailOtpType } from "@/lib/authLink";
 
 /*
@@ -53,7 +53,30 @@ async function clearLocalSession() {
   await clearPersistedSupabaseSessions().catch(() => undefined);
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+/** How long sign-out waits for the clean-up that needs the session (push unbind) before going on without it. */
+export const BEFORE_SIGN_OUT_TIMEOUT_MS = 5_000;
+
+/** Runs the clean-up while the session is still valid. Sign-out never fails or hangs because of it (offline, push not set up). */
+async function runBeforeSignOut(work?: () => Promise<void>) {
+  if (!work) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, BEFORE_SIGN_OUT_TIMEOUT_MS);
+  });
+  await Promise.race([Promise.resolve().then(work), timeout]).catch(() => undefined);
+  clearTimeout(timer);
+}
+
+export function AuthProvider({
+  children,
+  beforeSignOut,
+  onSignOutRefused,
+}: {
+  children: React.ReactNode;
+  beforeSignOut?: () => Promise<void>;
+  /** Undoes the clean-up when "sign out of all devices" is refused and this device stays signed in. */
+  onSignOutRefused?: () => Promise<void>;
+}) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [linkStatus, setLinkStatus] = useState<LinkStatus>("idle");
@@ -62,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { code, tokenHash, type } = parseAuthLink(url);
 
     if (tokenHash) {
+      if (!(await hasPendingSignInRequest())) throw new Error("This sign-in link was not requested from this device.");
       const otpType = resolveEmailOtpType(type);
       if (!otpType) throw new Error("This sign-in link type is not supported.");
       const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
@@ -164,18 +188,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    await runBeforeSignOut(beforeSignOut);
     setSession(null);
     await clearLocalSession();
-  }, []);
+  }, [beforeSignOut]);
 
   const signOutEverywhere = useCallback(async () => {
+    await runBeforeSignOut(beforeSignOut);
     // supabase-js keeps the local session when the global revoke fails, so a failure leaves this device signed in and says so.
     const { error } = await supabase.auth.signOut({ scope: "global" });
-    if (error) return false;
+    if (error) {
+      void onSignOutRefused?.().catch(() => undefined);
+      return false;
+    }
     setSession(null);
     await clearPersistedSupabaseSessions().catch(() => undefined);
     return true;
-  }, []);
+  }, [beforeSignOut, onSignOutRefused]);
 
   const getAccessToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();

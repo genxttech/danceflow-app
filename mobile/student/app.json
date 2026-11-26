@@ -38,7 +38,7 @@
         "foregroundImage": "./assets/danceflow-adaptive-foreground-symbol.png",
         "monochromeImage": "./assets/danceflow-adaptive-monochrome-symbol.png"
       },
-      "versionCode": 1
+      "versionCode": 3
     },
     "plugins": [
       "expo-router",

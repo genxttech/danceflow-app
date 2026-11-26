@@ -1,0 +1,249 @@
+name: Competition Stripe TEST acceptance
+
+# Engineering-operated, owner-approved acceptance run of Competition registration payments, refunds, scratch, failure handling and settlement
+# against the Stripe SANDBOX (TEST mode) on a GitHub-hosted runner. Design, scope and owner steps: docs/qa/cf1-stripe-test/STRIPE_TEST_ACCEPTANCE_PACKAGE.md.
+#
+# STATUS: INERT. Every pin below is a placeholder and the database step is BLOCKED (no base-schema source exists for a runner, see the package, section 2a).
+# The guards fail closed on placeholders, so a dispatch before the pins are real stops before any secret is used.
+#
+# WHY THIS FILE IS ON main: a dispatchable workflow must live on the default branch. The code under test is NOT main: it is the commit pinned in
+# the `pin` dispatch input, validated by the validate-pin job BEFORE the environment approval (docs/ops/CF1_Stripe_Workflow_Pin_Validation.md); it is an ancestor of release/website-embeds (the live line). The approval click authorizes exactly that commit.
+#
+# MERGE ORDER (same rule as D24): the environment `competition-stripe-test` (owner = only required reviewer, "Allow administrators to bypass" OFF,
+# deployment branches = main only, secret CF1_STRIPE_TEST_SECRET_KEY entered LAST) must be correct BEFORE this file is merged. A reference to a missing
+# environment makes GitHub create it UNPROTECTED on first use.
+#
+# Trigger: workflow_dispatch ONLY. Never pull_request / pull_request_target / push / schedule. /.github/ is code-owned (.github/CODEOWNERS).
+run-name: Competition Stripe TEST acceptance @ ${{ github.sha }} pin ${{ inputs.pin }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pin:
+        description: "Code under test: full 40-hex commit id (the merge commit of a code-owner-approved PR into release/website-embeds). Validated before any secret or approval."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: competition-stripe-test-acceptance
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: /usr/bin/bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  validate-pin:
+    name: Validate the commit under test (no secret, no environment)
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'genxttech/danceflow-app' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      BASH_ENV: ""
+      ENV: ""
+      CF1_RELEASE_BRANCH: "release/website-embeds"
+    outputs:
+      sha: ${{ steps.validate.outputs.sha }}
+    steps:
+      # Trusted code: this workflow file and the validator come from main at the dispatched commit, never from the pin or a PR.
+      - name: Fetch main at the dispatched commit (validator and CODEOWNERS)
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          git init -q "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch -q --no-tags --depth=1 origin "$SHA"
+          git checkout -q --detach FETCH_HEAD
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "FAIL: HEAD is not the dispatched commit"; exit 1; }
+
+      - name: Set up Node (fixed version)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.14.1"
+
+      - name: Validate the pin (API provenance, release-branch ancestry; fail closed)
+        id: validate
+        env:
+          PIN: ${{ inputs.pin }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          [ -x "$NODE" ] || { echo "FAIL: pinned node not found in the tool cache"; exit 1; }
+          /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP" LANG=C.UTF-8 PIN="$PIN" GH_TOKEN="$GH_TOKEN" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" CF1_RELEASE_BRANCH="$CF1_RELEASE_BRANCH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" "$NODE" scripts/qa/cf1-stripe-workflow/validatePin.mjs
+
+  acceptance:
+    name: Competition Stripe TEST acceptance (owner-approved)
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'genxttech/danceflow-app' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    needs: validate-pin
+    environment: competition-stripe-test
+    permissions:
+      contents: read
+    env:
+      BASH_ENV: ""
+      ENV: ""
+      # The code under test: output of the validate-pin job (validated against the GitHub API BEFORE this job, so before the environment approval).
+      CF1_PINNED_COMMIT: ${{ needs.validate-pin.outputs.sha }}
+      CF1_RELEASE_BRANCH: "release/website-embeds"
+      # Sandbox ids (TEST, not credentials).
+      CF1_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
+      E2E_STRIPE_TEST_CONNECTED_ACCOUNT: "acct_1UZibNRCFiaIzL1V"
+      # Database source for the local Supabase stack. BLOCKED until the owner decides (package section 2a): sha256 of the (encrypted) base-schema snapshot.
+      CF1_DB_SNAPSHOT_SHA256: "PLACEHOLDER_DB_SOURCE_NOT_DECIDED"
+      # Evidence tooling comes from THIS commit on main (not from the code under test); same files and pin as the D24 workflow.
+      D24_PIN_TOOLING_SHA256: "90695a745e1bffd07e9e0bf879f7d1b1b599256f10545719245ba4e8a543aaeb"
+      D24_EVIDENCE_PUBLIC_KEY: scripts/qa/d24-gh-proof/evidence-public-key.pem
+      CF1_RELAY_MAX_POLLS: "1500"
+      TSX: node_modules/tsx/dist/cli.mjs
+    steps:
+      - name: Commit under approval
+        env:
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          {
+            echo "## Competition Stripe TEST acceptance - what was approved"
+            echo
+            echo "- workflow: \`$WORKFLOW_REF\` at main \`$SHA\`"
+            echo "- code under test (pinned): \`$CF1_PINNED_COMMIT\` (must be on \`$CF1_RELEASE_BRANCH\`)"
+            echo "- sandbox platform \`$CF1_EXPECT_PLATFORM_ACCT\`, connected \`$E2E_STRIPE_TEST_CONNECTED_ACCOUNT\`"
+            echo "- dispatched by: $ACTOR; run id: $RUN_ID"
+            echo
+            echo "Compare the pinned commit with the approval message before trusting this run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guards (fail closed, no secret used)
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { echo "FAIL: not a manual dispatch"; exit 1; }
+          [ "$GITHUB_REPOSITORY" = "genxttech/danceflow-app" ] || { echo "FAIL: wrong repository"; exit 1; }
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "FAIL: not main"; exit 1; }
+          [ "$WORKFLOW_REF" = "genxttech/danceflow-app/.github/workflows/competition-stripe-test-acceptance.yml@refs/heads/main" ] || { echo "FAIL: not the reviewed workflow file on main"; exit 1; }
+          case "$CF1_PINNED_COMMIT$CF1_DB_SNAPSHOT_SHA256" in *PLACEHOLDER*) echo "FAIL: a pin is still a placeholder (pinned commit or database source)"; exit 1 ;; esac
+          [[ "$CF1_PINNED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "FAIL: pinned commit shape"; exit 1; }
+          [[ "$CF1_DB_SNAPSHOT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL: database source pin shape"; exit 1; }
+          [[ "$CF1_EXPECT_PLATFORM_ACCT" =~ ^acct_[A-Za-z0-9]{6,64}$ ]] && [[ "$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" =~ ^acct_[A-Za-z0-9]{6,64}$ ]] || { echo "FAIL: account id shape"; exit 1; }
+          [ "$CF1_EXPECT_PLATFORM_ACCT" != "$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" ] || { echo "FAIL: platform and connected ids must differ"; exit 1; }
+          echo "guards passed"
+
+      - name: Fetch main (evidence tooling) and the pinned code under test; the pin must be on the release branch
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          git init -q "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch -q --no-tags --depth=1 origin "$SHA"
+          git checkout -q --detach FETCH_HEAD
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "FAIL: HEAD is not the dispatched commit"; exit 1; }
+          tooling="$(cd scripts/qa/d24-gh-proof && sha256sum encrypt-cli.ts evidence-crypto.ts summary.ts evidence-public-key.pem | sha256sum | cut -d' ' -f1)"
+          [ "$tooling" = "$D24_PIN_TOOLING_SHA256" ] || { echo "FAIL: the d24-gh-proof tooling differs from the pin"; exit 1; }
+          # The code under test goes OUTSIDE the tooling checkout.
+          SRC="$RUNNER_TEMP/src"
+          git init -q "$SRC"
+          git -C "$SRC" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          # The pinned commit must be an ancestor of the release branch tip (within the last 300 commits; raise the depth when the pin is older). Fail closed.
+          git -C "$SRC" fetch -q --no-tags --depth=300 origin "+refs/heads/$CF1_RELEASE_BRANCH:refs/remotes/origin/$CF1_RELEASE_BRANCH"
+          git -C "$SRC" cat-file -e "$CF1_PINNED_COMMIT^{commit}" || { echo "FAIL: pinned commit is not in the last 300 commits of $CF1_RELEASE_BRANCH"; exit 1; }
+          git -C "$SRC" merge-base --is-ancestor "$CF1_PINNED_COMMIT" "refs/remotes/origin/$CF1_RELEASE_BRANCH" || { echo "FAIL: pinned commit is not on $CF1_RELEASE_BRANCH"; exit 1; }
+          git -C "$SRC" fetch -q --no-tags --depth=1 origin "$CF1_PINNED_COMMIT"
+          git -C "$SRC" checkout -q --detach FETCH_HEAD
+          [ "$(git -C "$SRC" rev-parse HEAD)" = "$CF1_PINNED_COMMIT" ] || { echo "FAIL: code under test is not the pinned commit"; exit 1; }
+          for f in .npmrc scripts/package.json scripts/qa/package.json; do [ ! -e "$SRC/$f" ] || { echo "FAIL: unexpected file $f in the code under test"; exit 1; }; done
+          echo "tooling equals its pin; code under test is checked out at the pinned commit"
+
+      - name: Paths for plaintext (outside the checkouts, wiped at the end)
+        run: |
+          mkdir -p "$RUNNER_TEMP/home"
+          {
+            echo "CF1_EVIDENCE_DIR=$RUNNER_TEMP/cf1-evidence"
+            echo "CF1_TERMINAL_FILE=$RUNNER_TEMP/cf1-terminal.txt"
+            echo "CF1_UPLOAD_DIR=$RUNNER_TEMP/cf1-upload"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Node (fixed version)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.14.1"
+
+      - name: Install dependencies for the tooling (main) and for the code under test (no lifecycle scripts)
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          NPM_CLI="$RUNNER_TOOL_CACHE/node/24.14.1/x64/lib/node_modules/npm/bin/npm-cli.js"
+          [ -x "$NODE" ] && [ -f "$NPM_CLI" ] || { echo "FAIL: pinned node/npm not found in the tool cache"; exit 1; }
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          "${RUN[@]}" "$NODE" "$NPM_CLI" ci --ignore-scripts --no-audit --no-fund
+          (cd "$RUNNER_TEMP/src" && "${RUN[@]}" "$NODE" "$NPM_CLI" ci --ignore-scripts --no-audit --no-fund)
+
+      - name: Evidence public key must be real
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          "${RUN[@]}" "$NODE" "$TSX" scripts/qa/d24-gh-proof/encrypt-cli.ts --check-key "$D24_EVIDENCE_PUBLIC_KEY"
+
+      - name: "Stripe guard (canary A - create and expire a session; canary B - pay a $1 session and verify the application fee)"
+        id: guard
+        env:
+          E2E_STRIPE_TEST_SECRET_KEY: ${{ secrets.CF1_STRIPE_TEST_SECRET_KEY }}
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          IN=(E2E_STRIPE_TEST_SECRET_KEY="$E2E_STRIPE_TEST_SECRET_KEY" CF1_EXPECT_PLATFORM_ACCT="$CF1_EXPECT_PLATFORM_ACCT" E2E_STRIPE_TEST_CONNECTED_ACCOUNT="$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY")
+          rc=0
+          (cd "$RUNNER_TEMP/src" && "${RUN[@]}" "${IN[@]}" "$NODE" node_modules/tsx/dist/cli.mjs scripts/qa/cf1-stripe-guard.ts) || rc=$?
+          if [ "$rc" = "2" ]; then echo "STOP: connected-account capability error. Report the exact Stripe error in the job summary to the owner; do NOT request sandbox onboarding."; fi
+          exit "$rc"
+
+      - name: Local database stack (BLOCKED until the database source is decided)
+        run: |
+          # BLOCKED: this repo cannot rebuild the isolated QA database from source (no supabase/config.toml, no base-schema snapshot; see the package,
+          # section 2a, and the note in e2e-public-event-registration.yml). When the owner decides the source, this step must: start a local Supabase stack
+          # (Postgres + GoTrue + PostgREST + Kong), load the snapshot whose sha256 equals CF1_DB_SNAPSHOT_SHA256, apply the migrations after it, apply
+          # e2e/setup/qa-reference-data.sql under the local-stack guard, and export the local demo keys. Until then the job stops here.
+          echo "FAIL: database source not implemented"; exit 1
+
+      - name: Build and start the app (local, production build), start the event relay, run the Playwright suites
+        id: live
+        env:
+          E2E_STRIPE_TEST_SECRET_KEY: ${{ secrets.CF1_STRIPE_TEST_SECRET_KEY }}
+        run: |
+          # TODO(after the database step exists): env -i process environment with STRIPE_SECRET_KEY, a random STRIPE_CONNECT_WEBHOOK_SECRET, a DIFFERENT random
+          # STRIPE_WEBHOOK_SECRET, NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED=true, local Supabase keys and URLs; next build && next start -p 3000;
+          # background: scripts/qa/cf1-stripe-relay.ts (CF1_RELAY_WEBHOOK_SECRET = the connect secret, CF1_RELAY_PAUSE_FILE); then
+          #   npx playwright test e2e/tests/competition-full-event.spec.ts e2e/tests/competition-stripe-failure-settlement.spec.ts --workers=1
+          # with the JSON reporter writing to $CF1_EVIDENCE_DIR, output to $CF1_TERMINAL_FILE, never to the public log. A capability-class Stripe error in the
+          # output must be reported as STOP (exact error to the owner), not as a generic failure.
+          echo "FAIL: not implemented until the database step exists"; exit 1
+
+      - name: Encrypt evidence and write the public summary
+        if: always() && steps.live.conclusion != 'skipped'
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          mkdir -p "$CF1_UPLOAD_DIR"
+          "${RUN[@]}" "$NODE" "$TSX" scripts/qa/d24-gh-proof/encrypt-cli.ts --encrypt --evidence-dir "$CF1_EVIDENCE_DIR" --terminal "$CF1_TERMINAL_FILE" --public-key "$D24_EVIDENCE_PUBLIC_KEY" --out "$CF1_UPLOAD_DIR/cf1-evidence.enc.json"
+
+      - name: Upload the ENCRYPTED evidence only
+        if: always() && steps.live.conclusion != 'skipped'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cf1-stripe-evidence-encrypted
+          path: ${{ runner.temp }}/cf1-upload/cf1-evidence.enc.json
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Remove plaintext from the runner
+        if: always()
+        run: |
+          rm -rf "$CF1_EVIDENCE_DIR" "$CF1_TERMINAL_FILE" "$CF1_UPLOAD_DIR" "$RUNNER_TEMP/home" "$RUNNER_TEMP/src"

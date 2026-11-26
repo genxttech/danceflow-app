@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { claimMyEventRegistrations } from "@/lib/events/claimMyEventRegistrations";
@@ -69,13 +69,15 @@ describe("claim migration shape", () => {
     expect(sql).not.toMatch(/grant execute[^;]*\bto\s+(anon|public|service_role)\b/i);
   });
 
-  it("index migration is concurrent, partial, standalone (no transaction) and has rollbacks", () => {
-    const idx = strip(read("src/lib/supabase/migrations/20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"));
-    expect(idx).toMatch(/create index concurrently if not exists event_registrations_unclaimed_email_idx/);
+  it("index migration is plain, transactional, partial and sorts after every other claim file; the CONCURRENTLY file is retired", () => {
+    const idx = strip(read("src/lib/supabase/migrations/20270222091000_event_registrations_unclaimed_email_index.sql"));
+    expect(idx).toMatch(/create index if not exists event_registrations_unclaimed_email_idx/);
+    expect(idx).not.toMatch(/concurrently/i);
     expect(idx).toContain("lower(btrim(attendee_email))");
     expect(idx).toMatch(/where user_id is null/);
-    expect(idx).not.toMatch(/\bbegin\b|\bcommit\b/i);
+    expect(idx).toContain("begin;");
     expect(read("src/lib/supabase/migrations/rollback/20270221090000_event_registration_claim_function_rollback.sql")).toContain("drop function if exists public.claim_my_event_registrations()");
-    expect(read("src/lib/supabase/migrations/rollback/20270221091000_event_registrations_unclaimed_email_index_concurrent_rollback.sql")).toContain("drop index concurrently if exists");
+    expect(read("src/lib/supabase/migrations/rollback/20270222091000_event_registrations_unclaimed_email_index_rollback.sql")).toContain("drop index if exists");
+    expect(existsSync(path.join(root, "src/lib/supabase/migrations/20270221091000_event_registrations_unclaimed_email_index_concurrent.sql"))).toBe(false);
   });
 });

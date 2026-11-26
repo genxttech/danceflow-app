@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { ArrowLeft, BookOpen } from "lucide-react";
+import ArticleBody from "@/components/knowledgebase/ArticleBody";
 import { JsonLd } from "@/components/seo/JsonLd";
 import {
   getKnowledgebaseArticleBySlug,
   getPublicKnowledgebaseArticles,
-} from "@/content/knowledgebase/articles";
+  getRelatedPublicKnowledgebaseArticles,
+  resolvePublicKnowledgebaseSlug,
+} from "@/lib/knowledgebase/articles";
+import { knowledgebaseRedirects } from "@/content/knowledgebase/redirects";
 
 type PageProps = {
   params: Promise<{
@@ -14,106 +18,27 @@ type PageProps = {
   }>;
 };
 
-function renderArticleContent(content: string) {
-  const lines = content.trim().split("\n");
-  const elements: React.ReactNode[] = [];
-  let listItems: string[] = [];
-
-  function flushList() {
-    if (listItems.length === 0) return;
-
-    elements.push(
-      <ul
-        key={`list-${elements.length}`}
-        className="my-5 list-disc space-y-2 pl-6 text-slate-700"
-      >
-        {listItems.map((item) => (
-          <li key={item}>{formatInlineText(item)}</li>
-        ))}
-      </ul>
-    );
-
-    listItems = [];
-  }
-
-  lines.forEach((line, index) => {
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      flushList();
-      return;
-    }
-
-    if (trimmed.startsWith("- ")) {
-      listItems.push(trimmed.slice(2));
-      return;
-    }
-
-    flushList();
-
-    if (trimmed.startsWith("## ")) {
-      elements.push(
-        <h2
-          key={`h2-${index}`}
-          className="mt-9 text-2xl font-semibold tracking-tight text-slate-950"
-        >
-          {trimmed.replace("## ", "")}
-        </h2>
-      );
-      return;
-    }
-
-    if (trimmed.startsWith("# ")) {
-      elements.push(
-        <h1
-          key={`h1-${index}`}
-          className="mt-9 text-3xl font-semibold tracking-tight text-slate-950"
-        >
-          {trimmed.replace("# ", "")}
-        </h1>
-      );
-      return;
-    }
-
-    elements.push(
-      <p key={`p-${index}`} className="my-4 text-base leading-8 text-slate-700">
-        {formatInlineText(trimmed)}
-      </p>
-    );
-  });
-
-  flushList();
-
-  return elements;
-}
-
-function formatInlineText(text: string) {
-  const parts = text.split(/(\*\*.*?\*\*)/g);
-
-  return parts.map((part, index) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return (
-        <strong key={`${part}-${index}`} className="font-semibold text-slate-950">
-          {part.slice(2, -2)}
-        </strong>
-      );
-    }
-
-    return part;
-  });
-}
-
 export function generateStaticParams() {
-  return getPublicKnowledgebaseArticles().map((article) => ({
-    slug: article.slug,
-  }));
+  // Retired slugs are prerendered too, so their permanent redirect is served without a runtime content read.
+  return [
+    ...getPublicKnowledgebaseArticles().map((article) => article.slug),
+    ...Object.keys(knowledgebaseRedirects),
+  ].map((slug) => ({ slug }));
+}
+
+function getServedArticle(slug: string) {
+  const resolution = resolvePublicKnowledgebaseSlug(slug);
+  if (resolution.kind === "redirect") permanentRedirect(`/knowledgebase/${resolution.slug}`);
+  if (resolution.kind === "missing") return null;
+  return getKnowledgebaseArticleBySlug(resolution.slug);
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const article = getKnowledgebaseArticleBySlug(slug);
+  const resolution = resolvePublicKnowledgebaseSlug(slug);
+  const article = resolution.kind === "article" ? getKnowledgebaseArticleBySlug(resolution.slug) : null;
 
-  if (!article || article.audience === "app") {
+  if (!article) {
     return {
       title: "Knowledgebase Article",
       description:
@@ -125,13 +50,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   return {
     title: article.title,
-    description: article.description,
+    description: article.summary,
     alternates: {
       canonical: canonicalUrl,
     },
     openGraph: {
       title: `${article.title} | DanceFlow Knowledgebase`,
-      description: article.description,
+      description: article.summary,
       url: canonicalUrl,
       siteName: "DanceFlow",
       type: "article",
@@ -147,7 +72,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     twitter: {
       card: "summary_large_image",
       title: `${article.title} | DanceFlow Knowledgebase`,
-      description: article.description,
+      description: article.summary,
       images: ["/brand/danceflow-og-1200x630.png"],
     },
   };
@@ -155,15 +80,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function KnowledgebaseArticlePage({ params }: PageProps) {
   const { slug } = await params;
-  const article = getKnowledgebaseArticleBySlug(slug);
+  const article = getServedArticle(slug);
 
-  if (!article || article.audience === "app") {
+  if (!article) {
     notFound();
   }
 
-  const relatedArticles = getPublicKnowledgebaseArticles()
-    .filter((item) => item.slug !== article.slug)
-    .slice(0, 3);
+  const relatedArticles = getRelatedPublicKnowledgebaseArticles(article);
 
   const articleUrl = `https://www.idanceflow.com/knowledgebase/${article.slug}`;
 
@@ -171,7 +94,7 @@ export default async function KnowledgebaseArticlePage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: article.title,
-    description: article.description,
+    description: article.summary,
     url: articleUrl,
     mainEntityOfPage: articleUrl,
     author: {
@@ -235,7 +158,7 @@ export default async function KnowledgebaseArticlePage({ params }: PageProps) {
                 {article.title}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                {article.description}
+                {article.summary}
               </p>
             </div>
           </div>
@@ -244,7 +167,7 @@ export default async function KnowledgebaseArticlePage({ params }: PageProps) {
         <div className="grid gap-8 xl:grid-cols-[1fr_320px]">
           <article className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-8">
             <div className="prose prose-slate max-w-none">
-              {renderArticleContent(article.content)}
+              <ArticleBody markdown={article.content} />
             </div>
           </article>
 

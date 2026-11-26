@@ -1,0 +1,176 @@
+name: Competition Stripe TEST canary
+
+# The smallest owner-approved Stripe step: the Stripe guard ONLY (scripts/qa/cf1-stripe-guard.ts from the pinned commit), no database, no app, no suite.
+#   - identity: the key is a TEST key on the pinned sandbox platform;
+#   - the connected account's state is recorded (restricted, capabilities, outstanding requirement count);
+#   - canary C: one direct $1 TEST PaymentIntent with an application fee on the connected account (the fee is verified through documented API reads);
+#   - canary A: create and expire one $1 Checkout Session with an application fee (proves session creation only);
+#   - canary D1: create one open competition-shaped Checkout Session, feed its REAL retrieve response and a forged "paid" event to the settlement verifier (it must refuse), expire it, and refuse again;
+#   - canary D2: check the verifier's PaymentIntent semantics against canary C's real succeeded PaymentIntent (synthetic session wrapper; proves PaymentIntent fields only).
+#   - Hosted-Checkout payment completion is NOT attempted (Path A, owner decision 2026-11-22): no browser is opened and every report says it is NOT PROVEN.
+# It answers "can this sandbox connected account take a TEST card payment as it is?" before any onboarding is requested. A capability-class Stripe
+# error stops the run (exit 2) and is quoted exactly in the job summary; nothing is onboarded, created or enabled by this workflow.
+# Cost: 9 to 10 TEST API requests, $0 (TEST mode, no real money); one TEST PaymentIntent and two created-then-expired sessions are left on the sandbox account.
+# Output: the job summary shows step names, the connected-account state and Stripe's error fields; never the key.
+#
+# PIN: the code under test is the workflow_dispatch input `pin`, validated by the validate-pin job (scripts/qa/cf1-stripe-workflow/validatePin.mjs, run from main, no
+# secret, no environment) BEFORE the environment approval: merged PR into release/website-embeds, code-owner approval on the PR head, no later push, ancestry, diff equals PR.
+# Design and threat model: docs/ops/CF1_Stripe_Workflow_Pin_Validation.md.
+# STATUS: the run still cannot start until the owner enters the sandbox key as the environment secret (the guard refuses an empty or non-TEST key) AND approves the deployment. Same environment, same approval, same MERGE ORDER rule as competition-stripe-test-acceptance.yml:
+# the environment `competition-stripe-test` (owner = only reviewer, admin bypass OFF, deployment branches = main only, secret entered LAST) must be correct
+# BEFORE this file is merged. Trigger: workflow_dispatch ONLY.
+run-name: Competition Stripe TEST canary @ ${{ github.sha }} pin ${{ inputs.pin }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pin:
+        description: "Code under test: full 40-hex commit id (the merge commit of a code-owner-approved PR into release/website-embeds). Validated before any secret or approval."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: competition-stripe-test-canary
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: /usr/bin/bash --noprofile --norc -euo pipefail {0}
+
+jobs:
+  validate-pin:
+    name: Validate the commit under test (no secret, no environment)
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'genxttech/danceflow-app' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      BASH_ENV: ""
+      ENV: ""
+      CF1_RELEASE_BRANCH: "release/website-embeds"
+    outputs:
+      sha: ${{ steps.validate.outputs.sha }}
+    steps:
+      # Trusted code: this workflow file and the validator come from main at the dispatched commit, never from the pin or a PR.
+      - name: Fetch main at the dispatched commit (validator and CODEOWNERS)
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          git init -q "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch -q --no-tags --depth=1 origin "$SHA"
+          git checkout -q --detach FETCH_HEAD
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "FAIL: HEAD is not the dispatched commit"; exit 1; }
+
+      - name: Set up Node (fixed version)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.14.1"
+
+      - name: Validate the pin (API provenance, release-branch ancestry; fail closed)
+        id: validate
+        env:
+          PIN: ${{ inputs.pin }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          [ -x "$NODE" ] || { echo "FAIL: pinned node not found in the tool cache"; exit 1; }
+          /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP" LANG=C.UTF-8 PIN="$PIN" GH_TOKEN="$GH_TOKEN" GITHUB_REPOSITORY="$GITHUB_REPOSITORY" CF1_RELEASE_BRANCH="$CF1_RELEASE_BRANCH" GITHUB_OUTPUT="$GITHUB_OUTPUT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" "$NODE" scripts/qa/cf1-stripe-workflow/validatePin.mjs
+
+  canary:
+    name: Competition Stripe TEST canary (owner-approved)
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'genxttech/danceflow-app' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: validate-pin
+    environment: competition-stripe-test
+    permissions:
+      contents: read
+    env:
+      BASH_ENV: ""
+      ENV: ""
+      # The code under test: output of the validate-pin job (validated against the GitHub API BEFORE this job, so before the environment approval).
+      CF1_PINNED_COMMIT: ${{ needs.validate-pin.outputs.sha }}
+      CF1_RELEASE_BRANCH: "release/website-embeds"
+      CF1_EXPECT_PLATFORM_ACCT: "acct_1UZ320IPJs53nwt7"
+      E2E_STRIPE_TEST_CONNECTED_ACCOUNT: "acct_1UZibNRCFiaIzL1V"
+    steps:
+      - name: Commit under approval
+        env:
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          {
+            echo "## Competition Stripe TEST canary - what was approved"
+            echo
+            echo "- workflow: \`$WORKFLOW_REF\` at main \`$SHA\`"
+            echo "- code under test (pinned): \`$CF1_PINNED_COMMIT\` (must be on \`$CF1_RELEASE_BRANCH\`)"
+            echo "- sandbox platform \`$CF1_EXPECT_PLATFORM_ACCT\`, connected \`$E2E_STRIPE_TEST_CONNECTED_ACCOUNT\`"
+            echo "- dispatched by: $ACTOR; run id: $RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Guards (fail closed, no secret used)
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || { echo "FAIL: not a manual dispatch"; exit 1; }
+          [ "$GITHUB_REPOSITORY" = "genxttech/danceflow-app" ] || { echo "FAIL: wrong repository"; exit 1; }
+          [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "FAIL: not main"; exit 1; }
+          [ "$WORKFLOW_REF" = "genxttech/danceflow-app/.github/workflows/competition-stripe-canary.yml@refs/heads/main" ] || { echo "FAIL: not the reviewed workflow file on main"; exit 1; }
+          case "$CF1_PINNED_COMMIT" in *PLACEHOLDER*) echo "FAIL: the pinned commit is still a placeholder"; exit 1 ;; esac
+          [[ "$CF1_PINNED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "FAIL: pinned commit shape"; exit 1; }
+          [[ "$CF1_EXPECT_PLATFORM_ACCT" =~ ^acct_[A-Za-z0-9]{6,64}$ ]] && [[ "$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" =~ ^acct_[A-Za-z0-9]{6,64}$ ]] || { echo "FAIL: account id shape"; exit 1; }
+          [ "$CF1_EXPECT_PLATFORM_ACCT" != "$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" ] || { echo "FAIL: platform and connected ids must differ"; exit 1; }
+          echo "guards passed"
+
+      - name: Fetch the pinned code under test; the pin must be on the release branch
+        run: |
+          SRC="$RUNNER_TEMP/src"
+          git init -q "$SRC"
+          git -C "$SRC" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C "$SRC" fetch -q --no-tags --depth=300 origin "+refs/heads/$CF1_RELEASE_BRANCH:refs/remotes/origin/$CF1_RELEASE_BRANCH"
+          git -C "$SRC" cat-file -e "$CF1_PINNED_COMMIT^{commit}" || { echo "FAIL: pinned commit is not in the last 300 commits of $CF1_RELEASE_BRANCH"; exit 1; }
+          git -C "$SRC" merge-base --is-ancestor "$CF1_PINNED_COMMIT" "refs/remotes/origin/$CF1_RELEASE_BRANCH" || { echo "FAIL: pinned commit is not on $CF1_RELEASE_BRANCH"; exit 1; }
+          git -C "$SRC" fetch -q --no-tags --depth=1 origin "$CF1_PINNED_COMMIT"
+          git -C "$SRC" checkout -q --detach FETCH_HEAD
+          [ "$(git -C "$SRC" rev-parse HEAD)" = "$CF1_PINNED_COMMIT" ] || { echo "FAIL: not the pinned commit"; exit 1; }
+          for f in .npmrc scripts/package.json scripts/qa/package.json; do [ ! -e "$SRC/$f" ] || { echo "FAIL: unexpected file $f"; exit 1; }; done
+          [ -f "$SRC/scripts/qa/cf1-stripe-guard.ts" ] || { echo "FAIL: the pinned commit has no guard script"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/home"
+
+      - name: Set up Node (fixed version)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "24.14.1"
+
+      - name: Install dependencies of the code under test (no lifecycle scripts)
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          NPM_CLI="$RUNNER_TOOL_CACHE/node/24.14.1/x64/lib/node_modules/npm/bin/npm-cli.js"
+          [ -x "$NODE" ] && [ -f "$NPM_CLI" ] || { echo "FAIL: pinned node/npm not found in the tool cache"; exit 1; }
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          (cd "$RUNNER_TEMP/src" && "${RUN[@]}" "$NODE" "$NPM_CLI" ci --ignore-scripts --no-audit --no-fund)
+
+      - name: Stripe guard (canaries C, A, D1, D2 - no browser, no hosted payment)
+        env:
+          E2E_STRIPE_TEST_SECRET_KEY: ${{ secrets.CF1_STRIPE_TEST_SECRET_KEY }}
+        run: |
+          NODE="$RUNNER_TOOL_CACHE/node/24.14.1/x64/bin/node"
+          RUN=(/usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME="$RUNNER_TEMP/home" LANG=C.UTF-8)
+          IN=(E2E_STRIPE_TEST_SECRET_KEY="$E2E_STRIPE_TEST_SECRET_KEY" CF1_EXPECT_PLATFORM_ACCT="$CF1_EXPECT_PLATFORM_ACCT" E2E_STRIPE_TEST_CONNECTED_ACCOUNT="$E2E_STRIPE_TEST_CONNECTED_ACCOUNT" GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY")
+          rc=0
+          (cd "$RUNNER_TEMP/src" && "${RUN[@]}" "${IN[@]}" "$NODE" node_modules/tsx/dist/cli.mjs scripts/qa/cf1-stripe-guard.ts) || rc=$?
+          if [ "$rc" = "2" ]; then echo "STOP: connected-account capability error. The exact Stripe error is in the job summary. Report it to the owner; do NOT request sandbox onboarding."; fi
+          exit "$rc"
+
+      - name: Remove the checkout from the runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/src" "$RUNNER_TEMP/home"

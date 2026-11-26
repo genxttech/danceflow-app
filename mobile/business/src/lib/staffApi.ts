@@ -1,3 +1,5 @@
+import { toPulseCards, type PulseCards } from "@/lib/pulseCards";
+
 /*
   Client for the /api/staff/* contract (docs/mobile/Staff_API_Contract.md).
 
@@ -86,6 +88,8 @@ export type StaffPulse = {
   next: { id: string; appointmentType: string; title: string | null; status: string; startsAt: string; endsAt: string } | null;
   /** null for an instructor, who has no studio-wide client view. */
   newClientsLast7Days: number | null;
+  /** Only when asked for (GET /pulse?include=cards) and the server serves them; absent otherwise. */
+  cards?: PulseCards | null;
 };
 
 export type AppointmentDetail = TodayAppointment & {
@@ -121,6 +125,14 @@ export type StaffApiErrorCode =
   | "service_unavailable"
   /** 409: the record is not in a state that allows this write (e.g. a cancelled class, or outside the marking window). */
   | "not_markable"
+  /** 429: the server's per-device or per-account limit; `Retry-After` says when to try again. The request was refused before any work, so nothing was applied. */
+  | "rate_limited"
+  /** 403: the server's write kill switch for this capability is off. Reads still work. */
+  | "writes_disabled"
+  /** 426: this build is too old (or blocked, or sent no version header) for this write. */
+  | "upgrade_required"
+  /** 409 with a slice-specific code (idempotency_conflict, outcome_conflict, class_full, already_enrolled, duplicate_email, payment_required ...). `serverCode` has the code, `current` the server state. */
+  | "conflict"
   /** Client-side: no response at all (offline, DNS, TLS). */
   | "network_error"
   /** Client-side: a response that is not the contract's JSON. */
@@ -131,6 +143,10 @@ export class StaffApiError extends Error {
     readonly status: number,
     readonly code: StaffApiErrorCode,
     message: string,
+    /** Seconds from a 429's Retry-After header, when it sent a usable one. */
+    readonly retryAfterSeconds?: number,
+    /** Write refusals: the raw server code (for a `conflict`) and the server's current state of the thing the app tried to change. */
+    readonly extra?: { serverCode?: string; current?: unknown; /** The rest of a flat error body (for example duplicate_client: existingClientId, matchedOn). Never rendered as text. */ details?: Record<string, unknown> },
   ) {
     super(message);
     this.name = "StaffApiError";
@@ -147,6 +163,10 @@ export type StaffErrorKind =
   | "not_permitted"
   | "not_found"
   | "not_markable"
+  | "rate_limited"
+  | "writes_disabled"
+  | "upgrade_required"
+  | "conflict"
   | "unavailable"
   | "client_bug";
 
@@ -161,6 +181,37 @@ const KNOWN_CODES: readonly StaffApiErrorCode[] = [
   "not_found",
   "service_unavailable",
   "not_markable",
+  "rate_limited",
+  "writes_disabled",
+  "upgrade_required",
+];
+
+/**
+ * 409 codes the Phase 1A write routes use (the registry is "Write error codes" in Staff_API_Contract.md; a slice adds its codes here when it lands). Any other 409 keeps
+ * the v0.1 meaning, not_markable, so an unknown or malformed body can never be read as something the screen would act on.
+ */
+const CONFLICT_CODES: readonly string[] = [
+  "idempotency_conflict",
+  "outcome_conflict",
+  "payment_required",
+  "duplicate_email",
+  "already_enrolled",
+  "class_full",
+  "class_cancelled",
+  "entitlement_exhausted",
+  "no_eligible_entitlement",
+  "membership_not_active",
+  "membership_requires_selection",
+  "ambiguous_funding_source",
+  "attendee_attendance_recorded",
+  "duplicate_client",
+  "terminal_outcome",
+  "usage_sync_pending",
+  "charge_failed",
+  "package_exhausted",
+  "enrollment_failed",
+  "invalid_funding",
+  "attendance_recorded",
 ];
 
 /** The server's `code` decides; the status is only a fallback for a body without one. */
@@ -168,11 +219,15 @@ function codeFor(status: number, raw: unknown): StaffApiErrorCode {
   if (typeof raw === "string" && (KNOWN_CODES as readonly string[]).includes(raw)) {
     return raw as StaffApiErrorCode;
   }
+  if (status === 426) return "upgrade_required";
+  // a 409 that names a slice-specific code is a conflict the screen can reconcile; a 409 with no code keeps the v0.1 meaning (not_markable)
+  if (status === 409 && typeof raw === "string" && CONFLICT_CODES.includes(raw)) return "conflict";
   if (status === 401) return "unauthenticated";
   if (status === 404) return "not_found";
   if (status === 400) return "invalid_request";
   if (status === 403) return "not_a_member";
   if (status === 409) return "not_markable";
+  if (status === 429) return "rate_limited";
   if (status >= 500) return "service_unavailable";
   return "unexpected_response";
 }
@@ -181,8 +236,8 @@ function codeFor(status: number, raw: unknown): StaffApiErrorCode {
  * The contract's error shape is flat: `{ error: "<message>", code: "<code>" }`. A nested `{ error: { code, message } }` is still
  * read defensively, because an unknown body must never crash the error path.
  */
-export function readErrorBody(body: unknown): { code: unknown; message: string | null } {
-  const record = (body ?? {}) as { code?: unknown; error?: unknown; message?: unknown };
+export function readErrorBody(body: unknown): { code: unknown; message: string | null; current?: unknown } {
+  const record = (body ?? {}) as { code?: unknown; error?: unknown; message?: unknown; current?: unknown };
   if (record.error && typeof record.error === "object") {
     const nested = record.error as { code?: unknown; message?: unknown };
     return { code: nested.code ?? record.code, message: typeof nested.message === "string" ? nested.message : null };
@@ -190,7 +245,15 @@ export function readErrorBody(body: unknown): { code: unknown; message: string |
   return {
     code: record.code,
     message: typeof record.error === "string" ? record.error : typeof record.message === "string" ? record.message : null,
+    current: record.current,
   };
+}
+
+/** Fields of a flat error body besides error / code / current / message. */
+function errorDetails(body: unknown): Record<string, unknown> | undefined {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const { error: _e, code: _c, current: _u, message: _m, ...rest } = body as Record<string, unknown>;
+  return Object.keys(rest).length ? rest : undefined;
 }
 
 export function staffErrorKind(error: unknown): StaffErrorKind {
@@ -213,6 +276,14 @@ export function staffErrorKind(error: unknown): StaffErrorKind {
       return "not_found";
     case "not_markable":
       return "not_markable";
+    case "rate_limited":
+      return "rate_limited";
+    case "writes_disabled":
+      return "writes_disabled";
+    case "upgrade_required":
+      return "upgrade_required";
+    case "conflict":
+      return "conflict";
     case "invalid_request":
       return "client_bug";
     case "service_unavailable":
@@ -230,7 +301,23 @@ export type StaffApiOptions = {
   /** Refreshes the session and returns the new access token, or null if it cannot. */
   refreshAccessToken: () => Promise<string | null>;
   fetchImpl?: typeof fetch;
+  /** Sent as X-DanceFlow-App on every request: business/<version>/<code>/<platform> (see appVersion.ts). Omitted when unknown; the server then refuses gated writes with upgrade_required. */
+  appHeader?: string | null;
+  /** Waits between a 429 and its one automatic retry. Injected so tests do not sleep. */
+  sleepImpl?: (ms: number) => Promise<void>;
 };
+
+/** A 429 whose Retry-After is this short or shorter is waited out once, for a read. Anything longer is shown to the person instead of stalling a screen. */
+export const MAX_AUTO_RETRY_AFTER_SECONDS = 5;
+/** The longest Retry-After the client will report back, so a bad header cannot promise an hour. */
+const MAX_REPORTED_RETRY_AFTER_SECONDS = 120;
+
+/** Retry-After as whole seconds (the server sends delta-seconds), or undefined when absent or unusable. */
+export function parseRetryAfterSeconds(value: string | null | undefined): number | undefined {
+  if (!value || !/^\d{1,6}$/.test(value.trim())) return undefined;
+  const seconds = Number(value.trim());
+  return seconds > 0 ? Math.min(seconds, MAX_REPORTED_RETRY_AFTER_SECONDS) : undefined;
+}
 
 /*
   SLICE 2 (client lookup and attendance), final contract: docs/mobile/Staff_API_Contract.md on claude/staff-api-slice2
@@ -272,6 +359,32 @@ export type AttendanceMark = (typeof ATTENDANCE_MARKS)[number];
 
 export type AttendanceResult = { clientId: string; attendanceStatus: string | null; displayName: string | null; updatedAt: string | null };
 
+export type ClientNote = { id: string; clientId: string; noteType: string; body: string; occurredAt: string; createdAt: string };
+export const CLIENT_NOTE_TYPES = ["general", "follow_up", "sales", "lesson", "billing", "concern"] as const;
+export type ClientNoteType = (typeof CLIENT_NOTE_TYPES)[number];
+
+export type NewClientInput = {
+  /** Generated once per new client (newEntityId) and resent unchanged on every retry. */
+  clientId: string;
+  firstName: string;
+  lastName: string;
+  /** A phone or an email is required. */
+  phone?: string;
+  email?: string;
+  note?: string;
+  allowDuplicatePhone?: boolean;
+};
+
+export type AppointmentOutcome = "attended" | "no_show";
+export type MissedCharge = "none" | "package" | "membership";
+export type OutcomeResult = { id: string; status: string; alreadyApplied: boolean };
+
+export type ClientNoteEntry = ClientNote & { authorName: string | null; isMine: boolean };
+export type ClientNotesPage = { notes: ClientNoteEntry[]; nextCursor: string | null };
+export type RosterBilling = "package_credit" | "pay_as_you_go" | "free_comped";
+export type RosterEnrollResult = { attendeeId: string; clientId: string; alreadyEnrolled: boolean };
+export type RosterRemoveResult = { removed: boolean; alreadyApplied: boolean };
+
 export type StaffApi = {
   me: () => Promise<StaffMe>;
   today: (studioId: string, date?: string) => Promise<StaffToday>;
@@ -279,7 +392,7 @@ export type StaffApi = {
   /** Slice 3: GET /workspaces/{id}/schedule?date=. The whole studio's day for owner, admin and front desk; instructors get 403 role_not_permitted. */
   studioSchedule: (studioId: string, date?: string) => Promise<StaffStudioDay>;
   /** Slice 3: GET /workspaces/{id}/pulse. Counts and the next appointment; studio scope for owner, admin and front desk, own scope for an instructor. */
-  pulse: (studioId: string) => Promise<StaffPulse>;
+  pulse: (studioId: string, options?: { cards?: boolean }) => Promise<StaffPulse>;
   /** Slice 2: GET /workspaces/{id}/clients?q=&cursor=&limit= (limit 1–50). Front desk and admins: active clients. Instructors: the clients they teach. */
   searchClients: (studioId: string, params: { q?: string; cursor?: string | null; limit?: number }) => Promise<ClientPage>;
   /** Slice 2: GET /workspaces/{id}/clients/{clientId}. An instructor gets 404 for a client they don't teach. */
@@ -292,6 +405,28 @@ export type StaffApi = {
     status: AttendanceMark,
     idempotencyKey: string,
   ) => Promise<AttendanceResult>;
+  /** Phase 1A S1: PUT /workspaces/{id}/appointments/{appointmentId}/attendance. One-to-one lessons only. Attended and no-show are FINAL (409 outcome_conflict on a flip); there is no reset. */
+  setAppointmentOutcome: (
+    studioId: string,
+    appointmentId: string,
+    input: { status: AppointmentOutcome; missedAppointmentCharge?: MissedCharge },
+    idempotencyKey: string,
+  ) => Promise<OutcomeResult>;
+  /** Client notes read: GET /workspaces/{id}/clients/{clientId}/notes?cursor=&limit= (newest first). Owner, admin, front desk. */
+  clientNotes: (studioId: string, clientId: string, params?: { cursor?: string | null; limit?: number }) => Promise<ClientNotesPage>;
+  /** Phase 1A S2: POST /workspaces/{id}/appointments/{appointmentId}/roster. Natural key: a dancer already enrolled is 200 alreadyEnrolled. A package credit is taken later, at attendance. */
+  enrollInClass: (studioId: string, appointmentId: string, input: { clientId: string; billingType?: RosterBilling }, idempotencyKey: string) => Promise<RosterEnrollResult>;
+  /** Phase 1A S2: DELETE /workspaces/{id}/appointments/{appointmentId}/roster/{clientId}. Already removed is 200 alreadyApplied; recorded attendance is 409 attendance_recorded. */
+  removeFromClass: (studioId: string, appointmentId: string, clientId: string, idempotencyKey: string) => Promise<RosterRemoveResult>;
+  /** Phase 1A C1: POST /workspaces/{id}/clients/{clientId}/notes. `noteId` is generated once per note and resent on retries; 201 new, 200 replay. Owner, admin, front desk. */
+  addClientNote: (
+    studioId: string,
+    clientId: string,
+    input: { noteId: string; body: string; noteType?: ClientNoteType },
+    idempotencyKey: string,
+  ) => Promise<{ note: ClientNote }>;
+  /** Phase 1A C2: POST /workspaces/{id}/clients (quick add). `clientId` is generated once per new client and resent on retries. A duplicate phone or email is 409 duplicate_client. */
+  createClient: (studioId: string, input: NewClientInput, idempotencyKey: string) => Promise<{ client: ClientSummary; replayed: boolean }>;
 };
 
 const str = (value: unknown) => (typeof value === "string" ? value : null);
@@ -360,6 +495,7 @@ export function toStaffPulse(raw: unknown): StaffPulse {
           }
         : null,
     newClientsLast7Days: r.scope === "studio" && typeof r.newClientsLast7Days === "number" ? count(r.newClientsLast7Days) : null,
+    ...("cards" in r ? { cards: toPulseCards(r.cards) } : {}),
   };
 }
 
@@ -426,19 +562,34 @@ export function toAttendanceResult(raw: unknown, clientId: string): AttendanceRe
   };
 }
 
-type RequestOptions = { method?: "GET" | "PUT"; body?: unknown; headers?: Record<string, string> };
+type RequestOptions = { method?: "GET" | "PUT" | "POST" | "DELETE"; body?: unknown; headers?: Record<string, string> };
+
+/** A request with no answer after this long is given up as a network error, so a hung connection never leaves a spinner forever. A write resends with the same Idempotency-Key. */
+export const REQUEST_TIMEOUT_MS = 20_000;
+
+/** Bearer tokens travel only over HTTPS. Plain http is allowed for the emulator and loopback of a QA build, never for a real host. */
+export function isAllowedBaseUrl(url: string) {
+  if (/^https:\/\//i.test(url)) return true;
+  return /^http:\/\/(10\.0\.2\.2|localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url);
+}
 
 export function createStaffApi(options: StaffApiOptions): StaffApi {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
+  if (!isAllowedBaseUrl(baseUrl)) throw new Error("The DanceFlow web address must start with https://.");
   const doFetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
+  const sleep = options.sleepImpl ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   async function send(path: string, token: string, request: RequestOptions) {
+    const controller = typeof AbortController === "undefined" ? null : new AbortController();
+    const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
     try {
       return await doFetch(`${baseUrl}/api/staff${path}`, {
+        ...(controller ? { signal: controller.signal } : {}),
         method: request.method ?? "GET",
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${token}`,
+          ...(options.appHeader ? { "X-DanceFlow-App": options.appHeader } : {}),
           ...(request.body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...request.headers,
         },
@@ -446,6 +597,8 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
       });
     } catch {
       throw new StaffApiError(0, "network_error", "We could not reach DanceFlow.");
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -455,11 +608,25 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     if (!token) throw new StaffApiError(401, "unauthenticated", "Sign in to continue.");
 
     let response = await send(path, token, request);
+    let refreshed: string | null = null;
 
     if (response.status === 401) {
-      const refreshed = await options.refreshAccessToken().catch(() => null);
+      refreshed = await options.refreshAccessToken().catch(() => null);
       if (!refreshed) throw new StaffApiError(401, "unauthenticated", "Sign in to continue.");
       response = await send(path, refreshed, request);
+    }
+
+    let retryAfterSeconds: number | undefined;
+    if (response.status === 429) {
+      retryAfterSeconds = parseRetryAfterSeconds(response.headers?.get?.("Retry-After"));
+      // A 429 is refused before any work, so resending is safe. Only a read waits and retries on its own, once, and only for a short wait:
+      // a write (a row that is saving) is left to the person's next tap, which keeps one mark = one action.
+      const isRead = (request.method ?? "GET") === "GET";
+      if (isRead && retryAfterSeconds !== undefined && retryAfterSeconds <= MAX_AUTO_RETRY_AFTER_SECONDS) {
+        await sleep(retryAfterSeconds * 1000);
+        response = await send(path, refreshed ?? token, request);
+        if (response.status === 429) retryAfterSeconds = parseRetryAfterSeconds(response.headers?.get?.("Retry-After"));
+      }
     }
 
     let body: unknown = null;
@@ -470,8 +637,12 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     }
 
     if (!response.ok) {
-      const { code, message } = readErrorBody(body);
-      throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.");
+      const { code, message, current } = readErrorBody(body);
+      throw new StaffApiError(response.status, codeFor(response.status, code), message ?? "Something went wrong.", retryAfterSeconds, {
+        serverCode: typeof code === "string" ? code : undefined,
+        current,
+        details: errorDetails(body),
+      });
     }
 
     if (body === null || typeof body !== "object") {
@@ -488,7 +659,7 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     today: (studioId, date) => call<StaffToday>(`${ws(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`),
     studioSchedule: async (studioId, date) =>
       toStaffStudioDay(await call<unknown>(`${ws(studioId)}/schedule${date ? `?date=${encodeURIComponent(date)}` : ""}`)),
-    pulse: async (studioId) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse`)),
+    pulse: async (studioId, options) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse${options?.cards ? "?include=cards" : ""}`)),
     appointment: (studioId, appointmentId) =>
       call<AppointmentDetail>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}`),
     searchClients: async (studioId, { q, cursor, limit }) => {
@@ -502,6 +673,77 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     },
     client: async (studioId, clientId) =>
       toClientDetail(await call<unknown>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}`)),
+    setAppointmentOutcome: async (studioId, appointmentId, input, idempotencyKey) => {
+      const raw = await call<{ appointment?: Record<string, unknown> }>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}/attendance`, {
+        method: "PUT",
+        body: input,
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      const a = raw.appointment;
+      if (!a || typeof a.status !== "string") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { id: typeof a.id === "string" ? a.id : appointmentId, status: a.status, alreadyApplied: a.alreadyApplied === true };
+    },
+    clientNotes: async (studioId, clientId, params = {}) => {
+      const query = new URLSearchParams();
+      if (params.cursor) query.set("cursor", params.cursor);
+      if (params.limit && Number.isInteger(params.limit) && params.limit > 0) query.set("limit", String(Math.min(params.limit, 50)));
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const raw = await call<{ notes?: unknown; nextCursor?: unknown }>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}/notes${suffix}`);
+      const notes = Array.isArray(raw.notes)
+        ? raw.notes.flatMap((n: Record<string, unknown>) =>
+            typeof n?.id === "string" && typeof n.body === "string"
+              ? [{ id: n.id, clientId: typeof n.clientId === "string" ? n.clientId : clientId, noteType: str(n.noteType) ?? "general", body: n.body, occurredAt: str(n.occurredAt) ?? "", createdAt: str(n.createdAt) ?? "", authorName: str(n.authorName), isMine: n.isMine === true }]
+              : [],
+          )
+        : [];
+      return { notes, nextCursor: str(raw.nextCursor) };
+    },
+    enrollInClass: async (studioId, appointmentId, input, idempotencyKey) => {
+      const raw = await call<{ attendee?: Record<string, unknown> }>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}/roster`, {
+        method: "POST",
+        body: input,
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      const a = raw.attendee;
+      if (!a || typeof a.id !== "string") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { attendeeId: a.id, clientId: typeof a.clientId === "string" ? a.clientId : input.clientId, alreadyEnrolled: a.alreadyEnrolled === true };
+    },
+    removeFromClass: async (studioId, appointmentId, clientId, idempotencyKey) => {
+      const raw = await call<{ removed?: unknown; alreadyApplied?: unknown }>(
+        `${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}/roster/${encodeURIComponent(clientId)}`,
+        { method: "DELETE", headers: { "Idempotency-Key": idempotencyKey } },
+      );
+      if (raw.removed !== true) throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { removed: true, alreadyApplied: raw.alreadyApplied === true };
+    },
+    addClientNote: async (studioId, clientId, input, idempotencyKey) => {
+      const raw = await call<{ note?: Record<string, unknown> }>(`${ws(studioId)}/clients/${encodeURIComponent(clientId)}/notes`, {
+        method: "POST",
+        body: { noteId: input.noteId, body: input.body, ...(input.noteType ? { noteType: input.noteType } : {}) },
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      const n = raw.note;
+      if (!n || typeof n.id !== "string") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return {
+        note: {
+          id: n.id,
+          clientId: typeof n.clientId === "string" ? n.clientId : clientId,
+          noteType: typeof n.noteType === "string" ? n.noteType : "general",
+          body: typeof n.body === "string" ? n.body : input.body,
+          occurredAt: typeof n.occurredAt === "string" ? n.occurredAt : "",
+          createdAt: typeof n.createdAt === "string" ? n.createdAt : "",
+        },
+      };
+    },
+    createClient: async (studioId, input, idempotencyKey) => {
+      const raw = await call<{ client?: unknown; replayed?: unknown }>(`${ws(studioId)}/clients`, {
+        method: "POST",
+        body: input,
+        headers: { "Idempotency-Key": idempotencyKey },
+      });
+      if (!raw.client || typeof raw.client !== "object") throw new StaffApiError(200, "unexpected_response", "Something went wrong.");
+      return { client: toClientSummary(raw.client), replayed: raw.replayed === true };
+    },
     setAttendance: async (studioId, appointmentId, clientId, status, idempotencyKey) =>
       toAttendanceResult(
         await call<unknown>(

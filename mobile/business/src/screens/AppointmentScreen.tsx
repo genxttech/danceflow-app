@@ -6,9 +6,10 @@ import { Screen } from "@/components/Screen";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StatusBadge } from "@/components/StatusBadge";
-import { RosterAttendance } from "@/components/RosterAttendance";
+import { ClassRosterEditor } from "@/components/ClassRosterEditor";
+import { PrivateLessonCheckIn, ONE_TO_ONE_TYPES } from "@/components/PrivateLessonCheckIn";
 import { isStaffFeatureEnabled } from "@/lib/features";
-import { appointmentTypeLabel, formatDayHeading, formatTimeRange, personName } from "@/lib/format";
+import { appointmentTypeLabel, formatDayHeading, formatTimeRange, personName, statusLabel } from "@/lib/format";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import type { AppointmentDetail } from "@/lib/staffApi";
 import { appointmentHeadline } from "@/screens/TodayScreen";
@@ -64,6 +65,9 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
   const canMarkAttendance =
     isStaffFeatureEnabled("attendance") && studio?.accessAllowed === true && studio.capabilities?.markAttendance === true;
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  // changes made on this screen (check-in status, roster add/remove) shown on top of the loaded appointment
+  const [statusOverride, setStatusOverride] = useState<string | null>(null);
+  const [rosterOverride, setRosterOverride] = useState<{ clientId: string; name: string | null; attendanceStatus: string | null }[] | null>(null);
 
   // Retry: show the loading state, then fetch again.
   const load = useCallback(async () => {
@@ -114,7 +118,15 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
     );
   }
 
-  const appointment = state.appointment;
+  const loaded = state.appointment;
+  const appointment: AppointmentDetail = {
+    ...loaded,
+    status: statusOverride ?? loaded.status,
+    roster:
+      loaded.roster && rosterOverride
+        ? { ...loaded.roster, attendees: rosterOverride, bookedCount: Math.max(0, loaded.roster.bookedCount + rosterOverride.length - loaded.roster.attendees.length) }
+        : loaded.roster,
+  };
   // Slice 2 puts the studio zone on the detail itself; the route param (from Today) and /me cover a server without it.
   const zone = appointment.timeZone ?? timeZone ?? studio?.timeZone ?? undefined;
   const instructor = personName(appointment.instructor);
@@ -124,6 +136,20 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
   const recap = appointment.recap;
   // one rule for the heading and the controls: a cancelled class is read-only
   const markNow = canMarkAttendance && appointment.status !== "cancelled";
+  // Phase 1A: check-in for a one-to-one lesson (its own flag, and the studio's markAttendance capability)
+  const canCheckInLesson =
+    isStaffFeatureEnabled("appointmentAttendance") &&
+    studio?.accessAllowed === true &&
+    studio.capabilities?.markAttendance === true &&
+    (ONE_TO_ONE_TYPES as readonly string[]).includes(appointment.appointmentType);
+  // Phase 1A: add and remove dancers on a class roster (owner, admin, front desk; instructors wait for the instructor SQL gate)
+  const canManageRoster =
+    isStaffFeatureEnabled("classRoster") &&
+    studio?.accessAllowed === true &&
+    ["studio_owner", "studio_admin", "front_desk"].includes(studio.role) &&
+    appointment.appointmentType === "group_class" &&
+    appointment.status !== "cancelled";
+  const setStatus = (next: string) => setStatusOverride(next);
 
   return (
     <Screen edges={[]}>
@@ -153,6 +179,15 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
         {appointment.title && appointment.appointmentType !== "group_class" ? <Field label="Title" value={appointment.title} /> : null}
       </Section>
 
+      {canCheckInLesson ? (
+        <Section title="Check in">
+          <AppText tone="muted" testID="check-in-status">
+            Status: {statusLabel(appointment.status)}
+          </AppText>
+          <PrivateLessonCheckIn studioId={studioId} appointmentId={appointment.id} clientName={client} status={appointment.status} onStatusChange={setStatus} />
+        </Section>
+      ) : null}
+
       {appointment.notes ? (
         <Section title="Teaching notes">
           <AppText>{appointment.notes}</AppText>
@@ -164,11 +199,13 @@ export function AppointmentScreen({ appointmentId, studioId, timeZone }: { appoi
           <AppText tone="muted" style={tabularNums} testID="roster-capacity">
             {rosterCapacityLabel(roster.bookedCount, roster.capacity)}
           </AppText>
-          <RosterAttendance
+          <ClassRosterEditor
             studioId={studioId}
             appointmentId={appointment.id}
             attendees={roster.attendees}
             canMark={markNow}
+            canManage={canManageRoster}
+            onRosterChange={(next) => setRosterOverride(next)}
           />
         </Section>
       ) : null}

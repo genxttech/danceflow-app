@@ -11,7 +11,34 @@
  * are not yet device-verified. Two more are OFF until they have been walked on a device: "bulkAttendance" (Mark all present on a class roster) and "keepStale" (keep the last
  * loaded schedule on screen, with a banner, when a refresh fails for a transient reason). Turn one on per build with EXPO_PUBLIC_STAFF_FEATURES=pulse (or studioSchedule, bulkAttendance, keepStale).
  */
-export type StaffFeature = "clients" | "attendance" | "pulse" | "studioSchedule" | "bulkAttendance" | "keepStale";
+export type StaffFeature =
+  | "clients"
+  | "attendance"
+  | "pulse"
+  | "studioSchedule"
+  | "bulkAttendance"
+  | "keepStale"
+  | "appointmentAttendance"
+  | "clientNotes"
+  | "clientCreate"
+  | "classRoster"
+  | "ariaAssistant"
+  | "pulseCards"
+  | "pulseHome";
+
+/**
+ * "pulseCards" (the Pulse command-center cards: requests, leads, ARIA, exceptions, health; read only, GET /pulse?include=cards) and "pulseHome" (Pulse as the landing tab for owner, admin and
+ * front desk) are OFF by default and never release words until walked on a device (Test-StaffFeatures refuses unknown words). pulseHome only has an effect together with pulse.
+ */
+/**
+ * "ariaAssistant" (the in-app ARIA assistant, A1 groundwork: local stub only, no network) is OFF by default and never a release word (Test-StaffFeatures refuses unknown words).
+ */
+/**
+ * The Phase 1A WRITE features (Business expansion plan). All default OFF and only reachable through EXPO_PUBLIC_STAFF_FEATURES. They match the server's write capability keys
+ * (src/lib/staff/writeGuard.ts), which are a second, independent switch: a build with the word on still gets `writes_disabled` until the server policy enables it.
+ * Build-ReleaseAab.ps1 refuses these words unless iso-qa device-smoke evidence for that exact commit exists (docs/mobile/tools/Test-StaffFeatures.ps1).
+ */
+export const WRITE_FEATURES = ["appointmentAttendance", "clientNotes", "clientCreate", "classRoster"] as const satisfies readonly StaffFeature[];
 
 const ENABLED_BY_DEFAULT: readonly StaffFeature[] = ["clients", "attendance"];
 
@@ -21,7 +48,14 @@ const isFeature = (value: string): value is StaffFeature =>
   value === "pulse" ||
   value === "studioSchedule" ||
   value === "bulkAttendance" ||
-  value === "keepStale";
+  value === "keepStale" ||
+  value === "appointmentAttendance" ||
+  value === "clientNotes" ||
+  value === "clientCreate" ||
+  value === "classRoster" ||
+  value === "ariaAssistant" ||
+  value === "pulseCards" ||
+  value === "pulseHome";
 
 export function parseStaffFeatures(raw: string | undefined): Set<StaffFeature> {
   const enabled = new Set<StaffFeature>(ENABLED_BY_DEFAULT);

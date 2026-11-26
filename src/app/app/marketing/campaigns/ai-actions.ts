@@ -2,6 +2,11 @@
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { studioHasFeature } from "@/lib/billing/access";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canViewCommunications } from "@/lib/auth/permissions";
+import { updateMarketingCampaignDraftAction } from "./actions";
 import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 
 export type CampaignAIAssistantState = {
@@ -220,4 +225,54 @@ export async function generateCampaignDraftAssistantAction(
     previewText: String(parsed.previewText ?? "").trim(),
     bodyText: String(parsed.bodyText ?? "").trim(),
   };
+}
+
+/**
+ * Marketing M-1b: apply the assistant's suggestion (subject / preview / body) to a studio campaign draft.
+ * Explicitly user-confirmed (confirmApply=yes), never sends, never calls the AI provider (so no ai_action usage is
+ * recorded here; generation stays metered in generateCampaignDraftAssistantAction), and writes only through
+ * updateMarketingCampaignDraftAction, which refuses non-draft campaigns, started deliveries, a frozen send state and
+ * unauthorized roles. Fields not supplied keep the campaign's current values.
+ */
+export async function applyCampaignAiSuggestionToDraftAction(formData: FormData) {
+  const campaignId = getString(formData, "campaignId");
+  const fallback = campaignId
+    ? `/app/marketing/campaigns/${campaignId}`
+    : "/app/marketing/campaigns";
+  const fail = (code: string): never => redirect(`${fallback}?campaign_error=${code}`);
+
+  if (!campaignId) fail("not_found");
+  if (getString(formData, "confirmApply") !== "yes") fail("apply_not_confirmed");
+
+  const subject = getString(formData, "subject");
+  const previewText = getString(formData, "previewText");
+  const bodyText = getString(formData, "bodyText");
+  if (!subject && !previewText && !bodyText) fail("apply_empty");
+
+  const context = await getCurrentStudioContext();
+  if (!context.studioId) redirect("/login");
+  if (!canViewCommunications(context.studioRole ?? "")) fail("unauthorized");
+
+  const supabase = await createClient();
+  const { data: campaign, error } = await supabase
+    .from("marketing_campaigns")
+    .select("id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, audience_event_id")
+    .eq("id", campaignId)
+    .eq("studio_id", context.studioId)
+    .maybeSingle();
+
+  if (error || !campaign) return fail("not_found");
+
+  const merged = new FormData();
+  merged.set("campaignId", campaign.id);
+  merged.set("name", campaign.name ?? "");
+  merged.set("audienceType", campaign.audience_type ?? "");
+  merged.set("audienceEventId", campaign.audience_event_id ?? "");
+  merged.set("subject", subject || campaign.subject || "");
+  merged.set("previewText", previewText || campaign.preview_text || "");
+  merged.set("bodyText", bodyText || campaign.body_text || "");
+  merged.set("ctaLabel", campaign.cta_label ?? "");
+  merged.set("ctaUrl", campaign.cta_url ?? "");
+
+  await updateMarketingCampaignDraftAction(merged);
 }

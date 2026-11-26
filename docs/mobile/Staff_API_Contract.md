@@ -42,6 +42,8 @@ Every refusal is JSON, and no route redirects. The shape is flat: `error` is dis
 | 403 | `role_not_permitted` | The role has no access to this feature | Hide the feature |
 | 404 | `not_found` | The record is missing, in another studio, or not the caller's to read. These cases are indistinguishable | Show "not found" and refresh the list |
 | 409 | `not_markable` | **slice 2.** Attendance can't be recorded for this appointment: it isn't a group class, or the class is cancelled | Refresh the class and explain |
+| 403 | `writes_disabled` | **Write routes added after v0.1.** The server's kill switch for this capability is off (or unreadable: fail closed). Reads are unaffected | Show "This change is turned off right now"; do not retry in a loop |
+| 426 | `upgrade_required` | **Write routes added after v0.1.** The build is too old, blocked, or sent no `X-DanceFlow-App` header | Show the update prompt; the write was not applied |
 | 503 | `service_unavailable` | A dependency failed, including token verification | Retry with backoff. Do not sign out |
 
 Responses carry `Cache-Control: private, no-store`. Do not persist them beyond what the screen needs, because they contain client names.
@@ -175,6 +177,32 @@ The Business home summary: counts for today and the next appointment. Requires `
 - `newClientsLast7Days` counts clients created in the last 7 days. It is `null` for an instructor, who has no studio-wide client view.
 - No names, prices, payment state, contact details or referral source appear anywhere in this response.
 
+### Command-center cards: `GET .../pulse?include=cards` (additive, read only)
+
+Without the query the response is exactly the v1 body above (pinned builds are unaffected). With `?include=cards` the same body gains a `cards` object. Any other value of `include` is ignored.
+
+```json
+"cards": {
+  "requests":   { "state": "ok", "asOf": "...", "truncated": false, "bookingRequests": 2, "selfService": 1, "total": 3, "oldestCreatedAt": "...",
+                  "recent": [{ "id": "uuid", "source": "booking_request|self_service", "kind": "book|reschedule|cancel|null", "createdAt": "...", "requestedStartsAt": "...|null", "clientName": "Maya Chen|null" }] },
+  "leads":      { "state": "ok", "asOf": "...", "truncated": false, "newLast7Days": 2, "uncontacted": 1, "followUpsOverdue": 1,
+                  "recent": [{ "id": "uuid", "name": "Lena Lead", "createdAt": "...", "sourceLabel": "Intro booking", "uncontacted": true, "followUpDueAt": "...|null" }] },
+  "aria":       { "state": "ok", "asOf": "...", "truncated": false, "open": 2,
+                  "recent": [{ "id": "uuid", "title": "...", "priority": "high|null", "createdAt": "...", "ruleKey": "...|null", "status": "suggested|drafted" }] },
+  "exceptions": { "state": "ok", "asOf": "...", "truncated": false, "cancelledToday": 1, "lowPackages": 3 },
+  "health":     { "state": "ok", "asOf": "...", "truncated": false, "scope": "studio|own", "sessionsToday": 6, "sessionsDone": 4, "sessionsAhead": 2 }
+}
+```
+
+- **Per-card states.** A card is `null` when the viewer's role may not see it (draw nothing); `{ "state": "unavailable" }` when that card's own query failed (the other cards still answer; the failure is logged by card name only); otherwise `state: "ok"`. A failure of the v1 day summary is still the flat `503`.
+- **Role matrix.** Owner and admin: all five cards. Front desk: all but `aria`. Instructor: `requests` limited to requests assigned to their own instructor id, `exceptions` (cancellations of their own day; `lowPackages` is `null`) and `health` with `scope: "own"`; `leads` and `aria` are `null`. An instructor without a linked instructor record gets empty request counts, never the studio's. Independent instructors and organizer roles are still refused with `403 role_not_permitted` before any card read.
+- **Names.** `clientName` is filled only for owner, admin and front desk, through the studio-scoped client lookup; it is `null` for an instructor. Lead `name` is the lead's own name (broad roles only; the card is `null` for instructors). No emails, phone numbers, prices or payment state.
+- **Definitions.** `requests` counts open `booking_requests` (`pending`) and open `student_booking_action_requests` (`pending`, not linked to a booking request, so one request is never in both): exact counts, the newest five and the oldest waiting, however long the queues are. A public request with no client record shows the name typed on the form (owner, admin and front desk only). `leads` are `clients.status = 'lead'` excluding event-registration origins (the event checkout writes `referral_source` "Event Registration" and `source_system` `event_registration`; every spelling of either, case and punctuation ignored, is excluded) and independent instructors (event origins are excluded in the query itself, so a large event cannot fill the 200-row scan; independent instructors are excluded after the read; `truncated` is also set when the contacted/follow-up lookups hit their caps; interim rule, owner decision O3 in the audit; one predicate in `src/lib/staff/pulseCards.ts`); `uncontacted` = no `lead_activities` row; `followUpsOverdue` = open follow-ups due now or earlier. `aria.open` counts `automation_actions` in `suggested` or `drafted`. `lowPackages` = active packages whose finite items are all at or under 1 remaining (the schema has no expiry date, so there is no "expiring"). `health` comes from the same day summary as `today`, so the numbers cannot disagree. `sessionsDone` counts today's non-cancelled sessions that have already started (a session still in progress counts, because the day summary has start times only); the Business app labels it "started".
+- **Classes are never merged.** A lead (a client with status `lead`), a lesson request (an open `booking_requests` / `student_booking_action_requests` row), a confirmed booking (an appointment) and an intake submission are different things with different cards. A lead who also has an open request is counted once in each card (their own question), never folded into one number; an approved, declined, executed or cancelled request is never open; an event ticket purchaser or registrant is not a lead.
+- **Stable card descriptors.** Every `ok` card also carries `cardId` and `cardType` (`lesson_requests`, `new_leads`, `aria_suggestions`, `operational_exceptions`, `studio_health`) and `actions: []`. The list is always empty in this version; it is the place a later phase attaches recommended actions without reshaping the payload, and an approval will still go through the web app's own gate and audit trail. Items inside a card keep their row ids.
+- **No actions.** These cards never approve, decline, execute, send, start intake or write anything. Approve/decline (P2) and ARIA actions (P4) are separate, gated work.
+- Lists hold at most 5 items; counts are authoritative, lists are samples.
+
 ## `GET /api/staff/workspaces/{studioId}/appointments/{appointmentId}`
 
 Requires `capabilities.viewStudioSchedule`. Instructors can read their own appointments. Owners, admins and front desk can read any appointment in the studio. `accessScope` reports which rule applied (`own-instructor` or `broad`).
@@ -238,15 +266,84 @@ Who may call it and what each answer means:
 - **Not markable:** a non-class appointment or a cancelled class returns `409 not_markable`.
 - `displayName` follows the roster name rules above and can be `null`.
 
+## Class roster: drop-in enroll and remove (Phase 1A, S2)
+
+Both routes sit behind the write gate (capability `classRoster`, `X-DanceFlow-App` header) and call the same code as the web "Enroll student" and "Remove" buttons (`src/lib/staff/classRoster.ts`, which calls the database functions `enroll_class_attendee` and `cancel_class_attendee`). Capacity, duplicates, cancelled classes and funding are decided in the database under row locks, so a race can never overfill a class or enroll a dancer twice.
+
+### `POST /api/staff/workspaces/{studioId}/appointments/{appointmentId}/roster`
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "clientId": "uuid", "billingType": "free_comped", "clientPackageId": null, "clientMembershipId": null }
+```
+
+- `clientId` is required. `billingType` is optional: `package_credit`, `membership`, `pay_as_you_go` or `free_comped` (database default `package_credit`). `clientPackageId` and `clientMembershipId` are optional ids; `membership` needs `clientMembershipId` (`400 invalid_request` without it).
+- **Replay with different funding:** a dancer who is already enrolled gets the existing attendee back (`200`, `alreadyEnrolled: true`) whatever `billingType` or ids the retry carries; the funding is not changed and not re-validated. To change a dancer's funding, remove and re-enroll. This also holds when the class is now full or cancelled.
+- Any other database refusal is `409 enrollment_failed` with a generic message (never database text). `409` codes added to the write registry: `class_full`, `class_cancelled`, `no_eligible_entitlement`, `entitlement_exhausted`, `membership_not_active`, `ambiguous_funding_source`, `invalid_funding`, `already_enrolled`, `attendance_recorded`, `enrollment_failed`.
+- A package credit is **not** taken at enrollment. It is taken when attendance is recorded, as on the web.
+- Response `201 { "attendee": { "id": "uuid", "clientId": "uuid", "alreadyEnrolled": false } }`. A dancer who is already enrolled is a replay (natural domain key): `200` with the existing attendee and `alreadyEnrolled: true`, never a second row.
+- **Roles:** owner, admin and front desk for any class in the studio; an instructor only for their own class. **An instructor's `billingType` and ids are ignored by the database**: it enrolls the dancer only when they have exactly one eligible package or membership, otherwise `409 ambiguous_funding_source` ("ask an owner, admin or front desk"). Independent instructors and organizer roles get `403 role_not_permitted`.
+- Refusals: `404 not_found` (missing class, another studio's, not the caller's class, a private lesson, or a client of another studio); `409` with `class_full`, `class_cancelled`, `no_eligible_entitlement`, `entitlement_exhausted`, `membership_not_active`, `ambiguous_funding_source`, or `invalid_funding` (the package or membership is not an active one of this dancer). `409` bodies carry `current: null`.
+- Dancer notice: after the enrollment commits the dancer gets the same confirmation (email and push, no SMS) as from the web, once per new attendee row.
+
+### `DELETE /api/staff/workspaces/{studioId}/appointments/{appointmentId}/roster/{clientId}`
+
+Removes a dancer, addressed by client id (the roster the app shows lists clients, not attendee rows). `Idempotency-Key` required, no body.
+
+- Response `200 { "removed": true, "alreadyApplied": false }`. Removing a dancer who was already removed is a no-op: `200` with `alreadyApplied: true`, no second notice.
+- `404 not_found`: class missing, in another studio, not the caller's, or the client was never on the roster. `409 attendance_recorded`: the dancer's attendance is already recorded, so they can't be removed. Roles as above.
+- The removal notice to the dancer is sent only when the removal actually changed a booked dancer.
+
+## `PUT /api/staff/workspaces/{studioId}/appointments/{appointmentId}/attendance` (Phase 1A, S1)
+
+Marks a one-to-one appointment (`private_lesson`, `intro_lesson`, `coaching`) attended or no-show. It runs the same code as the web "Mark attended" and "No-show" buttons (`src/lib/staff/appointmentAttendance.ts`), so the package or membership deduction, payment gate and instructor-earning staging are identical. It is behind the write gate (capability `appointmentAttendance`, `X-DanceFlow-App` header). Group classes keep their per-dancer route above.
+
+Request:
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "status": "attended" }
+{ "status": "no_show", "missedAppointmentCharge": "none" }
+```
+
+- `status` is `attended` or `no_show`. Anything else is `400 invalid_request`.
+- `missedAppointmentCharge` (no-show only) is `none` (default), `package` or `membership`: the same "charge policy" choice the web no-show form offers. `package` takes one credit from the package linked to the appointment, `membership` records the membership benefit. It is ignored for `attended`; any other value is `400 invalid_request`.
+- Idempotency is **state-based** (pattern 1). Keys are not stored. A repeated or concurrent request for the status the appointment already has writes nothing new, never takes a second credit (the deduction is exactly-once in the database) and returns `200` with `alreadyApplied: true`.
+
+Response `200`:
+
+```json
+{ "appointment": { "id": "uuid", "status": "attended", "alreadyApplied": false } }
+```
+
+Who may call it and what each answer means:
+- **Roles:** owners, admins and front desk for any one-to-one appointment in the studio. An instructor only for an appointment currently assigned to them (the package deduction under their own session depends on the instructor SQL gate, D4). Independent instructors and organizer roles get `403 role_not_permitted`.
+- `404 not_found`: missing, another studio's, or not the caller's to mark (indistinguishable).
+- `409 not_markable`: not a one-to-one appointment type, or cancelled.
+- `409 outcome_conflict` (with `current: { "status": "attended" | "no_show" }`): `attended` and `no_show` are final for these appointment types. Marking a no-show lesson attended, or an attended one no-show, is refused (database rule `enforce_private_lesson_attendance_lifecycle`). **There is no reset**: the web has none either and a correction workflow is not designed yet. The app must not offer "undo" on a recorded outcome.
+- `409 payment_required`: `attended` on a pay-as-you-go lesson that is unpaid, a package lesson with no usable credit, or a membership lesson the membership does not cover. Payment stays on the web.
+- `409 outcome_conflict` also covers: (a) a no-show replay that moves **away from an applied decision**: a charge that was applied can only be repeated (a different or no charge is refused), and a no-show recorded with no deduction cannot become a charge (the note would be wrong); repeating an applied charge is a no-op `200`. A charge that was requested but **failed** (nothing applied) can be retried with the same charge, or changed; (b) an attended replay after the lesson's package link was changed on the web to a package other than the one already charged (`current.status` is `attended`).
+- `409 usage_sync_pending`: `attended` is recorded but the package or membership deduction did not complete. Repeating the same request retries it without a second deduction.
+- `409 package_exhausted`: `attended` is recorded but the package has no credit left (two lessons raced for its last credit; sent only when the database says "No matching active package credit was found" or "The selected package has no remaining credits"). The lesson stays `attended` with no deduction, exactly as on the web; **repeating cannot succeed**. Show "no credit left: resolve in the web app". Transient failures stay `usage_sync_pending`. Cheap prevention is a proposal for the owner, not built: it needs a locked function (migration); doing the deduction before the status write was rejected because it can leave a deduction on a lesson that stayed scheduled.
+- **Forward compatibility (all write routes):** a client treats an unknown `409` code as a non-retryable error and shows the message. Do not retry blindly on a code you do not know.
+- **Known limit, audit text:** if the package lifecycle reconcile throws after the deduction committed, the route trusts the deduction marker and reports success; the note is updated to "deducted".
+- **Known limit, future-dated lessons:** the web has no date guard, so a lesson can be marked attended before it starts; the API matches it.
+- `409 charge_failed`: `no_show` is recorded (with its one activity note, "requested, not applied") but the requested charge could not be applied. `error` is one of a fixed set ("No package is linked to this appointment.", "This appointment is not linked to a client.", "No eligible membership benefit was found for this appointment.") or "The missed-lesson charge could not be applied."; database text is never returned. Repeat the same request to retry the charge (it succeeds once the cause is fixed, for example a package is linked, with one deduction and the one note corrected), or send `none`.
+
 ## `GET /api/staff/workspaces/{studioId}/clients?q=&cursor=&limit=` (slice 2)
 
 Client lookup.
-- **Owners, admins and front desk** (`capabilities.viewClients`) search the studio's `active` clients.
+- **Owners, admins and front desk** (`capabilities.viewClients`) search the studio's clients: every status except `archived` by default, like the web enroll-student and new-appointment pickers, so a just-created `lead` is found and can be enrolled or booked (neither the web nor the enroll RPC requires `active`).
 - **Instructors** search only the clients they teach. This is the teaching relationship rule above: their current and upcoming lessons, plus attended lessons from the last 14 days.
 - **Other roles** get `403 role_not_permitted`.
 
 Parameters:
 - `q`: optional, at most 80 characters, matched case-insensitively against first and last name. Wildcard characters are treated literally.
+- `status`: optional, one of the statuses below; returns only clients with that status (`archived` included). Anything else is `400 invalid_request`. Ignored for instructors, who cannot read client status.
 - `limit`: 1–50, default 25.
 - `cursor`: the `nextCursor` from the previous page, used as-is. A cursor that doesn't decode is `400`.
 
@@ -258,7 +355,7 @@ Parameters:
 ```
 
 - Ordered by last name, then first name, then id.
-- `status` is the client's CRM status (`lead`, `contacted`, `consultation_booked`, `converted`, `lost`, `active`, `inactive`, `archived`). It is always `active` in a front-desk search, and `null` for instructors, who can't read client records.
+- `status` is the client's CRM status (`lead`, `contacted`, `consultation_booked`, `converted`, `lost`, `active`, `inactive`, `archived`). A client added from the app starts as `lead` (as on the web), so show a "Lead" badge for `lead` (and `contacted`, `consultation_booked`) rows; a lead can be enrolled into a group class and booked like any other client. `status` is `null` for instructors, who can't read client records.
 - `nextCursor: null` means there are no more pages.
 
 ## `GET /api/staff/workspaces/{studioId}/clients/{clientId}` (slice 2)
@@ -292,6 +389,106 @@ A client summary with no money and no contact details. Same role rules as the se
 - `nextAppointment` is the earliest upcoming `scheduled`, `confirmed` or `rescheduled` appointment, or `null`. For owners, admins and front desk that means a lesson where the client is the primary or partner client, or a group class they're booked into. For instructors it is only the instructor's own lessons with that client.
 - `status` is `null` for instructors, as in the search.
 
+## `GET /api/staff/workspaces/{studioId}/clients/{clientId}/notes?cursor=&limit=` (client notes read)
+
+The client's notes, newest first: the same notes the web client page shows (the web applies no per-note privacy or instructor-visibility rule; access is by role). Reads are not behind the write guard (no `X-DanceFlow-App` header or kill switch needed).
+
+- **Roles:** owners, admins and front desk (`canViewClients`). Instructors (including independent instructors) and organizer roles get `403 role_not_permitted`, because they cannot read client records on the web either.
+- `limit`: 1–50, default 25. `cursor`: the `nextCursor` of the previous page, used as-is; a cursor that does not decode (or has any other shape) is `400 invalid_request`.
+- Ordered by `occurredAt`, then `createdAt`, then `id`, all descending. Paging is keyset-based, so a note added while the app is paging never duplicates or skips a note on pages already fetched (a newer note shows up on a refresh from the top).
+- A client that does not exist or belongs to another studio is `404 not_found`; a workspace the caller does not belong to is `403 not_a_member`.
+
+```json
+{
+  "notes": [
+    { "id": "uuid", "clientId": "uuid", "noteType": "follow_up", "body": "Called about the showcase.", "occurredAt": "2026-11-20T15:30:00+00:00", "createdAt": "2026-11-20T15:30:02.123456+00:00", "authorName": "Fran Desk", "isMine": true }
+  ],
+  "nextCursor": null
+}
+```
+
+- `isMine` is true for notes the caller wrote. `authorName` is the author's profile name, but profiles are readable only for the caller's own row (the web client page's author column behaves the same), so in practice it is the caller's name on their own notes and `null` on a colleague's; show "Staff" or nothing for `null`. No email address is ever returned.
+- Timestamps here are the database form (`+00:00`, microseconds kept so a cursor can resume exactly); parse them as instants.
+- `nextCursor: null` means there are no more pages.
+
+## `POST /api/staff/workspaces/{studioId}/clients/{clientId}/notes` (client slice C1)
+
+Adds an activity note to a client. It is the web "Add note" action's own write (shared module `src/lib/staff/clientNotes.ts`), so validation, columns and the database guards are the same.
+
+Request:
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "noteId": "3f1c2a54-8d0e-4c7b-9a61-52e8d4f0b1aa", "body": "Called about the showcase.", "noteType": "follow_up", "occurredAt": "2026-11-20T15:30:00Z" }
+```
+
+- `noteId` is required: a UUID the app generates **once per note** and resends unchanged on every retry (client-supplied entity id pattern). The note is stored under that id.
+- `body` is required, trimmed, at most 5000 characters (the web form has no cap; the API adds one).
+- `noteType` is optional: `general` (default), `follow_up`, `sales`, `lesson`, `billing` or `concern`.
+- `occurredAt` is optional ISO 8601; it defaults to now. Any other field is ignored.
+- `Idempotency-Key` is required (and, as everywhere, not stored). Retries are made safe by `noteId`: sending the same `noteId` with the same content again (same client, `noteType`, `body`, and `occurredAt` when you sent one; same author) returns the stored note with `200` and writes nothing; the same `noteId` with different content, or from a different author, is `409 idempotency_conflict`.
+
+Response: `201` with the new note, or `200` with the stored note when it was a replay of the same `noteId`:
+
+```json
+{ "note": { "id": "uuid", "clientId": "uuid", "noteType": "follow_up", "body": "Called about the showcase.", "occurredAt": "2026-11-20T15:30:00+00:00", "createdAt": "2026-11-20T15:30:02.123+00:00" } }
+```
+
+Who may call it and what each answer means:
+- **Write guard:** the route is behind the per-capability kill switch (`clientNotes`) and the minimum-app-version gate (`X-DanceFlow-App` header): `403 writes_disabled` while the capability is not enabled, `426 upgrade_required` for a missing or too-old build. Identity and membership refusals come first.
+- **Roles:** owners, admins and front desk (`canEditClients`, the same as the web action). Instructors, independent instructors and organizer roles get `403 role_not_permitted`.
+- **`409 idempotency_conflict`:** `{ "error", "code": "idempotency_conflict", "current": { "note": { … } } }`. `current` is the stored note, or `null` when that `noteId` exists where the caller cannot read it (another studio). Never retry it unchanged: generate a new `noteId` if the person really meant a new note.
+- **Another studio's client, or a client that does not exist:** `404 not_found` (indistinguishable). A workspace the caller does not belong to is `403 not_a_member`.
+- **Bad input** (missing or malformed `noteId`, missing or blank `body`, unknown `noteType`, unparsable `occurredAt`, non-string fields, over-long `body`, malformed ids or key): `400 invalid_request`.
+- The write is made with the caller's own token, so row-level security applies (an active membership of that studio and a client of the same studio).
+- **What is recorded:** the note row (`studio_id`, `client_id`, `note_type`, `body`, `occurred_at`, `created_by` = the caller). The web action writes nothing else (no audit table, no outbox), and `client_activity_notes` has no source column, so a note made on a phone is not marked as such.
+
+## `POST /api/staff/workspaces/{studioId}/clients` (client slice C2, quick add)
+
+Creates a client (a `lead`) with the fewest fields a front desk needs at the door. It is the web "New client" action's own create path (shared module `src/lib/staff/clientCreate.ts`: the same payload builder, the same duplicate-email rule, the same insert), with a minimal body.
+
+Request:
+
+```
+Idempotency-Key: <8–128 characters: letters, digits, - _ : .>
+Content-Type: application/json
+
+{ "clientId": "9b2d6c1e-47a3-4f0b-8e55-3c1d7a90e2f4", "firstName": "Ana", "lastName": "Rivera", "phone": "(555) 010-0100", "email": "ana@example.com", "note": "Met at the showcase.", "allowDuplicatePhone": false }
+```
+
+- `clientId`: required: a UUID the app generates **once per new client** and resends unchanged on every retry (client-supplied entity id pattern). The client is stored under that id.
+- `firstName`, `lastName`: required, at most 80 characters (the web limits).
+- `phone` and/or `email`: at least one is required. They are normalized as on the web: the email is lower-cased; a US number is stored as `+1XXXXXXXXXX`, other numbers need an international `+` form.
+- `note`: optional, at most 3000 characters; stored in the client's `notes` field (the web form's "Notes"), not as an activity note.
+- `allowDuplicatePhone`: optional boolean, default `false` (see below).
+- Everything else the web form has (address, birthday, partner, photo, onboarding documents, status) is not accepted; unknown fields are ignored. The client is created with status `lead`, exactly like a web-created lead, with no referral source and no source marker (the table has none that is truthful for a phone; `source_system` belongs to imports).
+- `Idempotency-Key` is required (and not stored). Retries are made safe by `clientId`: the same `clientId` with the same details (names, email, phone, note) returns the stored client with `200` and `"replayed": true` and writes nothing; the same `clientId` with different details is `409 idempotency_conflict`. The duplicate rules below only ever concern a **different** client, so a retry is never answered `duplicate_client` about itself.
+
+Response `201` (or `200` with `"replayed": true` for a replay of the same `clientId`):
+
+```json
+{ "client": { "id": "uuid", "firstName": "Ana", "lastName": "Rivera", "status": "lead" } }
+```
+
+Duplicate response `409` (nothing was created):
+
+```json
+{ "error": "A client with this email already exists in this studio.", "code": "duplicate_client", "existingClientId": "uuid", "matchedOn": "email" }
+```
+
+- **Email** match (exact, same studio): always blocks, as on the web.
+- **Phone** match (same studio; the stored forms `+1XXXXXXXXXX`, `XXXXXXXXXX` and `1XXXXXXXXXX` all match): blocks, because a retry or a returning dancer is the common case. A household can share a phone, so the app may resend with `allowDuplicatePhone: true` after the person confirms; that skips only the phone match, never the email match. Treat `existingClientId` as an invitation to open that client instead (use `GET …/clients/{id}`).
+- Matching never looks outside the caller's studio.
+
+Who may call it and what each answer means:
+- **Write guard:** the route is behind the per-capability kill switch (`clientCreate`) and the minimum-app-version gate (`X-DanceFlow-App` header): `403 writes_disabled` while the capability is not enabled, `426 upgrade_required` for a missing or too-old build. Identity and membership refusals come first.
+- **Roles:** owners, admins and front desk (`canEditClients`, the same as the web action). Instructors, independent instructors and organizer roles get `403 role_not_permitted`; a workspace the caller does not belong to is `403 not_a_member`.
+- **`409 idempotency_conflict`:** `{ "error", "code", "current": { "client": { "id", "firstName", "lastName", "status" } } }`; `current` is `null` when that `clientId` exists where the caller cannot read it (another studio). Generate a new `clientId` only if the person really meant a different client.
+- **Bad input** (missing or malformed `clientId`, missing names, neither phone nor email, over-long or malformed fields, non-string values, missing key): `400 invalid_request`; the `error` text is the web's own validation message.
+- The write is made with the caller's own token, so row-level security applies.
+
 ## Planned, not in slice 2
 
 - **Session recap writes.**
@@ -305,6 +502,28 @@ A client summary with no money and no contact details. Same role rules as the se
 - **Class roster names depend on migration `20270214120000`:** until it is applied to a database, a detail request for a group class by its assigned instructor returns `503`. Apply the SQL before deploying the app.
 - **Instructor lookup failures:** `resolveViewerInstructorId` returns null on a read error as well as on no match, so a transient failure can show as `instructorId: null` with an empty day rather than a `503`. It fails closed, but it can look like an unlinked account.
 - **Workspace activity:** these routes do not write `last_workspace_access_at` or `workspace_access_logs` as the web layout does, so mobile-only activity does not count as workspace access.
-- **Rate limiting:** none is applied yet.
+- **Rate limiting** (from PR 674, 2026-11-19): 600 requests a minute per IP address before the token is checked, and 240 a minute per user and IP after it; over the limit the answer is `429` with `{ "error", "code": "rate_limited" }` and a `Retry-After` header. The counters are in memory per server instance, so the limit is approximate and resets on a deploy.
 - **Idempotency keys** are validated but not stored. Retries are safe because the attendance write is idempotent by state, not because the server remembers the key.
+- **Conflicting attendance writes must not be queued (rule for the app).** Because the server keeps no key, requests replayed later are applied in arrival order and the last one wins. A queued "attended" followed by a queued "no_show" (or the reverse) therefore ends at whichever arrives last, not at what the person decided last. Worse, "attended" deducts a package credit through a database trigger and "no_show" does not give it back, so a flip can leave a credit deducted for someone marked absent. The app must send an attendance mark only while online, one at a time, wait for the answer before allowing the next change to the same person, and never keep a queue of attendance writes for replay. A failed or unknown result is shown to the person and re-read from the server, not retried blindly with a different status.
+- **Attendance notes** (from PR 674): a status change made through this route leaves the record's notes as they are; earlier behaviour (the shared writer set notes to null on update) could erase notes written on the web.
+- **Attendee name after a write:** the name in the response is looked up after the write has committed; if that lookup fails the response is still `200` with `displayName: null`, not a `503`.
+- **Client cursors** are opaque; a cursor the server did not issue answers `400 invalid_request`.
 - **Instructor client scope** follows the teaching relationship window. A student whose last attended lesson with the instructor ended more than 14 days ago, and who has nothing upcoming with them, drops out of the instructor's search and summary.
+
+## Write gate (Phase 0, P0-1)
+
+Every write route added after v0.1 goes through `requireStaffWrite(request, studioId, capability)` (`src/lib/staff/writeGuard.ts`), capability keys `appointmentAttendance`, `clientNotes`, `clientCreate`, `classRoster`. The v0.1 class-attendance route predates it and is not behind it.
+
+- **Header:** `X-DanceFlow-App: business/<versionName>/<versionCode>/<android|ios>`, for example `business/0.2.0/3/android`. Required on every gated write; missing, malformed, another app id, a code below the platform minimum or a blocked code = `426 upgrade_required`. Reads never need it.
+- **Policy:** one server environment variable `STAFF_API_WRITE_POLICY`, JSON: `{"enabled": ["clientNotes"], "minimumCode": {"android": 2}, "blockedCodes": {"android": [1]}}`. **Fail closed:** unset, empty, not JSON, or any malformed field means every write is `403 writes_disabled`; a capability not listed in `enabled` is disabled. It is read on each request; changing it takes a redeploy.
+- **Order:** identity, membership and pause refusals (401/403) first, then `writes_disabled`, then `upgrade_required`.
+
+## Write helpers: idempotency patterns, conflicts, error-code registry (Phase 0, P0-2)
+
+Shared by every write route added after v0.1 (`src/lib/staff/writeSupport.ts`). No migration and no stored keys.
+
+- **`Idempotency-Key` is required on every write** (8-128 characters of letters, digits, `- _ : .`) and is not stored. A retry must reuse the same key and the same body.
+- **Three patterns make a retry safe** (each write names its pattern in its design note): (1) **state-based**: setting a status that is already set is a no-op that returns the current record with `alreadyApplied: true` (attendance, attended/no-show, cancel attendee); (2) **client-supplied entity id**: the app sends a UUID it generated once per user action (`noteId`, `clientId`), the route inserts with that id; an identical replay returns the existing row with `200`, the same id with different content is `409 idempotency_conflict`; (3) **natural domain key**: the existing uniqueness rule is read as a replay (a dancer already enrolled in the class returns the existing attendee with `200`, `alreadyEnrolled: true`).
+- **Conflicts are `409 { error, code, current }`**, where `current` is the server's present state of the thing the app tried to change, so the app can show it and reconcile (replace its local copy with `current`, do not blindly retry).
+- **Bodies** are JSON objects of at most 16 KB; anything else is `400 invalid_request`. A write route returns flat errors only.
+- **Error-code registry for writes** (lower snake case; a slice adds its codes here): `writes_disabled` (403) and `upgrade_required` (426) from the write gate; `idempotency_conflict` (409); client slices: `duplicate_client` (409, `existingClientId`, `matchedOn`); slice codes are defined in each slice's design note (`outcome_conflict`, `payment_required`, `duplicate_email`, the roster codes such as `class_full`, `already_enrolled`).
