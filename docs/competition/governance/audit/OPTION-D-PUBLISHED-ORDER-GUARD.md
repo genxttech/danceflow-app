@@ -45,6 +45,23 @@ Head `60b4edd7e`, migration sha256 `1607747d…`, composed base (`release/websit
 
 D does not close the spare-round replacement routes, and this run does not change that.
 
+## Evaluation against pilot P1 (PR 795 section 21, `0d68b2f38`): by reading; run result pending
+
+P1 disables running-order replacement and cancellation after a start, enforced at the database. D alone does **not** do that: it stops direct client writes; lifecycle functions (round cancel, publication, advancement) pass it, and are the P1 restriction work (slots `180000`-`189000`).
+
+| D part | Needed by P1? | Why |
+|---|---|---|
+| Heat guard (placement columns, insert, delete) | **Yes** | without it a manager moves, detaches, renumbers or cancels **never-run published heats** by direct write, also while other heats have started (the writes were executed in the PR 865 probe; the start guard freezes only started heats). This includes the replacement route that re-points a spare heat |
+| Planted-heat rule and publication check | **Yes** | a planted heat leaves a live numbered heat's entries and dances directly writable after start: a running-order change at the database, with publication's entry conflict checks bypassed and, by inference, S4's entry clearance. By reading it **cannot** receive ballots (ballot heats need a published version), so scoring is not affected. Not yet reproduced |
+| Version guard | **Yes, mainly before a start** | after a start the existing `compo1_guard_publish_during_run` already refuses status inserts and updates for every writer (not deletes or other columns). Before a start, without D a manager can reopen a published order, edit it and re-publish by direct write, skipping publication's checks, and the heat guard relies on draft status |
+| Publication as definer with row lock | **Yes, if the version guard is kept** | publication's own status writes must pass it |
+
+**Smaller subset:** the heat guard with the planted-heat rule alone would cover the after-start window, but leaves direct publication before a start. It is **not recommended**: the saving is small and the trimmed text would need a new review and run.
+
+**Overlap and conflict with the P1 restrictions:** complementary by design (D: direct writes; restrictions: lifecycle functions after a start). D exempts the owner role, so a restriction meant to bind definer functions needs its own check. Publication's text is pinned by D (post `0fbbbef9670082fbb3cb2484d966dfa3`, slot `170000`, before `180000`): a restriction that redefines publication must pin that text. D's triggers are named `zz_` and fire after others. The restriction session was asked for its objects; **no reply yet**, so actual overlap is unchecked.
+
+**Open re-review findings seen against P1:** finding 2 (publication does not serialize other draft writers) is a before-start race past publication's checks, and so relevant to P1 requirement 4; findings 3 to 5 (definer tests and grants, insertable publication rows, weak "keep" checks) are hardening and test gaps. None is fixed; fixing them would expand D and is not done.
+
 ## Fix of blocker 1 (2026-11-26): written, execution PENDING
 
 Within D's own files: a client heat that references a numbered floor heat or a schedule block must carry a schedule version; publication refuses an order holding a heat that is not its own (`COMPD_ORDER_HEAT_VERSION_MISMATCH`); the migration refuses to apply while such a heat sits in a published or past order. Publication post md5 is now `0fbbbef9670082fbb3cb2484d966dfa3` (pre unchanged), computed offline; the sections above that quote `abccc653…` describe the earlier revision. Findings 2 to 6 of the re-review below stay open.
