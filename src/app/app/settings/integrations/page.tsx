@@ -21,19 +21,9 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { studioHasFeature } from "@/lib/billing/access";
 import { createClient } from "@/lib/supabase/server";
 import { GUSTO_INTEGRATION_ENABLED } from "@/lib/integrations/gusto/dormant";
-import { googleHubStatus, gustoHubStatus, stripeHubStatus, waveHubStatus, waveNeedsReauthorization, type IntegrationStatus } from "@/lib/integrations/hubStatus";
+import { loadIntegrationHub } from "@/lib/integrations/hubRegistry";
+import { waveNeedsReauthorization, type IntegrationStatus } from "@/lib/integrations/hubStatus";
 import CompactSummaryStrip from "@/components/app/workspace/CompactSummaryStrip";
-
-type WaveConnectionRow = {
-  id: string;
-  status: string | null;
-  wave_business_id: string | null;
-  wave_business_name: string | null;
-  posting_enabled: boolean | null;
-  posting_mode: string | null;
-  scopes: string[] | null;
-  updated_at: string | null;
-};
 
 type WaveRunRow = {
   id: string;
@@ -42,39 +32,6 @@ type WaveRunRow = {
   posting_error: string | null;
   reconciliation_status: string | null;
 };
-
-type StudioStripeRow = {
-  stripe_connected_account_id: string | null;
-  stripe_connect_details_submitted: boolean | null;
-  stripe_connect_charges_enabled: boolean | null;
-  stripe_connect_payouts_enabled: boolean | null;
-  stripe_connect_onboarding_complete: boolean | null;
-};
-
-type GustoConnectionRow = {
-  id: string;
-  status: string | null;
-  environment: string | null;
-  gusto_company_name: string | null;
-  last_health_check_at: string | null;
-  last_health_status: string | null;
-  last_error: string | null;
-};
-
-type GoogleCalendarConnectionRow = {
-  id: string;
-  status: string | null;
-  google_account_email: string | null;
-  calendar_id: string | null;
-  calendar_summary: string | null;
-  sync_lessons: boolean | null;
-  sync_classes: boolean | null;
-  sync_events: boolean | null;
-  last_sync_at: string | null;
-  last_sync_status: string | null;
-  last_sync_error: string | null;
-};
-
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not recorded";
@@ -200,44 +157,11 @@ export default async function StudioIntegrationHubPage() {
   const supabase = await createClient();
   const waveAvailable = await studioHasFeature("wave_accounting");
 
-  const [
-    { data: studio, error: studioError },
-    { data: waveConnection, error: waveError },
-    { data: googleConnection, error: googleError },
-    { data: gustoConnection, error: gustoError },
-  ] = await Promise.all([
-    supabase
-      .from("studios")
-      .select(
-        "stripe_connected_account_id, stripe_connect_details_submitted, stripe_connect_charges_enabled, stripe_connect_payouts_enabled, stripe_connect_onboarding_complete",
-      )
-      .eq("id", context.studioId)
-      .maybeSingle<StudioStripeRow>(),
-    supabase
-      .from("studio_wave_connections")
-      .select("id, status, wave_business_id, wave_business_name, posting_enabled, posting_mode, scopes, updated_at")
-      .eq("studio_id", context.studioId)
-      .maybeSingle<WaveConnectionRow>(),
-    supabase
-      .from("studio_google_calendar_connections")
-      .select("id, status, google_account_email, calendar_id, calendar_summary, sync_lessons, sync_classes, sync_events, last_sync_at, last_sync_status, last_sync_error")
-      .eq("studio_id", context.studioId)
-      // Personal instructor connections share the studio_id; without this an admin sees several rows and the page throws.
-      .eq("connection_scope", "studio")
-      .maybeSingle<GoogleCalendarConnectionRow>(),
-    GUSTO_INTEGRATION_ENABLED
-      ? supabase
-          .from("studio_gusto_connections")
-          .select("id, status, environment, gusto_company_name, last_health_check_at, last_health_status, last_error")
-          .eq("studio_id", context.studioId)
-          .maybeSingle<GustoConnectionRow>()
-      : Promise.resolve({ data: null as GustoConnectionRow | null, error: null }),
-  ]);
-
-  if (studioError) throw new Error(`Failed to load Stripe status: ${studioError.message}`);
-  if (waveError) throw new Error(`Failed to load Wave status: ${waveError.message}`);
-  if (googleError) throw new Error(`Failed to load Google Calendar status: ${googleError.message}`);
-  if (gustoError) throw new Error(`Failed to load Gusto status: ${gustoError.message}`);
+  const hub = await loadIntegrationHub({ supabase, studioId: context.studioId, waveAvailable });
+  const studio = hub.stripe.row;
+  const waveConnection = hub.wave.row;
+  const googleConnection = hub.googleCalendar.row;
+  const gustoConnection = hub.gusto.row;
 
   const { data: recentWaveRuns, error: runsError } = waveConnection?.id
     ? await supabase
@@ -257,11 +181,11 @@ export default async function StudioIntegrationHubPage() {
       studio?.stripe_connect_charges_enabled &&
       studio?.stripe_connect_payouts_enabled,
   );
-  const stripeStatus: IntegrationStatus = stripeHubStatus(studio);
+  const stripeStatus = hub.stripe.status;
 
   const waveConnected = waveConnection?.status === "connected";
   const waveNeedsReauth = waveNeedsReauthorization(waveConnection);
-  const waveStatus: IntegrationStatus = waveHubStatus(waveAvailable, waveConnection);
+  const waveStatus = hub.wave.status;
 
   const latestRun = (recentWaveRuns ?? [])[0] as WaveRunRow | undefined;
   const failedWaveRuns = (recentWaveRuns ?? []).filter((run) =>
@@ -269,15 +193,9 @@ export default async function StudioIntegrationHubPage() {
   ).length;
 
   const googleConnected = googleConnection?.status === "connected";
-  const googleStatus: IntegrationStatus = googleHubStatus(googleConnection);
+  const googleStatus = hub.googleCalendar.status;
   const gustoConnected = gustoConnection?.status === "connected";
-  const gustoStatus: IntegrationStatus = gustoHubStatus(gustoConnection);
-
-  const trackedStatuses = GUSTO_INTEGRATION_ENABLED
-    ? [stripeStatus, waveStatus, googleStatus, gustoStatus]
-    : [stripeStatus, waveStatus, googleStatus];
-  const connectedCount = trackedStatuses.filter((status) => status === "connected").length;
-  const attentionCount = trackedStatuses.filter((status) => status === "attention").length;
+  const gustoStatus = hub.gusto.status;
 
   return (
     <main className="space-y-8">
@@ -301,9 +219,9 @@ export default async function StudioIntegrationHubPage() {
       <CompactSummaryStrip
         className="rounded-2xl border border-slate-200 bg-white"
         items={[
-          { key: "connected", label: "Connected", value: connectedCount, detail: "Healthy connections", tone: "success" as const },
-          { key: "attention", label: "Needs attention", value: attentionCount, detail: "Connections to review", tone: attentionCount ? "warning" as const : "default" as const },
-          { key: "available", label: "Available", value: Math.max(0, trackedStatuses.length - connectedCount - attentionCount), detail: "Ready to connect" },
+          { key: "connected", label: "Connected", value: hub.counts.connected, detail: "Healthy connections", tone: "success" as const },
+          { key: "attention", label: "Needs attention", value: hub.counts.attention, detail: "Connections to review", tone: hub.counts.attention ? "warning" as const : "default" as const },
+          { key: "available", label: "Available", value: hub.counts.available, detail: "Ready to connect" },
         ]}
       />
 
