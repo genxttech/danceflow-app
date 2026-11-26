@@ -91,6 +91,23 @@ end $r15$;
 
 Insert points: A3 and R-11 before the `set session_replication_role = replica` that precedes the schedule version/heats; U18 between the entry insert and the heat-entry insert; U18-S the same and again before the later `e6` placement; JC1 before the replica block that places heat entries; OD-31 before each heat-entry insert that follows an entry insert. Suites that publish through `compo1_fixture_publish_rounds` are covered by the shared fixture when the clearance fixture is loaded. Runner: prepend `fixtures/r15_clear_entries.sql` (before `competition_round_ready.sql` or after; both are pg_temp definitions) for every suite on the forward and re-apply phases; it is harmless on the baseline.
 
+## Integrated run4 (2026-11-26, S4 head `6b9f252f`; record `docs/competition/od02-s5-integrated-run.md` on `od02-s5-db-guard`; logs `C:/dfr/s5int-out/run4/`)
+
+Executed on the composed chain: 8 of 8 migrations applied, rolled back in reverse release order and re-applied; the S5, R-11, R-10 S3, A3, PV-1, 10D.1 and 10C.4 suites passed composed. This supersedes the "not executed" statements about those items above.
+
+| Finding in run4 | Verdict | Status after this revision |
+|---|---|---|
+| `_r15_required_criteria` raised `malformed array literal` (`v_req || 'age_division'` on `text[]`) for any entry in a division with an age, level or status criterion | **product defect in `20270301110000`**, missed by syntax parsing and by both reviews | fixed with `array_append`. The old body reproduces the error in the execution harness below; the fixed one passes |
+| `r15_clear_entries` inserted a competitor without `studio_id`; under replica mode the filling guard does not fire (OD-31 suite) | fixture defect | fixed: `studio_id` given explicitly |
+| cf1 F3 `COMP_R15_ENTRY_NOT_CLEARED` | the runner composed the unadapted F3 suite: its pull rule for PR 866 does not include `test_T_competition_cf1_f3_publication.sql` (the candidate and `website-embeds` copies are identical) | runner change requested from the S5 session |
+| U18, U18-S, JC1 `COMP_R15_ENTRY_NOT_CLEARED` | gate correct; the suites seed no clearance. Their copies are carried by PR 867 (OD-31 session) | hook requested from that session |
+| E1, R2 refunds | fail on the base chain too | not R-15 |
+| O1, R2 write gate, 10D floor, 10C (and NS1/F3 under S5 only) | missing dates of birth (S5) | S5 session |
+
+### Execution of this revision
+
+In-process PostgreSQL (PGlite) with **minimal stand-in tables**, not the composed chain: the three S4 migrations, the real S5 age functions and the fixture helper executed; 73 of 73 checks passed (every required-criteria branch, clearance reasons, every RPC outcome and refusal, write guard, placement, floor-state, publish, floor-call and round-start gates, the helper under replica mode, rollbacks in reverse order and re-apply). It does not exercise RLS, the real E2/O1/CF1 functions, lock, calculate, approve or F3 publication: those remain **PENDING** for the composed re-run.
+
 ## Known gaps
 
 App changes above; suites not yet adapted; D-R15-4 (authorization semantics), D-R15-5 (waiver categories), whether early ballot-mark refusal is wanted (lock-time refusal is mandatory and present); division label / participant edits during a running round make a determination stale (recoverable by re-determination, not frozen). The blocker stays OPEN until the integrated release candidate passes end-to-end verification (register entry `DFPOL-R15-ELIGIBILITY-ENFORCEMENT`).

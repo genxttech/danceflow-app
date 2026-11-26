@@ -44,8 +44,9 @@ begin
     order by e.id
   loop
     if not exists (select 1 from public.event_competition_entry_participants p where p.entry_id = v_e.id) then
-      insert into public.event_competition_competitors (event_id, first_name, last_name, created_via, date_of_birth)
-      values (v_e.event_id, 'Fixture', 'Adult ' || v_e.id, 'staff', date '1985-06-15') returning id into v_comp;
+      -- studio_id is given explicitly: the guard that normally fills it does not fire under session_replication_role = replica.
+      insert into public.event_competition_competitors (event_id, studio_id, first_name, last_name, created_via, date_of_birth)
+      values (v_e.event_id, (select ev.studio_id from public.events ev where ev.id = v_e.event_id), 'Fixture', 'Adult ' || v_e.id, 'staff', date '1985-06-15') returning id into v_comp;
       insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, display_name)
       values (v_e.event_id, v_e.id, v_comp, 'dancer', v_e.display_name);
     end if;

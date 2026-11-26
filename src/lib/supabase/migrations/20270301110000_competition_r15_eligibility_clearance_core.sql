@@ -214,11 +214,11 @@ begin
   if not found then
     return array['age_division', 'level', 'status']::text[];   -- unknown division: fail closed
   end if;
-  if public._r15_age_label_restricted(v_d.age_label) then v_req := v_req || 'age_division'; end if;
-  if public._r15_class_label_restricted(v_d.skill_label) then v_req := v_req || 'level'; end if;
+  if public._r15_age_label_restricted(v_d.age_label) then v_req := array_append(v_req, 'age_division'); end if;
+  if public._r15_class_label_restricted(v_d.skill_label) then v_req := array_append(v_req, 'level'); end if;
   if public._r15_class_label_restricted(v_d.role_label)
      or exists (select 1 from public.event_competition_entry_participants p where p.entry_id = p_entry_id and p.participant_role in ('professional', 'student')) then
-    v_req := v_req || 'status';
+    v_req := array_append(v_req, 'status');
   end if;
   return v_req;
 end;
