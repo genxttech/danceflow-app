@@ -54,7 +54,13 @@ export type AiCallResult =
       model: string;
       usage: { inputTokens: number | null; outputTokens: number | null; cachedTokens: number | null };
     }
-  | { ok: false; reason: AiCallFailureReason; message: string };
+  | {
+      ok: false;
+      reason: AiCallFailureReason;
+      message: string;
+      /** True when the request may have reached the provider and been billed (timeout, dropped connection, empty output). */
+      mayHaveBilled: boolean;
+    };
 
 export type AiInputMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -140,9 +146,14 @@ function fail(
   startedAt: number,
   inputChars: number,
   extra: Record<string, unknown> = {},
+  mayHaveBilled = false,
 ): AiCallResult {
-  logAttempt(options, { outcome: reason, latencyMs: Date.now() - startedAt, inputChars, ...extra });
-  return { ok: false, reason, message: AI_SAFE_MESSAGES[reason] };
+  logAttempt(options, { outcome: reason, latencyMs: Date.now() - startedAt, inputChars, mayHaveBilled, ...extra });
+  return { ok: false, reason, message: AI_SAFE_MESSAGES[reason], mayHaveBilled };
+}
+
+function isTimeoutError(error: unknown) {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
 export async function callOpenAiResponses(options: AiCallOptions): Promise<AiCallResult> {
@@ -181,14 +192,16 @@ export async function callOpenAiResponses(options: AiCallOptions): Promise<AiCal
       }),
     });
   } catch (error) {
-    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-    return fail(options, timedOut ? "timeout" : "provider_error", startedAt, inputChars);
+    return fail(options, isTimeoutError(error) ? "timeout" : "provider_error", startedAt, inputChars, {}, true);
   }
 
   let data: OpenAiResponseBody = {};
   try {
     data = (await response.json()) as OpenAiResponseBody;
-  } catch {
+  } catch (error) {
+    if (response.ok && isTimeoutError(error)) {
+      return fail(options, "timeout", startedAt, inputChars, { httpStatus: response.status }, true);
+    }
     data = {};
   }
 
@@ -203,7 +216,7 @@ export async function callOpenAiResponses(options: AiCallOptions): Promise<AiCal
   };
   const text = extractText(data);
   if (!text) {
-    return fail(options, "empty_output", startedAt, inputChars, { httpStatus: response.status, ...usage });
+    return fail(options, "empty_output", startedAt, inputChars, { httpStatus: response.status, ...usage }, true);
   }
 
   logAttempt(options, { outcome: "ok", httpStatus: response.status, latencyMs: Date.now() - startedAt, inputChars, ...usage });

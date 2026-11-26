@@ -12,6 +12,7 @@ import {
   settleLumiUsage,
 } from "@/lib/lumi/usage";
 import { callOpenAiResponses, isAiFeatureEnabled } from "@/lib/ai/providerCall";
+import { serializeLumiContext } from "@/lib/lumi/context";
 
 export type LumiAssistantState = {
   ok: boolean;
@@ -275,19 +276,18 @@ export async function generateLumiPlanAction(
       },
       {
         role: "user",
-        content: `Create the requested dance journey guidance from this context:\n${JSON.stringify(context, null, 2)}`,
+        content: `Create the requested dance journey guidance from this context:\n${serializeLumiContext(context)}`,
       },
     ],
   });
 
   if (!result.ok) {
-    // The provider never produced billable output (disabled, too large, rejected): give the reserved capacity back.
-    // A timeout may still have been billed by the provider, so it stays counted.
-    if (result.reason === "timeout") {
-      settled = true;
-      await settleLumiUsage(access, reservation.id, task, { outcome: "timeout" });
+    // Give the reserved capacity back only when nothing was billed (refused before sending, or rejected by the provider).
+    // A timeout, a dropped connection or an empty answer may still have been billed, so it stays counted.
+    settled = true;
+    if (result.mayHaveBilled) {
+      await settleLumiUsage(access, reservation.id, task, { outcome: result.reason });
     } else {
-      settled = true;
       await releaseLumiUsage(access, reservation.id, task);
     }
     return { ok: false, error: result.message };

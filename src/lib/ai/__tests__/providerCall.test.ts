@@ -57,7 +57,7 @@ describe("callOpenAiResponses (shared provider-call wrapper)", () => {
       if (value === undefined) delete process.env.AI_FEATURES_ENABLED;
       else process.env.AI_FEATURES_ENABLED = value;
       const result = await callOpenAiResponses(base);
-      expect(result).toEqual({ ok: false, reason: "disabled", message: AI_SAFE_MESSAGES.disabled });
+      expect(result).toEqual({ ok: false, reason: "disabled", message: AI_SAFE_MESSAGES.disabled, mayHaveBilled: false });
     }
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -105,7 +105,7 @@ describe("callOpenAiResponses (shared provider-call wrapper)", () => {
       okResponse({ error: { message: "You exceeded your current quota for org-SECRET, model gpt-x" } }, 429),
     );
     const result = await callOpenAiResponses(base);
-    expect(result).toEqual({ ok: false, reason: "provider_error", message: AI_SAFE_MESSAGES.provider_error });
+    expect(result).toEqual({ ok: false, reason: "provider_error", message: AI_SAFE_MESSAGES.provider_error, mayHaveBilled: false });
     expect(JSON.stringify(result)).not.toContain("SECRET");
     expect(JSON.stringify(logged())).not.toContain("SECRET");
   });
@@ -122,6 +122,18 @@ describe("callOpenAiResponses (shared provider-call wrapper)", () => {
     expect(await callOpenAiResponses(base)).toMatchObject({ ok: false, reason: "provider_error" });
     fetchMock.mockResolvedValueOnce(okResponse({ output: [] }));
     expect(await callOpenAiResponses(base)).toMatchObject({ ok: false, reason: "empty_output" });
+  });
+
+  it("marks timeouts, dropped connections, body-read timeouts and empty answers as possibly billed", async () => {
+    const timeout = Object.assign(new Error("t"), { name: "TimeoutError" });
+    fetchMock.mockRejectedValueOnce(timeout);
+    expect(await callOpenAiResponses(base)).toMatchObject({ reason: "timeout", mayHaveBilled: true });
+    fetchMock.mockRejectedValueOnce(new TypeError("socket closed"));
+    expect(await callOpenAiResponses(base)).toMatchObject({ reason: "provider_error", mayHaveBilled: true });
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: () => Promise.reject(timeout) });
+    expect(await callOpenAiResponses(base)).toMatchObject({ reason: "timeout", mayHaveBilled: true });
+    fetchMock.mockResolvedValueOnce(okResponse({ output: [] }));
+    expect(await callOpenAiResponses(base)).toMatchObject({ reason: "empty_output", mayHaveBilled: true });
   });
 
   it("reads output_text or nested output content and reports provider token usage", async () => {

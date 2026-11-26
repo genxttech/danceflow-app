@@ -15,7 +15,7 @@ export type EventDescriptionAIState = {
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
-  return typeof value === "string" ? value.trim().slice(0, 4000) : "";
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function parseJsonFromText(text: string) {

@@ -130,7 +130,14 @@ async function withinPublicRateLimit() {
 
 // Public, unauthenticated surface: every model call is paid by DanceFlow, so it is bounded (see lib/ai/providerCall.ts).
 const MAX_QUESTION_CHARS = 300;
-const KB_MODEL_TIMEOUT_MS = 8000;
+const KB_MODEL_TIMEOUT_MS = 15000;
+const KB_DEFAULT_INSTANCE_HOURLY_BUDGET = 300;
+
+/** Model calls per instance per hour. 0 turns the model off; unset or unreadable = the default. */
+function kbInstanceHourlyBudget() {
+  const parsed = Number.parseInt(process.env.KB_ASSISTANT_INSTANCE_HOURLY_BUDGET ?? "", 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : KB_DEFAULT_INSTANCE_HOURLY_BUDGET;
+}
 
 export async function askKnowledgebaseAssistantAction(
   _previousState: KnowledgebaseAssistantState,
@@ -171,6 +178,7 @@ export async function askKnowledgebaseAssistantAction(
   // or this caller is over the per-IP limit.
   const modelAllowed =
     isAiFeatureEnabled("kb_public") &&
+    kbInstanceHourlyBudget() > 0 &&
     (await withinPublicRateLimit());
 
   if (!modelAllowed) {
@@ -203,7 +211,7 @@ export async function askKnowledgebaseAssistantAction(
     maxInputChars: 36000,
     timeoutMs: KB_MODEL_TIMEOUT_MS,
     // Best-effort global ceiling per server instance (in-memory); a durable budget needs storage and is a separate decision.
-    budget: { limit: Number.parseInt(process.env.KB_ASSISTANT_INSTANCE_HOURLY_BUDGET ?? "", 10) || 300, windowMs: 60 * 60 * 1000 },
+    budget: { limit: kbInstanceHourlyBudget(), windowMs: 60 * 60 * 1000 },
     input: [
       {
         role: "system",
