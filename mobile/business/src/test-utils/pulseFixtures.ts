@@ -26,9 +26,20 @@ const leads = {
   ],
 };
 const aria = { state: "ok", open: 1, truncated: false, recent: [{ id: "x1", title: "Reach out to Maya Chen, who has not booked in 6 weeks", priority: "high", createdAt: "2026-11-09T00:00:00.000Z" }] };
+const confirmations = {
+  state: "ok",
+  windowHours: 48,
+  total: 2,
+  truncated: false,
+  upcoming: [
+    { id: "c1", startsAt: "2026-11-10T20:00:00.000Z", appointmentType: "private_lesson", clientName: "Maya Chen" },
+    { id: "c2", startsAt: "2026-11-11T15:00:00.000Z", appointmentType: "intro_lesson", clientName: "Priya Nair" },
+  ],
+};
 
 export const OWNER_CARDS = toPulseCards({
   requests,
+  confirmations,
   leads,
   aria,
   exceptions: { state: "ok", cancelledToday: 1, lowPackages: 2, truncated: false },
@@ -38,15 +49,17 @@ export const OWNER_CARDS = toPulseCards({
 /** Front desk: everything but ARIA. */
 export const FRONT_DESK_CARDS = toPulseCards({
   requests,
+  confirmations,
   leads,
   aria: null,
   exceptions: { state: "ok", cancelledToday: 1, lowPackages: 2, truncated: false },
   health: { state: "ok", scope: "studio", sessionsToday: 5, sessionsDone: 1, sessionsAhead: 4, truncated: false },
 });
 
-/** Instructor: own requests without names, exceptions without packages, own sessions; no leads or ARIA. */
+/** Instructor: own requests and unconfirmed appointments without names, exceptions without packages, own sessions; no leads or ARIA. */
 export const INSTRUCTOR_CARDS = toPulseCards({
   requests: { ...requests, total: 1, bookingRequests: 1, selfService: 0, recent: [{ id: "r2", source: "booking_request", kind: "book", createdAt: "2026-11-08T15:00:00.000Z", requestedStartsAt: null, clientName: null }] },
+  confirmations: { ...confirmations, total: 1, upcoming: [{ ...confirmations.upcoming[0], clientName: null }] },
   leads: null,
   aria: null,
   exceptions: { state: "ok", cancelledToday: 0, lowPackages: null, truncated: false },
@@ -59,4 +72,5 @@ export const UNAVAILABLE_CARDS = toPulseCards({
   aria: { state: "unavailable" },
   exceptions: { state: "unavailable" },
   health: { state: "unavailable" },
+  confirmations: { state: "unavailable" },
 });

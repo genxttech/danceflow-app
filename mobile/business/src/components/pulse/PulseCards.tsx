@@ -1,18 +1,22 @@
 import type React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { AppText } from "@/components/AppText";
+import { appointmentTypeLabel, formatShortDay, formatTime } from "@/lib/format";
 import { needsYouItems, waitingLabel, type CardUnavailable, type PulseCards } from "@/lib/pulseCards";
 import { colors, radius, space, tabularNums } from "@/theme";
 
 /*
-  The Pulse command-center cards (read only), in the order of what needs a person first: needs-you summary, lesson requests, new leads, ARIA suggestions, exceptions, then studio health (a number to glance at, not a task). Hidden cards (null) draw nothing; an unavailable card says so in words and leaves the rest alone. Every number is shown once, with its
-  label, as one accessible element. Nothing here starts an action: the only taps open a lead's client record.
+  The Pulse command-center cards (read only), in the order of what needs a person first: needs-you summary, lesson requests, unconfirmed appointments, new leads, ARIA suggestions, exceptions, then studio health (a number to glance at, not a task). Hidden cards (null) draw nothing; an unavailable card says so in words and leaves the rest alone. Every number is shown once, with its
+  label, as one accessible element. Nothing here starts an action: the only taps open a lead's client record or an appointment.
 */
 
 type Props = {
   cards: PulseCards;
   now: Date;
   onOpenLead?: (clientId: string) => void;
+  onOpenAppointment?: (appointmentId: string) => void;
+  /** The studio's zone: appointment times are always shown in it. */
+  timeZone?: string;
   /** The viewer's scope from the Pulse response: names the health card even when it could not load. */
   scope?: "studio" | "own";
 };
@@ -50,10 +54,10 @@ function Stat({ label, value, testID }: { label: string; value: number; testID: 
 const isOverdue = (iso: string | null, now: Date) => iso !== null && new Date(iso).getTime() <= now.getTime();
 const isUnavailable = (card: unknown): card is CardUnavailable => (card as CardUnavailable | null)?.state === "unavailable";
 
-export function PulseCardsView({ cards, now, onOpenLead, scope }: Props) {
+export function PulseCardsView({ cards, now, onOpenLead, onOpenAppointment, scope, timeZone }: Props) {
   const needs = needsYouItems(cards);
-  const anyNeedsCard = [cards.requests, cards.leads, cards.aria].some((card) => card && !isUnavailable(card));
-  const { requests, leads, aria, exceptions, health } = cards;
+  const anyNeedsCard = [cards.requests, cards.confirmations, cards.leads, cards.aria].some((card) => card && !isUnavailable(card));
+  const { requests, confirmations, leads, aria, exceptions, health } = cards;
 
   return (
     <>
@@ -101,6 +105,46 @@ export function PulseCardsView({ cards, now, onOpenLead, scope }: Props) {
         </Card>
       ) : isUnavailable(requests) ? (
         <Unavailable title="Lesson requests" testID="pulse-requests-unavailable" />
+      ) : null}
+
+      {confirmations && !isUnavailable(confirmations) ? (
+        <Card title="Not confirmed yet" testID="pulse-confirmations">
+          {confirmations.total === 0 ? (
+            <AppText testID="pulse-confirmations-empty">No appointments in the next {confirmations.windowHours} hours are waiting for a confirmation.</AppText>
+          ) : (
+            <>
+              <Stat label={`in the next ${confirmations.windowHours} hours`} value={confirmations.total} testID="pulse-confirmations-total" />
+              {confirmations.upcoming.map((item) => {
+                const when = `${formatShortDay(item.startsAt, timeZone)}, ${formatTime(item.startsAt, timeZone)}`;
+                const what = [appointmentTypeLabel(item.appointmentType), item.clientName].filter(Boolean).join(" · ");
+                return (
+                  <Pressable
+                    key={item.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${when}, ${[appointmentTypeLabel(item.appointmentType), item.clientName].filter(Boolean).join(", ")}, not confirmed`}
+                    accessibilityHint="Opens the appointment"
+                    onPress={() => onOpenAppointment?.(item.id)}
+                    style={({ pressed }) => [styles.leadRow, pressed && styles.pressed]}
+                    testID={`pulse-confirmation-${item.id}`}
+                  >
+                    <AppText variant="lead">{when}</AppText>
+                    <AppText tone="muted">{what}</AppText>
+                  </Pressable>
+                );
+              })}
+              {confirmations.truncated ? (
+                <AppText variant="caption" tone="muted">
+                  Showing the soonest {confirmations.upcoming.length} of {confirmations.total}.
+                </AppText>
+              ) : null}
+              <AppText variant="caption" tone="muted">
+                Dancers confirm from their reminder email or the app.
+              </AppText>
+            </>
+          )}
+        </Card>
+      ) : isUnavailable(confirmations) ? (
+        <Unavailable title="Not confirmed yet" testID="pulse-confirmations-unavailable" />
       ) : null}
 
       {leads && !isUnavailable(leads) ? (

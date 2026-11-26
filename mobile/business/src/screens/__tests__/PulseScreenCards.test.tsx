@@ -201,3 +201,42 @@ describe("Pulse command center (pulseCards on)", () => {
     expect(screen.queryByText("Studio health")).toBeNull();
   });
 });
+
+describe("not confirmed yet (48 hours)", () => {
+  const confirmations = {
+    state: "ok",
+    windowHours: 48,
+    total: 7,
+    truncated: true,
+    upcoming: [
+      { id: "appt-1", startsAt: "2026-11-23T15:00:00.000Z", appointmentType: "private_lesson", clientName: "Maya Chen" },
+      { id: "bad-time", startsAt: "not a date", appointmentType: "private_lesson", clientName: "Nobody" },
+    ],
+  };
+
+  it("shows the count in Needs you and the card, the time in the studio's zone, and opens the appointment", async () => {
+    renderPulse(pulse({ ...OK, confirmations }));
+    expect(await screen.findByLabelText("7 appointments not confirmed")).toBeTruthy();
+    expect(screen.getByLabelText("in the next 48 hours: 7")).toBeTruthy();
+    expect(screen.getByText("Showing the soonest 1 of 7.")).toBeTruthy();
+    expect(screen.queryByTestId("pulse-confirmation-bad-time")).toBeNull();
+    fireEvent.press(screen.getByRole("button", { name: "Mon, Nov 23, 10:00 AM, Private lesson, Maya Chen, not confirmed" }));
+    expect(router.push).toHaveBeenCalledWith({ pathname: "/appointments/[id]", params: { id: "appt-1", studioId: STUDIO_ID, tz: "America/New_York" } });
+  });
+
+  it("says plainly when nothing is waiting", async () => {
+    renderPulse(pulse({ ...OK, confirmations: { state: "ok", windowHours: 48, total: 0, truncated: false, upcoming: [] } }));
+    expect(await screen.findByText("No appointments in the next 48 hours are waiting for a confirmation.")).toBeTruthy();
+    expect(screen.queryByTestId("pulse-needs-confirmations")).toBeNull();
+  });
+
+  it("draws nothing for a server that does not send the card, and an unavailable card leaves the rest", async () => {
+    renderPulse(pulse(OK));
+    expect(await screen.findByTestId("pulse-health")).toBeTruthy();
+    expect(screen.queryByText("Not confirmed yet")).toBeNull();
+    screen.unmount();
+    renderPulse(pulse({ ...OK, confirmations: { state: "unavailable" } }));
+    expect(await screen.findByTestId("pulse-confirmations-unavailable")).toBeTruthy();
+    expect(screen.getByTestId("pulse-health")).toBeTruthy();
+  });
+});

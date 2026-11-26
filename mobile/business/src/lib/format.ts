@@ -21,6 +21,16 @@ export function durationMinutes(startsAt: string, endsAt: string) {
   return Math.max(0, Math.round((new Date(endsAt).getTime() - new Date(startsAt).getTime()) / 60000));
 }
 
+/** "Mon, Nov 23" for an instant, in the studio's zone. */
+export function formatShortDay(iso: string, timeZone: string | undefined) {
+  const options = { weekday: "short", month: "short", day: "numeric" } as const;
+  try {
+    return new Intl.DateTimeFormat("en-US", { ...options, timeZone }).format(new Date(iso));
+  } catch {
+    return new Intl.DateTimeFormat("en-US", options).format(new Date(iso));
+  }
+}
+
 /** "2026-11-09" → "Monday, November 9". Calendar dates have no zone, so UTC keeps the day fixed. */
 export function formatDayHeading(date: string) {
   const parsed = new Date(`${date}T12:00:00Z`);
