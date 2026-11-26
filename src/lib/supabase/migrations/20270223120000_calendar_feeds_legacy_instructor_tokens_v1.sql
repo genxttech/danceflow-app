@@ -74,7 +74,9 @@ begin
          where token_hash = v_old_hash and legacy_source = 'instructor_feed' and status = 'active'
         returning id, studio_id, revoked_reason
       loop
-        perform public.calendar_feed_audit(v_row.studio_id, v_row.id, null, 'system', 'revoked', v_row.revoked_reason, '{}'::jsonb);
+        if exists (select 1 from public.studios s where s.id = v_row.studio_id) then
+          perform public.calendar_feed_audit(v_row.studio_id, v_row.id, null, 'system', 'revoked', v_row.revoked_reason, '{}'::jsonb);
+        end if;
       end loop;
     end if;
   end if;
