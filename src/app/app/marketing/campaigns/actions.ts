@@ -1348,7 +1348,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         },
       });
       const nowIso = new Date().toISOString();
-      await supabase
+      // M-0 F3: the final status is written with the service role. A freeze applied during this batch hides campaigns
+      // from the signed-in client, whose update would then match no row and leave the campaign in "sending".
+      await admin
         .from("marketing_campaigns")
         .update(
           openAfter === 0
