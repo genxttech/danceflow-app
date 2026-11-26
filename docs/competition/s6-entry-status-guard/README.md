@@ -103,7 +103,7 @@ Triggers on `event_competition_entries` (same-timing triggers fire in name order
 ```
 
 * **Coverage:** no assertion is added, removed or reworded (17 checks in each). What does change in meaning: the check "direct parent-entry status write does not unlock a direct heat-entry scratch" now proves it for a parent status written by the owner; the claim that a *client* cannot make that parent write at all is proved by the S6 suite instead.
-* Runs: the originals passed 8/8 on the PR 867 chain (run 1). In run 1 the same two-line change had been applied to the file in place; its 17-check pass with S6 applied is evidence for the adapted text, not for the new file. Run 2 runs the original on the pre-S6 chain, and both the original (expected to fail its two client-write setup checks) and the adapted copy with S6 applied: **PENDING**.
+* Runs: the originals passed 8/8 on the PR 867 chain (run 1). In run 1 the same two-line change had been applied to the file in place; its 17-check pass with S6 applied is evidence for the adapted text, not for the new file. Run 2 (section 10): original on the pre-S6 chain **PASS 17**; original with S6 **FAIL on exactly the two expected checks** (both report `COMP_S6_ENTRY_STATUS_WRITER` for the client parent write); adapted copy with S6 **PASS 17**.
 
 ## 10. Results
 
@@ -123,7 +123,20 @@ Container from `cf1host:found` (`sha256:a9ff85eb...afd3`, PostgreSQL 17.6), role
 
 **F3, now executed with a state read-back (`evidence/run1/f3-readback-*.log`).** Before S6, in a SQL session as `authenticated`: the direct parent scratch succeeded, then with the forged marker the direct heat-entry scratch succeeded and the heat entry **read back as `scratched`** (marker alone, parent not scratched: refused). So F3 is a **confirmed bypass** on the U18-S chain (SQL session only; no API path is known to set that setting). After S6 the first step is refused (`COMP_S6_ENTRY_STATUS_WRITER`), the second is refused (`COMP_U18S_SCRATCH_UNAUDITED`) and nothing changes.
 
-Not executed anywhere: PostgREST/HTTP requests, referential SET NULL / cascade from registrations or orders, any hosted database.
+### Run 2 (executed 2026-11-26 13:33-13:35Z, local only; head `7341af1df`; evidence in `evidence/run2/`)
+
+Same image, role and 39-file composition (fingerprint `6783fe12...f95d`) as run 1; 23 migrations before S6, 0 failed; both rollbacks exit 0. It closes what run 1 left invalid or pending.
+
+| Stage | Result |
+|---|---|
+| Pre-S6 chain (suites from the PR 867 head) | original U18-S **PASS 17**; `o1_day_of` **FAIL**; 10A **FAIL** |
+| S6 applied | S6 suite **PASS 89**; adapted U18-S **PASS 17**; original U18-S **FAIL (expected: the two client parent-write checks)** |
+| `o1_day_of` and 10A with S6 | **FAIL with the same first error as before S6** (missing fixture helper; "Competition template not found"). Pre-existing in this composition, not caused by S6; neither suite has passed here |
+| Concurrency | **PASS, 7 checks, 3 lock waiters observed**: the direct write waited and was refused, the owner R2 writer and a second submit waited and changed nothing, one audit row |
+| Rollback proof | **PASS**: pre-S6 and post-rollback state identical over all 10 lines (lifecycle and both R2 functions: body md5 without CR, owner, security, ACL, config; the three entry triggers; table ACL; client privileges) |
+| S6 suite after re-apply | **PASS 89** |
+
+Not executed anywhere: PostgREST/HTTP requests, referential SET NULL / cascade from registrations or orders, a composed run with S4 / S5, any hosted database.
 
 ## 11. Independent review
 
