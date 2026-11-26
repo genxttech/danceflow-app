@@ -25,7 +25,7 @@ Ballot = any row of `event_competition_ballots`, any version or source. Ballot d
 
 "Placed" means a heat entry whose status is not `scratched`, in a heat of any status or lock, **except** the two below, unless that heat itself carries a ballot (or, for a revoked Final, a mark for E):
 
-- a heat of an editable (draft or review) schedule version (`_comp10d_version_editable`): otherwise clearing or editing a draft plan would be refused whenever the round has ballots;
+- a heat of an existing schedule version whose status is `draft`: otherwise clearing or editing a draft plan would be refused whenever the round has ballots. **Allowed only with the draft guard in section 4** (callback ballots are round-level, so no heat of that round ever "carries" one); without that guard, drop this exclusion. Do not reuse `_comp10d_version_editable`: it is also true for a heat with no version or a missing version (`20261111090000:295-305`);
 - a heat cancelled by an advancement revocation: otherwise a couple dropped by a correction stays "placed" and ballots on the replacement Final block it for good.
 
 Published, live, superseded and version-less heats count.
@@ -74,7 +74,7 @@ Existing orders conflict with each other: heat reopen locks the heat `FOR UPDATE
 - Busy raises a retryable `COMP_BALLOT_CHECK_BUSY` (`55P03`). Cost: a Scratch fails while a judge is saving in that round, and two Scratches in one round collide; the app retries once, then says so.
 - Ballot waiting behind a Scratch: it resumes, re-reads the roster and is refused (`COMP_BALLOT_UNKNOWN_ENTRY`) if it names E. No ballot-path change needed.
 - The S6 race script expects some callers to wait; with this step some get "busy". Adapt in a separately named copy.
-- **For PR 908 6A.5:** use the same order, `NO KEY UPDATE`, and `NOWAIT` instead of waiting `FOR UPDATE`.
+- **For PR 908 6A.5:** use the same order, `NO KEY UPDATE`, and `NOWAIT` instead of waiting `FOR UPDATE`. A one-placement writer also takes the entry `FOR NO KEY UPDATE`, not `FOR SHARE`: otherwise two withdrawals in different rounds can each pass "keeps another placement" and empty the entry. PR 908 (`01c28f036`) reports both adopted.
 - Why the multi-entry order matters: a writer that keeps one entry's round lock while waiting for the next entry's heat can deadlock with a reopen that holds that heat and waits for the round.
 - Residual: a new placement of E added to a further round while the Scratch is running is not locked in step 3. The guard (section 4) catches it only if the placement update sees it. Placing a scratched entry is not guarded today.
 
@@ -86,6 +86,10 @@ One internal predicate (definer, no client execute) and one backstop guard that 
 | --- | --- | --- |
 | heat entries | status to `scratched`; change of heat, entry or event; delete. Only where the old placement counts as "placed" (section 2) | one placement |
 | entries | status to `scratched` or `withdrawn`; delete | whole entry |
+| heats (draft guard), once the round has any ballot, for a heat not in a draft version | delete; change of version (including to none) or round | the round |
+| schedule versions (draft guard), once a round with heats in it has any ballot | status back to `draft`; delete of a version that is not a draft | those rounds |
+
+The draft guard is what keeps a published placement from being turned into an excluded draft one and then scratched; it ships with the predicate and does not rely on Option D. When a heat is deleted its placements cascade after the heat row is gone, so the heat guard must decide that case and the placement guard skips a placement whose heat no longer exists.
 
 Each locks the affected rounds (`NOWAIT`), then tests in a new statement; refusal `COMP_BALLOTS_ON_FILE`; delete is allowed only in the cascade of a deleted event. Messages name no judge, mark or count per judge (OD-10). The lifecycle RPC also checks explicitly (both before and after locking, including the repeat-call cascade) so the user gets the right refusal first.
 
@@ -105,7 +109,7 @@ A6 needs no change if the placement scope is as in section 2 (it already refuses
 | Route | Covered by | Left open |
 | --- | --- | --- |
 | Change or delete a ballot or mark; delete its heat or round | Existing history triggers | Event deletion |
-| Client changes placement columns of a published-order heat (round, status, version); client publish, unpublish, delete of a version | Option D (899; not executed; relies on U18) | Draft orders hold no new ballots by construction, not guarded |
+| Client changes placement columns of a published-order heat (round, status, version); client publish, unpublish, delete of a version | Option D (899; not executed; relies on U18) | Return of a published order to draft, and heat moves, are in this design's draft guard (section 4) |
 | Client changes entry status | S6 (877) | Definer writers |
 | Client removes a placement in a started heat; un-scratch | S6, U18-S | Placements in unstarted heats |
 | 1. Ordinary Scratch or withdrawal, direct placement writes, R2, sync | **This design (section 4)** | |
@@ -123,7 +127,7 @@ For items 3 and 4 use triggers on version and round status, **not** a text chang
 | Change | PR | Proposed slot |
 | --- | --- | --- |
 | Lifecycle definer and S6 guards | 877, unchanged; no ballot SQL | `20270301140000`, `141000` |
-| Predicate, placement and entry guards, hook, lifecycle lock step, R2 and sync handling (still to be designed, section 4) | New PR stacked on 877 | `20270301150000` |
+| Predicate, placement, entry and draft guards, hook, lifecycle lock step, R2 and sync handling (still to be designed, section 4) | New PR stacked on 877 | `20270301150000` |
 | Version and round status guards (items 3-4) | New PR after Option D | after `170000`, e.g. `171000` |
 | Error codes, preflight, offer wording, retry; refund page must not offer an ordinary Scratch | 878 | none |
 | Exception request, approval, writer, hook redefinition | 908 line, later | later than `150000` |
@@ -138,7 +142,7 @@ Each refusal asserts the expected code and that ballots, marks, placements, entr
 1. Refused with ballots: whole entry Scratch and withdrawal; repeat-call cascade; direct placement scratch, delete and move; callback couple not selected; ordinal heat mate; ordinal couple alone on a second heat; ballot on a cancelled heat; superseded version; heat moved to another round (rule 3); paper ballot; older superseded ballot version only.
 2. Allowed: drafts only; ballots only in another round or division with no mark for E; advanced couple removed from one heat of an unballoted next round; placement scratched before the first ballot, then whole entry (no other affected round); A6 Final withdrawal with semifinal ballots only; reinstatement paths.
 3. R2 and sync: refund and registration cancellation succeed; participation unchanged for affected couples with a resolvable ballot exception; unaffected entries of the same registration still withdrawn; busy stays pending and is applied later.
-4. Planner: clear, edit and copy a draft order while the round has ballots succeed; a couple in a revoked Final with no ballot there is not blocked.
+4. Planner: clear, edit and copy a draft order while the round has ballots succeed; with callback ballots, return to draft, move to no version or another version or round, and delete of a published heat or version are each refused, and Scratch stays refused afterwards; a couple in a revoked Final with no ballot there is not blocked.
 5. Hook: no client can execute the predicate or hook; no setting bypasses the guard; hook returns false.
 6. Races, both orders, synchronized in the database: ballot submit and paper entry against Scratch; correction against Scratch; two Scratches in one round; floor advance, heat reopen, A6 cosign, calculation and advancement against Scratch, and a multi-entry refund against a heat reopen (no deadlock; busy where expected).
 7. Mutations: drop each rule, the round lock, `NOWAIT` handling and the new-statement re-check; each must fail for its named check.
@@ -157,6 +161,6 @@ Each refusal asserts the expected code and that ballots, marks, placements, entr
 
 ## Review and unverified
 
-One independent read-only review of the first draft raised eight points: the refund and sync exception path, busy handling, draft planning, a multi-entry deadlock, revoked Final placements, the eligibility bypass, floor-advance locks and the publication function reference. All are reflected above; **the revision has not been re-reviewed**. The review found no ordinary single-entry race that lets a ballot pass the round lock, apart from the residual in section 3. Its search for writers was not exhaustive.
+One independent read-only review of the first draft raised eight points: the refund and sync exception path, busy handling, draft planning, a multi-entry deadlock, revoked Final placements, the eligibility bypass, floor-advance locks and the publication function reference. All are reflected above; **the revision has not been re-reviewed**. A later comment from the PR 908 author (`01c28f036`) added the draft-guard condition, the correct meaning of the editable test and the entry lock for one-placement writers; those edits are not reviewed either. The first review found no ordinary single-entry race that lets a ballot pass the round lock, apart from the residual in section 3. Its search for writers was not exhaustive.
 
 Not verified: runtime behaviour; hosted grants and applied migrations; whether any app screen writes placements directly; A7 and U66 internals; additional row locks in A5 and A7 ballot triggers; deadlock freedom; the shape of the refund exception record.
