@@ -879,3 +879,30 @@ Presented: keep a self-approved published result live and flag staff, or hide it
 > No new SQL apply, protected merge, deployment or public activation is authorized.
 >
 > Present the consolidated package when its recommendations and dependencies have been independently checked.
+
+## 20. Release priority: evaluate a constrained Studio/Custom MVP first (2026-11-26)
+
+Owner confirmation, verbatim (the instruction first arrived as a relay from the Apps coordinator):
+
+> COMPETITION OS — OWNER CONFIRMATION: PRIORITIZE A CONSTRAINED STUDIO/CUSTOM MVP.
+> YES. The Release Execution Priority instruction is directly confirmed.
+> Evaluate the smallest safe, useful Studio/Custom Competition OS release BEFORE continuing the extensive B2 decision process.
+>
+> 1. Identify the minimum end-to-end workflow required for a real Studio/Custom competition: registration, eligibility, scheduling, judging, scoring, initial approval and results.
+> 2. Identify advanced functionality that can be deferred, including replacement rounds, optional multi-round formats, re-dances, post-publication corrections and mid-event schedule restructuring.
+> 3. Determine whether disabling or restricting these operations would safely eliminate the demonstrated R-11/B2 bypasses without requiring the full B2 contest-lineage architecture.
+> 4. All restrictions must be enforced at trusted application and database boundaries. A hidden UI control alone is insufficient.
+> 5. Preserve mandatory authorization, audit, under-18, scoring-integrity, tenant-isolation and result-publication protections. Do not accept a reachable security vulnerability as an MVP shortcut.
+> 6. Evaluate whether a final-only, single-round-per-contest model is sufficient for the first controlled Studio/Custom pilot. Treat this as a candidate, not a predetermined solution.
+> 7. Identify any existing PRs that already provide the necessary restrictions. Prefer completing verified work over creating new architecture.
+> 8. Classify outstanding Competition work into: Mandatory MVP release blocker. Required integration or release dependency. Deferred post-MVP capability.
+> 9. Continue PR #864's already assigned test corrections and independent verification. Do not expand its scope unnecessarily.
+> 10. Pause new owner questions about advanced B2 functionality until the MVP evaluation determines whether those decisions are needed for initial activation. Preserve all existing decisions and findings.
+> 11. Produce a concise release recommendation comparing: A. A constrained Studio/Custom MVP with safely disabled advanced operations. B. Completing B2 before release. For each, identify exact remaining blockers, existing PR dependencies, additional implementation needed, QA requirements, and realistic delivery estimates grounded in the present work.
+> 12. Recommend the fastest safe path to a functioning Studio/Custom pilot. Do not begin a major new implementation merely to perform this evaluation.
+>
+> Continue independent authorized coding, review and testing. Preserve all separate owner approval gates.
+> No hosted SQL apply, protected merge, deployment or public activation is authorized.
+> Make this the Competition coordinator's immediate release-planning priority and return one actionable recommendation rather than another large decision questionnaire.
+
+**Effect:** the consolidated decision package of section 19 and advanced B2 questions are PAUSED pending this evaluation. All existing decisions and findings stand.
