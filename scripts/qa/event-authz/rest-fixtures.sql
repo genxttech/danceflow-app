@@ -7,6 +7,13 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('a8000000-0000-4000-8000-000000000001', 'a8100000-0000-4000-8000-00000000000a', 'studio_owner', true),
   ('a8000000-0000-4000-8000-000000000003', 'a8100000-0000-4000-8000-00000000000a', 'instructor', true),
   ('a8000000-0000-4000-8000-000000000006', 'a8100000-0000-4000-8000-00000000000b', 'studio_owner', true);
+-- A deliberately dangerous owner-run function, to prove API connections never qualify for the maintenance path.
+create or replace function public.zz_rest_creator_probe(p uuid) returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform set_config('app.event_creator_maintenance', 'on', true);
+  update public.events set created_by = p where id = 'a8300000-0000-4000-8000-000000000001';
+end $$;
+grant execute on function public.zz_rest_creator_probe(uuid) to anon, authenticated, service_role;
 insert into public.events (id, studio_id, name, slug, status, visibility, start_date, end_date, created_by) values
   ('a8300000-0000-4000-8000-000000000001', 'a8100000-0000-4000-8000-00000000000a', 'E1', 'rest-e1', 'published', 'public', '2027-03-01', '2027-03-01', 'a8000000-0000-4000-8000-000000000001');
 insert into public.event_guest_coaches (id, event_id, studio_id, name) values ('a8400000-0000-4000-8000-000000000001', 'a8300000-0000-4000-8000-000000000001', 'a8100000-0000-4000-8000-00000000000a', 'Coach');

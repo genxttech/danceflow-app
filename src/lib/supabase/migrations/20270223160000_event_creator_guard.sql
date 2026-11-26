@@ -3,7 +3,8 @@
 -- ordinary column. This adds one trigger. It changes no policy, grant, row or other column, and widens nothing.
 --   insert  a signed-in caller may record only itself (or nobody) as creator; server inserts without a user session are unchanged
 --   update  any change of created_by is refused for every caller, including the service role. The one maintenance path is a
---           database-owner session with no user session that also sets app.event_creator_maintenance = 'on' for that transaction.
+--           connection that is a database owner member both as logged in and as acting role, has no user session, and also sets
+--           app.event_creator_maintenance = 'on' for that transaction. API connections log in as a non-member, so they never qualify.
 begin;
 set local lock_timeout = '5s';
 
@@ -15,6 +16,7 @@ set search_path = public, pg_temp
 as $$
 declare
   caller uuid := auth.uid();
+  owner_role oid;
 begin
   if tg_op = 'INSERT' then
     if caller is not null and new.created_by is not null and new.created_by <> caller then
@@ -24,9 +26,11 @@ begin
   end if;
 
   if new.created_by is distinct from old.created_by then
+    select c.relowner into owner_role from pg_class c where c.oid = tg_relid;
     if caller is null
        and coalesce(current_setting('app.event_creator_maintenance', true), '') = 'on'
-       and pg_has_role(current_user, (select c.relowner from pg_class c where c.oid = tg_relid), 'MEMBER') then
+       and pg_has_role(current_user, owner_role, 'MEMBER')
+       and pg_has_role(session_user, owner_role, 'MEMBER') then
       return new;
     end if;
     raise exception 'The event creator cannot be changed.' using errcode = '42501';

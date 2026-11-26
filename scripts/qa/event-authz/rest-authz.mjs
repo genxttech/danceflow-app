@@ -1,6 +1,7 @@
 // LOCAL / DISPOSABLE ONLY. PostgREST authorization checks for the private-lesson read scope (20270223150000) and the event
 // creator guard (20270223160000). Expects both applied, the fixtures from rest-fixtures.sql, and PostgREST on REST_URL signed
 // with REST_JWT_SECRET. Refuses any non-loopback URL.
+// The read-scope checks need 20270223150000, which lives in its own change: apply both before running.
 import { createHmac } from "node:crypto";
 
 const base = process.env.REST_URL ?? "";
@@ -37,13 +38,15 @@ function check(name, ok, detail) {
   if (!ok) { failed += 1; console.log(`FAIL ${name}: ${JSON.stringify(detail).slice(0, 240)}`); }
 }
 const emptyList = (r) => r.status === 200 && Array.isArray(r.data) && r.data.length === 0;
-const refused = (r) => (r.status === 401 || r.status === 403) && r.data?.code === "42501";
+// Only the guard's own message counts: a row-security refusal carries the same error code.
+const refused = (r) => (r.status === 401 || r.status === 403) && r.data?.code === "42501" && String(r.data?.message).startsWith("The event creator");
 const creator = async () => (await call("GET", `/events?id=eq.${E1}&select=created_by`, SERVICE)).data?.[0]?.created_by;
 
 check("control: service role sees the fixture slot", (await call("GET", "/event_private_lesson_slots?select=id", SERVICE)).data?.length >= 1, null);
 check("anon reads no slots", emptyList(await call("GET", "/event_private_lesson_slots?select=*", null)), await call("GET", "/event_private_lesson_slots?select=*", null));
 check("anon reads no coach links", emptyList(await call("GET", "/event_guest_coaches?select=schedule_token", null)), null);
-check("anon embed through events reads nothing", (await call("GET", `/events?id=eq.${E1}&select=id,event_private_lesson_slots(buyer_name),event_guest_coaches(schedule_token)`, null)).data?.every?.((e) => e.event_private_lesson_slots.length === 0 && e.event_guest_coaches.length === 0) !== false, null);
+const embed = await call("GET", `/events?id=eq.${E1}&select=id,event_private_lesson_slots(buyer_name),event_guest_coaches(schedule_token)`, null);
+check("anon embed through events reads nothing", embed.status === 200 && embed.data?.length === 1 && embed.data[0].event_private_lesson_slots.length === 0 && embed.data[0].event_guest_coaches.length === 0, embed);
 check("instructor reads no slots", emptyList(await call("GET", "/event_private_lesson_slots?select=*", INSTRUCTOR)), null);
 check("other studio owner reads no slots", emptyList(await call("GET", "/event_private_lesson_slots?select=*", OTHER)), null);
 check("owner reads slots", (await call("GET", "/event_private_lesson_slots?select=id", OWNER)).data?.length >= 1, null);
@@ -55,7 +58,12 @@ check("instructor still reads no slots afterwards", emptyList(await call("GET", 
 const otherTake = await call("PATCH", `/events?id=eq.${E1}`, OTHER, { created_by: user(6) });
 check("other studio cannot take creator", emptyList(otherTake) || refused(otherTake), otherTake);
 const upsert = await fetch(`${base}/events?on_conflict=id`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${INSTRUCTOR}`, Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify({ id: E1, studio_id: "a8100000-0000-4000-8000-00000000000a", name: "E1", slug: "rest-e1", status: "published", visibility: "public", start_date: "2027-03-01", end_date: "2027-03-01", created_by: user(3) }) });
-check("upsert cannot take creator", upsert.status >= 400 && (await creator()) === user(1), upsert.status);
+const upsertBody = await upsert.json().catch(() => null);
+check("upsert cannot take creator", refused({ status: upsert.status, data: upsertBody }) && (await creator()) === user(1), { status: upsert.status, data: upsertBody });
+for (const [label, token] of [["anon", null], ["service role", SERVICE], ["instructor", INSTRUCTOR]]) {
+  const probe = await call("POST", "/rpc/zz_rest_creator_probe", token, { p: user(3) });
+  check(`${label} cannot use an owner-run function to change creator`, refused(probe) && (await creator()) === user(1), probe);
+}
 const forged = await call("POST", "/events", INSTRUCTOR, { studio_id: "a8100000-0000-4000-8000-00000000000a", name: "F", slug: "rest-forged", status: "draft", visibility: "public", start_date: "2027-03-01", end_date: "2027-03-01", created_by: user(1) });
 check("insert naming someone else is refused", refused(forged), forged);
 const service = await call("PATCH", `/events?id=eq.${E1}`, SERVICE, { created_by: user(3) });
