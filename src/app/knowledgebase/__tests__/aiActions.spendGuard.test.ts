@@ -73,6 +73,16 @@ describe("public knowledgebase assistant spend guard", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("an hourly budget of 0 turns the model off and still returns article links", async () => {
+    process.env.KB_ASSISTANT_INSTANCE_HOURLY_BUDGET = "0";
+    try {
+      expect(await askKnowledgebaseAssistantAction(initial, form(QUESTION))).toMatchObject({ ok: true });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.KB_ASSISTANT_INSTANCE_HOURLY_BUDGET;
+    }
+  });
+
   it("per-IP rate limit: after 5 model calls in a minute the next one gets links only and no provider call", async () => {
     for (let i = 0; i < 5; i += 1) await askKnowledgebaseAssistantAction(initial, form(QUESTION));
     expect(fetchMock).toHaveBeenCalledTimes(5);

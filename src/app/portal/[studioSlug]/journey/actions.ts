@@ -12,7 +12,7 @@ import {
   settleLumiUsage,
 } from "@/lib/lumi/usage";
 import { callOpenAiResponses, isAiFeatureEnabled } from "@/lib/ai/providerCall";
-import { serializeLumiContext } from "@/lib/lumi/context";
+import { orderSyllabusProgress, serializeLumiContext } from "@/lib/lumi/context";
 
 export type LumiAssistantState = {
   ok: boolean;
@@ -190,12 +190,13 @@ export async function generateLumiPlanAction(
         .select(
           `id, visible_in_portal, archived_at,
            syllabus_templates (name, dance_style, level),
-           client_syllabus_progress (status, notes, show_notes_in_portal, syllabus_template_items (title))`,
+           client_syllabus_progress (status, notes, show_notes_in_portal, updated_at, syllabus_template_items (title))`,
         )
         .eq("studio_id", access.studio.id)
         .eq("client_id", access.client.id)
         .eq("visible_in_portal", true)
         .is("archived_at", null)
+        .order("assigned_at", { ascending: false })
         .limit(8),
       access.admin
         .from("group_lesson_recap_recipients")
@@ -238,7 +239,7 @@ export async function generateLumiPlanAction(
   const visibleSyllabusProgress = (syllabusAssignments ?? []).map(
     (assignment) => ({
       ...assignment,
-      client_syllabus_progress: (assignment.client_syllabus_progress ?? []).map(
+      client_syllabus_progress: orderSyllabusProgress(assignment.client_syllabus_progress ?? []).map(
         (progress) => ({
           status: progress.status,
           notes: progress.show_notes_in_portal ? progress.notes : null,
