@@ -71,3 +71,21 @@ export function createClaimRegister(rpc: Rpc, platform: string): (token: string)
     if (error) throw new Error("push token registration failed");
   };
 }
+
+/**
+ * Removes this device's token row, so a signed-out phone stops receiving the previous person's notifications. The table's own-row delete policy allows it, so it
+ * must run while that person is still signed in. Their id is read first and pinned on the delete: if reading the token stalls past the sign-out wait and someone
+ * else signs in, the late delete cannot remove the new person's row. Permission is not checked: a token registered before it was turned off is still bound.
+ */
+export function createPushUnbind(
+  adapter: PushAdapter,
+  currentUserId: () => Promise<string | null>,
+  remove: (token: string, userId: string) => PromiseLike<{ error: { message: string } | null }>,
+): () => Promise<void> {
+  return async () => {
+    const userId = await currentUserId();
+    if (!userId) return;
+    const { error } = await remove(await adapter.getDeviceToken(), userId);
+    if (error) throw new Error("push token removal failed");
+  };
+}

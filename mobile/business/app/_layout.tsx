@@ -8,8 +8,8 @@ import { AriaAssistantRoot } from "@/assistant/AriaAssistantRoot";
 import { LayoutProbe } from "@/components/LayoutProbe";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useFontScale } from "@/lib/fontScale";
-import { PushProvider, usePushTaps } from "@/lib/push";
-import { nativePush } from "@/lib/pushNative";
+import { PushProvider, usePushTaps, usePushSetup } from "@/lib/push";
+import { nativePush, rebindNativePush, unbindNativePush } from "@/lib/pushNative";
 import { stackAnimation, useReduceMotion } from "@/lib/motion";
 import { StaffApiProvider, StaffSessionProvider } from "@/lib/staff";
 import { currentAppHeader } from "@/lib/appVersion";
@@ -24,6 +24,9 @@ if (!webUrl) {
 
 /** Opens the screen a notification names. Inert until a push adapter with a tap source is provided. */
 function PushTapRouter() {
+  // Reading the status registers the token when notifications are already allowed (it never prompts). Sign-out removes the token, so a new sign-in
+  // must bind it here rather than wait for the notification card on More.
+  usePushSetup();
   usePushTaps((target) => router.push(target as Parameters<typeof router.push>[0]));
   return null;
 }
@@ -98,7 +101,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
-      <AuthProvider>
+      <AuthProvider beforeSignOut={unbindNativePush} onSignOutRefused={rebindNativePush}>
         <LayoutProbe name="root">
           <RootNavigator />
         </LayoutProbe>
