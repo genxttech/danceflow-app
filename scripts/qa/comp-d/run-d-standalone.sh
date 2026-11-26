@@ -2,7 +2,7 @@
 # Option D STANDALONE local run: the composed Competition base chain (as scripts/qa/comp-s5-integrated-run.sh: release/website-embeds competition files
 # plus JC1/U18/U18-S from release/competition-cf1-app-candidate) plus ONLY 20270301170000. LOCAL ONLY: one disposable container from cf1host:found, no
 # network, no published port; never a hosted database. FIFO rules 7-8: the caller creates its ticket first; the lock is taken only when that ticket is
-# the oldest and the lock is free; only a lock taken here is removed; the ticket is removed only when the whole job passed.
+# the oldest and the lock is free; only a lock taken here is removed; the ticket is removed when the job ends, whatever the result, so a failed or blocked run never holds up the queue.
 #
 #   bash scripts/qa/comp-d/run-d-standalone.sh <ticket-file> <out-dir> [wait-minutes]
 #
@@ -21,7 +21,7 @@ mkdir -p "$OUT"; CHAIN="$OUT/chain"; rm -rf "$CHAIN"; mkdir -p "$CHAIN/base" "$C
 : > "$OUT/runner.log"; : > "$OUT/suites.tsv"; BAD=0
 log() { echo "[$(date -u +%H:%M:%SZ)] $*" | tee -a "$OUT/runner.log"; }
 TOOK=0
-cleanup() { docker rm -f -v "$NAME" >/dev/null 2>&1; [ "$TOOK" = 1 ] && rm -rf "$LOCK"; if [ "$(cat "$OUT/result.txt" 2>/dev/null)" = PASS ]; then rm -f "$TICKET"; fi; }
+cleanup() { docker rm -f -v "$NAME" >/dev/null 2>&1; [ "$TOOK" = 1 ] && rm -rf "$LOCK"; rm -f "$TICKET"; }
 trap cleanup EXIT
 cd "$REPO" || exit 4
 
