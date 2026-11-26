@@ -10,6 +10,7 @@ import { createFakeDb, seedToken, usedThisMonth, type FakeDb, type Row } from "@
 const h = vi.hoisted(() => ({
   db: null as unknown as { from: (t: string) => unknown; rpc: (n: string, a: Record<string, unknown>) => Promise<unknown> },
   send: vi.fn(),
+  hideCampaigns: false,
   rpcOverride: null as null | ((name: string, args: Record<string, unknown>) => Promise<unknown> | null),
 }));
 
@@ -23,7 +24,11 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1", email: "owner@example.test" } }, error: null }) },
-    from: (table: string) => h.db.from(table),
+    // Models the "m0 freeze hides campaigns" policy: while set, the signed-in client's campaign updates match no row.
+    from: (table: string) =>
+      h.hideCampaigns && table.endsWith("marketing_campaigns")
+        ? { update: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }) }) }
+        : h.db.from(table),
     rpc: (name: string, args: Record<string, unknown>) => h.rpcOverride?.(name, args) ?? h.db.rpc(name, args),
   }),
 }));
@@ -99,6 +104,7 @@ beforeEach(() => {
   process.env.MARKETING_FROM_EMAIL = "news@example.test";
   process.env.NEXT_PUBLIC_SITE_URL = "https://www.idanceflow.com";
   h.rpcOverride = null;
+  h.hideCampaigns = false;
   h.send.mockReset();
   h.send.mockResolvedValue({ data: { id: "msg-1" }, error: null });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -297,5 +303,19 @@ describe("studio campaign test send: D3", () => {
     expect(await run(sendMarketingCampaignTestEmailAction, { campaignId: "c1", testEmail: "owner@example.test" })).toContain("test_sent=1");
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ p_scope_kind: "studio", p_scope_id: STUDIO, p_campaign_id: "c1", p_requested_by: "user-1", p_email: "owner@example.test" }));
     expect(sentTo()).toEqual(["owner@example.test"]);
+  });
+});
+
+describe("studio campaign send: freeze applied during the batch (M-0 F3)", () => {
+  it("restores the campaign status even though the signed-in client can no longer see the campaign", async () => {
+    seed(2);
+    h.rpcOverride = (name) => {
+      if (name !== "marketing_claim_campaign_recipient") return null;
+      h.hideCampaigns = true;
+      return Promise.resolve({ data: { outcome: "frozen" }, error: null });
+    };
+    expect(await run(sendMarketingCampaignAction, { campaignId: "c1", confirmSend: "yes" })).toContain("campaign_error=marketing_paused");
+    expect(h.send).not.toHaveBeenCalled();
+    expect(db.tables.marketing_campaigns[0].status).toBe("draft");
   });
 });
