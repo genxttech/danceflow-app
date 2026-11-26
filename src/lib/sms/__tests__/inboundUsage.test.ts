@@ -115,15 +115,51 @@ describe("inboundReplyAllowed", () => {
   });
 
   it("sends the account, a hashed sender, the kind and the per-kind limit", async () => {
-    const c = client(() => ({ data: true, error: null }));
+    const c = client((name) => ({ data: name === "tw4_traffic_hold_for_account" ? false : true, error: null }));
     await inboundReplyAllowed(c, { accountSid: `AC${"1".repeat(32)}`, sender: NUMBER, kind: "error_unavailable" });
     await inboundReplyAllowed(c, { accountSid: null, sender: NUMBER, kind: "help" });
+    // TW-4F slice E: an error reply for a subaccount first asks whether the business is on a traffic hold
+    expect(c.calls.shift()).toEqual({ name: "tw4_traffic_hold_for_account", args: { p_account_sid: `AC${"1".repeat(32)}` } });
     expect(c.calls[0]).toEqual({
       name: "tw4_inbound_reply_allowed",
       args: { p_account_sid: `AC${"1".repeat(32)}`, p_sender_hash: inboundSenderHash(NUMBER), p_kind: "error_unavailable", p_limit: 1 },
     });
     expect(c.calls[1].args).toMatchObject({ p_account_sid: null, p_kind: "help", p_limit: 5 });
     expect(JSON.stringify(c.calls)).not.toContain("5550100123");
+  });
+
+  describe("TW-4F slice E: DanceFlow traffic hold", () => {
+    const SUB = `AC${"2".repeat(32)}`;
+    const holdAnswer = (hold: RpcResult | "throw") => (name: string): RpcResult => {
+      if (name === "tw4_traffic_hold_for_account") {
+        if (hold === "throw") throw new Error("down");
+        return hold;
+      }
+      return { data: true, error: null };
+    };
+
+    it("a held business gets no optional error reply, and its counter is not consumed", async () => {
+      for (const kind of errorKinds) {
+        const c = client(holdAnswer({ data: true, error: null }));
+        expect(await inboundReplyAllowed(c, { accountSid: SUB, sender: NUMBER, kind }), kind).toBe(false);
+        expect(c.calls.map((x) => x.name)).toEqual(["tw4_traffic_hold_for_account"]);
+      }
+    });
+
+    it("the hold never blocks a HELP / START confirmation (it is not even consulted)", async () => {
+      for (const kind of ["help", "start"] as const) {
+        const c = client(holdAnswer({ data: true, error: null }));
+        expect(await inboundReplyAllowed(c, { accountSid: SUB, sender: NUMBER, kind }), kind).toBe(true);
+        expect(c.calls.map((x) => x.name)).toEqual(["tw4_inbound_reply_allowed"]);
+      }
+    });
+
+    it("an unreadable hold fails closed for error replies; a missing function (migration not applied) leaves the existing rule in charge", async () => {
+      expect(await inboundReplyAllowed(client(holdAnswer({ data: null, error: { code: "XX001" } })), { accountSid: SUB, sender: NUMBER, kind: "error_invalid" })).toBe(false);
+      expect(await inboundReplyAllowed(client(holdAnswer("throw")), { accountSid: SUB, sender: NUMBER, kind: "error_invalid" })).toBe(false);
+      expect(await inboundReplyAllowed(client(holdAnswer({ data: null, error: { code: "PGRST202" } })), { accountSid: SUB, sender: NUMBER, kind: "error_invalid" })).toBe(true);
+      expect(await inboundReplyAllowed(client(holdAnswer({ data: false, error: null })), { accountSid: SUB, sender: NUMBER, kind: "error_invalid" })).toBe(true);
+    });
   });
 });
 

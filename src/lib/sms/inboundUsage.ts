@@ -50,6 +50,18 @@ export async function inboundReplyAllowed(
 ): Promise<boolean> {
   const compliance = input.kind === "help" || input.kind === "start";
   if (!admin || !input.sender.trim()) return compliance;
+  // TW-4F slice E: an optional ERROR reply is suppressed while any location of the signing subaccount's business is on a DanceFlow traffic hold, and when
+  // that cannot be checked (fail closed, like the error-reply count). A HELP / START confirmation never consults the hold; a STOP never reaches this function.
+  if (!compliance && input.accountSid) {
+    try {
+      const held = await admin.rpc("tw4_traffic_hold_for_account", { p_account_sid: input.accountSid });
+      // the function does not exist yet (20270224100000 not applied): no hold can exist, so the existing error-reply rules decide
+      const missing = held.error && (held.error.code === "PGRST202" || held.error.code === "42883");
+      if (!missing && (held.error || held.data !== false)) return false;
+    } catch {
+      return false;
+    }
+  }
   try {
     const { data, error } = await admin.rpc("tw4_inbound_reply_allowed", {
       p_account_sid: input.accountSid,

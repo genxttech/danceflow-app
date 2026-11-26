@@ -905,6 +905,7 @@ const BILLED_SKIP: Partial<Record<BilledSendRefusal, SmsSkipReason>> = {
   not_billed: "sms_no_billed_sender",
   opted_out: "sms_opted_out",
   suspended: "sms_service_suspended",
+  traffic_hold: "sms_service_suspended", // TW-4F slice E: same skip as before (nothing sent, nothing reserved); the refusal reason itself is distinct
   switched_off: "sms_billing_unavailable",
   no_price: "sms_billing_unavailable",
 };
