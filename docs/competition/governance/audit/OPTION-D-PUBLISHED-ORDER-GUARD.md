@@ -44,3 +44,21 @@ Head `60b4edd7e`, migration sha256 `1607747d…`, composed base (`release/websit
 | Information only: the same **with** PR 865 (`d5c3bed52`) | **No verdict.** The log stops after step D; steps E and Z and the final check did not run, consistent with the runner's 600-second limit (the run without PR 865 took nearly as long). **Concurrency of the PR 865 approval change remains unverified.** |
 
 D does not close the spare-round replacement routes, and this run does not change that.
+
+## Independent re-review of the revision (`5a84cff9f`, by reading only): NOT READY
+
+**The statements above about what D refuses are subject to blocker 1.** Nothing below is fixed. Blocker 1 was checked against the code by the author; it and findings 2 to 6 are **not reproduced by execution**.
+
+| # | Severity | Finding | Suggested correction |
+|---|---|---|---|
+| 1 | **BLOCKER** | A heat with **no `schedule_version_id`** but a `floor_heat_id` in a **draft** is accepted (D lines ~100-117; the composite foreign key skips a null column, `20261111090000:115-117`). Publication counts floor-heat members by `floor_heat_id`, so the heat goes live with the order. The 10D child guard judges only the heat's own version, so its **entries and dances stay directly writable in the published numbered heat** (insert, delete, re-point), and by inference S4's entry-clearance guard treats it as editable. The day-of screen filters by version, hiding it there. The existing race R2 tries this only against an order already being published | refuse a client row whose floor heat belongs to a version unless `schedule_version_id` equals it; make publication refuse existing mismatches; add tests; reproduce first |
+| 2 | SHOULD-FIX | The publication lock does not serialize other writers: direct entry and dance writes check "draft" with no lock, and definer draft RPCs (`_comp10d_require_draft`, stable, unlocked) are exempt from D, so a change can land in the order being published after its checks | share-lock the version in the child guard and in `require_draft`; add races (R1-R4 cover only direct heat writes) |
+| 3 | SHOULD-FIX | The publication function's switch to definer is untested (no anon, other-studio manager or service-role call) and PUBLIC / anon keep EXECUTE. No bypass found by reading | add tests; revoke |
+| 4 | SHOULD-FIX | Publication snapshot rows stay directly insertable by managers (a forged later snapshot, or one blocking a draft's publication) | drop the insert policy and privilege |
+| 5 | SHOULD-FIX | Several "keep" checks are vacuous (they count a SELECT's one row, so publication, supersede, create-version, cancel-round and lock-state pass with no effect asserted); advancement, event-deletion cascade, heat-plan apply and S6 lifecycle are not shown | assert effects |
+| 6 | NOTE | Schedule blocks: the item check looks only at the new version, so contests or empty blocks can likely move from a published version to a draft (inference). A rare three-way deadlock is possible. Forward is not replayable; rollback is complete and replay-safe | |
+
+**Closes (for client writes, versioned published or past heats, subject to blocker 1):** round change, renumber, detach, status removal, insert and delete; unpublish, reopen, re-date, direct publish and delete of versions.
+**Does not close:** a spare round published in advance; a new replacement version published through the function before any heat has run; relabelled rounds or divisions; forged publication rows; definer actions such as round cancel and advancement.
+
+**Slot and conflict check (2026-11-26, open pull requests):** no other open PR claims `20270301170000`, and no open migration scanned redefines the pinned publication function (file lists of four very large PRs were truncated; their branches show no `202703` migration). PR 866, 877 and 867 add guards on heats, versions or heat entries; by reading no writer of theirs is refused by D, but **they have not been run together**. PR 877 makes lifecycle writers definer, so this migration's header listing them as invoker would go stale. PR 865 touches none of D's objects. PR 863 and the OD-07 / 12 / 26 statements above were not rechecked.
