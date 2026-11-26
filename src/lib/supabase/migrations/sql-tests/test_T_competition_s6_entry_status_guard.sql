@@ -46,6 +46,7 @@ values ('00000000-0000-0000-0000-cf1032e00001', '00000000-0000-0000-0000-cf1032d
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
 select ('00000000-0000-0000-0000-cf1032800' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1032e00001', '00000000-0000-0000-0000-cf1032001001', '00000000-0000-0000-0000-cf1032003001', 'e' || i, 'confirmed', 'eligible', '9' || i
 from generate_series(1, 5) i;
+do $r15$ begin if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then perform pg_temp.r15_clear_entries(); end if; end $r15$; -- composed-run hook (S4/R-15); inert unless the integrated runner prepends fixtures/r15_clear_entries.sql
 insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
 select ('00000000-0000-0000-0000-cf1032900' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1032e00001', '00000000-0000-0000-0000-cf1032003001', '00000000-0000-0000-0000-cf1032d00001',
        ('00000000-0000-0000-0000-cf1032800' || lpad(i::text, 3, '0'))::uuid, i, case when i = 4 then 'danced' else 'scheduled' end
@@ -288,6 +289,7 @@ select pg_temp.chk('H1 repeating a scratch is a no-op: same version, same audit 
   pg_temp.r('h1') = 'OK' and pg_temp.ver('800001') = (select ver from t_h where k = 'h1') and pg_temp.aud('800001') = (select aud from t_h where k = 'h1') and pg_temp.st('800001') = 'scratched', pg_temp.r('h1'));
 set local session_replication_role = replica;
 update public.event_competition_entries set status = 'scratched' where id = pg_temp.id('810003');
+do $r15$ begin if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then perform pg_temp.r15_clear_entries(); end if; end $r15$; -- composed-run hook (S4/R-15); inert unless the integrated runner prepends fixtures/r15_clear_entries.sql
 insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
 values (pg_temp.id('900071'), pg_temp.id('e00001'), pg_temp.id('003001'), pg_temp.id('d00001'), pg_temp.id('810003'), 71, 'scheduled');
 set local session_replication_role = origin;

@@ -60,7 +60,7 @@ log "chain applied: $(grep -c '^OK' "$OUT/migrations-applied.txt") ok, $(grep -c
 cat > "$OUT/state.sql" <<'SQL'
 select 'fn|' || p.proname || '|' || pg_get_function_identity_arguments(p.oid) || '|' || p.prosecdef || '|' || pg_get_userbyid(p.proowner) || '|' || coalesce(p.proacl::text, 'NULL') || '|' || coalesce(p.proconfig::text, 'NULL') || '|' || md5(replace(p.prosrc, chr(13), ''))
   from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('change_competition_entry_lifecycle', 'cf1_s6_guard_entry_status', '_r2_withdraw_entry', '_r2_apply_participation') order by 1;
-select 'trg|' || g.tgname || '|' || g.tgenabled || '|' || pg_get_triggerdef(g.oid) from pg_trigger g where g.tgrelid = 'public.event_competition_entries'::regclass and not g.tgisinternal order by 1;
+select 'trg|' || g.tgname || '|' || g.tgenabled::text || '|' || pg_get_triggerdef(g.oid) from pg_trigger g where g.tgrelid = 'public.event_competition_entries'::regclass and not g.tgisinternal order by 1;
 select 'acl|' || coalesce(c.relacl::text, 'NULL') from pg_class c where c.oid = 'public.event_competition_entries'::regclass;
 select 'priv|' || r || '|' || string_agg(p, ',' order by p) from unnest(array['anon','authenticated','service_role']) r, unnest(array['select','insert','update','delete','truncate','references','trigger']) p
   where has_table_privilege(r, 'public.event_competition_entries', p) group by r order by 1;
@@ -80,7 +80,7 @@ runsuite(){ # $1 name [$2 directory]
 # are run from the PR 867 head commit (this branch edits two setup writes in the U18-S suite).
 TSV="$OUT/suites-pr867.tsv"; : > "$TSV"
 PR867_REF=6dc6b2d4e5657f27754c9dfc62e977f642ecb04c; mkdir -p "$OUT/pr867-sql-tests"
-for s in test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_callback_final_advancement test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_f2_results; do ( cd "$REPO" && git show "$PR867_REF:src/lib/supabase/migrations/sql-tests/$s.sql" ) > "$OUT/pr867-sql-tests/$s.sql"; runsuite "$s" "$OUT/pr867-sql-tests"; done
+for s in ${PR867_SUITES:-test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_callback_final_advancement test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_f2_results}; do ( cd "$REPO" && git show "$PR867_REF:src/lib/supabase/migrations/sql-tests/$s.sql" ) > "$OUT/pr867-sql-tests/$s.sql"; runsuite "$s" "$OUT/pr867-sql-tests"; done
 
 # F3 read-back BEFORE S6 (state read-back of the forged-marker chain on the pre-S6 database)
 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$REPO/docs/competition/s6-entry-status-guard/f3-readback.sql" > "$OUT/f3-readback-before-S6.log" 2>&1
@@ -97,13 +97,13 @@ TSV="$OUT/suites.tsv"; : > "$TSV"
 for s in $SUITES; do runsuite "$s"; done
 
 # concurrency (real second connections)
-bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/concurrency.log" 2>&1; log "concurrency: $(tail -1 "$OUT/concurrency.log")"
+S6_OUT="$OUT" bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/concurrency.log" 2>&1; log "concurrency: $(tail -1 "$OUT/concurrency.log")"
 
 # rollback proof: back to exactly the pre-S6 state
 "${PSQL[@]}" -1 < "$M/rollback/20270301141000_competition_s6_entry_status_write_guard_rollback.sql" > "$OUT/rb-141000.log" 2>&1; echo "rollback 141000 rc=$?" >> "$OUT/migrations-applied.txt"
 "${PSQL[@]}" -1 < "$M/rollback/20270301140000_competition_s6_entry_lifecycle_definer_rollback.sql" > "$OUT/rb-140000.log" 2>&1; echo "rollback 140000 rc=$?" >> "$OUT/migrations-applied.txt"
 "${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P1-after-rollback.txt"
-if diff -u "$OUT/state-P0-before-S6.txt" "$OUT/state-P1-after-rollback.txt" > "$OUT/rollback-diff.txt"; then log "rollback proof: PASS (catalog state identical to pre-S6, $(wc -l < "$OUT/state-P0-before-S6.txt") lines)"; echo PASS > "$OUT/rollback-result.txt"; else log "rollback proof: FAIL (see rollback-diff.txt)"; echo FAIL > "$OUT/rollback-result.txt"; fi
+if grep -q '^trg|' "$OUT/state-P0-before-S6.txt" && grep -q '^acl|' "$OUT/state-P0-before-S6.txt" && grep -q '^priv|' "$OUT/state-P0-before-S6.txt" && grep -q '^trg|cf1_s6' "$OUT/state-P2-after-140000-141000.txt" && diff -u "$OUT/state-P0-before-S6.txt" "$OUT/state-P1-after-rollback.txt" > "$OUT/rollback-diff.txt"; then log "rollback proof: PASS (catalog state identical to pre-S6, $(wc -l < "$OUT/state-P0-before-S6.txt") lines)"; echo PASS > "$OUT/rollback-result.txt"; else log "rollback proof: FAIL (see rollback-diff.txt)"; echo FAIL > "$OUT/rollback-result.txt"; fi
 # forward again, then the S6 suite once more
 apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"
 TSV="$OUT/suite-s6-after-reapply.tsv"; : > "$TSV"; runsuite test_T_competition_s6_entry_status_guard
