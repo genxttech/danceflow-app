@@ -122,7 +122,9 @@ check "forward: the R-11 suite passes" "$(res_of forward test_T_competition_r11_
 check "baseline: the R-11 suite ran to its verdict, failed, and the failures name the blockers" "$(awk -F'	' '$1=="baseline" && $2=="test_T_competition_r11_approval_override_scope" && $4 ~ /SUITE FAIL/ {print "FAIL-with-verdict"}' "$OUT/suites.tsv") $(grep -c "RB-11" "$OUT/suite-baseline-test_T_competition_r11_approval_override_scope.log" | awk '{print ($1>0)?"RB-11":"no-RB-11"}')" "FAIL-with-verdict RB-11"
 check "every SQL suite produced a verdict (baseline and forward)" "$(awk -F'	' '($1=="baseline"||$1=="forward") && $2!="run_f2_races" && $4 !~ /SUITE (PASS|FAIL)/' "$OUT/suites.tsv" | wc -l | tr -d ' ')" 0
 for s in test_T_competition_cf1_a3_results test_T_competition_pv1_recompute; do check "forward: ${s#test_T_} passes" "$(res_of forward "$s")" PASS; done
-check "the probe completed routes NC, CS, CA and R" "$(grep -cE '^.(NC|CS|CA|R). RESULT' "$OUT/probe-forward.txt" 2>/dev/null)" 4
+check "probe: four routes ended published and self-approved" "$(grep -cE '^.(NC|CS|CA|R). RESULT => new round status=published; self-approval override events with refs.initial=true: 1; current publications: 1; same couples as the corrected round: true' "$OUT/probe-forward.txt" 2>/dev/null)" 4
+check "probe: the control self-approval of a corrected round was refused" "$(grep -cE '^.start. control.* => REFUSED .*COMP_CORRECTION_APPROVER_REQUIRED' "$OUT/probe-forward.txt" 2>/dev/null)" 1
+for t in baseline forward; do check "races ($t) produced a verdict" "$(awk -F'\t' -v t="$t" '$1==t && $2=="run_f2_races" && $4 ~ /F2 RACES (PASS|FAIL)/' "$OUT/suites.tsv" | wc -l | tr -d ' ')" 1; done
 for s in $SUITES run_f2_races; do
   [ "$(res_of baseline "$s")" = PASS ] && check "no regression: ${s#test_T_} passed on the base chain and still passes" "$(res_of forward "$s")" PASS
 done
@@ -135,6 +137,8 @@ for s in test_T_competition_f2_results test_T_competition_cf1_a3_results test_T_
 apply "$CHAIN/new/$MIG" reapply || BAD=$((BAD+1)); check "re-apply: approve md5 = post pin" "$(amd5)" "$POST"; check "re-apply: ACL = base" "$(acl)" "$ACL0"
 for s in test_T_competition_r11_approval_override_scope test_T_competition_f2_results; do run_suite reapply "$s"; done
 check "re-apply: the R-11 suite passes" "$(res_of reapply test_T_competition_r11_approval_override_scope)" PASS
+check "re-apply: f2 passes as on the baseline" "$(res_of reapply test_T_competition_f2_results)" "$(res_of baseline test_T_competition_f2_results)"
+[ "$(res_of forward run_f2_races)" = PASS ] || log "NOTE: CONCURRENCY IS NOT VERIFIED (the F2 race script did not pass after the migration)"
 
 if [ "$BAD" = 0 ]; then log "R-11 STANDALONE: PASS (every expectation met; see per-suite verdicts, including any that fail on the baseline too)"; echo PASS > "$OUT/result.txt"; exit 0; fi
 log "R-11 STANDALONE: FAIL ($BAD expectation(s) not met)"; echo FAIL > "$OUT/result.txt"; exit 1

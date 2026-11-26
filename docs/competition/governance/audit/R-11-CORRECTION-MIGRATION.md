@@ -171,19 +171,14 @@ Fresh read-only reviewer; covered the final migration and rollback, the rewritte
 
 ### 9d. Cancel-and-recreate (R2-N1): is a self-approved replacement of a corrected, never-published round reachable?
 
-**By code reading (second and third review, and this session): YES under a precondition; executed evidence: see section 12 (probe).** Nothing here changes cancel or recreate behavior.
+**CONFIRMED by executed evidence for the four routes of section 12a only, starting from a published never-run spare heat that the probe installed as a fixture (superuser, replica mode).** That the database planner and publication would produce that starting state is code reading only; the app planner does not create it. Cancelling from `ballots_locked`, the callback-Final precondition and behavior without U18 were not executed. Nothing here changes cancel or recreate behavior.
 
 * **Precondition:** the live published running order holds a never-run heat in the same division (a pre-published spare round, with its own numbered heat), and the replacement is not a callback Final.
 * **Who:** one manager with a verified email. No judge has to act: the manager enters paper ballots for the assigned judges.
 * **Steps:** (1) optionally `cancel_competition_round` on the corrected round (allowed for never-published calculated / approved / ballots_locked rounds with no heat on the floor; not required once the correction has been recalculated); (2) assign the panel, `schedule_competition_round`, `start_competition_round`; (3) advance the numbered heat staging, active, complete; (4) `enter_competition_paper_ballot` per judge (new ballots are required, any placements can be entered); (5) lock the heat, lock ballots, calculate; (6) approve with an override reason: the new round has no history, so it counts as **initial**; (7) `publish_competition_round_result`. The same couples take part; the old ballots are not reused.
-* **Variant:** an unrun published heat can apparently be moved to a new round by a table update of `round_id` (the day-of guard only freezes heats that have started; the 10D placement trigger omits `round_id`). That is a publication-immutability gap in its own right, independent of R-11.
+* **Variant (executed, route R):** an unrun published heat is moved to a new round by a table update of `round_id` (the day-of guard only freezes heats that have started; the 10D placement trigger omits `round_id`). That is a publication-immutability gap in its own right, independent of R-11.
 * **Refused routes (code reading):** a new round at a taken sequence number; inserting or attaching a heat into a published version; changing entries of published heats; an unplaced heat; publishing a new running order once any heat has run (`COMPO1_RUN_IN_PROGRESS`; on a chain **without** U18 a manager may mark couples danced by direct write, so if no heat ever moved through the day-of functions this refusal may never trigger); cancelling after publication.
-* **Bounded options for the owner (none implemented):**
-  * **A. Accept and disclose:** both rounds, the cancellation reason and the override audit remain; document that a second round over the same couples is organizer authority.
-  * **B. Widen the approval rule (approve only):** treat a round as corrected when another round of the same division that shares a couple has correction history or was cancelled after having a result; its openers and canceller cannot approve. Small follow-up migration; may affect legitimate multi-round divisions and needs its own tests.
-  * **C. Guard at the source:** cancelling a round that has any result version needs a second manager's co-signature.
-  * **D. Close the heat repoint** (refuse `round_id` changes on heats in a published version): worthwhile under any of A to C; separate small guard.
-  * Recommendation: B plus D, before public activation; owner decision.
+* **Options for the owner:** superseded by the reviewed Option B decision write-up (B1 / B2, separate draft PR) and the Option D draft, which covers the four accepted direct writes of section 12b (round, version detach, heat number, cancel status), not only `round_id`. Nothing is implemented in this PR.
 
 ## 10. Register
 
@@ -197,7 +192,7 @@ Fresh read-only reviewer; covered the final migration and rollback, the rewritte
 
 | Evidence | Head | Result |
 |---|---|---|
-| Standalone: base chain + 865 only, with rollback and probe | see section 12 | see section 12 |
+| Standalone: base chain + 865 only, with rollback and probe | `aa9ec144` | **PASS** (R-11 suite 111; f2, a3, pv1, f3, a5, a4, a6 pass before and after); F2 races failed on both sides; probe: replacement route confirmed (12a) |
 | Composed run4 (record `docs/competition/od02-s5-integrated-run.md`, PR 863; base fingerprint `d87e42858e6c...`; 864 `9d3dad16`, 866 `6b9f252f`, 863 `40eb8304`) | 865 `649af318` | R-11 and a3 suites PASS, 8/8 apply / rollback / re-apply. **Ran the OLD function text and OLD R-11 suite: it does not cover the final text.** A composed re-run is PENDING. |
 | Partial-chain run (`run-r11.sh`, 2026-11-24) | older | PASS; superseded |
 | Offline static test (vitest, 12) | current | PASS: all md5 pins, fragment reversal, text shape |
@@ -208,8 +203,56 @@ Fresh read-only reviewer; covered the final migration and rollback, the rewritte
 * **Dependencies:** merges alone onto `release/website-embeds` (checked at `649af318`: clean merge-tree; no file shared with 856, 859, 860, 863, 864, 866, 867; the changed-file set since then adds only files under this PR's own paths). Needs only F2, A3, PV-1, A7 and `_cf1_reason_is_substantive`. Later work that pins the approve md5 must pin `2d178c29...`.
 * **Hosted (read-only, 2026-11-26 11:25Z):** PROD approve md5 = pre pin (match); DEV = `ac33e456...` (needs PV-1 / OJ-1 first); 0 approval rows on both.
 * **App dependency:** map `COMP_CORRECTION_APPROVER_REQUIRED`, hide the override on corrected versions, state the reason rule (section 5).
-* **Remaining gaps:** RB-11.1 / RB-11.2 OPEN; section 9d decision; `service_role` and verified-email items; a one-manager studio cannot approve a corrected result (OD-07); U66-then-approve and request-id reuse untested; composed re-run on the final text.
+* **Remaining gaps:** **concurrency is not verified** (F2 race script, section 12). The cross-round replacement route is **confirmed and open** (12a). RB-11.1 / RB-11.2 OPEN; `service_role` and verified-email items; a one-manager studio cannot approve a corrected result (OD-07); U66-then-approve and request-id reuse untested; composed re-run on the final text.
 
-## 12. Standalone run on the final content
+## 12. Standalone run and cancel-and-recreate probe: EXECUTED 2026-11-26
 
-**PENDING.** Queued under ticket `20261126T110736Z-r11-standalone` (heavy-lock FIFO) on head `725db3bd`; not yet executed.
+**Setup.** `scripts/qa/r11/run-r11-standalone.sh`, head `aa9ec144`, 13:15-13:22Z, heavy-lock ticket `20261126T110736Z-r11-standalone` (released). One disposable container from `cf1host:found`, no network. Base chain: 23 of 23 applied (37 composed files, fingerprint `d87e42858e6c...`: `release/website-embeds@49dbaee1b` competition files **plus JC1 / U18 / U18-S from the CF1 candidate** `92a8c17c6`, which the release line itself does not carry), then only this migration. **No S3 / S4 / S5 / S6.** Full runner log: [R-11-STANDALONE-LOG.txt](R-11-STANDALONE-LOG.txt). Runner verdict: **PASS** (it did not gate on the race script; see the row below). The committed log omits the probe's lines, which are in the probe log.
+
+| Step | Result |
+|---|---|
+| approve md5 before = pre pin; after apply = `2d178c29...`; owner / ACL / definer / search_path unchanged | PASS |
+| R-11 suite before the migration | FAIL as required (names the RB-11 checks) |
+| R-11 suite after apply, and after re-apply | **PASS (111 checks)** |
+| f2 (198), cf1_a3 (119, 5 blocked), pv1 (30), f3 (191), a5 (186, 4 blocked), a4 minimum (55, 3 blocked), a6 withdrawal (247, 3 blocked): before and after | PASS both |
+| replay no-op; rollback to pre md5 and same ACL; rollback replay; f2 / a3 / pv1 after rollback; re-apply | PASS |
+| **F2 race script: FAILED before AND after the migration. Concurrency is NOT verified.** | Cause: the script predates HL1 and never marks the ballot heats danced, so no fixture round reaches `ballots_locked` (`COMP_HL1_HEAT_NOT_DANCED` x7 and the refusals that follow). Same failures before and after, apart from one timing line that appears only after (`D: the submit waited`, 1797 ms). The fixture was **changed after this run and has not been run**; on this chain PV-1 is also expected to refuse the script's stub rows unless the verifier is neutralized in its throw-away database. |
+
+### 12a. Probe: replacement of a corrected result (CONFIRMED)
+
+Output: [R-11-PROBE-LOG.txt](R-11-PROBE-LOG.txt). Four rounds were first taken to a corrected, recalculated, never-published state; control: A1 self-approving corrected r1 was **refused** (`COMP_CORRECTION_APPROVER_REQUIRED`). Then, **with this migration applied**, every step below was made as one manager (A1) and ended with a **published result over the same couples, self-approved by A1 with `refs.initial = true`**:
+
+| Route | What happened to the corrected round | Replacement | Result |
+|---|---|---|---|
+| NC | left as it was (calculated, unpublished) | never-run spare round | published, self-approved |
+| CS | cancelled by A1 | never-run spare round | published, self-approved |
+| CA | corrected **and independently approved by A2**, then cancelled by A1 | never-run spare round | published, self-approved |
+| R | cancelled by A1 | new round inserted by A1, spare round's published heat moved to it by a direct `round_id` update | published, self-approved |
+
+Each route: panel assignment, schedule, start, day-of heat calls, three paper ballots with new placements entered by A1, heat lock, ballot lock, calculate, approve, publish: all accepted. The corrected round's history stayed unchanged and visible. A direct write marking couples danced was refused (U18).
+
+Refused in the probe: deleting the cancelled round; a new round at a taken sequence; attaching a new heat to the published version; scheduling a round with an unplaced heat; publishing a draft by status write once heats had run (`COMPO1_RUN_IN_PROGRESS`).
+
+### 12b. Probe: direct writes to a published, never-run heat
+
+| Write by A1 | Result |
+|---|---|
+| change `round_id`; detach from the published version; change `heat_number`; set status cancelled | **ACCEPTED** (read back, then rolled back) |
+| move or remove the numbered floor heat; change division + round; clear contest; change time / label / name together; insert a heat into the published version | refused (placement validation) |
+| delete the heat; move or delete its couples | refused (10D) |
+| write a floor heat row | refused (no privilege) |
+
+### 12c. Limits of this evidence
+
+* **Role:** database role `authenticated` with the manager's JWT claims, set in SQL. RLS, grants and triggers apply; PostgREST, the API layer and the UI were not exercised, and no UI action for a spare round or a heat repoint is claimed. Grants are those of the local image (hosted grants may differ).
+* **Preconditions were fixtures (superuser, replica mode):** the published order with a never-run spare heat per division (own numbered floor heat); heats whose dances have no `dance_id`; entries without participants (so competitor-conflict checks had nothing to check); the program profile lock and snapshot; the four rounds set `active`; ballot heats marked danced. The corrected state was then reached through lifecycle functions. Result rows were the database's own engine output obtained through a definer helper, with a stub trace.
+* **Reachability of the spare round:** the app planner does **not** create this state (it schedules only the lowest-sequence round of a division, and later-round heats get no entries). By code reading the database function `apply_competition_floor_plan` accepts a hand-built plan with a second round, and publication accepts it; **not executed**.
+* The probe is one transaction that ends in an error, so **deferred constraint triggers never fired** (by reading none should refuse these steps).
+* **One manager** performed every probe step; the second manager appears only in building the corrected state.
+* Route R was run after route A had cancelled r1; a repoint without cancellation was not run separately.
+* Route C is inconclusive for the publication function (its draft was empty because floor heats are not client-writable).
+* Not covered: a chain without U18, S3-S6, replacement through a second entry set or a different dance record, cancellation after locked ballots with no result.
+
+### 12d. Review of the evidence, the probe, the runner and the race fix (2026-11-26)
+
+A separate read-only reviewer checked these sections against the logs: **"confirmed" is supported, conditionally** (the qualifiers above are its corrections). Other findings: the runner's probe check only required four `RESULT` lines, its re-apply f2 run was unchecked and the race script did not gate. The runner now requires the four published self-approved results and the refused control, checks the re-apply f2, requires a race verdict and prints that concurrency is not verified unless the races pass. **Those runner changes have not been run or re-reviewed.**
