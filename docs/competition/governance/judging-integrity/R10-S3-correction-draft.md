@@ -12,8 +12,8 @@ UCWDC Rule #3) stay in PR #834. Design history: PR #858. **This PR does not clos
 | Base | `release/website-embeds` at `49dbaee1b` (branch 0 behind) |
 | Migration files (the three `20270301100000/101000/102000` files and rollbacks) | **byte-identical since `9d3dad169ebd6dd682ef762fcc886b6fce3b087f`**; later commits change only tests and this document |
 | Composed run (run4, S5 runner, all 8 correction migrations, head `9d3dad16`) | **EXECUTED**: S3 suite PASS 88 checks forward and after re-apply; reverse rollback of all 8 OK; re-apply OK. Hashes in `run4/migrations-new.sha256` match `9d3dad16` |
-| STANDALONE run (base chain + this PR only) | see section 5 |
-| CI | three Vercel checks pass. **No GitHub Actions workflow runs for this PR** (the only workflow's path filter matches neither migrations nor docs): CI verifies none of the SQL |
+| STANDALONE run 1 (base chain + this PR only) | **EXECUTED 2026-11-26 13:22-13:26Z**: S3 applies, passes (88), rolls back and re-applies. The rollback schema comparison was **incomplete** (section 5); a second run is queued |
+| CI | three Vercel checks passed on `cdac85fb0`; not rechecked on later commits. **No GitHub Actions workflow runs for this PR** (the only workflow's path filter matches neither migrations nor docs): CI verifies none of the SQL |
 | Hosted counts (read-only 2026-11-24) | DEV 73 rounds, PROD 8, all draft, no assigned panel, 0 misleading-ready, 0 stuck, 0 `min_panel_judges`, 0 absences. The apply gate must re-run them (and add `minimum_panel_size`) |
 
 ## 2. What changed since the first review (head `5eea51ff`)
@@ -50,14 +50,21 @@ Authority (unchanged): assign/unassign = event manager, draft/scheduled only; at
 
 ## 5. Tests: executed vs PENDING
 
+**Standalone run 1** (local disposable Postgres from image `cf1host:found`, no network, never a hosted database). Chain: base 23 migrations plus the three S3 files from `9d3dad169` (E1/E2 test copies from `cdac85fb0`).
+
 | Item | Status |
 |---|---|
-| S3 suite composed on `9d3dad16` | EXECUTED, PASS (88) |
-| 8-migration reverse rollback and re-apply (composed) | EXECUTED, OK |
-| Standalone apply, suites, rollback with schema fingerprint comparison, re-apply, two-session races (attendance/attendance, attendance/lock, deactivation/attendance both orders), rollback refusal with cases | **PENDING**: one FIFO ticket queued 2026-11-26T11:09Z (`comp-r10s3-standalone`) behind other sessions; results to be appended |
-| E2 suite and E1 suite composed with S3 | PENDING (in the standalone run; E1 failed on the composed baseline with `COMPO1_ROUND_EDGE` before reaching S3 steps) |
-| JC1, O1 and CF1 suites with S3 alone | PENDING (standalone). In run4 their failures began at S4/S5 gates, which masks any S3 effect |
-| Start-vs-attendance and start-vs-deactivation races | PENDING, not in the standalone script |
+| Apply (3), rollback (3), re-apply (3) | EXECUTED, all OK |
+| S3 suite after apply and after re-apply | EXECUTED, PASS (88) both times |
+| With S3 applied: E2 (211), JC1 (15), O1 (95), NS1 (152), PV-1 (30), CF1 A2 (35, 1 blocked), A3 (119, 5 blocked), OD17 (59), F3 (191), U18 (21), U18S (17), R2 write gate (21), phase 10D (79) | EXECUTED, PASS; same counts before apply and after rollback (before apply and after rollback E2 ran the base-branch copy) |
+| E1 suite and R2 entry-refunds suite | **FAIL in all three phases with the same first error, with and without S3** (`COMPO1_ROUND_EDGE`; `COMPO1_HEAT_STATUS_WRITER`): the fixtures predate the O1 guards. E1 stops before reaching any S3-related step |
+| Schema comparison after rollback | **INCOMPLETE**: a harness query error stopped the comparison after functions. Functions: one difference, the owner and grantor of the restored five-argument function (the harness applied as `supabase_admin`; body hash and API-role grants equal). Triggers, relations, constraints, policies and columns were **not** compared |
+| Races R1 (two absences), R3 (deactivation then attendance), R4 (attendance then deactivation) | EXECUTED: the second session finished only after the first committed; no deadlock; at most one open case per round |
+| Race R2 (attendance then ballot lock) | EXECUTED, partial: the lock saw the committed attendance (4 judges present) and then refused because the fixture round has no heat. A successful lock racing attendance is not exercised |
+| Rollback with open cases | EXECUTED: refused as designed |
+| Composed run4 on `9d3dad169` (all 8 correction migrations) | EXECUTED: S3 PASS (88); reverse rollback and re-apply of all 8 OK |
+| **Run 2** (full schema comparison with S3 applied and rolled back as `postgres`; E2 five-argument fallback; E1 with a QA-only, uncommitted edit that gets past the O1 edge) | **PENDING**: one FIFO ticket queued 2026-11-26T14:39Z (`comp-r10s3-rerun`) |
+| Start-vs-attendance and start-vs-deactivation races; ballot-lock-first ordering | PENDING, in no script |
 
 ## 6. Independent review of head `9d3dad16` (subagent, read-only, waited for)
 
@@ -66,8 +73,8 @@ Verdict: **acceptable for owner review of a draft: yes; not ready for hosted app
 | # | Sev | Finding | Disposition |
 |---|---|---|---|
 | 1 | major | "SQL-before-app is safe" is wrong (see section 4) | Document corrected; app change is an apply prerequisite. OPEN until built |
-| 2 | major | E1 suite changed `min_panel_judges` on an active round and would abort under S3 | FIXED in tests (asserts the freeze) |
-| 3 | major | E2 suite's six-argument call fails on older runner chains | FIXED in tests (conditional on the function existing) |
+| 2 | major | E1 suite changed `min_panel_judges` on an active round and would abort under S3 | FIXED in tests (asserts the freeze; the original check still applies without S3). **Not yet executed**: the suite stops earlier on an O1 guard (section 5) |
+| 3 | major | E2 suite's six-argument call fails on older runner chains | FIXED in tests (conditional on the function existing). Six-argument path executed; five-argument fallback PENDING (run 2) |
 | 4 | major | Package and some SQL comments stale | Document rewritten. SQL comments left unchanged to keep the tested files byte-identical: `100000` header says after start ready follows the rule only (ineligible judges and unsupported methods also block); `102000` header omits the status trigger; a comment says an invalid started panel always has an open case (not true, see gaps); table comment says cases come from a confirmed absence only |
 | 5 | minor | Cancelling a round leaves its case open forever (no `closed_cancelled` status) | OPEN |
 | 6 | minor | Team removal or credential loss after start: readiness blocks, lock still counts the judge, no case | OPEN |
