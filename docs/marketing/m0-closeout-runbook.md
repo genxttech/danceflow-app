@@ -14,6 +14,8 @@ The queries are committed next to this file in `docs/marketing/m0-closeout/` (si
 
 **Update 2026-11-21 (later):** a stage-2 precondition defect (user-client delete of queued appointment notifications, PR #762) is live on PROD and needs a live-line release; see section 7.
 
+**Owner dispositions 2026-11-26** (B1, B2, M1-M6): Gate 1 PASSED (read-only, 110 qualifying emails); sending stays FROZEN; the old conditional unfreeze authorization is retired in favour of section 6; evidence in [`m0-closeout/EVIDENCE_2026-11-26.md`](m0-closeout/EVIDENCE_2026-11-26.md).
+
 ## 1. PROD reconciliation (read-only, 2026-11-21)
 
 Query: `docs/marketing/m0-closeout/m0_state_reconcile_readonly.sql` (and `m0_c1_repair_candidates_readonly.sql`). Run both with `sb.sh prod-read`.
@@ -72,7 +74,7 @@ Steps 1-6 of the existing release procedure (`m0-email-compliance.md` section 6)
 | E | One-time content QA on PROD-safe fixtures: DEV rehearsal of a full campaign send path already exists in the e2e suite; run `marketing-m0-compliance.spec.ts` and `marketing-m0-unsubscribe-survival.spec.ts` against the DEV-backed preview of the exact live SHA | developer-owned QA matrix |
 | F | **Unfreeze**: `select public.marketing_set_send_freeze(false, '<operator>: M-0 verified <date>')` via `sb.sh prod-apply` with a committed one-line file and its SHA | **[OWNER]** explicit approval for that file and SHA |
 | G | Immediate verification (section 6 checklist), then a 24 h observation | dispatch errors, `marketing_suppression_unavailable`, unsubscribe 503s, held-queue size, first real send follows the controlled-first-send rule below |
-| H | **Controlled first send** after unfreeze: smallest real audience (the owner's own studio, staff-only, using the existing draft), confirm claim, unsubscribe link, one-click headers, ENT-1 usage and footer on the received message before any larger send | **[OWNER]** approves the audience |
+| H | **Controlled first send** (M4: own studio staff only; separately authorized) after unfreeze: smallest real audience (the owner's own studio, staff-only, using the existing draft), confirm claim, unsubscribe link, one-click headers, ENT-1 usage and footer on the received message before any larger send | **[OWNER]** approves the audience |
 
 The unfreeze command is exactly `select public.marketing_set_send_freeze(false, 'reason')`; every call writes `marketing_send_control_events`. Re-freeze is `marketing_set_send_freeze(true, 'reason')` and is the first rollback action for anything after step F.
 
@@ -122,16 +124,19 @@ Per step:
 
 ## 6. Evidence to collect and go/no-go checklist
 
+**This checklist is the current unfreeze gate.** By owner decision of 2026-11-26 (B2) it replaces the 2026-10-14 conditional unfreeze authorization, including its unwritten Gates 2-4; that authorization is retired and must not be resumed. Gate 1 passed on 2026-11-26, which satisfies none of the boxes below. No box is ticked: each must be evidenced at unfreeze time.
+
 Before step F (all read-only, record outputs in the release log):
 
 - [ ] Live deployment SHA recorded; `m0-rollback-build-smoke.mjs` against production prints `ROLLBACK TARGET VERIFIED`
-- [ ] `m0_state_reconcile_readonly.sql`: freeze row frozen=true; fingerprint `336 6b3a5c23b75004548d01ffef24112906`; S6, S7 = none; S8 = postgres,service_role; C7 = 0/0; C8 = 0/0; C9 = 0/0; C10 = 0; C12, C13, C14 = 0
+- [ ] `m0_state_reconcile_readonly.sql`: freeze row frozen=true; fingerprint `336 6b3a5c23b75004548d01ffef24112906` (or an explained change); S6, S7 = none; S8 = postgres,service_role; C7 = 0/0; C8 = 0/0; C9 = 0/0; C10 = 0; C12, C13, C14 = 0
 - [ ] `m0_c1_repair_candidates_readonly.sql`: R3 = 0 and R1 = 0
-- [ ] Rollback files re-checked on DEV (done 2026-11-21, section 5)
-- [ ] Sender-domain separation recorded (marketing sender != transactional sender; SPF/DKIM/DMARC pass)
-- [ ] M-0D decision recorded (before / after first send)
-- [ ] First-send audience and operator named by the owner
-- [ ] The unfreeze SQL file and its SHA-256 provided to the owner
+- [ ] Rollback files re-checked on DEV (last done 2026-11-21, section 5)
+- [ ] Sender settings read, and sender-domain separation recorded (marketing sender != transactional sender; SPF/DKIM/DMARC pass on a received message or provider verification)
+- [ ] Sending-subdomain change, if approved, applied and verified
+- [ ] Bounce and complaint webhook handling live before any send beyond a narrowly authorized staff-only pilot (M2)
+- [ ] First audience limited to the owner's own studio staff, operator named (M4), and the send separately authorized
+- [ ] The unfreeze SQL file and its SHA-256 provided to the owner and approved
 
 After step F:
 
@@ -171,12 +176,15 @@ Stage 2 removes client-role writes, so every writer must use the service role. M
 
 The violation (found by TWILIO review, confirmed here) silently fails under stage 2 because the delete is best-effort and supabase-js returns the error instead of throwing, so a deleted appointment could leave queued reminders that still send. Because **PROD already has stage 2**, this is live now. Fix: PR #762 (one call switched to `createAdminClient()`, test added). `schedule/actions.ts` is byte-identical on main and the live line (`release/website-embeds`, tip `053346219`), so the same commit cherry-picks cleanly onto the live line; it must ride a live-line release. **Add to the unfreeze preconditions: #762 deployed on the live line.** Reads (selects) by the signed-in user remain allowed by stage 2 and are unaffected.
 
-## 8. Owner decision list
+## 8. Owner decisions (answered 2026-11-26) and what remains
 
-1. Who applied stage 2 on PROD and when (not in this session's evidence)? Confirm it is intended and record it; no action is needed to keep it.
-2. Approve the unfreeze procedure (steps A-H) as written, or change the order (for example M-0D before any send).
-3. Authorize the read of the production deployment SHA / env (live commit, sender variables) so steps A and C can be recorded.
-4. M-0D: build and configure before the first send (recommended for anything beyond a staff-only audience), or after.
-5. Whether to update the stage-1 precondition hash (migration edit, CODEOWNERS) so stage 1 stays re-appliable; or accept that stage 1 is never rolled back on PROD.
-6. Marketing sending subdomain for reputation isolation (open decision #17).
-7. The first controlled-send audience and operator.
+| Topic | Decision | Still needed |
+|---|---|---|
+| Gate 1 (B1) | Run read-only | Done: PASS |
+| Old conditional authorization (B2) | Replaced by section 6 | Evidence for each box |
+| Unfreeze (M1) | Stay frozen | Gates and preflights, then separate approval of the exact file and SHA |
+| Bounce/complaint webhook (M2) | Required beyond a staff-only pilot | Design is section 4; build, migration and vendor configuration separately gated |
+| Live SHA, sender, DNS (M3) | Read-only verification; prefer a dedicated sending subdomain | Sender variables not yet read; DNS/provider/env changes need approval |
+| First audience (M4) | Own studio staff only | Operator, and authorization of the send |
+| App changes to the live line (M5) | Prepare for the next suitable release | Review and release approval |
+| Stage 1 / stage 2 (M6) | Do not roll back stage 1 merely because stage 2 exists; history verified read-only | None, unless the owner wants the stage-1 precondition fixed |
