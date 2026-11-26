@@ -4,7 +4,7 @@
 
 ## 1. Recommendation
 
-Release a restricted pilot ("P1"). B2 is not necessary for it and stays paused: new database restrictions close the four probed self-approval routes, and B2 would not close the main residual either.
+Release a restricted pilot ("P1"). B2 does not appear necessary for it and stays paused: by code reading (untested), new database restrictions would close the four probed self-approval routes, and B2 as designed would not close the main residual either.
 
 ## 2. P1: minimum workflow
 
