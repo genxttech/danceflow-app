@@ -48,6 +48,7 @@ SHAPE16=$(sql $C "$SHAPE")
 apply $C 17 || exit 1
 F17=$(fp $C); say "   fingerprint M16b: $F17"; [ "$F16" != "$F17" ] || bad "M16b did not change the catalog"
 suite $C test_T_nsi_i3_2_m16b_local.sql "M16b boundary suite"
+[ "$fail" = "0" ] || { say "SUMMARY m16b lifecycle ($STAGE): failures=$fail (stopped: the boundary suite or a prerequisite failed)"; exit 1; }
 fi
 if [ "$STAGE" = "all" ] || [ "$STAGE" = "suite" ]; then
 suite $C test_T_nsi_i3_2_m16a_local.sql "M16a suite on M16b"
