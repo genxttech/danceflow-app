@@ -73,3 +73,31 @@ Insert a `lesson_transactions` row (`lessons_delta = 0`) per decision. Pros: led
 1. Approve Option A (separate migration PR with rollback and the SQL tests above; DEV apply first, PROD only on explicit approval of the file hash).
 2. Confirm "NULL on a historical no-show = a charge is refused" (they stay chargeable through the existing web balance tools).
 3. Confirm the web no-show should record the decision too (same lib), which changes nothing visible.
+
+## Revision after owner decision P8 (2026-11-26): an immutable decision RECORD (recommended over the column; NOT applied)
+
+P8 asks for an immutable charge-decision record, that unknown historical no-shows are never presumed chargeable, and equal web behaviour. The column of Option A can be rewritten (the trigger only limits how). An append-only table keeps every decision and cannot be rewritten at all.
+
+```sql
+create table public.appointment_charge_decisions (
+  id             bigint generated always as identity primary key,
+  studio_id      uuid not null references public.studios(id),
+  appointment_id uuid not null references public.appointments(id),
+  decision       text not null check (decision in ('none', 'package', 'membership')),
+  decided_by     uuid not null default auth.uid(),
+  decided_at     timestamptz not null default now()
+);
+create index on public.appointment_charge_decisions (appointment_id, id desc);
+alter table public.appointment_charge_decisions enable row level security;
+revoke all on public.appointment_charge_decisions from public, anon, authenticated, service_role;
+grant select on public.appointment_charge_decisions to authenticated;
+```
+
+- **Writes only through one function** `record_no_show_decision(p_appointment_id uuid, p_decision text)` (`security definer`, `search_path` pinned, execute granted to `authenticated` only). In one transaction it locks the appointment row (`for update`), checks the caller's authority (broad studio staff, or the assigned instructor), sets `status = 'no_show'` if still open, and inserts the record. It refuses: a second decision after `none`; any decision once a deduction marker or usage row exists unless it repeats the applied kind; and **any charge decision for a lesson that is already `no_show` without a record** (unknown stays unknown). No `update` or `delete` privilege exists for any application role, and a trigger raises on `update`/`delete` so a later grant mistake cannot silently open it.
+- **Reading:** `select` policy for active members of the studio, so the assigned instructor sees the record too (no dependence on `clients` or notes).
+- **Latest record wins**; the money truth stays the deduction marker / usage row.
+- **No backfill of decisions.** Historical no-shows get no record: they are unknown and never chargeable through the app or the web no-show action; the web balance tools remain for a deliberate manual charge.
+- **Web parity:** the two web actions call the same lib, which calls the same function.
+- **Rollback:** drop the function, trigger and table (app first: it calls the function). The note text stays as the audit trail throughout.
+- **SQL tests:** insert-only grants (anon, authenticated, service_role cannot insert/update/delete directly); every refusal above; instructor own/colleague; tenancy; two concurrent decisions serialise on the row lock; unknown historical no-show refuses both charges; `none` is final.
+- **Order:** SQL before app. Until applied, the app-level rule shipped with this revision (no recorded decision = no charge) enforces the same policy from the note.

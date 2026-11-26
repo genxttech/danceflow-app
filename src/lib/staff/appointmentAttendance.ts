@@ -117,7 +117,7 @@ export async function markAppointmentAttendance(params: {
 
   return status === "attended"
     ? markAttended({ supabase, studioId, appointment, now })
-    : markNoShow({ supabase, studioId, appointment, actor, missedAppointmentCharge, now, notesVisible: access.scope === "broad" });
+    : markNoShow({ supabase, studioId, appointment, actor, missedAppointmentCharge, now });
 }
 
 async function markAttended(params: {
@@ -222,10 +222,8 @@ async function markNoShow(params: {
   actor: AppointmentAttendanceActor;
   missedAppointmentCharge: string;
   now: () => string;
-  /** The no-show note is the persisted decision. An instructor's client rows and notes are hidden by RLS (they cannot read or write it), so for them it cannot be consulted. */
-  notesVisible: boolean;
 }): Promise<AppointmentAttendanceResult> {
-  const { supabase, studioId, appointment, actor, missedAppointmentCharge, now, notesVisible } = params;
+  const { supabase, studioId, appointment, actor, missedAppointmentCharge, now } = params;
   const appointmentId = appointment.id;
 
   if (isTerminalType(String(appointment.appointment_type)) && appointment.status === "attended") {
@@ -233,10 +231,10 @@ async function markNoShow(params: {
   }
 
   // The decision is persisted in the ONE no-show note (it carries the appointment id), written right after the status change and BEFORE the charge, so a retry can
-  // tell "decided none" from "charge requested, not applied" with no migration. Replay rules: only a change AWAY FROM AN APPLIED decision conflicts. (1) An applied
-  // charge may only be repeated. (2) With nothing applied, a note that says "no deduction" (or "deducted") may not become a charge: the note would lie. (3) No note (a
-  // crash between the status write and the note, or a request still in flight) or a note that says "requested, not applied": the charge may be attempted again, or
-  // changed; the database makes the deduction itself idempotent.
+  // tell "decided none" from "charge requested, not applied" with no migration. Replay rules: (1) an applied charge may only be repeated. (2) A charge that has NOT
+  // been applied may be attempted again (or changed) only when the note says it was "requested, not applied". (3) Anything else is refused: a note that says no
+  // deduction or deducted, and NO NOTE AT ALL (a historical no-show, a crash between the status write and the note, an instructor who cannot read notes). An unknown
+  // decision is never presumed chargeable (owner decision P8, 2026-11-26); such a lesson is charged, if at all, with the web balance tools.
   const alreadyApplied = appointment.status === "no_show";
   const markedAt = now();
   const chargeKind = missedAppointmentCharge === "package" || missedAppointmentCharge === "membership" ? missedAppointmentCharge : null;
@@ -252,10 +250,7 @@ async function markNoShow(params: {
       if (appliedKind === "package" && !(await chargedPackageIds(supabase, appointmentId)).includes(String(appointment.client_package_id))) {
         return { ok: false, reason: "package_changed" };
       }
-    } else if (chargeKind && note && !note.body.includes(NOT_APPLIED_TEXT)) {
-      return { ok: false, reason: "charge_changed" };
-    } else if (chargeKind && !notesVisible) {
-      // Fail safe: with the note unreadable, a charge that has not been applied cannot be told apart from a decision not to charge.
+    } else if (chargeKind && !note?.body.includes(NOT_APPLIED_TEXT)) {
       return { ok: false, reason: "charge_changed" };
     }
   } else {
@@ -277,8 +272,8 @@ async function markNoShow(params: {
     return { ok: true, appointmentId, clientId: appointment.client_id, status: "no_show", alreadyApplied, usageSyncPending: false };
   }
 
-  // Ensure the note exists before the charge is attempted.
-  if (!note && appointment.client_id) {
+  // The note is written at the transition only, before the charge is attempted. A replay never creates one: that would invent a decision nobody recorded.
+  if (!alreadyApplied && appointment.client_id) {
     const label =
       typeof appointment.title === "string" && appointment.title.trim()
         ? appointment.title.trim()
