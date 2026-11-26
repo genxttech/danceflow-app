@@ -2,6 +2,8 @@
 
 2026-11-24, main `dfd204abf` (#830, versionCode 2, version name 0.1.0, no upload). Reconciles the Business "unverified" items from `Business_Release_Readiness.md`, `Business_Release_Candidate_Checklist.md` and `Android_Release_Audit.md` against what has been proven since. Nothing here uploads, flips a flag or touches production.
 
+**Correction (2026-11-26):** an earlier upload exists. Version code 1 (0.1.0) has been on the Play internal track since Nov 20 (`Business_Release_Package_Internal_Testing.md`, 2026-11-23 status), signed builds use the existing upload key, so A8 is settled for version code 1. For version code 2 the owner still has to run the signed build (typing the keystore password) and upload it.
+
 Columns: **Done** (evidence exists), **Executable** (engineering can run it; heavy ones go through the heavy-lock queue), **Owner** (needs a decision or an account only the owner has).
 
 | Item | Done | Executable | Owner |
