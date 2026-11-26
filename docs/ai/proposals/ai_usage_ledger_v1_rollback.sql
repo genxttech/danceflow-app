@@ -3,8 +3,10 @@
 
 begin;
 
+set local lock_timeout = '3s';
+
 drop function if exists public.ai_settle(uuid, text, bigint, text, integer, integer, integer, text);
-drop function if exists public.ai_reserve(text, text, uuid, text, uuid, uuid, text, bigint);
+drop function if exists public.ai_reserve(text, text, uuid, text, uuid, uuid, text, bigint, integer, integer);
 drop table if exists public.ai_usage_ledger;
 drop table if exists public.ai_spend_controls;
 

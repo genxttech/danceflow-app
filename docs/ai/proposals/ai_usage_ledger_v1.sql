@@ -4,6 +4,9 @@
 
 begin;
 
+-- The foreign keys below briefly lock auth.users and studios: give up rather than queue logins behind a long transaction.
+set local lock_timeout = '3s';
+
 -- Database-held switches and caps. A feature with no row, or a disabled row, is refused: fail closed. Every limit
 -- defaults to 0, so a row enabled without limits admits nothing.
 -- The row with feature '*' is the platform-wide switch and cost ceilings; its count limits are not used.
@@ -43,11 +46,12 @@ create table public.ai_usage_ledger (
   status text not null default 'reserved' check (status in ('reserved', 'settled', 'released')),
   reserved_cost_micros bigint not null check (reserved_cost_micros > 0),
   settled_cost_micros bigint check (settled_cost_micros >= 0),
-  model text,
-  input_tokens integer,
-  output_tokens integer,
-  cached_tokens integer,
-  outcome text,
+  model text check (length(model) <= 100),
+  input_tokens integer check (input_tokens >= 0),
+  output_tokens integer check (output_tokens >= 0),
+  cached_tokens integer check (cached_tokens >= 0),
+  -- short codes only, never content
+  outcome text check (length(outcome) <= 60),
   created_at timestamptz not null default now(),
   settled_at timestamptz
 );
@@ -78,7 +82,11 @@ create function public.ai_reserve(
   p_actor_user_id uuid,
   p_studio_context_id uuid,
   p_idempotency_key text,
-  p_cost_micros bigint
+  p_cost_micros bigint,
+  -- The payer's own allowance, which differs by studio. Only ever tightens the feature's per-payer limits. A studio
+  -- payer must pass the monthly one.
+  p_payer_day_limit integer default null,
+  p_payer_month_limit integer default null
 ) returns table (reservation_id uuid, admitted boolean, reason text)
 language plpgsql
 security definer
@@ -89,8 +97,9 @@ declare
   v_global public.ai_spend_controls%rowtype;
   v_control public.ai_spend_controls%rowtype;
   v_existing_status text;
-  v_day timestamptz := date_trunc('day', now() at time zone 'utc') at time zone 'utc';
-  v_month timestamptz := date_trunc('month', now() at time zone 'utc') at time zone 'utc';
+  v_now timestamptz;
+  v_day timestamptz;
+  v_month timestamptz;
   v_count bigint;
   v_day_cost numeric;
   v_month_cost numeric;
@@ -98,7 +107,9 @@ declare
 begin
   if p_cost_micros is null or p_cost_micros <= 0 or p_payer_id is null
      or coalesce(length(p_actor_key), 0) not between 1 and 100
-     or coalesce(length(p_idempotency_key), 0) not between 1 and 200 then
+     or coalesce(length(p_idempotency_key), 0) not between 1 and 200
+     or p_payer_day_limit < 0 or p_payer_month_limit < 0
+     or (p_payer_scope in ('studio_ops', 'studio_lumi_pool') and p_payer_month_limit is null) then
     return query select null::uuid, false, 'invalid_request'::text;
     return;
   end if;
@@ -121,10 +132,18 @@ begin
     return;
   end if;
 
+  -- Taken after the locks: a request that waited is dated, and windowed, by when it is actually decided.
+  v_now := clock_timestamp();
+  v_day := date_trunc('day', v_now at time zone 'utc') at time zone 'utc';
+  v_month := date_trunc('month', v_now at time zone 'utc') at time zone 'utc';
+
   -- A feature charges one kind of payer. A personal payer is the actor; anything but an anonymous request has a user.
+  -- The public payer is one fixed id with no user.
   if p_payer_scope is distinct from v_control.payer_scope
      or (p_payer_scope <> 'platform_public' and (p_actor_user_id is null or p_actor_key <> p_actor_user_id::text))
-     or (p_payer_scope = 'platform_personal' and p_payer_id <> p_actor_user_id) then
+     or (p_payer_scope = 'platform_personal' and p_payer_id <> p_actor_user_id)
+     or (p_payer_scope = 'platform_public'
+         and (p_payer_id <> '00000000-0000-0000-0000-000000000000'::uuid or p_actor_user_id is not null)) then
     return query select null::uuid, false, 'invalid_payer'::text;
     return;
   end if;
@@ -142,7 +161,7 @@ begin
   -- but stays counted in the day, month and cost limits.
   select count(*) into v_count from public.ai_usage_ledger l
    where l.feature = p_feature and l.actor_key = p_actor_key and l.status = 'reserved'
-     and l.created_at > now() - make_interval(secs => v_control.in_flight_window_seconds);
+     and l.created_at > v_now - make_interval(secs => v_control.in_flight_window_seconds);
   if v_count >= v_control.per_actor_in_flight then
     return query select null::uuid, false, 'actor_in_flight'::text;
     return;
@@ -150,7 +169,7 @@ begin
 
   -- Burst: every admitted attempt in the last minute, including released ones.
   select count(*) into v_count from public.ai_usage_ledger l
-   where l.feature = p_feature and l.actor_key = p_actor_key and l.created_at > now() - interval '1 minute';
+   where l.feature = p_feature and l.actor_key = p_actor_key and l.created_at > v_now - interval '1 minute';
   if v_count >= v_control.per_actor_minute then
     return query select null::uuid, false, 'actor_burst'::text;
     return;
@@ -166,7 +185,8 @@ begin
   select count(*) into v_count from public.ai_usage_ledger l
    where l.feature = p_feature and l.payer_scope = p_payer_scope and l.payer_id = p_payer_id
      and l.status <> 'released' and l.created_at >= v_day;
-  if v_count >= v_control.per_payer_day then
+  -- least() ignores a null argument, so without a caller allowance the feature limit applies.
+  if v_count >= least(v_control.per_payer_day, p_payer_day_limit) then
     return query select null::uuid, false, 'payer_day'::text;
     return;
   end if;
@@ -174,7 +194,7 @@ begin
   select count(*) into v_count from public.ai_usage_ledger l
    where l.feature = p_feature and l.payer_scope = p_payer_scope and l.payer_id = p_payer_id
      and l.status <> 'released' and l.created_at >= v_month;
-  if v_count >= v_control.per_payer_month then
+  if v_count >= least(v_control.per_payer_month, p_payer_month_limit) then
     return query select null::uuid, false, 'payer_month'::text;
     return;
   end if;
@@ -209,9 +229,9 @@ begin
   end if;
 
   insert into public.ai_usage_ledger (
-    feature, payer_scope, payer_id, actor_key, actor_user_id, studio_context_id, idempotency_key, reserved_cost_micros
+    feature, payer_scope, payer_id, actor_key, actor_user_id, studio_context_id, idempotency_key, reserved_cost_micros, created_at
   ) values (
-    p_feature, p_payer_scope, p_payer_id, p_actor_key, p_actor_user_id, p_studio_context_id, p_idempotency_key, p_cost_micros
+    p_feature, p_payer_scope, p_payer_id, p_actor_key, p_actor_user_id, p_studio_context_id, p_idempotency_key, p_cost_micros, v_now
   ) returning id into v_id;
 
   return query select v_id, true, 'reserved'::text;
@@ -225,6 +245,8 @@ $$;
 -- Settle ('settled', billable or possibly billable) or release ('released', provably not billed). Idempotent: only a
 -- reserved row changes. A reservation that is never settled stays counted at its worst-case cost (conservative).
 -- A lock timeout raises, so the caller can retry.
+-- A settled cost of null or 0 keeps the worst case: a call that may have been billed never frees cost capacity. A real
+-- overrun is recorded, bounded at ten times the reservation (or 1 dollar if larger) so one bad value cannot block a month.
 create function public.ai_settle(
   p_reservation_id uuid,
   p_status text,
@@ -241,26 +263,30 @@ set search_path = public, pg_temp
 set lock_timeout = '2s'
 as $$
 begin
-  if p_status is null or p_status not in ('settled', 'released') then
+  if p_status is null or p_status not in ('settled', 'released') or p_cost_micros < 0 then
     return false;
   end if;
   update public.ai_usage_ledger
      set status = p_status,
-         settled_cost_micros = case when p_status = 'settled' then coalesce(p_cost_micros, reserved_cost_micros) else 0 end,
-         model = p_model,
+         settled_cost_micros = case
+           when p_status = 'settled' then
+             least(coalesce(nullif(p_cost_micros, 0), reserved_cost_micros), greatest(reserved_cost_micros * 10, 1000000))
+           else 0
+         end,
+         model = left(p_model, 100),
          input_tokens = p_input_tokens,
          output_tokens = p_output_tokens,
          cached_tokens = p_cached_tokens,
-         outcome = p_outcome,
+         outcome = left(p_outcome, 60),
          settled_at = now()
    where id = p_reservation_id and status = 'reserved';
   return found;
 end;
 $$;
 
-revoke all on function public.ai_reserve(text, text, uuid, text, uuid, uuid, text, bigint) from public, anon, authenticated;
+revoke all on function public.ai_reserve(text, text, uuid, text, uuid, uuid, text, bigint, integer, integer) from public, anon, authenticated;
 revoke all on function public.ai_settle(uuid, text, bigint, text, integer, integer, integer, text) from public, anon, authenticated;
-grant execute on function public.ai_reserve(text, text, uuid, text, uuid, uuid, text, bigint) to service_role;
+grant execute on function public.ai_reserve(text, text, uuid, text, uuid, uuid, text, bigint, integer, integer) to service_role;
 grant execute on function public.ai_settle(uuid, text, bigint, text, integer, integer, integer, text) to service_role;
 
 commit;
