@@ -214,3 +214,35 @@ NSI_I3_2_M16b_DB_Spec.md revision 3 (section 10) folds in the section 20 item 2 
 
 ## 22. Owner decision: guardian address Option B (2026-11-26)
 Relayed by the Apps coordinator from the owner's reply "Yes, Option B". Applied: the exact Option B amendment to parent spec 10.3 item 10, the decision note marked decided, and M16b spec section 11 with the follow-on text (app-encrypted copy wording removed; refused-save bucket added to the I3-4 requirements). Authorized next: one fresh read-only re-review of the amended M16b spec; on GO, local dark authoring of M16b (SQL, rollback, suite), lifecycle and replay under the heavy queue, and an independent code review. **Not authorized:** any DEV or PROD SQL apply, activation, I3-4, UI, email, M16c/O4, the P1-A wording item, O11/O5b.
+
+## 23. Owner dispositions 2026-11-26 (recorded by ID)
+Source: `docs/ops/APPS_Owner_Dispositions_2026-11-26.md` in the main checkout (the owner's message, verbatim; relayed by the Apps coordinator). Kinds: **direction** = approved product direction; **draft** = bounded draft work authorized; **open** = evidence or decision still pending; **gate** = a separate owner-only approval is still required. General boundary: no merge, hosted SQL, deployment, flag, email, upload or charge is authorized by these answers. This section supersedes the "pending owner decision" labels of section 8 and the specifications for the IDs below.
+
+| ID | Recorded disposition | Kind | Effect on the work |
+|---|---|---|---|
+| P1A | Staff-assisted attribution for student links; independent guardian participation and verification for guardian consent; staff-created links alone do not prove guardian authorization | direction | I3-4 provenance and guardian rules; questions D-1 and D-2 in `NSI_Post_Disposition_Proposals.md` |
+| N1 | Staff-minted-link wording accepted (M16b spec 10.6), subject to P1A security and guardian verification | direction | `staff_minted = (issued_by = 'staff')` for I3-4; M16b SQL unaffected |
+| N2 | DEV approval requests only per migration, after lifecycle and replay QA, independent review, fingerprints and rollback | gate | No DEV apply now; request M16b only with that evidence |
+| N3 | Bounded dark I3-I4 draft implementation after P1A is incorporated, database first, independent security review; no hosted apply | draft | Starts after M16b is finished |
+| N4 | Decide with O9; keeping rows "until erase" is not approved as a default without a documented basis | open | Proposed basis in the proposals document; purge change later |
+| N5 | Structured reason codes preferred over free text for sensitive attestations | direction | M16a.1 proposed (not authored); M16b unaffected |
+| N6 | No consent created by attestation for an absent guardian | direction | Matches the build (`no_respondent`); see D-2 for `phone_verified` |
+| N7 | Email tests deferred to the approved I4 gate with separate send authorization | gate | No test sends |
+| N8 | Prepare an impact and rollback package for the DEV branching and history cleanup; change nothing automatically | draft | Package prepared (proposals section 4) |
+| N9 | PROD intake collection stays closed; every production step separately authorized | gate | PROD untouched |
+| O1 | Conservative existing-student rule plus a staff-managed "not asked" workflow with auditable criteria | direction | Later slice (read RPC and UI) |
+| O2 | Current guardian invitation roles ratified, including the studio-configured front-desk permission | direction | No change |
+| O3 | Secure account-free invitation links allowed, with token validation, identity safeguards and expiry | direction | I3-4 |
+| O4 | Decline is terminal for that invitation; a new attempt needs a distinct authorized workflow, never a silent reopen | direction | M16c design: the re-request path must not reopen a declined invitation |
+| O5 | Age 18 stays the guardian-consent threshold, pending legal review | direction, review open | Matches M15 |
+| O5b | Studios cannot lower the threshold below 18 | direction | Matches M15 (clamp) |
+| O6 | 14-day link, 30-minute sliding and 4-hour absolute session accepted, subject to tested implementation | direction | App values in I3-4 (the database allows 1 hour to 30 days) |
+| O7 | Status-only visibility for authorized owner, admin and front desk; no unnecessary sensitive details for instructors | direction | I4 |
+| O8 | No automatic back-fill after an expired pilot is renewed | direction | Matches the current rule |
+| O9 | Stays open: purpose-specific retention and deletion schedule and counsel review before activation | open, gate | Options and legal questions in the proposals document |
+| O10 | No intake email until the marketing close-out conditions are met | gate | Unchanged |
+| O11 | Staff confirmation for a self-declared adult where the design requires it; it is not independent identity proof | direction | Matches M15; wording rule for I3-4/I4 |
+| O12 | Design of a minimal under-13 routing class approved; no collection until privacy and legal safeguards and minimization are reviewed | draft, gate | The class exists in M15 (dark); activation blocked on that review |
+| B6 | #808 stays dark and unmerged until the M16b dependency and full review are satisfied; then present the exact head | gate | Present the head after replay and report |
+
+Already settled and not reopened: guardian address Option B; no standalone NSI pricing.

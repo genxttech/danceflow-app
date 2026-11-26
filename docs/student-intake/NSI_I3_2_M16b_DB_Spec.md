@@ -127,3 +127,6 @@ In order: refusal conditions (any pending row, challenge, guardian-audience invi
 2. **Lock order (replaces the section 1 wording for M16b).** Every M16b writer takes the client advisory lock before any row lock; the order of row locks after it (pending row or session row, then request) is free, because every writer that takes more than one of those rows holds the client lock. `intake_session_context` locks only a session row and the purge only try-locks.
 3. `intake_guardian_challenge_target` returns zero rows on tenant drift too (it never raises).
 4. Accepted and recorded, not changed: the staff revoke-all audits the number of invitations revoked (0 when it only ends open requests); it and the key-rotation revoke inherit M12 (no isolation guard of their own; key rotation does not end open requests, and a later finalize issues under the current key); the request RPC refuses an unknown request (42501) before `gate_closed`; a retried finalize answers `already_finalized` without the generation, so the app re-reads it. The purge delete statements keep their hold predicate as a second layer; the delete guard is what refuses a hold committed during the run.
+
+## 14. Owner disposition 2026-11-26 (N1)
+The section 10.6 wording `staff_minted = (issued_by = 'staff')` is **accepted**, subject to P1A. Nothing in the M16b SQL depends on it.

@@ -51,3 +51,6 @@ Every other P1-A question is resolved by the rules above. If the owner rejects O
 
 ## 7. Dependencies and ordering
 M15 (minor determination) already records `declared_via_staff_link`; nothing in M12 to M15 changes. The marker is stored when I3-4 writes responses; the two-party RPCs ship with I3-2 (M16). Until both land, I3-4 save/submit and any UI or outbox wiring stay blocked, as in `NSI_Resume_Status.md` §10.
+
+## 8. Owner disposition 2026-11-26 (P1A, N1; supersedes the "pending" labels above for the staff-minted rules)
+Staff-assisted attribution for student links and independent guardian participation and verification are chosen; staff-created links alone do not prove guardian authorization; the wording `staff_minted = (issued_by = 'staff')` of M16b spec 10.6 is accepted (it replaces "`issued_by_user` is not null" in section 2). O11 and O5b are answered (see `NSI_Resume_Status.md` section 23). Open design questions: D-1 and D-2 in `NSI_Post_Disposition_Proposals.md`.
