@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Linking, StyleSheet, useColorScheme, View } from "react-native";
+import { StyleSheet, useColorScheme, View } from "react-native";
+import { openWebUrl } from "@/lib/openWebUrl";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -174,7 +175,7 @@ export default function GroupRecapDetailScreen() {
             <AppButton
               key={link}
               label={link}
-              onPress={() => Linking.openURL(link)}
+              onPress={() => void openWebUrl(link)}
               variant="secondary"
             />
           ))}

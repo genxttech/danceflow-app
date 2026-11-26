@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Image, Linking, Pressable, Share, StyleSheet, useColorScheme, View } from "react-native";
+import { openWebUrl } from "@/lib/openWebUrl";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
@@ -619,7 +620,7 @@ export function StudioSectionScreen({ section }: { section: StudioSection }) {
             {studio.email ? <AppText variant="caption">{studio.email}</AppText> : null}
             <View style={styles.actionRow}>
               {studio.websiteUrl ? (
-                <AppButton label="Website" onPress={() => Linking.openURL(studio.websiteUrl!)} variant="secondary" />
+                <AppButton label="Website" onPress={() => void openWebUrl(studio.websiteUrl)} variant="secondary" />
               ) : null}
               {studio.email ? (
                 <AppButton label="Email" onPress={() => Linking.openURL(`mailto:${studio.email}`)} variant="secondary" />
