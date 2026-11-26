@@ -297,6 +297,10 @@ select pg_temp.setkv('b5_c_resup', pg_temp.try(format('update public.intake_emai
 select pg_temp.setkv('b5_c_del', pg_temp.try(format('delete from public.intake_email_challenges where id = %L', pg_temp.kv('c5'))));
 select pg_temp.setkv('b5_p_del', pg_temp.try(format('delete from public.intake_guardian_invitation_requests where id = %L', pg_temp.part(pg_temp.kv('g5'), 10))));
 select pg_temp.setkv('b5_two_open', pg_temp.try(format('select pg_temp.resp(%L, ''second'')', pg_temp.part(pg_temp.kv('g5'), 1))));
+select pg_temp.setkv('g5b', pg_temp.gset(false));
+select pg_temp.setkv('g5br', pg_temp.resp(pg_temp.part(pg_temp.kv('g5b'), 1), 'differs'));
+select pg_temp.setkv('b5_c_resp', pg_temp.try(format('select pg_temp.mkch(%L, ''0 seconds'', true)',
+  array_to_string((string_to_array(pg_temp.kv('g5b'), '|'))[1:8], '|') || '|' || pg_temp.kv('g5br'))));
 select pg_temp.chk('B05a invitation checks: a student link never carries a recipient or two_party; a guardian link needs a non-empty recipient and two_party; the recipient is immutable; only one current guardian respondent per request',
   pg_temp.kv('b5_stu_rec') like '23514%' and pg_temp.kv('b5_stu_kid') like '23514%' and pg_temp.kv('b5_stu_two') like '23514%' and pg_temp.kv('b5_g_norec') like '23514%'
   and pg_temp.kv('b5_g_staff') like '23514%' and pg_temp.kv('b5_g_empty') like '23514%' and pg_temp.kv('b5_rec') like '42501%' and pg_temp.kv('b5_reckid') like '42501%'
@@ -305,7 +309,7 @@ select pg_temp.chk('B05a invitation checks: a student link never carries a recip
 select pg_temp.chk('B05b guards: the pending row is immutable except one finalize or supersede; a challenge only counts up by one while open, supersedes once, needs the current respondent hash and the live bound guardian invitation, one open per respondent; no delete outside the restricted role',
   pg_temp.kv('b5_p_hmac') like '42501%' and pg_temp.kv('b5_p_unfin') like '42501%' and pg_temp.kv('b5_p_both') like '23514%'
   and pg_temp.kv('b5_c_jump') like '42501%' and pg_temp.kv('b5_c_code') like '42501%' and pg_temp.kv('b5_c_one') = 'ok' and pg_temp.kv('b5_c_down') like '42501%'
-  and pg_temp.kv('b5_c_dup') like '23505%' and pg_temp.kv('b5_c_wrong') like '42501%' and pg_temp.kv('b5_c_stud') like '42501%'
+  and pg_temp.kv('b5_c_dup') like '23505%' and pg_temp.kv('b5_c_wrong') like '42501%' and pg_temp.kv('b5_c_stud') like '42501%' and pg_temp.kv('b5_c_resp') like '42501%'
   and pg_temp.kv('b5_c_afters') like '42501%' and pg_temp.kv('b5_c_resup') like '42501%' and pg_temp.kv('b5_c_del') like '42501%' and pg_temp.kv('b5_p_del') like '42501%',
   concat_ws(' | ', pg_temp.kv('b5_p_hmac'), pg_temp.kv('b5_p_both'), pg_temp.kv('b5_c_jump'), pg_temp.kv('b5_c_one'), pg_temp.kv('b5_c_dup'), pg_temp.kv('b5_c_wrong'), pg_temp.kv('b5_c_stud'), pg_temp.kv('b5_c_afters')));
 
@@ -550,6 +554,9 @@ select pg_temp.setkv('u_hold', pg_temp.val_as('authenticated', pg_temp.u('padmin
 select pg_temp.setkv('w_exp', pg_temp.pend('w_exp')); select pg_temp.setkv('w_sup', pg_temp.pend('w_sup')); select pg_temp.setkv('w_new', pg_temp.pend('w_new'));
 update public.intake_guardian_invitation_requests set superseded_at = now() where id in (pg_temp.part(pg_temp.kv('w_sup'), 6)::uuid, pg_temp.part(pg_temp.kv('w_new'), 6)::uuid);
 select pg_temp.own(format('update public.intake_guardian_invitation_requests set requested_at = now() - interval ''1 hour'', expires_at = now() - interval ''1 minute'' where id in (%L, %L)', pg_temp.part(pg_temp.kv('w_exp'), 6), pg_temp.part(pg_temp.kv('w_sup'), 6)));
+select pg_temp.exch(pg_temp.part(pg_temp.kv('w_new'), 3), 'w-new-session');
+select pg_temp.own(format('update public.intake_sessions set created_at = now() - interval ''200 days'', absolute_expires_at = now() - interval ''150 days'', idle_expires_at = now() - interval ''150 days'' where request_id in (%L, %L)',
+  pg_temp.part(pg_temp.kv('w_new'), 1), pg_temp.part(pg_temp.kv('u_live'), 1)));
 select pg_temp.setkv('purge', pg_temp.svc('select public.intake_purge_expired(500)::text'));
 create or replace function pg_temp.has(p_g text) returns text language sql as $$
   select (select count(*) from public.intake_email_challenges where request_id = pg_temp.part(p_g, 1)::uuid)::text || '/'
