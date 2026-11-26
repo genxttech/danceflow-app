@@ -286,7 +286,7 @@ select pg_temp.chk('status reports judge count and chair', (public.competition_r
 -- R10-S3: with S3 applied the panel minimum is frozen once round 1 has started (raising the bar before start is covered by the R10-S3 suite).
 -- Without S3 (older chains) the original check applies.
 select pg_temp.expect_msg('the panel minimum cannot change once the round has started',
-  format($q$update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = %L$q$, pg_temp.u('006001')), 'COMP_ROUND_CONFIG_FROZEN')
+  format($q$update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = %L$q$, pg_temp.u('006001')), 'the panel minimum cannot change')
 where exists (select 1 from pg_trigger where tgname = 'compr10_guard_round_panel_config');
 update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = pg_temp.u('006001') and not exists (select 1 from pg_trigger where tgname = 'compr10_guard_round_panel_config');
 select pg_temp.chk('min_panel_judges raises the bar', not public.competition_round_panel_ready(pg_temp.u('006001'))) where not exists (select 1 from pg_trigger where tgname = 'compr10_guard_round_panel_config');

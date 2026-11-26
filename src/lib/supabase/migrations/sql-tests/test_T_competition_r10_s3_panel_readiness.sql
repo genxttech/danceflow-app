@@ -1,5 +1,5 @@
 -- Competition R10-S3 -- panel readiness / attendance / recovery-case regression suite.
--- DRAFT: NOT EXECUTED yet (heavy-lock queue; see PR). Covers 20270301100000, 20270301101000 and 20270301102000 on top of E1 (20270101090000),
+-- DRAFT (local disposable runs only; executed status is in the PR 864 review package). Covers 20270301100000, 20270301101000 and 20270301102000 on top of E1 (20270101090000),
 -- E2 (20270102090000), O1, the chain through 20270218090000 plus CF1 (capacity guard) and JC1 (20270215092000). Run as a SUPERUSER. One transaction, synthetic fixtures only (UUID block
 -- 00000000-0000-0000-0000-a10ff3XXXXXX). The final block ALWAYS raises, so nothing persists:
 --   "COMPETITION R10-S3 SQL SUITE PASS (<n> checks)"  or  "COMPETITION R10-S3 SQL SUITE FAIL: <failures>".
@@ -154,6 +154,14 @@ select pg_temp.chk('callback_tally with 3 judges is ready', public.competition_r
 select pg_temp.chk('method none with 3 judges is NOT ready', not public.competition_round_panel_ready(pg_temp.u('006003')));
 select pg_temp.chk('method none reports scoring_method_unsupported', (public.competition_round_panel_status(pg_temp.u('006003')) -> 'missing') ? 'scoring_method_unsupported');
 select pg_temp.chk('proficiency_rating (no approved format/engine) is NOT ready', not public.competition_round_panel_ready(pg_temp.u('006004')));
+-- A raised minimum makes an otherwise valid draft panel (r2: 3 judges) not ready, from either configured source.
+update public.event_competition_rounds set configuration = configuration || '{"min_panel_judges": 5}' where id = pg_temp.u('006002');
+select pg_temp.chk('raised min_panel_judges (5) over 3 judges: not ready, reports judges', not public.competition_round_panel_ready(pg_temp.u('006002')) and (public.competition_round_panel_status(pg_temp.u('006002')) -> 'missing') ? 'judges');
+select pg_temp.chk('raised min_panel_judges: min_judges 5, rule 3, configured minimum not met', (public.competition_round_panel_status(pg_temp.u('006002')) ->> 'min_judges')::int = 5 and (public.competition_round_panel_status(pg_temp.u('006002')) ->> 'rule_min_judges')::int = 3 and not (public.competition_round_panel_status(pg_temp.u('006002')) ->> 'meets_configured_minimum')::boolean);
+update public.event_competition_rounds set configuration = configuration - 'min_panel_judges', minimum_panel_size = 5 where id = pg_temp.u('006002');
+select pg_temp.chk('raised minimum_panel_size (5) over 3 judges: not ready', not public.competition_round_panel_ready(pg_temp.u('006002')) and (public.competition_round_panel_status(pg_temp.u('006002')) ->> 'min_judges')::int = 5);
+update public.event_competition_rounds set minimum_panel_size = default where id = pg_temp.u('006002');
+select pg_temp.chk('minimum restored: ready and configured minimum met', public.competition_round_panel_ready(pg_temp.u('006002')) and (public.competition_round_panel_status(pg_temp.u('006002')) ->> 'meets_configured_minimum')::boolean);
 
 -- ============================================================================
 -- 4. Configuration guard (r8) and fail-closed reading of bad stored values
