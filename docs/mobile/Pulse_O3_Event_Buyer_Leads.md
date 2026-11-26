@@ -1,6 +1,6 @@
 # Pulse O3: a genuine lead who later buys an event ticket
 
-Status: analysis and a question for the lead-integrity owner. Read only; nothing here changes behaviour. Counts only, no names or contact details. Source: DEV database, 2026-11-22, through the sanctioned read-only runner.
+Status: **decided by the owner on 2026-11-26 (disposition P2: both protections).** The three-part rule below is implemented in `isPulseLead` and its loader (#892; "appointment attendance" is read as a non-cancelled appointment or an attended class). Checkout no longer writes attribution on an existing client (#891; its migration is not applied). The web Leads page is unchanged. The rest of this note is the analysis as written before the decision: counts only, no names or contact details; source DEV database, 2026-11-22, through the sanctioned read-only runner.
 
 ## The question
 Pulse counts a client as a lead when `status = 'lead'` and the client is not an event registrant and not an independent instructor. Event checkout (`src/lib/events/settlementSideEffects.ts`) creates a ticket buyer as `status = 'lead'`, `referral_source = 'Event Registration'`, `source_system = 'event_registration'`. When the buyer's email already matches an existing client, it only fills blanks: `source_system` becomes `event_registration` if it was empty, `referral_source` becomes "Event Registration" only if it was empty, and `status` is left alone.
