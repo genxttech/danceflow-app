@@ -1,19 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Marketing M-2a CHARACTERIZATION (written before the shared content module exists; must pass unchanged after the
- * refactor). It pins what the studio and organizer CREATE actions do today with subject/preview/body/CTA/audience input:
- * the redirect code for each invalid input, the order the checks run in, and the exact values written.
- *
- * Observations pinned deliberately, including the odd ones:
- * - the studio action validates the CTA URL with a strict normalizer (http/https only, canonical form);
- * - the organizer CREATE action uses a lax normalizer (prefixes https:// and nothing else: no URL validation).
- *   That divergence is existing behaviour; M-2a must not change it.
+ * Studio and organizer CREATE actions: validation order, redirect codes and stored values. Written as the M-2a
+ * characterization; updated by the follow-up that made the studio action report its refusal codes (they used to
+ * collapse into save_failed), made organizer create validate the CTA URL like every other path, and refuses creation
+ * while marketing is frozen (M-0 F4).
  */
 
 const h = vi.hoisted(() => ({
   inserts: [] as Array<{ table: string; payload: Record<string, unknown> }>,
   eventExists: true,
+  frozen: false,
   studioRole: "studio_owner",
 }));
 
@@ -52,7 +49,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } }, error: null }) },
     from: (table: string) => chain(table),
-    rpc: () => Promise.resolve({ data: false, error: null }),
+    rpc: () => Promise.resolve({ data: h.frozen, error: null }),
   }),
 }));
 vi.mock("@/lib/auth/studio", () => ({
@@ -82,11 +79,12 @@ const inserted = (table: string) => h.inserts.filter((i) => i.table === table).m
 beforeEach(() => {
   h.inserts.length = 0;
   h.eventExists = true;
+  h.frozen = false;
   h.studioRole = "studio_owner";
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
-const SAVE_FAILED = "/app/marketing/campaigns?campaign_error=save_failed";
+const refusal = (code: string) => `/app/marketing/campaigns?campaign_error=${code}`;
 const studio = { name: "N", subject: "S", bodyText: "B", audienceType: "all_active_clients" };
 
 describe("studio create: content validation order and stored values", () => {
@@ -134,7 +132,7 @@ describe("studio create: content validation order and stored values", () => {
   });
 
   it.each(["javascript:alert(1)", "data:text/html,hi", "vbscript:x", "http://", "https://%"])("CTA %s is refused and nothing is inserted", async (ctaUrl) => {
-    expect(await run(createMarketingCampaignDraftAction, { ...studio, ctaUrl })).toBe(SAVE_FAILED);
+    expect(await run(createMarketingCampaignDraftAction, { ...studio, ctaUrl })).toBe(refusal("invalid_cta_url"));
     expect(inserted("marketing_campaigns")).toEqual([]);
   });
 
@@ -146,29 +144,29 @@ describe("studio create: content validation order and stored values", () => {
     expect(inserted("marketing_campaigns")[0].cta_url).toBe(stored);
   });
 
-  /**
-   * EXISTING DEFECT, pinned (not fixed by this refactor): the create action's validation redirects are thrown inside
-   * its own try block and the catch-all converts every one of them into save_failed, so the specific codes
-   * (missing_name, invalid_cta_url, ...) never reach the page. Nothing is inserted in any of these cases.
-   * The M-1a update action rethrows redirects and does report the specific codes.
-   */
   it.each([
-    ["missing name", { name: "" }],
-    ["invalid audience", { audienceType: "bogus" }],
-    ["event audience without an event", { audienceType: "specific_event_registrants" }],
-    ["missing subject", { subject: "" }],
-    ["missing body", { bodyText: "" }],
-    ["invalid CTA", { ctaUrl: "javascript:x" }],
-  ])("%s: every validation failure surfaces as save_failed and inserts nothing", async (_label, override) => {
-    expect(await run(createMarketingCampaignDraftAction, { ...studio, ...override })).toBe(SAVE_FAILED);
+    ["missing_name", { name: "" }],
+    ["invalid_audience", { audienceType: "bogus" }],
+    ["missing_event", { audienceType: "specific_event_registrants" }],
+    ["missing_subject", { subject: "" }],
+    ["missing_body", { bodyText: "" }],
+    ["invalid_cta_url", { ctaUrl: "javascript:x" }],
+  ])("%s is reported and nothing is inserted", async (code, override) => {
+    expect(await run(createMarketingCampaignDraftAction, { ...studio, ...override })).toBe(refusal(code));
     expect(inserted("marketing_campaigns")).toEqual([]);
   });
 
-  it("an event of another studio is also refused with nothing inserted", async () => {
+  it("an event of another studio is refused with nothing inserted", async () => {
     h.eventExists = false;
     expect(
       await run(createMarketingCampaignDraftAction, { ...studio, audienceType: "specific_event_registrants", audienceEventId: "ev-1" }),
-    ).toBe(SAVE_FAILED);
+    ).toBe(refusal("invalid_event"));
+    expect(inserted("marketing_campaigns")).toEqual([]);
+  });
+
+  it("M-0 F4: while marketing is frozen no draft is created", async () => {
+    h.frozen = true;
+    expect(await run(createMarketingCampaignDraftAction, studio)).toBe(refusal("marketing_paused"));
     expect(inserted("marketing_campaigns")).toEqual([]);
   });
 
@@ -190,7 +188,7 @@ describe("studio create: content validation order and stored values", () => {
 
   it("an unauthorized role is refused before any insert", async () => {
     h.studioRole = "instructor";
-    expect(await run(createMarketingCampaignDraftAction, studio)).toBe(SAVE_FAILED);
+    expect(await run(createMarketingCampaignDraftAction, studio)).toBe(refusal("unauthorized"));
     expect(inserted("marketing_campaigns")).toEqual([]);
   });
 });
@@ -198,7 +196,7 @@ describe("studio create: content validation order and stored values", () => {
 const organizer = { organizerId: "org-1", name: "N", subject: "S", bodyText: "B" };
 
 describe("organizer create: content validation order and stored values", () => {
-  it("stores trimmed content; the CTA goes through the LAX normalizer (https:// prefix only)", async () => {
+  it("stores trimmed content with the canonical CTA URL", async () => {
     const result = await run(createOrganizerCampaignDraftAction, {
       ...organizer,
       name: "  Spring ",
@@ -217,7 +215,7 @@ describe("organizer create: content validation order and stored values", () => {
         preview_text: "pre",
         body_text: "body",
         cta_label: "Go",
-        cta_url: "https://example.com/a b",
+        cta_url: "https://example.com/a%20b",
         audience_type: "all_organizer_contacts",
         audience_event_id: null,
         status: "draft",
@@ -227,14 +225,22 @@ describe("organizer create: content validation order and stored values", () => {
   });
 
   it.each([
-    ["http://example.com", "http://example.com"],
-    ["https://example.com/x", "https://example.com/x"],
-    ["example.com", "https://example.com"],
-    ["javascript:alert(1)", "https://javascript:alert(1)"],
-    ["HTTP://Example.com", "https://HTTP://Example.com"],
-  ])("CTA %s is stored as %s (no validation)", async (ctaUrl, stored) => {
+    ["http://example.com", "http://example.com/"],
+    ["example.com", "https://example.com/"],
+  ])("CTA %s is stored as %s", async (ctaUrl, stored) => {
     await run(createOrganizerCampaignDraftAction, { ...organizer, ctaUrl });
     expect(inserted("organizer_marketing_campaigns")[0].cta_url).toBe(stored);
+  });
+
+  it.each(["javascript:alert(1)", "data:text/html,hi", "vbscript:x"])("CTA %s is refused and nothing is inserted", async (ctaUrl) => {
+    expect(await run(createOrganizerCampaignDraftAction, { ...organizer, ctaUrl })).toContain("campaign_error=invalid_cta_url");
+    expect(inserted("organizer_marketing_campaigns")).toEqual([]);
+  });
+
+  it("M-0 F4: while marketing is frozen no draft is created", async () => {
+    h.frozen = true;
+    expect(await run(createOrganizerCampaignDraftAction, organizer)).toContain("campaign_error=marketing_paused");
+    expect(inserted("organizer_marketing_campaigns")).toEqual([]);
   });
 
   it("stores null for empty preview/CTA", async () => {
