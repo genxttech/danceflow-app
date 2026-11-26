@@ -4,8 +4,7 @@
  * Pure functions only (no I/O, no redirects). Each action keeps its own redirect codes and check order and maps the
  * results below, so this module is a behaviour-preserving extraction (pinned by the *.m2a.characterization tests).
  *
- * Known divergences kept on purpose (do not "fix" inside a refactor):
- * - organizer CREATE uses the lax URL normalizer; every other path uses the strict one;
+ * Known divergence kept on purpose (do not "fix" inside a refactor):
  * - the organizer UPDATE action knows one more event audience than organizer CREATE.
  */
 
@@ -30,13 +29,6 @@ export function normalizeCampaignCtaUrl(url: string): string {
   } catch {
     return "";
   }
-}
-
-/** Legacy organizer-create normalizer: prefixes https:// and validates nothing. Kept only to preserve behaviour. */
-export function normalizeCampaignCtaUrlLax(url: string): string {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  return `https://${url}`;
 }
 
 export type StudioCampaignContentIssue = "missing_subject" | "missing_body" | "invalid_cta_url";

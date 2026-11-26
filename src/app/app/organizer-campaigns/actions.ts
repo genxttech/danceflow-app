@@ -8,9 +8,10 @@ import {
   ORGANIZER_CREATE_AUDIENCE_TYPES,
   ORGANIZER_CREATE_EVENT_REQUIRED_AUDIENCES,
   hasOrganizerRequiredContent,
-  normalizeCampaignCtaUrlLax,
+  normalizeCampaignCtaUrl,
   readTrimmedFormString,
 } from "@/lib/marketing/campaignContent";
+import { isMarketingSendPaused } from "@/lib/marketing/compliance/sendFreeze";
 
 function getString(formData: FormData, key: string) {
   return readTrimmedFormString(formData, key);
@@ -81,7 +82,8 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
   const previewText = getString(formData, "previewText");
   const bodyText = getString(formData, "bodyText");
   const ctaLabel = getString(formData, "ctaLabel");
-  const ctaUrl = normalizeCampaignCtaUrlLax(getString(formData, "ctaUrl"));
+  const rawCtaUrl = getString(formData, "ctaUrl");
+  const ctaUrl = normalizeCampaignCtaUrl(rawCtaUrl);
   const audienceType = getString(formData, "audienceType") || "all_organizer_contacts";
   const audienceEventId = getString(formData, "audienceEventId");
   const source = getString(formData, "source");
@@ -96,6 +98,10 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
     redirect(appendQuery(redirectTo, "campaign_error", "missing_required_fields"));
   }
 
+  if (rawCtaUrl && !ctaUrl) {
+    redirect(appendQuery(redirectTo, "campaign_error", "invalid_cta_url"));
+  }
+
   if (!ORGANIZER_CREATE_AUDIENCE_TYPES.has(audienceType)) {
     redirect(appendQuery(redirectTo, "campaign_error", "invalid_audience"));
   }
@@ -105,6 +111,11 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
   }
 
   const { supabase, user } = await requireOrganizerAccess(organizerId);
+
+  // M-0 F4: while frozen the database hides campaigns, so a new draft would fail with a generic error.
+  if (await isMarketingSendPaused(supabase)) {
+    redirect(appendQuery(redirectTo, "campaign_error", "marketing_paused"));
+  }
 
   if (audienceEventId) {
     const { data: event, error: eventError } = await supabase

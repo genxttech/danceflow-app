@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
+import { openWebUrl } from "@/lib/openWebUrl";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { AppText } from "@/components/AppText";
@@ -157,7 +158,7 @@ export default function JobsScreen() {
 
   async function openApply(job: PublicJobPostingItem) {
     if (job.applyUrl) {
-      await Linking.openURL(job.applyUrl);
+      await openWebUrl(job.applyUrl);
       return;
     }
 
