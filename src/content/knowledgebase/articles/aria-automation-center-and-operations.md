@@ -51,7 +51,7 @@ ARIA can queue email for supported rules in that pack, such as low package balan
 
 ## Applying a pack setting
 
-Click **Save pack** on each pack to apply its setting. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
+Click **Save pack** on each pack. Saving a pack applies its setting to most of that pack's rules. In Client Relationships, intro follow-up email can still be sent automatically unless that pack is Off. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
 
 ## Best practice
 

@@ -31,15 +31,13 @@ Staff reviews it before the workflow continues where approval is required.
 
 ARIA surfaces the issue but does not prepare or execute the next step.
 
-Click **Save pack** on each pack to apply its setting. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
-
 ## Off
 
 ARIA does not create new work from that operational pack.
 
 ## Applying a pack setting
 
-Saving a pack applies its setting to that pack's rules.
+Click **Save pack** on each pack. Saving a pack applies its setting to most of that pack's rules. In Client Relationships, intro follow-up email can still be sent automatically unless that pack is Off. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
 
 ## External communication is separate
 

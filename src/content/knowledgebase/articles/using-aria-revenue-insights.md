@@ -51,7 +51,7 @@ Operational packs can be set to:
 - Notify me only
 - Off
 
-Click **Save pack** on each pack to apply its setting to that pack's rules.
+Click **Save pack** on each pack. Saving a pack applies its setting to most of that pack's rules. In Client Relationships, intro follow-up email can still be sent automatically unless that pack is Off.
 
 ## Financial safety
 

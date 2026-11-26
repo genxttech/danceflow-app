@@ -40,7 +40,7 @@ Each pack has one autonomy setting:
 
 ## Applying a pack setting
 
-Click **Save pack** on each pack. Saving a pack applies its setting to that pack's rules. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
+Click **Save pack** on each pack. Saving a pack applies its setting to most of that pack's rules. In Client Relationships, intro follow-up email can still be sent automatically unless that pack is Off. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
 
 ## Autonomy is not the same as delivery permission
 

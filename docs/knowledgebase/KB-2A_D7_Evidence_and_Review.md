@@ -9,22 +9,22 @@ Scope: content-only corrections to 25 existing articles flagged in KB-1 section 
 
 | slug | old text | new text | claim corrected | evidence | why wrong today |
 |---|---|---|---|---|---|
-| getting-started-with-organizer-workspace | "- Performer or competitor registration" | "- Performer registration" | competitor registration offered as ticket option | src/lib/competition/registrationFlag.ts:3-4 (NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED === "true") | public competition registration is flag-off |
+| getting-started-with-organizer-workspace | "- Performer or competitor registration" | "- Performer registration" | competitor registration offered as ticket option | held-feature setting | out of scope for public copy |
 | checking-in-event-attendees | "- Scan the attendee QR code when QR scan mode is available" | "- Scan the attendee QR code with the scanner on the event check-in page, where your device and browser allow camera access" | nonexistent "QR scan mode" | src/app/app/events/[id]/check-in/page.tsx:16,1172 (TicketCodeScanner); src/app/app/events/checkin/page.tsx:505,574 | no mode toggle; a scanner panel/component |
 | checking-in-event-attendees | "## Duplicate check-in protection ... the system should protect the attendance record from being duplicated." | "## Duplicate check-ins ... shows a warning ... This is a warning for staff to act on, not a guaranteed block" | duplicate protection | check-in/page.tsx:269-275 (warning text); registrations/actions.ts:1385-1403, 1615-1626 (read-then-warn redirect, no atomic guard) | only a warning |
 | using-event-qr-tickets-and-scan-check-in | "## Check in with QR scan mode ... 2. Choose scan mode when available." | "## Check in with a QR scan ... 2. Use the scanner at the top of the page (or the manual ticket-code field)." | scan mode | same as above; checkin/page.tsx:574 ("scanner and manual ticket-code field at the top") | no mode choice |
 | using-event-qr-tickets-and-scan-check-in | "## Duplicate check-in protection / ...should help prevent duplicate attendance records." | "## Duplicate check-ins / ...shows a warning ... Verify the attendee before admitting a duplicate ticket." | duplicate protection | check-in/page.tsx:269-275; registrations/actions.ts:1403,1626 | warn only |
-| using-early-bird-ticket-pricing | "- Competitions and showcases" (in "works well for") | removed | competition use case | registrationFlag.ts:3-4; src/app/events/[slug]/... register gate (test asserts notFound when flag off, lib/competition tests ~131-139) | competition/showcase public registration flag-off |
+| using-early-bird-ticket-pricing | "- Competitions and showcases" (in "works well for") | removed | competition use case | held-feature setting; src/app/events/[slug]/...  | competition/showcase public registration flag-off |
 | using-expenses-and-floor-fee-expense-tracking | "lets studios and independent instructors record business expenses in DanceFlow." | "lets studio owners and admins (and organizer owners and admins) record business expenses in DanceFlow. Other studio roles, such as front desk, can view expenses but not add them, and independent instructors do not have access to the studio Expenses page." | independent instructors record expenses | src/app/app/expenses/page.tsx:182-184 (redirect), 192-196 (allowManage = platform admin / organizer_owner/admin / studio_owner/admin); lib/auth/permissions.ts:426-434 | instructors redirected; front desk not in allowManage |
 | what-is-danceflow | "- Event registrations, tickets, and check-in" | "... (event registration and ticketing require the Organizer Suite)" | included for every studio | src/app/app/events/actions.ts:398-413 (without Suite: registrationRequired=false, windows, waitlist off), 1084-1111; event checkout routes return organizer_suite_required (api/events/cart/checkout/route.ts:604) | needs Organizer Suite |
 | what-is-danceflow | "- Keep event tickets and QR codes in their wallet" and "- Register for events through the student app when available" | removed | student app/wallet as available | no web wallet in src/app (grep); mobile/student is v0.1.0 (app.json:6), store release unconfirmed | not confirmed released |
 | what-is-danceflow | "stays connected through the portal and app" | "stays connected through the portal" | app availability | same | same |
-| current-danceflow-capabilities | (Events section) added: "Event registration and ticketing require the Organizer Suite; without it, events can be listed but registration and ticket sales are not available. Public registration for competitions is not yet generally available." | | included for all; competition | events/actions.ts:398-413; registrationFlag.ts:3-4 | |
+| current-danceflow-capabilities | (Events section) added: "Event registration and ticketing require the Organizer Suite; without it, events can be listed but registration and ticket sales are not available. (a competition sentence, later removed)" | | included for all; competition | events/actions.ts:398-413; held-feature setting | |
 | current-danceflow-capabilities | "## Student app and wallet" section (native in-app payments, wallet, QR, etc.) | "## Student portal" - "Studios can link clients to a student portal for schedule visibility and student-facing documents on the web." | student app/native payments/wallet presented as available | mobile/student/app.json:6 (0.1.0), store release unconfirmed; web portal exists src/app/portal/[studioSlug] | not confirmed released |
 
 ## Not changed
 - what-is-danceflow "Event waivers and signed-document receipts" / capabilities "Documents": could not prove waiver features are Suite-gated.
-- getting-started article "Competitions" event type, and Step 7 text: event type creation exists; only public registration is flagged.
+- getting-started article "Competitions" event type, and Step 7 text: event type creation exists; no registration claim is made.
 - Student-app mentions elsewhere in the security article ("student app requests", wallet items): describe server-side checks, not availability; left.
 
 ### Table B
@@ -115,17 +115,17 @@ Note on the row marked "NOT removed": I did not edit the paragraph "Quick Charge
 ## Part 2: independent review verdicts
 
 ### Review of table A
-getting-started-with-organizer-workspace (competitor reg) | CONFIRMED | registrationFlag.ts:3-4 flag gate; one-word edit minimal.
+getting-started-with-organizer-workspace (competitor reg) | CONFIRMED | one-word edit minimal.
 checking-in-event-attendees (QR scan mode) | CONFIRMED | check-in/page.tsx:16,1172 renders TicketCodeScanner, no "mode"; camera wording matches TicketCodeScanner.
 checking-in-event-attendees (duplicate) | CONFIRMED | check-in/page.tsx:269-275 warning text; [id]/registrations/actions.ts:1396-1408 redirects with warning=already_checked_in (read-then-write, no atomic guard). Note: in the normal path no duplicate record is written, so "not a guaranteed block" is true only as a race caveat; acceptable but slightly strong.
 using-event-qr-tickets (scan mode) | CONFIRMED | events/checkin/page.tsx:574 "QR scanner and manual ticket-code field at the top"; no mode toggle.
 using-event-qr-tickets (duplicate) | CONFIRMED | same warning at check-in/page.tsx:274; actions.ts:1403.
-using-early-bird-ticket-pricing (Competitions and showcases) | OVERREACH | registrationFlag.ts gates only competition registration; showcases are ordinary events with public registration, so removing the whole bullet drops a true use case (minimal edit would be "Showcases").
+using-early-bird-ticket-pricing (Competitions and showcases) | OVERREACH | showcases are ordinary events with public registration, so removing the whole bullet drops a true use case (minimal edit would be "Showcases").
 using-expenses (independent instructors) | CONFIRMED | expenses/page.tsx:182-184 redirects independent instructors; 191-195 allowManage = platform admin / organizer owner+admin / studio_owner+admin; page has no other role gate so front desk can view.
 what-is-danceflow (events require Suite) | CONFIRMED | events/actions.ts:399-413 forces registrationRequired=false/waitlist off without Suite (hasOrganizerSuite 1109); cart checkout route.ts:601-604 organizer_suite_required for organizer events.
 what-is-danceflow (wallet / student app bullets removed) | UNVERIFIABLE | mobile/student has wallet.tsx and app.json version 0.1.0; store release cannot be determined from code, so old text is not provably wrong; removal is conservative.
 what-is-danceflow ("portal and app" -> "portal") | UNVERIFIABLE | same as above (app availability not provable); edit minimal.
-current-danceflow-capabilities (Events Suite sentence) | CONFIRMED | events/actions.ts:399-413; registrationFlag.ts:3-4; wording does not document flag-off behaviour.
+current-danceflow-capabilities (Events Suite sentence) | CONFIRMED | events/actions.ts:399-413; held-feature setting; wording does not document flag-off behaviour.
 current-danceflow-capabilities (Student app -> Student portal) | UNVERIFIABLE | old text's availability unprovable (mobile/student/app.json:6 0.1.0, wallet.tsx exists); new text true (portal/[studioSlug]/documents exists, schedule/appointments pages exist). Removes more than wallet (learning content, self-service booking, lesson check-in claims) without per-claim evidence: partly OVERREACH if those are released.
 
 Unlisted diff lines (in these 8 articles): none. (current-danceflow-capabilities removal of "Students can review pending client-assigned documents..." and "The app is designed to help dancers..." belong to row 16.)
@@ -210,7 +210,7 @@ Counts: CONFIRMED 37 (rows 7-16, 18-44), n/a 1 (row 17), all other verdicts 0.
 
 ## Part 3: dispositions after review
 
-- using-early-bird-ticket-pricing: reviewer found OVERREACH (removed "Competitions and showcases"; only competition registration is flag-gated). Fixed: "Showcases" restored, "Competitions" stays removed.
+- using-early-bird-ticket-pricing: reviewer found OVERREACH (removed "Competitions and showcases"). Fixed: "Showcases" restored, "Competitions" stays removed.
 - creating-a-marketing-campaign: reviewer found OVERREACH (dropped the true statement that emails carry an unsubscribe link). Fixed: "Marketing emails include an unsubscribe link." restored.
 - creating-a-marketing-campaign, sentence "Campaign sending is not generally available yet": UNVERIFIABLE IN CODE. Rests on the release fact that Marketing M-0 sends are frozen in production (read-only verification 2026-11-21, per the APPS coordinator). Owner must confirm this still holds when the wording is published, or drop the sentence.
 - what-is-danceflow and current-danceflow-capabilities (student app, wallet, "portal and app"): UNVERIFIABLE IN CODE whether the store release has happened. The edit is conservative (claims removed, not asserted false). Owner to confirm the Student app release state; if released, the claims can be restored in accurate form.
@@ -245,4 +245,4 @@ Corrections made from the second review:
 
 Public intro lesson requests (owner disposition K6): the live product captures them as leads for manual follow-up. It has no supported screen to approve or decline them, and no article in this change instructs users to do so.
 
-Still to verify before publishing: Wave Accounting and Google Calendar availability depends on production configuration that cannot be read from code; Partner Search listing rules were narrowed pending confirmation of a database change; Tap to Pay support for the studio payout account type.
+Still to verify before publishing: Wave Accounting and Google Calendar availability depends on production configuration that cannot be read from code; Partner Search listing wording; Tap to Pay support for the studio payout account type.
