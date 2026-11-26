@@ -246,3 +246,15 @@ Source: `docs/ops/APPS_Owner_Dispositions_2026-11-26.md` in the main checkout (t
 | B6 | #808 stays dark and unmerged until the M16b dependency and full review are satisfied; then present the exact head | gate | Present the head after replay and report |
 
 Already settled and not reopened: guardian address Option B; no standalone NSI pricing.
+
+## 24. M16b lifecycle runs (local disposable Postgres only; nothing applied to DEV or PROD)
+**Run 1 (2026-11-26, bytes before the review fixes):** 4 failures in older checks and the M14 R2a race; fixed in `bae71eceb`.
+
+**Run 2 (2026-11-26 16:37Z to 17:46Z, head `b4ff4925d`, migration sha256 `98655a73...`):**
+- Passed: M16b suite 23/23; the older suites and DEV-safe suites on M16b; 48 of 48 suite probes; replays and refusals; rollback to the M16a fingerprint exactly; forward preflight; M16a, M15 and M14 races. M16b fingerprint `072acfaac996fcc3042d426983569802|884`.
+- Failed: the M16b race harness (A2, A3, B2a, B5 saw no waiter). The harness ordered its two sides with fixed sleeps; the job ran far slower than run 1. Most likely cause is timing, **not yet confirmed**. The two probe "detections" logged before the stop do not count, since A2 failed without any mutation.
+- I stopped the run early (past its estimate, other jobs waiting, race stage to be repeated anyway). Its summary of 11 failures is the harness failure, probe A3 and the effects of removing the container.
+
+**Harness change (`c6ffc1af7`):** every ordering now uses an advisory-lock gate and a check that the caller is waiting on the client lock; probes run one scenario each; new stage `m16brace`. Test code only; the migration and rollback bytes are unchanged. It is not covered by the earlier code review.
+
+**Open:** run 3 (`m16brace`, queued), then the full-chain replay.
