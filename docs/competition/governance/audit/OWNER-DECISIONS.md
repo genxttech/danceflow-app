@@ -814,3 +814,28 @@ Presented: A (refuse publication of a second round), B (allow; independence only
 * **Q6** (one person, no scorer, genuine re-dance): resolved by section 16 (fail closed, no self-approval exception) and requirement 7. A further approver role is a separate design item (requirement 10, design question Q10).
 
 **Design obligation noted by the coordinator (open):** Option C as drafted does not prevent every timing attack in requirement 4: it is open where the spare result is published before the second round enters the running order, and where the original never enters the system. The design must close this or state it for a decision.
+
+## 18. B2 Question 9: show the recorded dance and disclose; the bypass stays open (2026-11-26)
+
+Presented: show the dance and disclose; require independence across the whole division; disclose only. Owner decision, verbatim:
+
+> B2 QUESTION 9 DECISION: SHOW THE DANCE AND DISCLOSE, WITH THE SECURITY GAP REMAINING OPEN.
+>
+> 1. Require published Studio/Custom results to identify the actual recorded dance clearly.
+> 2. Do not impose blanket division-wide independent approval merely because a division contains multiple dances.
+> 3. Preserve legitimate independent initial results and the approved one-manager Studio exception where applicable.
+> 4. IMPORTANT: This decision does NOT accept the different-dance replacement bypass as residual risk for public activation. Keep R-11/B2 BLOCKED until the remaining exploitation paths are closed or separately adjudicated.
+> 5. Independently verify the claim that Question 1 Option C already catches spare rounds labelled with dances that have existing rounds. Identify precisely which cases remain exploitable, using executable tests where possible.
+> 6. Investigate narrower enforcement using immutable scheduled-dance identity, published running-order history, contest lineage and controlled amendments.
+> 7. Specifically evaluate whether adding a previously unscheduled dance, repurposing a spare round or changing a dance assignment after schedule publication should trigger independent authorization and result-approval restrictions.
+> 8. Avoid relying on mutable labels, dance names or user-provided correction flags as the security boundary.
+> 9. Coordinate with OD-12 paper-ballot verification, Question 8 approver independence and Option D's published-running-order protections.
+> 10. Preserve legitimate Multi-Dance, preliminary, semifinal, final and re-dance workflows. Include positive tests for these cases alongside the bypass reproductions.
+> 11. Prepare a bounded display change specification. Do not silently alter scoring, ballots or historical result identity.
+> 12. Have the revised B2 design independently reviewed before requesting implementation authorization.
+>
+> Record Question 9, then proceed to the next unresolved B2 question individually.
+>
+> B2 remains design-only. No SQL apply, protected merge, deployment or public Competition OS activation is authorized.
+
+**Status:** R-11 and B2 remain BLOCKED. DanceFlow Studio/Custom policy, not a governing-body compliance claim.
