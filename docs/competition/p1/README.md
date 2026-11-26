@@ -42,3 +42,9 @@ DanceFlow Studio/Custom pilot policy (OWNER-DECISIONS section 21, `0d68b2f38`; M
 One independent read-only review of the first draft found two blockers (running order replaceable through a second published version; corrections through ballot reopening) and gaps (couples added to started heats; dance and numbering edits; `other` sanctioning; stranded cancelled rounds). All but the sanctioning choice are changed above; **the changes are not re-reviewed**. It found no apply-time or runtime SQL error by reading, assuming PostgreSQL 14 or later.
 
 Unverified: everything at runtime; races and deadlocks; composition with Option D and PR 866; application behaviour; hosted data (the preflight refuses data that already breaks the limits).
+
+## Tests and application messages
+
+`sql-tests/test_T_competition_p1_pilot_restrictions.sql` needs PR 865, PR 877 and this migration. **Never executed**, so it may fail on its own assumptions. By its author's account it covers the four probed self-approval routes, the freezes, the ballot rules, self-approval, sanction, the one-couple final, published names, started-heat additions and removals, a ballot replaced after a No-show, the happy path, pre-start edits and event deletion. Not covered: the busy refusals, advancement, the publication sanction guard, the removal backstop, the refund path and any concurrency. With PR 899 installed some order writes may be refused by its guard first, leaving this one unproven there. The suite has not had its own review.
+
+Application messages (`src/lib/competition/pilotMessages.ts`) are not type-checked or tested. Actions that throw (competition, advanced schedule, generation, registrations) still show a generic message in production, because Next.js hides thrown server-action errors; they need to return the error instead.

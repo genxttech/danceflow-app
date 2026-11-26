@@ -15,6 +15,7 @@ import { SETUP_STEPS, deriveDraft, parsePrice, restoreAnswers, setupProfileProbl
 import { readEventPresentation } from "@/lib/competition/setup/eventPresentationServer";
 import { EVENT_IMAGE_BUCKET, EVENT_IMAGE_MAX_BYTES, eventImagePublicPrefix } from "@/lib/events/media";
 import { IMAGE_UPLOAD_MIME_TYPES, safeStorageSegment, validateUploadFile } from "@/lib/security/uploads";
+import { pilotErrorMessage } from "@/lib/competition/pilotMessages";
 
 export type ActionState = { ok: boolean; error?: string; href?: string };
 
@@ -33,6 +34,8 @@ function text(formData: FormData, key: string) {
  */
 function friendly(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return GENERIC_ERROR;
+  const pilot = pilotErrorMessage(error.message);
+  if (pilot) return pilot;
   if (error.code === "P0001" || error.code === "42501") return error.message || GENERIC_ERROR;
   return GENERIC_ERROR;
 }
