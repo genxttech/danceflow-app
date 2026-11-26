@@ -32,6 +32,8 @@ for f in $(git ls-tree --name-only "$LIVE" "$M/" | grep -E "/[0-9]{14}_.*competi
 for n in 20270215092000_competition_jc1_inactive_judge_absent 20270215093000_competition_u18_heat_entry_status_guard 20270215094000_competition_u18s_heat_entry_scratch_audit; do git show "$CAND:$M/$n.sql" > "$CHAIN/base/$n.sql"; done
 for f in $(git ls-tree --name-only "$CAND" "$M/sql-tests/" | grep -E "test_T_competition_|test_T_phase10"); do git show "$CAND:$f" > "$CHAIN/sql-tests/$(basename "$f")"; done
 git show origin/claude/od31-guarded-baseline-7346b9:docs/competition/governance/audit/guarded-baseline/test_T_od31_guarded_baseline_negative.sql > "$CHAIN/sql-tests/test_T_od31_guarded_baseline_negative.sql"
+mkdir -p "$CHAIN/sql-tests/fixtures"; for f in $(git ls-tree -r --name-only "$CAND" "$M/sql-tests/fixtures/" | grep -E '/fixtures/[^/]+\.sql$'); do git show "$CAND:$f" > "$CHAIN/sql-tests/fixtures/$(basename "$f")"; done
+rm -rf "$CHAIN/sql-tests-base"; cp -r "$CHAIN/sql-tests" "$CHAIN/sql-tests-base"   # BEFORE the PR versions override them
 ( cd "$CHAIN/base" && sha256sum *.sql ) > "$OUT/migrations-base.sha256"
 sha256sum "$OUT/migrations-base.sha256" | cut -d' ' -f1 > "$OUT/base-fingerprint.txt"
 # PR files (forward, rollback, suites): newest blobs from each PR head; PR suites override the candidate copies of the same name.
@@ -50,6 +52,7 @@ pull "$P_S3"  '/(20270301(100|101|102)000_|sql-tests/test_T_competition_(r10_s3_
 pull "$P_S4"  '/(20270301[0-9]{6}_competition_r15_|sql-tests/(test_T_competition_(r15_|ns1_no_show)|test_T_phase10d1_heat_entry_eligibility|fixtures/))|rollback/20270301[0-9]{6}_competition_r15_'
 pull "$P_S5"  '/(20270301120000_|sql-tests/test_T_competition_s5_)|rollback/20270301120000_'
 mkdir -p "$CHAIN/sql-tests/fixtures"; for f in $(git ls-tree -r --name-only "$P_S4" "$M/sql-tests/fixtures/"); do git show "$P_S4:$f" > "$CHAIN/sql-tests/fixtures/$(basename "$f")"; done
+cp "$CHAIN/sql-tests/test_T_competition_s5_participant_age_guard.sql" "$CHAIN/sql-tests-base/"
 ( cd "$CHAIN/new" && sha256sum *.sql ) > "$OUT/migrations-new.sha256"
 ( cd "$CHAIN/rollback" && sha256sum *.sql ) > "$OUT/rollbacks.sha256"
 for r in "$P_R11" "$P_S3" "$P_S4" "$P_S5"; do printf '%s %s\n' "$r" "$(git rev-parse "$r")"; done > "$OUT/pr-heads.txt"
@@ -94,8 +97,13 @@ test_T_competition_cf1_f3_publication test_T_phase10d_floor_schedule test_T_comp
 run_suites(){ # <tag>
   : > "$OUT/suites-$1.tsv"
   for s in $SUITES; do
-    [ -f "$CHAIN/sql-tests/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$OUT/suites-$1.tsv"; continue; }
-    ( cd "$CHAIN/sql-tests" && timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$s.sql" > "$OUT/suite-$1-$s.log" 2>&1 )
+    local dir="$CHAIN/${SUITE_DIR:-sql-tests}"
+    [ -f "$dir/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$OUT/suites-$1.tsv"; continue; }
+    local pre=()
+    grep -q 'pg_temp\.compo1_fixture_' "$dir/$s.sql" && pre+=("$dir/fixtures/competition_round_ready.sql")
+    grep -q 'pg_temp\.r15_clear_entries' "$dir/$s.sql" && [ -f "$dir/fixtures/r15_clear_entries.sql" ] && pre+=("$dir/fixtures/r15_clear_entries.sql")
+    cat ${pre[@]+"${pre[@]}"} "$dir/$s.sql" | timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/suite-$1-$s.log" 2>&1
+    printf '%s %s\n' "$s" "${pre[*]##*/}" >> "$OUT/suite-fixtures-$1.txt"
     line="$(grep -E "SUITE (PASS|FAIL)|PASS \(|FAIL" "$OUT/suite-$1-$s.log" | tail -1 | cut -c1-600)"
     case "$line" in *PASS*) res=PASS;; *) res=FAIL;; esac
     printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$OUT/suites-$1.tsv"; log "[$1] $s: $res"
@@ -104,13 +112,13 @@ run_suites(){ # <tag>
 
 # 4b. BASELINE: the base chain alone (attributes failures: anything failing here is not caused by the new migrations)
 BASE_SUITES="test_T_competition_cf1_a3_results test_T_competition_pv1_recompute test_T_competition_e1_officials test_T_competition_ns1_no_show test_T_phase10d1_heat_entry_eligibility test_T_od31_guarded_baseline_negative test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_r2_entry_refunds test_T_competition_o1_day_of test_T_competition_cf1_f3_publication test_T_phase10d_floor_schedule test_T_competition_r2_refund_write_gate test_T_phase10c_competitor_registration test_T_phase10c4_participant_roles"
-ALL_SUITES="$SUITES"; SUITES="$BASE_SUITES"; run_suites baseline
+ALL_SUITES="$SUITES"; SUITES="$BASE_SUITES"; SUITE_DIR=sql-tests-base; run_suites baseline
 # 4c. S5 ONLY on top of the base chain: the S5 suite and every suite that inserts participants (isolates the S5 effect)
 S5F=$(ls "$CHAIN/new" | grep -E '^20270301120000_')
 apply "$CHAIN/new" "$S5F" s5only
 SUITES="test_T_competition_s5_participant_age_guard $BASE_SUITES"; run_suites s5only
 if "${PSQL[@]}" -1 < "$CHAIN/rollback/${S5F%.sql}_rollback.sql" > "$OUT/rb-s5only.log" 2>&1; then log "S5-only rollback ok"; else log "S5-only rollback FAILED"; fi
-SUITES="$ALL_SUITES"
+SUITES="$ALL_SUITES"; SUITE_DIR=sql-tests
 
 # 5. new migrations in RELEASE order: S1/S2, S3, S4 core, S5, then S4 gates and guard (timestamp order once S4 renumbers its gates after S5).
 S4_CORE=$(ls "$CHAIN/new" | grep -E '^20270301[0-9]{6}_competition_r15_eligibility_clearance_core' | head -1)
