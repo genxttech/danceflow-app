@@ -86,6 +86,8 @@ begin
        or old.confirmed_at is not null
        or old.registration_id is not null or old.order_id is not null or old.order_item_id is not null or old.registration_cart_id is not null
        or exists (select 1 from public.event_competition_heat_entries he where he.entry_id = old.id and he.status <> 'scheduled')
+       or exists (select 1 from public.event_competition_heat_entries he join public.event_competition_heats h on h.id = he.heat_id
+                  where he.entry_id = old.id and h.status in ('active', 'complete'))
        or exists (select 1 from public.event_competition_entry_changes c
                   where c.entry_id = old.id
                     and (c.previous_state ->> 'status' in ('scratched', 'withdrawn', 'disqualified', 'complete')
@@ -147,6 +149,54 @@ create trigger cf1_s6_guard_entry_delete
   for each row execute function public.cf1_s6_guard_entry_status();
 alter table public.event_competition_entries enable always trigger cf1_s6_guard_entry_delete;
 
+-- participation in a started or completed heat cannot be detached or erased by a client (owner decision 2026-11-26, option A): the parent-entry rules alone would be bypassed by removing or
+-- re-pointing the heat entry (or deleting the heat) first. Owner-run workflows and referential cascades are unaffected. A 'staging' heat is not covered.
+create function public.cf1_s6_guard_started_participation()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare v_status text;
+begin
+  if current_user in ('postgres', 'supabase_admin') then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    return new;
+  end if;
+  if tg_table_name = 'event_competition_heats' then
+    if old.status in ('active', 'complete') then
+      raise exception 'COMP_S6_PARTICIPATION_WRITER: a started or completed heat cannot be deleted by a direct table write.' using errcode = '42501';
+    end if;
+    return old;
+  end if;
+  select h.status into v_status from public.event_competition_heats h where h.id = old.heat_id;
+  if coalesce(v_status in ('active', 'complete'), false) or old.status in ('danced', 'disqualified') then
+    if tg_op = 'DELETE' then
+      raise exception 'COMP_S6_PARTICIPATION_WRITER: a placement in a started or completed heat cannot be removed by a direct table write.' using errcode = '42501';
+    end if;
+    if new.id is distinct from old.id or new.heat_id is distinct from old.heat_id or new.entry_id is distinct from old.entry_id or new.event_id is distinct from old.event_id
+       or (new.status = 'scratched' and old.status is distinct from 'scratched') then
+      raise exception 'COMP_S6_PARTICIPATION_WRITER: a placement in a started or completed heat cannot be moved or scratched by a direct table write.' using errcode = '42501';
+    end if;
+  end if;
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.cf1_s6_guard_started_participation() from public, anon, authenticated, service_role;
+create trigger cf1_s6_guard_participation
+  before update or delete on public.event_competition_heat_entries
+  for each row execute function public.cf1_s6_guard_started_participation();
+alter table public.event_competition_heat_entries enable always trigger cf1_s6_guard_participation;
+create trigger cf1_s6_guard_started_heat_delete
+  before delete on public.event_competition_heats
+  for each row execute function public.cf1_s6_guard_started_participation();
+alter table public.event_competition_heats enable always trigger cf1_s6_guard_started_heat_delete;
+
 -- record the TRIGGER privileges as they are now, so the rollback restores exactly these (service_role's TRIGGER and EXECUTE are required by the preflight)
 do $$
 begin
@@ -162,6 +212,8 @@ revoke execute on function public._r2_apply_participation(uuid) from service_rol
 do $$
 begin
   if (select count(*) from pg_trigger where tgrelid = 'public.event_competition_entries'::regclass and tgname in ('cf1_s6_guard_entry_status', 'cf1_s6_guard_entry_links', 'cf1_s6_guard_entry_delete') and tgenabled = 'A') <> 3
+     or (select count(*) from pg_trigger where tgname in ('cf1_s6_guard_participation', 'cf1_s6_guard_started_heat_delete') and tgenabled = 'A') <> 2
+     or has_function_privilege('authenticated', 'public.cf1_s6_guard_started_participation()', 'execute')
      or (select prosecdef from pg_proc where oid = 'public.cf1_s6_guard_entry_status()'::regprocedure)
      or has_function_privilege('authenticated', 'public.cf1_s6_guard_entry_status()', 'execute')
      or has_table_privilege('authenticated', 'public.event_competition_entries', 'trigger')

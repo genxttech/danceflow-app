@@ -63,11 +63,14 @@ log "chain applied: $(grep -c '^OK' "$OUT/migrations-applied.txt") ok, $(grep -c
 
 cat > "$OUT/state.sql" <<'SQL'
 select 'fn|' || p.proname || '|' || pg_get_function_identity_arguments(p.oid) || '|' || p.prosecdef || '|' || pg_get_userbyid(p.proowner) || '|' || coalesce(p.proacl::text, 'NULL') || '|' || coalesce(p.proconfig::text, 'NULL') || '|' || md5(replace(p.prosrc, chr(13), ''))
-  from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('change_competition_entry_lifecycle', 'cf1_s6_guard_entry_status', '_r2_withdraw_entry', '_r2_apply_participation') order by 1;
+  from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('change_competition_entry_lifecycle', 'cf1_s6_guard_entry_status', '_r2_withdraw_entry', '_r2_apply_participation', 'cf1_s6_guard_started_participation') order by 1;
 select 'trg|' || g.tgname || '|' || g.tgenabled::text || '|' || pg_get_triggerdef(g.oid) from pg_trigger g where g.tgrelid = 'public.event_competition_entries'::regclass and not g.tgisinternal order by 1;
 select 'acl|' || coalesce(c.relacl::text, 'NULL') from pg_class c where c.oid = 'public.event_competition_entries'::regclass;
 select 'priv|' || r || '|' || string_agg(p, ',' order by p) from unnest(array['anon','authenticated','service_role']) r, unnest(array['select','insert','update','delete','truncate','references','trigger']) p
   where has_table_privilege(r, 'public.event_competition_entries', p) group by r order by 1;
+SQL
+cat >> "$OUT/state.sql" <<'SQL'
+select 'trg2|' || g.tgrelid::regclass || '|' || g.tgname || '|' || g.tgenabled::text from pg_trigger g where g.tgrelid in ('public.event_competition_heat_entries'::regclass, 'public.event_competition_heats'::regclass) and not g.tgisinternal order by 1;
 SQL
 "${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P0-before-S6.txt"
 
@@ -86,6 +89,10 @@ TSV="$OUT/suites-pr867.tsv"; : > "$TSV"
 PR867_REF=6dc6b2d4e5657f27754c9dfc62e977f642ecb04c; mkdir -p "$OUT/pr867-sql-tests"
 for s in ${PR867_SUITES:-test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_callback_final_advancement test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_f2_results}; do ( cd "$REPO" && git show "$PR867_REF:src/lib/supabase/migrations/sql-tests/$s.sql" ) > "$OUT/pr867-sql-tests/$s.sql"; runsuite "$s" "$OUT/pr867-sql-tests"; done
 
+a5(){ # $1 label  $2 script
+  CONTAINER="$NAME" DBUSER=supabase_admin timeout 600 bash "$M/sql-tests/$2" > "$OUT/a5-$1.log" 2>&1; log "a5 $1: rc=$? $(grep -E 'CONCURRENCY (PASS|FAIL)' "$OUT/a5-$1.log" | tail -1)"; }
+[ -n "${A5_PRE:-}" ] && a5 original-before-S6 test_T_competition_cf1_a5_concurrency.sh
+
 # F3 read-back BEFORE S6 (state read-back of the forged-marker chain on the pre-S6 database)
 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$REPO/docs/competition/s6-entry-status-guard/f3-readback.sql" > "$OUT/f3-readback-before-S6.log" 2>&1
 apply "$M/20270301140000_competition_s6_entry_lifecycle_definer.sql"; apply "$M/20270301141000_competition_s6_entry_status_write_guard.sql"
@@ -102,6 +109,9 @@ for s in $SUITES; do runsuite "$s"; done
 
 # concurrency (real second connections)
 S6_OUT="$OUT" bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/concurrency.log" 2>&1; log "concurrency: $(tail -1 "$OUT/concurrency.log")"
+
+# A5 probes, policy-A adapted copy, with S6 (uses its own fixed fixtures: only one of the two A5 scripts can run per database, so A5_PRE and this stage are alternatives)
+[ -z "${A5_PRE:-}" ] && a5 adapted-with-S6 test_T_competition_cf1_a5_concurrency_with_s6.sh
 
 # mutation checks: a deliberately broken guard or function must make the tests FAIL, otherwise the tests prove nothing about that rule
 : > "$OUT/mutants.tsv"
@@ -120,6 +130,7 @@ mutant delete-status-rule "$G" "if old.status not in ('pending', 'confirmed')" "
 mutant delete-order-link "$G" "or old.order_id is not null " "" suite
 mutant evidence-rule "$G" "new.scratch_reason is distinct from old.scratch_reason or " "" suite
 mutant entry-lock "$L" "for no key update;" ";" race
+mutant participation-guard 'public.cf1_s6_guard_started_participation()' "or old.status in ('danced', 'disqualified') then" "and false then" suite
 mutant heat-lock "$L" "order by h.id
   for share;" "order by h.id;" race
 "${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-after-mutants.txt"
@@ -138,6 +149,7 @@ grep -q '^FAIL' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
 grep -Eq 'rc=[1-9]' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
 for tsv in suites.tsv suites-pr867.tsv suite-s6-after-reapply.tsv; do n=$(awk -F'\t' '$2!="PASS"' "$OUT/$tsv" | wc -l); [ "$n" -gt 0 ] && { log "$tsv: $n suite(s) not PASS"; FAILS=$((FAILS+1)); }; done
 grep -q 'S6 CONCURRENCY PASS' "$OUT/concurrency.log" || FAILS=$((FAILS+1))
+if [ -z "${A5_PRE:-}" ]; then grep -q 'COMPETITION CF1 A5 CONCURRENCY PASS' "$OUT/a5-adapted-with-S6.log" || FAILS=$((FAILS+1)); fi
 awk -F'\t' '$2!="DETECTED"' "$OUT/mutants.tsv" | grep -q . && { log "mutants not all detected"; FAILS=$((FAILS+1)); }
 [ "$(cat "$OUT/rollback-result.txt" 2>/dev/null)" = PASS ] || FAILS=$((FAILS+1))
 log "done"; if [ "$FAILS" = 0 ]; then echo PASS > "$OUT/result.txt"; else echo "NOT-ALL-PASS ($FAILS groups)" > "$OUT/result.txt"; exit 1; fi

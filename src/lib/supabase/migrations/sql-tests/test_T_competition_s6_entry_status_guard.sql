@@ -2,7 +2,7 @@
 -- Run as a SUPERUSER (supabase_admin) on a database carrying the chain through BOTH S6 migrations. One transaction, synthetic fixtures (UUID block ...-cf1032XXXXXX), rolled back.
 -- Callers are simulated with SET LOCAL ROLE (anon, authenticated with a manager JWT claim, service_role, and a probe role that is a member of authenticated): this reproduces table
 -- privileges, RLS and trigger behaviour but is NOT an HTTP/PostgREST request.
--- Not covered here: ON DELETE SET NULL / cascade referential actions of registrations and orders (no registration fixture), and a PostgREST request.
+-- Section P covers the owner decision of 2026-11-26 (option A). Not covered here: ON DELETE SET NULL / cascade referential actions of registrations and orders (no registration fixture), and a PostgREST request.
 -- The final block ALWAYS raises: "COMPETITION S6 ENTRY STATUS GUARD SQL SUITE PASS (<n> checks)" or "... FAIL: <failures>".
 begin;
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
@@ -357,6 +357,64 @@ select pg_temp.run('h6b', 'authenticated', pg_temp.lc('810007', 'withdrawn', 'h6
 select pg_temp.chk('H6 waitlisted -> scratched and pending -> withdrawn through the RPC still work (one audit row each)',
   pg_temp.r('h6a') = 'OK' and pg_temp.r('h6b') = 'OK' and pg_temp.st('810006') = 'scratched' and pg_temp.st('810007') = 'withdrawn'
   and (select count(*) from public.event_competition_entry_changes where entry_id in (pg_temp.id('810006'), pg_temp.id('810007')) and reason in ('h6-w', 'h6-p')) = 2, pg_temp.r('h6a') || ' | ' || pg_temp.r('h6b'));
+
+-- P. owner decision 2026-11-26 option A: started / completed participation blocks whole-entry scratch AND withdrawal, cannot be detached, and keeps its scoring / refund class
+set local session_replication_role = replica;
+update public.event_competition_heats set status = 'scheduled', lock_state = 'open' where id = pg_temp.id('d00001');
+insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.id('009002'), pg_temp.id('e00001'), pg_temp.id('c00001'), 2);
+insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
+values (pg_temp.id('d00002'), pg_temp.id('e00001'), pg_temp.id('003001'), pg_temp.id('006001'), 2, 'complete', 'open', pg_temp.id('002001'), pg_temp.id('c00001'), pg_temp.id('009002'));
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+select pg_temp.id('85000' || i), pg_temp.id('e00001'), pg_temp.id('001001'), pg_temp.id('003001'), 'p' || i, 'confirmed', 'eligible', '85' || i from generate_series(1, 4) i;
+insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+select pg_temp.id(he), pg_temp.id('e00001'), pg_temp.id('003001'), pg_temp.id(h), pg_temp.id(e), o, s
+from (values ('951011', 'd00001', '850001', 91, 'scheduled'), ('951012', 'd00002', '850001', 91, 'scheduled'),
+             ('951022', 'd00002', '850002', 92, 'scheduled'),
+             ('951031', 'd00001', '850003', 93, 'scheduled'), ('951032', 'd00002', '850003', 93, 'scratched'),
+             ('951041', 'd00001', '850004', 94, 'scheduled')) v(he, h, e, o, s);
+set local session_replication_role = origin;
+create temp table t_p (n text primary key, snap text) on commit drop;
+create or replace function pg_temp.snap(p_e text) returns text language sql as $$
+  select e.status || '|' || e.lifecycle_version || '|' || pg_temp.aud(p_e) || '|' || coalesce((select string_agg(h.heat_id::text || ':' || h.status, ',' order by h.id) from public.event_competition_heat_entries h where h.entry_id = e.id), '')
+  from public.event_competition_entries e where e.id = pg_temp.id(p_e) $$;
+insert into t_p select n, pg_temp.snap(n) from unnest(array['850001','850002']) n;
+select pg_temp.run('p_' || n || '_' || s, 'authenticated', pg_temp.lc(n, s, 'policy')) from unnest(array['850001','850002']) n, unnest(array['scratched','withdrawn']) s;
+select pg_temp.chk('P1-P2 ' || k || ': refused (one completed heat / a completed and a scheduled heat)', r like '%COMP_ENTRY_LIFECYCLE_PLACED%', r) from t_r where k like 'p\_85%';
+select pg_temp.chk('P1-P2 every refused entry is unchanged: status, version, audit rows and every placement', (select bool_and(snap = pg_temp.snap(n)) from t_p));
+-- P4 the detach routes
+select pg_temp.run('x_del_he', 'authenticated', format('delete from public.event_competition_heat_entries where id = %L', pg_temp.id('951012')));
+select pg_temp.run('x_del_he_svc', 'service_role', format('delete from public.event_competition_heat_entries where id = %L', pg_temp.id('951012')));
+select pg_temp.run('x_move_he', 'authenticated', format('update public.event_competition_heat_entries set heat_id = %L where id = %L', pg_temp.id('d00001'), pg_temp.id('951022')));
+select pg_temp.run('x_repoint_he', 'service_role', format('update public.event_competition_heat_entries set entry_id = %L where id = %L', pg_temp.id('850004'), pg_temp.id('951022')));
+select pg_temp.run('x_scr_he', 'service_role', format('update public.event_competition_heat_entries set status = %L where id = %L', 'scratched', pg_temp.id('951022')));
+select pg_temp.run('x_del_heat', 'authenticated', format('delete from public.event_competition_heats where id = %L', pg_temp.id('d00002')));
+select pg_temp.run('x_del_entry', 'authenticated', format('delete from public.event_competition_entries where id = %L', pg_temp.id('850002')));
+select pg_temp.chk('P4 ' || k || ': a client cannot remove, move, re-point or scratch a placement of a completed heat, nor delete that heat', r like '42501 COMP_S6_PARTICIPATION_WRITER%', r)
+from t_r where k in ('x_del_he', 'x_del_he_svc', 'x_move_he', 'x_repoint_he', 'x_scr_he', 'x_del_heat');
+select pg_temp.chk('P4 a client cannot delete an entry that took part in a completed heat', pg_temp.r('x_del_entry') like '42501 COMP_S6_ENTRY_DELETE_WRITER%', pg_temp.r('x_del_entry'));
+set local session_replication_role = replica;
+update public.event_competition_heat_entries set status = 'danced' where id = pg_temp.id('951041');
+set local session_replication_role = origin;
+select pg_temp.run('x_del_danced', 'authenticated', format('delete from public.event_competition_heat_entries where id = %L', pg_temp.id('951041')));
+select pg_temp.chk('P4 a danced placement in a scheduled heat cannot be removed either', pg_temp.r('x_del_danced') like '42501 COMP_S6_PARTICIPATION_WRITER%', pg_temp.r('x_del_danced'));
+select pg_temp.chk('P5 consequences preserved after every refusal: entries unchanged, completed-heat ranking set still includes them, R2 refund class still locked (the refund cascade itself is not executed here)',
+  (select bool_and(snap = pg_temp.snap(n)) from t_p)
+  and pg_temp.id('850001') = any (public._compe2_heat_entries(pg_temp.id('d00002'))) and pg_temp.id('850002') = any (public._compe2_heat_entries(pg_temp.id('d00002')))
+  and public._r2_entry_participation_class(pg_temp.id('850001')) = 'locked' and public._r2_entry_participation_class(pg_temp.id('850002')) = 'locked');
+-- P3 edge case, reported for an owner decision and NOT changed here: a confirmed entry whose placement in a completed heat is already SCRATCHED (and one scheduled placement). Neither the R2 class
+-- nor the lifecycle function counts the scratched placement, so the whole-entry scratch is accepted; the scratched placement in the completed heat is left as it is.
+select pg_temp.chk('P3a NOTE: the R2 class ignores a scratched placement: entry 850003 is classed open for refunds although one of its heats is completed',
+  public._r2_entry_participation_class(pg_temp.id('850003')) = 'open', public._r2_entry_participation_class(pg_temp.id('850003')));
+select pg_temp.run('p_edge', 'authenticated', pg_temp.lc('850003', 'scratched', 'edge'));
+select pg_temp.chk('P3b CHARACTERIZATION (reported): that entry can be scratched; its completed-heat placement is unchanged (still scratched, still in that heat)',
+  pg_temp.r('p_edge') = 'OK' and (select heat_id = pg_temp.id('d00002') and status = 'scratched' from public.event_competition_heat_entries where id = pg_temp.id('951032')), pg_temp.r('p_edge'));
+-- P6 staging is not covered by the decision: record the current behaviour
+set local session_replication_role = replica;
+update public.event_competition_heat_entries set status = 'scheduled' where id = pg_temp.id('951041');
+update public.event_competition_heats set status = 'staging' where id = pg_temp.id('d00001');
+set local session_replication_role = origin;
+select pg_temp.run('p_staging', 'authenticated', pg_temp.lc('850004', 'scratched', 'staging probe'));
+select pg_temp.chk('P6 CHARACTERIZATION (not covered by the owner decision): an entry whose only heat is STAGING can still be scratched', pg_temp.r('p_staging') = 'OK', pg_temp.r('p_staging'));
 
 -- G. consistency and coexistence
 select pg_temp.chk('G1 no fixture entry is scratched or withdrawn while one of its heat entries is still scheduled or checked_in',

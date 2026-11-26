@@ -7,7 +7,7 @@ set local lock_timeout = '5s';
 do $$
 declare v_oid oid := to_regprocedure('public.cf1_s6_guard_entry_status()'); v_note text; v_role text;
 begin
-  if v_oid is null or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'af4b6e8e719701b4706c3e8cd9dc946d' then
+  if v_oid is null or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'e7ec5a02c94815954d4706a77731eb21' then
     raise exception 'S6 guard rollback refused: the guard is not installed or is not the 20270301141000 version.';
   end if;
   v_note := obj_description(v_oid, 'pg_proc');
@@ -18,6 +18,9 @@ begin
   drop trigger if exists cf1_s6_guard_entry_links on public.event_competition_entries;
   drop trigger if exists cf1_s6_guard_entry_status on public.event_competition_entries;
   drop function public.cf1_s6_guard_entry_status();
+  drop trigger if exists cf1_s6_guard_participation on public.event_competition_heat_entries;
+  drop trigger if exists cf1_s6_guard_started_heat_delete on public.event_competition_heats;
+  drop function if exists public.cf1_s6_guard_started_participation();
   foreach v_role in array string_to_array(substr(v_note, length('S6 prior trigger grantees: ') + 1), ',') loop
     if v_role not in ('anon', 'authenticated', 'service_role') then
       raise exception 'S6 guard rollback refused: unexpected recorded grantee %.', v_role;
