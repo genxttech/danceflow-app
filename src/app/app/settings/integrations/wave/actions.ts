@@ -12,6 +12,7 @@ import {
   isCategoryAccountTypeAllowed,
 } from "@/lib/accounting/categories";
 import { buildWavePostingLines, WAVE_ACCOUNTING_CATEGORIES, WAVE_PAYMENT_METHODS, type WavePaymentMethodKey } from "@/lib/integrations/wave/categories";
+import { recordIntegrationEvent } from "@/lib/integrations/audit";
 import { decryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
 import { revokeWaveToken, createWaveMoneyTransaction, getWaveAccounts, WavePostingUncertainError } from "@/lib/integrations/wave/client";
 import { getValidWaveAccessToken } from "@/lib/integrations/wave/token";
@@ -413,8 +414,9 @@ export async function disconnectWaveAction() {
   const admin = createAdminClient();
   // Revoke at Wave first (best effort, never blocks the local disconnect).
   const { data: stored } = await admin.from("studio_wave_credentials").select("encrypted_access_token, encrypted_refresh_token").eq("connection_id", connection.id).maybeSingle<{ encrypted_access_token: string; encrypted_refresh_token: string | null }>();
+  let revokeOutcome: string = "no_credentials";
   if (stored) {
-    try { await revokeWaveToken(decryptIntegrationSecret(stored.encrypted_refresh_token ?? stored.encrypted_access_token)); } catch { /* undecryptable: nothing to revoke */ }
+    try { revokeOutcome = await revokeWaveToken(decryptIntegrationSecret(stored.encrypted_refresh_token ?? stored.encrypted_access_token)); } catch { revokeOutcome = "failed"; /* undecryptable: nothing to revoke */ }
   }
   const { error: credentialError } = await admin.from("studio_wave_credentials").delete().eq("connection_id", connection.id);
   if (credentialError) throw new Error(credentialError.message);
@@ -431,6 +433,7 @@ export async function disconnectWaveAction() {
     updated_at: new Date().toISOString(),
   }).eq("id", connection.id).eq("studio_id", studioId);
   if (error) throw new Error(error.message);
+  await recordIntegrationEvent({ studioId, provider: "wave", eventType: "disconnected", connectionId: connection.id, actorUserId: (await supabase.auth.getUser()).data.user?.id ?? null, details: { revoke: revokeOutcome, previous_status: connection.status } });
   revalidatePath("/app/settings/integrations/wave");
   redirect("/app/settings/integrations/wave?status=disconnected");
 }

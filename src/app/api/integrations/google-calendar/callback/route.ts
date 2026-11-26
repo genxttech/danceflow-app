@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
+import { recordIntegrationEvent } from "@/lib/integrations/audit";
 import { missingScopes } from "@/lib/integrations/scopes";
 import { GOOGLE_REQUIRED_SCOPES, googleAccountHasOtherConnection, revokeGoogleToken, exchangeGoogleCalendarCode, getGoogleAccountEmail, listGoogleCalendars } from "@/lib/integrations/google-calendar/client";
 import { getGoogleCalendarAccess, googleCalendarReturnPath } from "@/lib/integrations/google-calendar/access";
@@ -32,7 +33,9 @@ export async function GET(request: NextRequest) {
     }
     const tokens = await exchangeGoogleCalendarCode({ code, redirectUri: callbackUrl(request) });
     // Granular consent lets the user untick calendar access; storing that as "connected" would fail every sync. Revoke what was just granted.
-    if (missingScopes(tokens.scope, GOOGLE_REQUIRED_SCOPES).length > 0) {
+    const missing = missingScopes(tokens.scope, GOOGLE_REQUIRED_SCOPES);
+    if (missing.length > 0) {
+      await recordIntegrationEvent({ studioId: access.context.studioId, provider: "google_calendar", eventType: "connect_rejected_scope", outcome: "failed", actorUserId: access.context.userId, details: { scope: scope, missing } });
       // The grant is per Google account: do not revoke it if another DanceFlow connection uses the same account.
       const email = await getGoogleAccountEmail(tokens.access_token).catch(() => null);
       if (!(await googleAccountHasOtherConnection(email))) await revokeGoogleToken(tokens.refresh_token ?? tokens.access_token);
@@ -92,6 +95,7 @@ export async function GET(request: NextRequest) {
       if (compensateError) console.error("Google Calendar credential compensation failed", compensateError.message);
       throw credentialError;
     }
+    await recordIntegrationEvent({ studioId: access.context.studioId, provider: "google_calendar", eventType: "connected", connectionId: saved.id, actorUserId: access.context.userId, details: { scope, scopes: tokens.scope ? tokens.scope.split(" ").filter(Boolean) : [] } });
     return redirectWithClearedState(request, `${returnPath}?connected=1`);
   } catch (error) {
     console.error("Google Calendar OAuth callback failed", error instanceof Error ? error.message : error);
