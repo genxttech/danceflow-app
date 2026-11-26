@@ -25,6 +25,7 @@ type SearchParams = Promise<{
   connected?: string;
   saved?: string;
   disconnected?: string;
+  cleanup_skipped?: string;
   refreshed?: string;
   synced?: string;
   failed?: string;
@@ -176,6 +177,7 @@ export default async function GoogleCalendarIntegrationPage({ searchParams }: { 
       {params.connected ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Google Calendar connected.</div> : null}
       {params.saved ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Google Calendar settings saved.</div> : null}
       {params.disconnected ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">Google Calendar disconnected.</div> : null}
+      {params.cleanup_skipped === "1" ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">Events DanceFlow added to this Google calendar could not be removed. Delete them in Google Calendar if you no longer want them.</div> : null}
       {params.synced ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Sync complete. {params.synced} item{params.synced === "1" ? "" : "s"} synced, {params.failed ?? "0"} failed.</div> : null}
       {params.error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-900">Google Calendar needs attention: {params.error.replaceAll("_", " ")}</div> : null}
       {connection?.status === "needs_reauth" ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900"><p>Google Calendar authorization expired. Reconnect Google Calendar before syncing.</p><form action={disconnectGoogleCalendarAction} className="mt-3"><input type="hidden" name="returnTo" value={returnTo} /><input type="hidden" name="connectionScope" value="studio" /><button type="submit" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100">Disconnect Google Calendar</button></form></div> : null}

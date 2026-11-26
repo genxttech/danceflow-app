@@ -10,7 +10,7 @@ import {
   updateGoogleCalendarSettingsAction,
 } from "../actions";
 
-type SearchParams = Promise<{ connected?: string; saved?: string; disconnected?: string; refreshed?: string; synced?: string; deleted?: string; failed?: string; error?: string }>;
+type SearchParams = Promise<{ connected?: string; saved?: string; disconnected?: string; cleanup_skipped?: string; refreshed?: string; synced?: string; deleted?: string; failed?: string; error?: string }>;
 type Connection = {
   id: string;
   status: string;
@@ -68,7 +68,7 @@ export default async function PersonalGoogleCalendarPage({ searchParams }: { sea
 
       {params.connected ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Your teaching calendar is connected.</div> : null}
       {params.saved ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Personal calendar settings saved.</div> : null}
-      {params.disconnected ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">Personal calendar disconnected and DanceFlow-created entries removed.</div> : null}
+      {params.disconnected ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{params.cleanup_skipped === "1" ? "Personal calendar disconnected. Events DanceFlow added to this Google calendar could not be removed. Delete them in Google Calendar if you no longer want them." : "Personal calendar disconnected and DanceFlow-created entries removed."}</div> : null}
       {params.synced ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Sync complete: {params.synced} synced, {params.deleted ?? "0"} removed, {params.failed ?? "0"} failed.</div> : null}
       {params.error || calendarLoadError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-900">{calendarLoadError ?? `Google Calendar needs attention: ${params.error?.replaceAll("_", " ")}`}</div> : null}
 
