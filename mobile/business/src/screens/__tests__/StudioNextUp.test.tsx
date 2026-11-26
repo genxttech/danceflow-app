@@ -55,12 +55,16 @@ function renderStudio(studioSchedule: jest.Mock, providerProps = {}) {
   );
 }
 
+/*
+  The clock is fixed for every test: fake timers started at an explicit instant. Without `now`, fake timers start at the machine's real time, and a test that depends on
+  the time of day passes only on some days. `advanceTimersByTime` and `setSystemTime` are the only ways time moves here.
+*/
 beforeEach(() => {
   jest.clearAllMocks();
   mockFeatures.clear();
-  jest.spyOn(Date, "now").mockReturnValue(NOW);
+  jest.useFakeTimers({ now: NOW, doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] });
 });
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => jest.useRealTimers());
 
 describe("studio schedule: next up", () => {
   it("shows the next open lesson with one obvious button that opens it", async () => {
@@ -140,20 +144,23 @@ describe("studio schedule: next up", () => {
     expect(screen.queryByTestId("next-up")).toBeNull();
   });
 
-  it("moves on with the clock: a lesson that ends while the screen is open becomes Still to record", async () => {
-    jest.useFakeTimers({ doNotFake: ["nextTick", "setImmediate", "queueMicrotask"] });
-    try {
-      mockFeatures.add("appointmentAttendance");
-      renderStudio(jest.fn(async () => day([row("soon", "2026-11-24T15:30:00.000Z", "2026-11-24T16:15:00.000Z")])));
-      expect(await screen.findByText("Next up")).toBeTruthy();
-      jest.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-24T16:20:00.000Z"));
-      await act(async () => {
-        jest.advanceTimersByTime(30_000);
-      });
-      expect(screen.getByText("Still to record")).toBeTruthy();
-    } finally {
-      jest.useRealTimers();
-    }
+  // The studio is in America/New_York (UTC-5 in November).
+  it.each([
+    ["late morning", "2026-11-24T15:00:00.000Z", "2026-11-24T15:30:00.000Z", "2026-11-24T16:15:00.000Z", "2026-11-24T16:20:00.000Z"],
+    ["09:24Z, early morning in the studio", "2026-11-24T09:24:00.000Z", "2026-11-24T09:30:00.000Z", "2026-11-24T10:15:00.000Z", "2026-11-24T10:20:00.000Z"],
+    ["across midnight in the studio zone (23:45 to 00:20)", "2026-11-25T04:45:00.000Z", "2026-11-25T04:30:00.000Z", "2026-11-25T05:15:00.000Z", "2026-11-25T05:20:00.000Z"],
+    ["across midnight UTC (18:45 to 19:20 in the studio)", "2026-11-24T23:45:00.000Z", "2026-11-24T23:30:00.000Z", "2026-11-25T00:15:00.000Z", "2026-11-25T00:20:00.000Z"],
+  ])("moves on with the clock (%s): a lesson that ends while the screen is open becomes Still to record", async (_label, openedAt, startsAt, endsAt, later) => {
+    jest.setSystemTime(Date.parse(openedAt));
+    mockFeatures.add("appointmentAttendance");
+    renderStudio(jest.fn(async () => day([row("soon", startsAt, endsAt)])));
+    expect(await screen.findByText("Next up")).toBeTruthy();
+    jest.setSystemTime(Date.parse(later));
+    await act(async () => {
+      jest.advanceTimersByTime(30_000);
+    });
+    expect(screen.getByText("Still to record")).toBeTruthy();
+    expect(screen.queryByText("Next up")).toBeNull();
   });
 
   it("coming back to the screen re-reads the day, so a result recorded elsewhere moves the card on", async () => {
