@@ -147,6 +147,33 @@ Not executed anywhere: PostgREST/HTTP requests, referential SET NULL / cascade f
 
 **Blocked checks inside passing suites** (reported by the suites themselves, not passes): A5 4, A6 3, A2 1, A4 3, callback-final 5, including multi-session probes.
 
+### Run 3 (executed 2026-11-26 20:44-21:08Z, local only; head `8c738c4d8`; evidence in `evidence/run3/`)
+
+Local Postgres, roles simulated with `SET ROLE`. `result.txt` reads `NOT-ALL-PASS (1 groups)`: the one group is the four failing suites below.
+
+| Executed with S6 | Result |
+|---|---|
+| S6 guard suite, and again after rollback and re-apply | PASS (127 checks) |
+| 28 SQL suites, the S6 guard suite included | 24 PASS (23 besides the guard suite), 4 FAIL (below). Several passing suites report "blocked" checks of their own (see `suites.tsv`). The suite lists were passed as overrides, not the script defaults |
+| S6 race script | PASS (11 checks, 3 lock waiters) |
+| A5 concurrency, adapted copy | PASS |
+| Mutation checks | 7 of 7: the expected check appears among the failures (other failures not excluded; logs in `mut-*-test.log`); state restored |
+| Rollback proof | PASS: the catalog objects listed by `state.sql` are identical to before S6 |
+| Joint stage: the SC1 session's local DB suite and race script (their files, not committed here; heads in `sc1-heads.txt`, hashes in `sc1-harness.sha256`) | PASS (37 checks; S4 and S5 not installed); race PASS |
+| F3 read-back before and after S6 | same output as run 2 after normalizing ids and times |
+
+Before S6 on the same chain, 14 suites: 10 PASS and the same 4 FAIL. Each of the four logs is identical with and without S6 after normalizing ids and times.
+
+| Failing suite | First error | Cause | What it leaves unverified |
+|---|---|---|---|
+| `o1_day_of`, `ns1_no_show` | `compo1_fixture_activate_round` does not exist | **Runner defect:** `fixtures/competition_round_ready.sql` was not loaded. Fixed in the runner after this run | Everything after the abort, with and without S6: needs the re-run |
+| `r2_entry_refunds` | `COMPO1_HEAT_STATUS_WRITER` | The suite writes a heat status that the O1 guard refuses; also fails on the base chain in the S5 integrated run | R2 behaviour after that point is not tested by this suite |
+| Phase 10A | "Competition template not found" | Starter template absent from this database (as in run 2) | The two template checks |
+
+**Second runner defect, also fixed after this run:** the failure classifier used `grep -P`, which this shell refuses, so it labelled all four "new or unexplained". Replaying the corrected comparison (whole normalized logs) on the same logs labels all four "also without S6" (`classifier-replay.txt`). The reviewed version of the runner also no longer reports such a run as PASS, and counts the joint stage.
+
+Not run: hosted databases, application tests, the other concurrency scripts in `sql-tests/` (only the S6 race and the adapted A5 script ran here), the S4 and S5 composed chain (see PR 863 run 6, other session).
+
 ## 11. Independent review
 
 Two reviewers that had not seen these conclusions reviewed the work. The first found: service_role reach through the internal R2 definers; indirect transitions through registration links; delete and re-create; an unsafe re-grant against SC1; the optional lifecycle rules being necessary; the repeat-call branch skipping checks; missing heat locks; test defects; rollback ACL order, TRIGGER re-grant and missing rollback preflights. The second reviewed the fixes and found: the delete rule breaking two behaviours the 10A and callback-final suites assert; the link rule refusing referential SET NULL actions (AFTER trigger); locks taken before refusals (CF1 U55); assertions made in the same statement as the action (vacuous or failing) and other suite defects; an incomplete rollback proof; unrecorded prior privileges; client-changeable `id`/`event_id`; stale references. All were addressed in the current version except the items in section 8 and the narrow concurrency window in section 5. 

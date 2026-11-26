@@ -1,0 +1,5 @@
+double submit: overlap=yes A=[ DBWAIT 0 CALL-OK first ] B=[ DBWAIT 18 CALL-OK second ] state=scratched|first|v2|audit=1|auditreason=first|heats=scratched
+ok   double submit: second call took 18s (blocked on the first), result as documented (scratched|first|v2|audit=1|auditreason=first|heats=scratched)
+scratch during heat lock: overlap=yes lock=[LOCK-OK ] call=[ERROR:  This entry is in a locked or certified heat and requires the correction workflow. CONTEXT:  PL/pgSQL function change_competition_entry_lifecycle(uuid,text,text,text) line 50 at RAISE ] heat=locked state=confirmed||v1|audit=0|auditreason=|heats=scheduled
+OBSERVED scratch refused or rolled back; entry and heat entry unchanged
+SC1 CONCURRENCY PASS (s6=t)

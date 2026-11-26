@@ -78,7 +78,9 @@ TSV="$OUT/suites.tsv"
 runsuite(){ # $1 name [$2 directory]
   local s="$1" d="${2:-$M/sql-tests}"
   [ -f "$d/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$TSV"; return; }
-  timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$d/$s.sql" > "$OUT/suite-$(basename "$TSV" .tsv)-$s.log" 2>&1
+  local fx=/dev/null   # suites that call the shared O1 fixture helper need it loaded first, in the same session (see their headers)
+  grep -q 'compo1_fixture_activate_round' "$d/$s.sql" && fx="$M/sql-tests/fixtures/competition_round_ready.sql"
+  cat "$fx" "$d/$s.sql" | timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/suite-$(basename "$TSV" .tsv)-$s.log" 2>&1
   local line res; line="$(grep -E "SUITE (PASS|FAIL)|PASS \(|FAIL" "$OUT/suite-$(basename "$TSV" .tsv)-$s.log" | tail -1 | cut -c1-500)"
   case "$line" in *"SUITE PASS ("*) res=PASS;; *) res=FAIL;; esac
   printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$TSV"; log "$(basename "$TSV" .tsv) $s: $res"
@@ -158,12 +160,14 @@ fi
 FAILS=0
 grep -q '^FAIL' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
 grep -Eq 'rc=[1-9]' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
-# a with-S6 failure counts as pre-existing only if the same suite failed before S6 with the identical first error line
+# a with-S6 failure counts as pre-existing only if the same suite failed before S6 and the two whole logs are identical once ids and times are normalized
+norm(){ sed -E 's/[0-9a-f]{8}-[0-9a-f-]{27,}/U/g; s/[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9:.+]+/T/g' "$1"; }
 : > "$OUT/suite-classification.tsv"
 while IFS=$'\t' read -r name res rest; do
   [ "$res" = PASS ] && continue
-  a="$(grep -m1 -E '^ERROR' "$OUT/suite-suites-pr867-$name.log" 2>/dev/null)"; b="$(grep -m1 -E '^ERROR' "$OUT/suite-suites-$name.log" 2>/dev/null)"
-  if [ -n "$a" ] && [ "$a" = "$b" ] && grep -qP "^$name\tFAIL" "$OUT/suites-pr867.tsv"; then printf '%s\tFAIL-ALSO-WITHOUT-S6\n' "$name" >> "$OUT/suite-classification.tsv"; else printf '%s\tFAIL-NEW-OR-UNEXPLAINED\n' "$name" >> "$OUT/suite-classification.tsv"; fi
+  a="$OUT/suite-suites-pr867-$name.log"; b="$OUT/suite-suites-$name.log"; cls=FAIL-NEW-OR-UNEXPLAINED
+  if [ -s "$a" ] && [ -s "$b" ] && grep -q '^ERROR' "$a" && cmp -s <(norm "$a") <(norm "$b") && awk -F'\t' -v n="$name" '$1==n && $2=="FAIL"{f=1} END{exit !f}' "$OUT/suites-pr867.tsv"; then cls=FAIL-ALSO-WITHOUT-S6; fi
+  printf '%s\t%s\n' "$name" "$cls" >> "$OUT/suite-classification.tsv"
 done < "$OUT/suites.tsv"
 n=$(grep -c 'FAIL-NEW-OR-UNEXPLAINED' "$OUT/suite-classification.tsv"); [ "$n" -gt 0 ] && { log "suites.tsv: $n new or unexplained failure(s)"; FAILS=$((FAILS+1)); }
 log "failures also present without S6: $(grep -c 'FAIL-ALSO-WITHOUT-S6' "$OUT/suite-classification.tsv")"
@@ -172,4 +176,11 @@ grep -q 'S6 CONCURRENCY PASS' "$OUT/concurrency.log" || FAILS=$((FAILS+1))
 if [ -z "${A5_PRE:-}" ]; then grep -q 'COMPETITION CF1 A5 CONCURRENCY PASS' "$OUT/a5-adapted-with-S6.log" || FAILS=$((FAILS+1)); fi
 awk -F'\t' '$2!="DETECTED"' "$OUT/mutants.tsv" | grep -q . && { log "mutants not all detected"; FAILS=$((FAILS+1)); }
 [ "$(cat "$OUT/rollback-result.txt" 2>/dev/null)" = PASS ] || FAILS=$((FAILS+1))
-log "done"; if [ "$FAILS" = 0 ]; then echo PASS > "$OUT/result.txt"; else echo "NOT-ALL-PASS ($FAILS groups)" > "$OUT/result.txt"; exit 1; fi
+if [ -n "${SC1_DIR:-}" ]; then
+  grep -q 'SC1 SQL SUITE PASS' "$OUT/sc1-suite.log" && grep -q 'SC1 CONCURRENCY PASS' "$OUT/sc1-concurrency.log" || { log "SC1 stage not PASS"; FAILS=$((FAILS+1)); }
+fi
+KNOWN=$(grep -c 'FAIL-ALSO-WITHOUT-S6' "$OUT/suite-classification.tsv")
+log "done"
+if [ "$FAILS" != 0 ]; then echo "NOT-ALL-PASS ($FAILS groups)" > "$OUT/result.txt"; exit 1
+elif [ "$KNOWN" != 0 ]; then echo "NO-NEW-FAILURES ($KNOWN suites fail with and without S6; they are not passes)" > "$OUT/result.txt"; exit 1
+else echo PASS > "$OUT/result.txt"; fi
