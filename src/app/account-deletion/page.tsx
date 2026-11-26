@@ -71,6 +71,10 @@ export default function AccountDeletionPage() {
               Deleting your account permanently removes your DanceFlow login, your dancer profile, favorites,
               preferences, and other data that belongs to your account.
             </p>
+            <p>
+              Photos you uploaded for Partner Search are stored separately and are not removed automatically. Email
+              support@idanceflow.com and we will remove them.
+            </p>
           </Section>
 
           <Section title="What may be kept">
