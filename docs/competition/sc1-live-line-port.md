@@ -54,6 +54,21 @@ None offered. U18-S refuses `scratched -> *` for non-owner writers, and the pare
 4. An already-out entry with scheduled or checked-in heat entries cannot be repaired from this page (Behaviour 5).
 5. A scratch on a published schedule is allowed: the 10D heat-entry guard exempts status-only changes, and scratching is a day-of operation. Heat reassignment stays refused.
 
+## Local database evidence (2026-11-26)
+
+Disposable local Postgres, no network, no hosted project. Live-line migrations at `5c9f24d8` (later commits add no SQL) plus U18 / U18-S from `6dc6b2d4`. The RPC was called as role `authenticated` with the app's named arguments. Harness outside the repository, not independently reviewed.
+
+| Stage | Added | Suite | Two-connection checks |
+| --- | --- | --- | --- |
+| A | none | passed, 37 checks | passed (observations below) |
+| B | R11, S3 (`d1b98af1`), S4 (`cabc41b7`), S5 (`83057013`) | passed, 40 checks | passed (same observations) |
+| C | B plus S6 (`5a8c5456`) | passed, 40 checks | passed |
+
+- All stages: studio owner / admin, organizer owner / admin / staff and platform admin can scratch; instructor, front desk, judge, chair, scorer, another studio's owner, a user with no role, anon and service_role are refused with nothing changed. Locked and certified heats refuse. Multi-heat scratch keeps parent and heat entries consistent; registration, order and entry dances are unchanged. U18-S refuses direct scratch and un-scratch. With S4 / S5, cleared, uncleared and legacy under-18 entries can still be scratched.
+- **Live RPC (A, B), confirmed gaps:** direct calls scratch an entry with an active or danced placement in an unlocked heat, or a `disqualified` entry; of two overlapping submits the second overwrites the reason with no second audit row; **a scratch submitted while a heat lock is uncommitted is accepted into the heat that ends locked**.
+- **With S6 (C):** those calls are refused, the repeat call is a no-op, and the scratch during the heat lock is refused with nothing changed.
+- Not covered here: completed-heat and mixed completed-and-scheduled entries (in the OD-31 suite), API-layer read-back, browser.
+
 ## S6 coordination (OD-31 session)
 
 - Read from draft PR 877 (`claude/od31-s6-entry-status-guard`, head 5a8c5456, stacked on PR 867; not applied; the OD-31 session leads the joint 877 + 878 verification; the head may move). `20270301140000` makes the lifecycle RPC SECURITY DEFINER (authenticated only) with mandatory rules: source states (`COMP_ENTRY_LIFECYCLE_STATE`), placed entries refused (`COMP_ENTRY_LIFECYCLE_PLACED`), heat and entry row locks, and a repeat call that writes no audit row or version bump and only completes the heat-entry cascade. `20270301141000` guards direct entry status writes. The earlier optional 142000 was folded into 140000.
@@ -62,8 +77,8 @@ None offered. U18-S refuses `scratched -> *` for non-owner writers, and the pare
 
 ## Dependencies / merge order
 
-Guard landing PR (JC1, U18, U18-S) -> 865 -> 864 -> 866 -> 863 -> S6 correction PR 877 (14xxxx) -> this PR (app-only, last). It works without S6 and U18-S, but gaps 1-3 remain until S6's 140000 is applied. Hosted DEV and PROD already have U18-S (OD-31 finding), so the workflow is expected to run under it; that has not been executed against a database here.
+Guard landing PR (JC1, U18, U18-S) -> 865 -> 864 -> 866 -> 863 -> S6 correction PR 877 (14xxxx) -> this PR (app-only, last). It works without S6 and U18-S, but gaps 1-3 remain until S6's 140000 is applied. Hosted DEV and PROD already have U18-S (OD-31 finding); the workflow's RPC call runs under it locally (see Local database evidence). Nothing was executed on a hosted database.
 
 ## Rule evidence
 
-DanceFlow Studio/Custom policy only; no governing-body rule is implemented or claimed. Register entry: `governance/rule-register/rules/SC1-STUDIO-CUSTOM-SCRATCH-WORKFLOW.json` (status `unverified`: no SQL was executed).
+DanceFlow Studio/Custom policy only; no governing-body rule is implemented or claimed. Register entry: `governance/rule-register/rules/SC1-STUDIO-CUSTOM-SCRATCH-WORKFLOW.json` (status left `unverified`: the local database harness is outside the repository and unreviewed).
