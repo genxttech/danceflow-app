@@ -45,6 +45,17 @@ Head `60b4edd7e`, migration sha256 `1607747d…`, composed base (`release/websit
 
 D does not close the spare-round replacement routes, and this run does not change that.
 
+## Fix of blocker 1 (2026-11-26): written, execution PENDING
+
+Within D's own files: a client heat that references a numbered floor heat or a schedule block must carry a schedule version; publication refuses an order holding a heat that is not its own (`COMPD_ORDER_HEAT_VERSION_MISMATCH`); the migration refuses to apply while such a heat sits in a published or past order. Publication post md5 is now `0fbbbef9670082fbb3cb2484d966dfa3` (pre unchanged), computed offline; the sections above that quote `abccc653…` describe the earlier revision. Findings 2 to 6 of the re-review below stay open.
+
+`sql-tests/probe_D_planted_heat.sql` reproduces the finding with read-back; the runner executes it before the fix (`02cf1c73d`) and after.
+
+**Independent review of the fix (`d2ee7e3f4`, by reading only): no blocker.** It recomputed the post md5. Applied: the runner now also requires the plant step itself to be refused after the fix. Not applied, recorded:
+* a legacy planted row in a **draft** can be left unrepairable by clients (clearing the floor plan removes floor heats but not an unversioned heat, which then dangles); under a `review` version it blocks publication until the version returns to draft. Such rows are not in the apply check;
+* the apply check takes no table lock, so a write between the check and trigger creation could plant a row;
+* only the floor-heat branch of the publication and apply checks is tested (the schedule-block case is tested in the guard only).
+
 ## Independent re-review of the revision (`5a84cff9f`, by reading only): NOT READY
 
 **The statements above about what D refuses are subject to blocker 1.** Nothing below is fixed. Blocker 1 was checked against the code by the author; it and findings 2 to 6 are **not reproduced by execution**.

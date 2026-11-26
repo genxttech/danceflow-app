@@ -96,6 +96,7 @@ apply "$CHAIN/new/$MIG" forward || { echo FAIL > "$OUT/result.txt"; exit 1; }
 check "forward: objects installed (triggers/functions)" "$(objs)" "2/2"
 probe after-fix
 check "planted heat does not reproduce with the fix" "$(verdict after-fix)" "NOT REPRODUCED"
+check "with the fix the plant step itself is refused by D" "$(grep -c -E '1\. plant a heat[^|]*-> refused: COMPD_PUBLISHED_ORDER_WRITE_REFUSED' "$OUT/probe-after-fix.txt")" 1
 for s in $D_SUITE $SUITES; do run_suite forward "$s"; done
 check "baseline: the D suite ran and fails on the gap checks" "$(awk -F'\t' -v s="$D_SUITE" '$1=="baseline" && $2==s && $4 ~ /SUITE FAIL/ {print "FAIL-with-verdict"}' "$OUT/suites.tsv") $(grep -c 'SUITE FAIL.*D: move a never-run published heat to another round' "$OUT/suite-baseline-$D_SUITE.log")" "FAIL-with-verdict 1"
 check "every suite produced a verdict" "$(awk -F'\t' '$2!="races" && $4 !~ /SUITE (PASS|FAIL)/' "$OUT/suites.tsv" | wc -l | tr -d ' ')" 0
