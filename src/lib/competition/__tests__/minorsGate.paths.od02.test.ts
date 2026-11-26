@@ -66,6 +66,7 @@ describe("OD-02 every entry-creating path is behind the age gate", () => {
     expect(users).toEqual([
       "app/api/events/[slug]/competition/checkout/route.ts",
       "app/events/[slug]/competition/register/CompetitionRegistrationBuilder.tsx",
+      "lib/competition/eligibilityGate.ts",
     ]);
   });
 });

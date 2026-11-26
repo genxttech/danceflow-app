@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { loadEntryOperationalGates } from "@/lib/competition/eligibilityGateServer";
 import { isCallbackRound } from "@/lib/competition/callbackTarget";
 import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
 import { buildHeatPlan, HEAT_PLANNER_VERSION, type HeatPlannerInput } from "@/lib/competition/heatPlanner";
@@ -194,6 +195,7 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
     throw new Error("Callback target not set. Set it in Advanced settings before generating heats.");
   }
 
+  const entryGates = await loadEntryOperationalGates(supabase, eventId);
   const seed = randomUUID();
   const input: HeatPlannerInput = {
     eventId,
@@ -204,7 +206,8 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
     rounds: finalsEnabled ? roundResult.data ?? [] : (roundResult.data ?? []).map(({ scoring_method: _scoringMethod, ...round }) => round),
     dances: danceResult.data ?? [],
     offerings: offeringResult.data ?? [],
-    entries: entryResult.data ?? [],
+    // OD-03 / OD-02: only entries cleared by the operational gate (stored-DOB adult check, organizer age determination) are planned.
+    entries: (entryResult.data ?? []).filter((entry: { id: string }) => entryGates.get(entry.id)?.ready === true),
     entryDances: entryDanceResult.data ?? [],
     participants: participantResult.data ?? [],
     blocks: blockResult.data ?? [],

@@ -1,0 +1,47 @@
+{
+  "id": "DFPOL-OD03-ORGANIZER-AGE-VERIFICATION",
+  "governing_body": "dance_flow_policy",
+  "format": "All Competition OS event types",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Before an entry in an age-restricted division is counted ready, heat-planned or floor-scheduled, the organizer must record an eligibility determination (user id, timestamp, outcome, reason code; no birthdates) with outcome eligible and reason 'age division verified by organizer'. A waiver never clears an age-restricted entry, and no status or waiver lifts the OD-02 adult-only check, which is re-verified from the competitors' stored dates of birth (fails closed). Copy states that DanceFlow does not yet automatically verify governing-body age divisions.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/eligibilityGate.ts",
+      "symbol_or_migration": "evaluateEntryOperationalGate"
+    },
+    {
+      "path": "src/lib/competition/eligibilityGateServer.ts",
+      "symbol_or_migration": "loadEntryOperationalGates"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/registrations/actions.ts",
+      "symbol_or_migration": "validateEligibilityDecision"
+    },
+    {
+      "path": "src/lib/competition/eligibilityRpc.ts",
+      "symbol_or_migration": "recordEligibilityDecision"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od03.test.ts",
+      "name": "a waiver never clears an age-restricted entry"
+    },
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od03.test.ts",
+      "name": "refuses a waiver on an age-restricted division, a wrong reason, and a missing reason"
+    }
+  ],
+  "decision_refs": [
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-26",
+  "enforcement_point": "Server: updateCompetitionEntryEligibilityAction records the decision only through set_competition_entry_eligibility (migration 20270301110000, PR 866); loadEntryOperationalGates treats an entry as ready only when competition_entry_clearance_state reports it cleared and every participant is a verified adult.",
+  "verification_status": "unverified",
+  "interpretation_notes": "PARTIALLY implemented, so not marked verified. Gaps: (1) entries become 'confirmed' inside start_competition_registration / finalize (SQL) without any eligibility determination, so confirmation itself is not gated, only downstream scheduling, heat planning and readiness; (2) check-in (checkin/actions.ts) and day-of paths still use the older eligible-or-waived test and were not changed; (3) DOB re-verification relies on competitors.date_of_birth, which is set at registration and not otherwise audited; (4) organizer determinations live in entries.metadata (no dedicated audit table, no append-only history: a later change overwrites the previous determination) - a reliable audit trail and a DB-level guard need a separate SQL approval; (5) whose age counts for Pro-Am and Couples is unresolved (AE-16, NOT SPECIFIED IN PROVIDED SOURCE): the software never infers it and relies on the organizer. R-15 update: the determination is no longer stored in entry metadata and the app writes no eligibility column directly. Until the database functions exist, saving a decision fails with no fallback and no entry counts as ready.",
+  "applicable_event_versions": [
+    "all"
+  ]
+}
