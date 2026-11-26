@@ -8,8 +8,8 @@
 --   * configuration.min_panel_judges, when present, must be a JSON number, a whole number 1..99; for ordinal_majority / callback_tally it must
 --     also be at least the rule minimum (3) and odd (an even value cannot make the panel odd);
 --   * the key cannot change once the round has left draft/scheduled;
---   * on UPDATE it validates only when the key or the scoring method changed, so unrelated configuration edits (for example max_entries_per_heat)
---     on a legacy row are never blocked;
+--   * on UPDATE it validates only when the key or the scoring method changed, so unrelated configuration edits on a legacy row are never blocked by this trigger
+--     (max_entries_per_heat stays owned by the CF1 capacity guard, which is not touched);
 --   * it never looks at panel assignments, so a draft panel can be edited freely (mid-edit states stay legal).
 -- SECURITY DEFINER (it reads _compe2_panel_rule, which authenticated cannot execute) with a pinned search_path, ALWAYS enabled.
 -- No existing function is redefined. No row is edited.

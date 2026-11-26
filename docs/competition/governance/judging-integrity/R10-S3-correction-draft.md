@@ -72,7 +72,7 @@ Overall: migrations compile on reading, security posture sound, readiness implie
 |---|---|---|---|
 | 1 | blocker (suite) | Section 5 updated round status to scheduled without replica mode; O1 status guard would abort the suite | FIXED (replica wrapper) |
 | 2 | major | A `present` record that makes the panel invalid (3 + 1 restored = 4, even) was never gated and opened no case | FIXED: the after-state is evaluated for both statuses; test added |
-| 3 | minor/major | With a case open, a worse absence (3 to 1) needed no confirmation | FIXED: confirmation required when the result is worse than the state the case recorded; test added |
+| 3 | minor/major | With a case open, a worse absence (3 to 1) needed no confirmation | ACCEPTED AS DESIGNED (first fix reverted after the composed run): confirmation is required only for the change that turns a valid panel invalid; later changes are audited events and the case stays open. A "worse than the case" rule would also have failed the released JC1 suite. Coordinator may overrule. |
 | 4 | minor | Snapshot `judges[].absent` showed the judge as present | FIXED |
 | 5 | minor | Confirm flag in the fingerprint only when true; replay of a different flag is `COMP_REQUEST_REUSED` | INTENTIONAL, asserted by a test; pre-existing request ids keep their fingerprint |
 | 6 | major (rollout) | `ballots/actions.ts:169` sends five args so a break after start fails with the confirm error until the UI passes the flag | KNOWN dependency (listed); safe failure; rollback order app first, then SQL |
@@ -84,3 +84,32 @@ Overall: migrations compile on reading, security posture sound, readiness implie
 | suite | minor | The section 7/8 readiness probe used a round that had lost its panel (vacuous) | FIXED (probe r5); direct UPDATEs as `authenticated` rely on the competition_manage RLS plus default grants: verify when the suite runs |
 
 Re-review of the fixes after this PR was opened: NOT done (the fixes are small and covered by the new suite once it runs; recorded here as a remaining gap).
+
+## Composed-run triage (integrated run3, S3 on top of the other draft slices; runner owned by the S5 session)
+
+| Failing assert / suite | Classification | Evidence | Action |
+|---|---|---|---|
+| `unrelated configuration key still editable` raised `COMP_CAPACITY_DIRECT_WRITE` | **Suite fixture error.** The "unrelated" key was `max_entries_per_heat`, which the existing CF1 guard `cf1_guard_round_capacity` (20270120090000) reserves for its RPC | run3 `suite-forward-..._r10_s3_...log` | Suite uses a neutral key and now also asserts the capacity guard still refuses. Neither guard changed |
+| `r9 reports panel_member_ineligible and is not ready` | **Suite expectation error plus a real S3 gap.** JC1 (20270215092000, live on DEV/PROD, not on this base branch) redefines `_compe2_is_absent`: a deactivated judge without a ballot is absent, so readiness correctly reports `panel_even`, not `panel_member_ineligible`. It also showed deactivation after start breaks a panel with no confirmation or case | JC1 migration text | New trigger `compr10_official_status_panel` (102000; never blocks deactivation, opens/closes the recovery case); attendance evaluates the real post-insert panel instead of predicting it; suite split into the JC1 path and the membership-removal path |
+
+Dependencies: the R10-S3 suite needs CF1 and JC1 in the chain. `test_T_competition_e2_ballots.sql` changes one call (restoring a judge that makes the panel even now passes the confirm flag), so that suite needs S3 applied.
+
+Not attributable to S3 (first error in run3 forward logs): `COMP_R15_ENTRY_NOT_CLEARED` (S4) and `COMP_S5_AGE_BLOCKED` (S5) abort the other suites, which therefore also **mask** any S3 effect on them; `e1_officials`, `o1_day_of` and others already fail on the baseline (`e1_officials`: `COMPO1_ROUND_EDGE`, so the E1 fixture edit here is unverified). No forward log other than the S3 suite mentions an S3 object or error code.
+
+**PENDING executed run:** the whole corrected S3 suite (every assert, since fixes changed the SQL), apply/rollback/re-apply of the changed 102000 pair, the E2 and JC1 suites composed with S3, and all concurrency races.
+
+### Focused review of the triage changes (independent subagent, read-only; waited for)
+
+No blocker or high finding; no new deadlock cycle; deactivation cannot be failed by the trigger apart from ordinary lock or statement timeouts (it can now wait on an in-flight lock); sections 6-8 of the suite trace as passing with JC1.
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 1 | medium | A round reopened after ballots_locked can have an invalid panel and no case (official reactivated while locked) | **OPEN gap**: needs a round-status trigger, which would overlap S4's round gates; coordinate before adding |
+| 2 | medium-low | The status trigger did not serialize with lock / cancel and could open a case on a non-active round | FIXED: round FOR SHARE with an active re-check before the advisory lock |
+| 3 | low | A ballot racing a deactivation can leave a stale open case | **OPEN gap** (same fix as 1) |
+| 4 | low | Audit flag `panel_break_confirmed` meant "case opened" | FIXED: two separate keys |
+| 5 | low | The E2 suite's six-argument call fails on runner chains that stop before 102000 (`run_cf1_integration.sh`, `run_cf1_od17.sh`, `run_cf1_f3.sh`, `concurrency/run_e2_*`) | **OPEN dependency** for the runner owner: those chains must include this block, or the call be made conditional |
+| 6 | low | A partly balloted judge who becomes inactive stays counted and gets no case | **OPEN gap** (recovery class B); comment narrowed |
+| 7 | info | Attribution falls back to the official when there is no `auth.uid()`; no audit event for trigger-opened cases | Trigger now ENABLE ALWAYS and privilege assert added; attribution and audit event remain open |
+
+The fixes for 2, 4 and 7 were not re-reviewed and nothing here has been executed.

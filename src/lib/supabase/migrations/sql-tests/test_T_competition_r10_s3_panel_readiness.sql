@@ -1,6 +1,6 @@
 -- Competition R10-S3 -- panel readiness / attendance / recovery-case regression suite.
 -- DRAFT: NOT EXECUTED yet (heavy-lock queue; see PR). Covers 20270301100000, 20270301101000 and 20270301102000 on top of E1 (20270101090000),
--- E2 (20270102090000), O1 and the chain through 20270218090000. Run as a SUPERUSER. One transaction, synthetic fixtures only (UUID block
+-- E2 (20270102090000), O1, the chain through 20270218090000 plus CF1 (capacity guard) and JC1 (20270215092000). Run as a SUPERUSER. One transaction, synthetic fixtures only (UUID block
 -- 00000000-0000-0000-0000-a10ff3XXXXXX). The final block ALWAYS raises, so nothing persists:
 --   "COMPETITION R10-S3 SQL SUITE PASS (<n> checks)"  or  "COMPETITION R10-S3 SQL SUITE FAIL: <failures>".
 
@@ -111,6 +111,7 @@ from generate_series(1, 10) g;
 -- ============================================================================
 select pg_temp.chk('helper is not executable by authenticated', not has_function_privilege('authenticated', 'public._comp_r10_panel_check(uuid, uuid)', 'execute'));
 select pg_temp.chk('guard trigger function is not executable by authenticated', not has_function_privilege('authenticated', 'public._comp_r10_guard_round_panel_config()', 'execute'));
+select pg_temp.chk('official status trigger function is not executable by authenticated', not has_function_privilege('authenticated', 'public._comp_r10_official_status_panel()', 'execute'));
 select pg_temp.chk('config guard trigger is ENABLE ALWAYS', (select tgenabled from pg_trigger where tgname = 'compr10_guard_round_panel_config') = 'A');
 select pg_temp.chk('recovery case table has RLS', (select relrowsecurity from pg_class where oid = 'public.event_competition_panel_recovery_cases'::regclass));
 select pg_temp.chk('old 5-arg attendance function is gone', to_regprocedure('public.record_competition_judge_attendance(uuid, uuid, text, text, uuid)') is null);
@@ -165,7 +166,8 @@ select pg_temp.expect_msg('min_panel_judges = "3" (string) rejected', format($q$
 select pg_temp.expect_msg('min_panel_judges = 3.5 rejected', format($q$update public.event_competition_rounds set configuration = '{"min_panel_judges": 3.5}' where id = %L$q$, pg_temp.u('006008')), 'COMP_PANEL_MIN_INVALID');
 select pg_temp.expect_msg('min_panel_judges = 100 rejected', format($q$update public.event_competition_rounds set configuration = '{"min_panel_judges": 100}' where id = %L$q$, pg_temp.u('006008')), 'COMP_PANEL_MIN_INVALID');
 select pg_temp.expect_ok('min_panel_judges = 5 accepted for ordinal', format($q$update public.event_competition_rounds set configuration = '{"min_panel_judges": 5}' where id = %L$q$, pg_temp.u('006008')));
-select pg_temp.expect_ok('unrelated configuration key still editable', format($q$update public.event_competition_rounds set configuration = configuration || '{"max_entries_per_heat": 8}' where id = %L$q$, pg_temp.u('006008')));
+select pg_temp.expect_ok('unrelated configuration key still editable', format($q$update public.event_competition_rounds set configuration = configuration || '{"organizer_note": 8}' where id = %L$q$, pg_temp.u('006008')));
+select pg_temp.expect_msg('the CF1 capacity guard is not weakened (direct capacity write still refused)', format($q$update public.event_competition_rounds set configuration = configuration || '{"max_entries_per_heat": 8}' where id = %L$q$, pg_temp.u('006008')), 'COMP_CAPACITY_DIRECT_WRITE');
 select pg_temp.chk('raised minimum (5) with 0 judges: min_judges = 5', (public.competition_round_panel_status(pg_temp.u('006008')) ->> 'min_judges')::int = 5);
 -- A low value on a method with no rule is accepted, but switching the method re-validates it (setter bypass closed).
 select pg_temp.expect_ok('min 4 accepted on method none', format($q$update public.event_competition_rounds set configuration = '{"min_panel_judges": 4}' where id = %L$q$, pg_temp.u('006010')));
@@ -229,10 +231,13 @@ select pg_temp.expect_ok('second absence making the panel valid again needs no c
 select pg_temp.chk('case closed by the route that restored a valid panel', (select status from public.event_competition_panel_recovery_cases where round_id = pg_temp.u('006006')) = 'resolved_restored');
 select pg_temp.expect_msg('absence leaving 2 judges after start needs confirmation', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'left', %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000013'), pg_temp.u('d00020')), 'COMP_PANEL_BREAK_CONFIRM_REQUIRED');
 select pg_temp.expect_ok('confirmed absence on r7', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'left', %L, true)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000013'), pg_temp.u('d00021')));
+select pg_temp.expect_ok('on an already broken panel a further absence (2 -> 1) is recorded without a second confirmation', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000012'), pg_temp.u('d00023')));
+select pg_temp.chk('the r7 case stays open and is still the only one', (select count(*) from public.event_competition_panel_recovery_cases where round_id = pg_temp.u('006007') and status = 'open') = 1);
+select pg_temp.expect_ok('restoring judge 2 on r7 (1 -> 2) needs no confirmation', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000012'), pg_temp.u('d00024')));
 select pg_temp.expect_ok('presence on r7', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000013'), pg_temp.u('d00022')));
 select pg_temp.chk('presence closed the r7 case', (select status from public.event_competition_panel_recovery_cases where round_id = pg_temp.u('006007')) = 'resolved_restored');
 select pg_temp.expect_msg('restoring a judge that makes the panel EVEN needs confirmation (r6: 3 present + 1 restored = 4)', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006006'), pg_temp.off('00e001', '000015'), pg_temp.u('d00013')), 'COMP_PANEL_BREAK_CONFIRM_REQUIRED');
-select pg_temp.expect_msg('with a case open, a worse absence (3 -> 2) needs confirmation too', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006006'), pg_temp.off('00e001', '000012'), pg_temp.u('d00014')), 'COMP_PANEL_BREAK_CONFIRM_REQUIRED');
+select pg_temp.expect_msg('an absence leaving 2 present on r6 needs confirmation', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006006'), pg_temp.off('00e001', '000012'), pg_temp.u('d00014')), 'COMP_PANEL_BREAK_CONFIRM_REQUIRED');
 reset role;
 select pg_temp.chk('the lock rule agrees with readiness on r6 (3 present, odd)', (public._comp_r10_panel_check(pg_temp.u('006006'), null) ->> 'rule_ok')::boolean
   and (public._compe2_round_blockers(pg_temp.u('006006')) ->> 'panel_ok')::boolean);
@@ -244,8 +249,24 @@ set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('deactivate a judge of the started round', format($q$select public.deactivate_competition_official(%L, 'left the team', %L)$q$, pg_temp.off('00e001', '000013'), pg_temp.u('d00030')));
 reset role;
+-- Requires JC1 (20270215092000, live on DEV and PROD): a deactivated judge without a ballot counts as absent.
+select pg_temp.chk('r9 after deactivation: not ready, even panel, and the lock rule agrees', not public.competition_round_panel_ready(pg_temp.u('006009'))
+  and (public.competition_round_panel_status(pg_temp.u('006009')) -> 'missing') ? 'panel_even'
+  and not (public._compe2_round_blockers(pg_temp.u('006009')) ->> 'panel_ok')::boolean);
+select pg_temp.chk('deactivation after start opened exactly one recovery case on r9',
+  (select count(*) from public.event_competition_panel_recovery_cases where round_id = pg_temp.u('006009') and status = 'open'
+     and panel_snapshot ->> 'change' = 'official_inactive') = 1);
+set role authenticated;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('reactivate the judge', format($q$select public.add_competition_official(%L, %L, 'judge', %L)$q$, pg_temp.u('00e001'), pg_temp.u('000013'), pg_temp.u('d00031')));
+reset role;
+select pg_temp.chk('reactivation restores r9 and closes its case', public.competition_round_panel_ready(pg_temp.u('006009'))
+  and (select status from public.event_competition_panel_recovery_cases where round_id = pg_temp.u('006009')) = 'resolved_restored');
+-- Team membership removed (the official stays active, so the lock still counts the judge): readiness must name the ineligible judge.
+update public.user_studio_roles set active = false where user_id = pg_temp.u('000012') and studio_id = pg_temp.u('00a001');
 select pg_temp.chk('r9 reports panel_member_ineligible and is not ready', not public.competition_round_panel_ready(pg_temp.u('006009'))
   and (public.competition_round_panel_status(pg_temp.u('006009')) -> 'missing') ? 'panel_member_ineligible');
+update public.user_studio_roles set active = true where user_id = pg_temp.u('000012') and studio_id = pg_temp.u('00a001');
 
 -- ============================================================================
 -- 8. Authorization and direct writes
@@ -254,7 +275,7 @@ set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));
 select pg_temp.expect_msg('a judge cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000012'), pg_temp.u('d00040')), 'COMP_FORBIDDEN');
 select pg_temp.chk('a judge cannot read recovery cases', (select count(*) from public.event_competition_panel_recovery_cases) = 0);
-select pg_temp.chk('a judge cannot probe readiness (r5 is ready for its manager)', not public.competition_round_panel_ready(pg_temp.u('006005')));
+select pg_temp.chk('a judge cannot probe readiness (r1 is ready for its manager)', not public.competition_round_panel_ready(pg_temp.u('006001')));
 select pg_temp.as_user(pg_temp.u('000017'));
 select pg_temp.expect_msg('front desk cannot record attendance', format($q$select public.record_competition_judge_attendance(%L, %L, 'absent', 'x', %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000012'), pg_temp.u('d00041')), 'COMP_FORBIDDEN');
 select pg_temp.as_user(pg_temp.u('000021'));
@@ -263,6 +284,7 @@ select pg_temp.chk('another studio sees no recovery case', (select count(*) from
 select pg_temp.expect_msg('direct insert into recovery cases is refused', format($q$insert into public.event_competition_panel_recovery_cases (event_id, round_id, opened_by, opened_request_id, panel_snapshot) values (%L, %L, %L, %L, '{}')$q$, pg_temp.u('00e001'), pg_temp.u('006007'), pg_temp.u('000021'), pg_temp.u('d00043')), 'permission denied');
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('even the manager cannot write recovery cases directly', $q$update public.event_competition_panel_recovery_cases set status = 'resolved_restored'$q$, 'permission denied');
+select pg_temp.chk('the manager sees r1 ready (so the judge probe above is not vacuous)', public.competition_round_panel_ready(pg_temp.u('006001')));
 select pg_temp.expect_msg('panel of a started round is still frozen (assign)', format($q$select public.assign_competition_panel_member(%L, %L, 'Z', %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000016'), pg_temp.u('d00044')), 'COMP_PANEL_FROZEN');
 select pg_temp.expect_msg('panel of a started round is still frozen (unassign)', format($q$select public.unassign_competition_panel_member(%L, %L, %L)$q$, pg_temp.u('006007'), pg_temp.off('00e001', '000011'), pg_temp.u('d00045')), 'COMP_PANEL_FROZEN');
 select pg_temp.expect_ok('manager can still update configuration of a draft round (guard is definer)', format($q$update public.event_competition_rounds set configuration = configuration || '{"note": 1}' where id = %L$q$, pg_temp.u('006001')));

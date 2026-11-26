@@ -11,6 +11,8 @@ begin
   end if;
 end $$;
 
+drop trigger if exists compr10_official_status_panel on public.event_competition_officials;
+drop function if exists public._comp_r10_official_status_panel();
 drop function if exists public.record_competition_judge_attendance(uuid, uuid, text, text, uuid, boolean);
 
 create function public.record_competition_judge_attendance(

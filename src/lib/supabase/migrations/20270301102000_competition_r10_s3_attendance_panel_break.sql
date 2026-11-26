@@ -111,9 +111,8 @@ declare
   v_case uuid;
   v_case_opened boolean := false;
   v_case_closed boolean := false;
-  v_np integer;
-  v_ok boolean;
-  v_case_present integer;
+  v_before jsonb;
+  v_break_confirmed boolean := false;
 begin
   if v_uid is null or coalesce(v_role, '') not in ('manager', 'chair') then
     raise exception 'COMP_FORBIDDEN: not allowed.' using errcode = '42501';
@@ -154,41 +153,40 @@ begin
   end if;
 
   -- R10-S3: serialize attendance changes of one round (two individually acceptable absences must not jointly break the panel unnoticed).
+  -- Lock order shared with the official-status trigger below: the official row first, then the per-round advisory lock.
+  perform 1 from public.event_competition_officials o where o.id = p_official_id for share;
   perform pg_advisory_xact_lock(hashtextextended('comp_r10_panel:' || p_round_id::text, 0));
-  select c.id, (c.panel_snapshot -> 'after' ->> 'present')::integer into v_case, v_case_present
-    from public.event_competition_panel_recovery_cases c where c.round_id = p_round_id and c.status = 'open';
+  select c.id into v_case from public.event_competition_panel_recovery_cases c where c.round_id = p_round_id and c.status = 'open';
+  v_before := public._comp_r10_panel_check(p_round_id, null);
+  insert into public.event_competition_judge_attendance (event_id, round_id, official_id, status, reason, recorded_by)
+  values (v_round.event_id, p_round_id, p_official_id, p_status, v_reason, v_uid);
   if v_round.status = 'active' then
-    -- The state AFTER this change, over the lock's judge set (absent: exclude the judge; present: add the judge back if currently absent).
-    v_after := public._comp_r10_panel_check(p_round_id, case when p_status = 'absent' then p_official_id end);
-    v_np := (v_after ->> 'present')::integer
-            + case when p_status = 'present' and public._compe2_is_absent(p_round_id, p_official_id) then 1 else 0 end;
-    v_ok := (v_after ->> 'known')::boolean and v_np >= (v_after ->> 'rule_min')::integer
-            and (not (v_after ->> 'odd_required')::boolean or v_np % 2 = 1);
-    v_after := v_after || jsonb_build_object('present', v_np, 'rule_ok', v_ok);
-    -- Confirm when the result is invalid and there is no open case yet, or it is worse than the state the open case recorded.
-    if (v_after ->> 'known')::boolean and not v_ok and (v_case is null or v_np < coalesce(v_case_present, v_np)) then
-      if not coalesce(p_confirm_panel_break, false) then
+    -- Evaluate the REAL resulting panel (after the insert) through the same helpers the lock uses, so any definition of _compe2_is_absent
+    -- (for example JC1: a deactivated judge without a ballot counts as absent) is honored. A refusal rolls the insert back.
+    v_after := public._comp_r10_panel_check(p_round_id, null);
+    -- Confirmation is required for the change that strands the round (a valid panel becoming invalid). Later changes on an already invalid
+    -- panel are recorded and audited without a second confirmation. An invalid panel on a started round always has an open case.
+    if (v_after ->> 'known')::boolean and not (v_after ->> 'rule_ok')::boolean then
+      if (v_before ->> 'rule_ok')::boolean and not coalesce(p_confirm_panel_break, false) then
         raise exception 'COMP_PANEL_BREAK_CONFIRM_REQUIRED: recording this change leaves % present judge(s); this scoring method needs at least % and an odd panel, so the round could not lock its ballots. Confirm to record it and keep a panel recovery case.',
-          v_np, v_after ->> 'rule_min' using errcode = 'P0001', detail = v_after::text;
+          v_after ->> 'present', v_after ->> 'rule_min' using errcode = 'P0001', detail = v_after::text;
       end if;
+      v_break_confirmed := (v_before ->> 'rule_ok')::boolean;
       if v_case is null then
         insert into public.event_competition_panel_recovery_cases (event_id, round_id, opened_by, opened_reason, opened_request_id, panel_snapshot)
         values (v_round.event_id, p_round_id, v_uid, v_reason, p_request_id,
                 jsonb_build_object('after', v_after, 'official_id', p_official_id, 'change', p_status,
                   'judges', coalesce((select jsonb_agg(jsonb_build_object('official_id', j.official_id, 'letter', j.judge_letter,
-                                        'absent', case when j.official_id = p_official_id then p_status = 'absent' else public._compe2_is_absent(p_round_id, j.official_id) end)
-                                        order by j.judge_letter)
+                                        'absent', public._compe2_is_absent(p_round_id, j.official_id)) order by j.judge_letter)
                                       from public._compe2_round_judges(p_round_id) j), '[]'::jsonb)))
         returning id into v_case;
         v_case_opened := true;
       end if;
     end if;
   end if;
-  insert into public.event_competition_judge_attendance (event_id, round_id, official_id, status, reason, recorded_by)
-  values (v_round.event_id, p_round_id, p_official_id, p_status, v_reason, v_uid);
   perform public._compe2_audit(v_round.event_id, p_round_id, null,
     case when p_status = 'absent' then 'judge_absence_recorded' else 'judge_presence_recorded' end,
-    v_uid, p_official_id, null, null, null, p_request_id, v_reason, jsonb_build_object('fp', v_fp, 'status', p_status, 'actor_role', v_role, 'panel_break_confirmed', v_case_opened,
+    v_uid, p_official_id, null, null, null, p_request_id, v_reason, jsonb_build_object('fp', v_fp, 'status', p_status, 'actor_role', v_role, 'panel_break_confirmed', v_break_confirmed, 'recovery_case_opened', v_case_opened,
                        'recovery_case_id', case when v_case_opened then v_case end));
   -- Any attendance change that makes the panel valid again closes an open case, by any route.
   if v_case is not null and not v_case_opened and (public._comp_r10_panel_check(p_round_id, null) ->> 'rule_ok')::boolean then
@@ -205,7 +203,63 @@ $$;
 revoke all on function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid, boolean) from public, anon;
 grant execute on function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid, boolean) to authenticated;
 
+-- Attendance is not the only way presence changes: deactivating or reactivating an official after a round has started changes the panel the
+-- lock sees (JC1 counts a deactivated judge without a ballot as absent). The change is never blocked (revoking an official must stay
+-- possible); every active round whose panel it leaves failing the size / parity rule gets an auditable recovery case, and a case closes when the
+-- panel is valid again. Not covered: a judge with some ballots who becomes inactive stays counted (no case), and ballot reopen does not re-evaluate.
+create function public._comp_r10_official_status_panel()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  r record;
+  v_chk jsonb;
+  v_case uuid;
+  v_actor uuid;
+begin
+  if new.status is not distinct from old.status then
+    return null;
+  end if;
+  v_actor := coalesce(auth.uid(), case when new.status = 'inactive' then new.deactivated_by end, new.user_id);
+  for r in
+    select distinct rd.id, rd.event_id
+    from public.event_competition_panel_assignments a
+    join public.event_competition_rounds rd on rd.id = a.round_id
+    where a.official_id = new.id and a.judge_letter is not null and rd.status = 'active'
+    order by rd.id
+  loop
+    -- Serialize with lock / cancel (round FOR UPDATE) and re-check: a round that left active gets no case. Order: official, round, advisory.
+    perform 1 from public.event_competition_rounds rr where rr.id = r.id and rr.status = 'active' for share;
+    if not found then
+      continue;
+    end if;
+    perform pg_advisory_xact_lock(hashtextextended('comp_r10_panel:' || r.id::text, 0));
+    v_chk := public._comp_r10_panel_check(r.id, null);
+    select c.id into v_case from public.event_competition_panel_recovery_cases c where c.round_id = r.id and c.status = 'open';
+    if (v_chk ->> 'known')::boolean and not (v_chk ->> 'rule_ok')::boolean and v_case is null then
+      insert into public.event_competition_panel_recovery_cases (event_id, round_id, opened_by, opened_reason, opened_request_id, panel_snapshot)
+      values (r.event_id, r.id, v_actor, 'official status changed to ' || new.status, gen_random_uuid(),
+              jsonb_build_object('after', v_chk, 'official_id', new.id, 'change', 'official_' || new.status,
+                'judges', coalesce((select jsonb_agg(jsonb_build_object('official_id', j.official_id, 'letter', j.judge_letter,
+                                      'absent', public._compe2_is_absent(r.id, j.official_id)) order by j.judge_letter)
+                                    from public._compe2_round_judges(r.id) j), '[]'::jsonb)));
+    elsif v_case is not null and (v_chk ->> 'rule_ok')::boolean then
+      update public.event_competition_panel_recovery_cases
+         set status = 'resolved_restored', resolved_by = v_actor, resolved_at = now(), resolution = 'panel valid again after an official status change'
+       where id = v_case;
+    end if;
+  end loop;
+  return null;
+end;
+$$;
+revoke all on function public._comp_r10_official_status_panel() from public, anon, authenticated, service_role;
+create trigger compr10_official_status_panel after update of status on public.event_competition_officials
+  for each row execute function public._comp_r10_official_status_panel();
+alter table public.event_competition_officials enable always trigger compr10_official_status_panel;
+
 comment on table public.event_competition_panel_recovery_cases is
-  'R10-S3: panel recovery cases opened when a confirmed absence after start leaves a panel the ballot lock cannot accept. Manager read; written only by record_competition_judge_attendance.';
+  'R10-S3: panel recovery cases opened when a confirmed absence after start leaves a panel the ballot lock cannot accept. Manager read; written only by record_competition_judge_attendance and the official-status trigger.';
 
 commit;
