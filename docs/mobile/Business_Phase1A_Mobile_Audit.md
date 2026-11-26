@@ -24,5 +24,6 @@ Flags: all four write words are default OFF and still need iso-qa device-smoke e
 - A kind is offered only when its capability is on in the build (`appointmentAttendance` for lessons, `attendance` for classes) AND the studio role may mark attendance (the same conditions the appointment screen needs for its controls).
 - The button opens the appointment, where the confirm-first controls already live; the card never records a result by itself.
 - Fresh: the day is re-read when the screen is focused again (after checking someone in), and the card re-evaluates every 30 seconds, so a class that ends moves to "Still to record". "Today" is the calendar date in the studio's zone, so stepping away and back still counts.
+- Studio midnight: when the studio date moves on while "Studio today" is open (two minutes of grace), the day is re-read; until the new day arrives it is shown under its own date with no card, and a failed read is retried no more than every five minutes. The instructor "My day" screen has no such re-read yet.
 - A day cut off at 500 appointments can miss a later appointment, never pick a wrong target.
 - Not added to the instructor "My day" (instructor lesson attendance waits on D4).
