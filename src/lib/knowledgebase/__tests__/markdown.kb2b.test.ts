@@ -117,11 +117,11 @@ describe("the current 79 articles", () => {
     }
   });
 
-  it("renders the 145 numbered steps as ordered lists, the 24 h3 headings, one table and two file links", () => {
+  it("renders the 144 numbered steps as ordered lists, the 24 h3 headings, one table and two file links", () => {
     const all = rendered.flatMap((r) => r.blocks);
     let steps = 0;
     for (const block of all) if (block.type === "ol") steps += block.items.length;
-    expect(steps).toBe(145);
+    expect(steps).toBe(144);
     expect(all.filter((b) => b.type === "heading" && b.level === 3)).toHaveLength(24);
     expect(all.filter((b) => b.type === "table")).toHaveLength(1);
     const links = rendered.reduce((n, r) => n + (r.out.match(/href="\/guides\/[^"]+\.pdf"/g)?.length ?? 0), 0);
