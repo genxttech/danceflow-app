@@ -49,6 +49,24 @@ describe("R-15 (S4) migration order and rollback safety", () => {
     expect(rb).toMatch(/rollback refused: cf1_od17_guard_heat_entry does not contain exactly one/);
   });
 
+  it("never appends a bare string literal to a text[] (runtime 'malformed array literal', invisible to a syntax check)", () => {
+    for (const name of [CORE, GATES, GUARD]) {
+      expect(read(`${name}.sql`)).not.toMatch(/\bv_\w+\s*:=\s*v_\w+\s*\|\|\s*'[^']*'\s*;/);
+    }
+    expect(read(`${CORE}.sql`).match(/array_append\(v_req, '(age_division|level|status)'\)/g)).toHaveLength(3);
+  });
+
+  it("test SQL requires the real S5 predicate unless a stand-in is requested, and never renames or replaces it", () => {
+    for (const name of ["sql-tests/test_T_competition_r15_eligibility_clearance.sql", "sql-tests/fixtures/r15_clear_entries.sql"]) {
+      const sql = read(name);
+      expect(sql).toContain("r15.allow_s5_standin");
+      expect(sql).toContain("R15-NO-REAL-S5");
+      expect(sql).not.toMatch(/alter\s+function\s+public\._comp_participant_age_clearance/i);
+      expect(sql).not.toMatch(/or\s+replace\s+function\s+public\._comp_participant_age_clearance/i);
+      expect(sql).not.toMatch(/drop\s+function[^;]*_comp_participant_age_clearance/i);
+    }
+  });
+
   it("no migration of this slice converts or deletes existing rows", () => {
     for (const name of [CORE, GATES, GUARD]) {
       const sql = read(`${name}.sql`);

@@ -1,5 +1,5 @@
--- WARNING: test-only. Never run on DEV/PROD or any database that persists: when the S5 age predicate is absent it plants a stand-in for it in schema public. Run ONLY
--- on an isolated local Postgres, inside a suite transaction that always rolls back.
+-- WARNING: test-only. Never run on DEV/PROD or any database that persists. It requires the real S5 age predicate; only with r15.allow_s5_standin = on does it plant a
+-- marked stand-in in schema public. Run ONLY on an isolated local Postgres, inside a suite transaction that always rolls back.
 --
 -- Test-only fixture helper (never part of a migration). After 20270301130000 an entry needs eligibility CLEARANCE before it is placed in a published or running
 -- order, so every existing Competition suite that seeds `eligible`/`waived` entries must also obtain their clearance. It does so the way an organizer does:
@@ -25,15 +25,26 @@ declare
   v_actor uuid;
   v_role text;
   v_claims text;
+  v_s5 regprocedure;
 begin
   -- Baseline databases (R-15 not applied): nothing to clear, so the same suite runs before and after the migrations.
   if to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is null then
     return 0;
   end if;
-  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
-    execute $f$create function public._comp_participant_age_clearance(p_competitor_id uuid) returns text language sql stable as $b$
-      select coalesce((select case c.first_name when 'Minor' then 'blocked_under_18' when 'Unknown' then 'unknown_age' else 'allowed' end
-                       from public.event_competition_competitors c where c.id = p_competitor_id), 'unknown_age') $b$ $f$;
+  -- The real S5 predicate is required. A stand-in is created only on explicit request (r15.allow_s5_standin = on), never over an existing function, and is marked
+  -- so every later run can tell. Without the request a chain that lacks S5 fails here: a composed run can never silently pass on a substitute.
+  v_s5 := to_regprocedure('public._comp_participant_age_clearance(uuid)');
+  if v_s5 is null or coalesce(obj_description(v_s5, 'pg_proc'), '') = 'R15-TEST-STAND-IN' then
+    if coalesce(current_setting('r15.allow_s5_standin', true), '') <> 'on' then
+      raise exception 'R15-NO-REAL-S5: the S5 age predicate is not installed (or a test stand-in is). Apply 20270301120000, or set r15.allow_s5_standin = on to run without it on purpose.';
+    end if;
+    raise warning 'R15 fixture: using the S5 TEST STAND-IN; this run is not evidence about the age gate.';
+    if v_s5 is null then
+      execute $f$create function public._comp_participant_age_clearance(p_competitor_id uuid) returns text language sql stable as $b$
+        select coalesce((select case c.first_name when 'Minor' then 'blocked_under_18' when 'Unknown' then 'unknown_age' else 'allowed' end
+                         from public.event_competition_competitors c where c.id = p_competitor_id), 'unknown_age') $b$ $f$;
+      comment on function public._comp_participant_age_clearance(uuid) is 'R15-TEST-STAND-IN';
+    end if;
   end if;
   for v_e in
     select e.id, e.event_id, e.eligibility_status, e.display_name

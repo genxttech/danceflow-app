@@ -215,28 +215,32 @@ create temp table t_audit_before as select count(*)::int as n from public.event_
 -- ============================================================================
 -- A. Fail closed while the S5 age predicate does not exist
 -- ============================================================================
-do $hide$
-begin
-  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is not null then
-    alter function public._comp_participant_age_clearance(uuid) rename to _comp_participant_age_clearance_r15hidden;
-  end if;
-end $hide$;
-select pg_temp.chk('S5 age predicate is absent for this section', to_regprocedure('public._comp_participant_age_clearance(uuid)') is null);
-select pg_temp.chk('absent S5: an entry is never cleared (age not established)', pg_temp.clr('008005') in ('entry_determination_missing', 'entry_age_not_established'));
+-- These two probes are meaningful only on a chain WITHOUT S5. The real predicate is never hidden, renamed or replaced.
+select pg_temp.chk('absent S5: an entry is never cleared (age not established)', pg_temp.clr('008005') in ('entry_determination_missing', 'entry_age_not_established'))
+where to_regprocedure('public._comp_participant_age_clearance(uuid)') is null;
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_msg('absent S5: marking eligible is refused (fails closed)', pg_temp.decide('008003', 'eligible', 'criteria_verified_by_organizer', $$'{}'::text[]$$, 1), 'COMP_R15_DETERMINATION_INVALID');
+select pg_temp.expect_msg('absent S5: marking eligible is refused (fails closed)', pg_temp.decide('008003', 'eligible', 'criteria_verified_by_organizer', $$'{}'::text[]$$, 1), 'COMP_R15_DETERMINATION_INVALID')
+where to_regprocedure('public._comp_participant_age_clearance(uuid)') is null;
 reset role;
 
--- The S5 stand-in is created only when S5 is not applied (rolled back with the suite): Minor -> blocked_under_18, Unknown -> unknown_age, else allowed.
+-- A stand-in for S5 is created only when someone asks for it on purpose (set r15.allow_s5_standin = on, e.g. PGOPTIONS='-c r15.allow_s5_standin=on'). Without
+-- that, a chain missing the real predicate FAILS the suite, so a composed run can never pass on a substitute. A run that used the stand-in says so in its verdict
+-- and is not evidence about the age gate.
 do $stub$
+declare
+  v_fn regprocedure := to_regprocedure('public._comp_participant_age_clearance(uuid)');
 begin
-  if to_regprocedure('public._comp_participant_age_clearance_r15hidden(uuid)') is not null then
-    alter function public._comp_participant_age_clearance_r15hidden(uuid) rename to _comp_participant_age_clearance;
+  if v_fn is not null and coalesce(obj_description(v_fn, 'pg_proc'), '') <> 'R15-TEST-STAND-IN' then
+    return;
   end if;
-  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
+  if coalesce(current_setting('r15.allow_s5_standin', true), '') <> 'on' then
+    raise exception 'R15-NO-REAL-S5: the S5 age predicate is not installed (or a test stand-in is). Apply 20270301120000, or set r15.allow_s5_standin = on to run without it on purpose.';
+  end if;
+  if v_fn is null then
     execute $f$create function public._comp_participant_age_clearance(p_competitor_id uuid) returns text language sql stable as $b$
       select case c.first_name when 'Minor' then 'blocked_under_18' when 'Unknown' then 'unknown_age' else 'allowed' end
       from public.event_competition_competitors c where c.id = p_competitor_id $b$ $f$;
+    comment on function public._comp_participant_age_clearance(uuid) is 'R15-TEST-STAND-IN';
   end if;
 end $stub$;
 
@@ -402,6 +406,70 @@ select pg_temp.expect_msg('the shared raiser refuses a needs_review entry at the
 select pg_temp.expect_ok('the shared raiser accepts cleared entries', $q$select public.r15_raise_not_cleared('start', array[pg_temp.u('008003'), pg_temp.u('008004'), pg_temp.u('008007')], null)$q$);
 
 -- ============================================================================
+-- J. Required criteria and every array path (regression for the 2026-11-26 defect: v_req || 'literal' on text[] raised "malformed array literal")
+-- ============================================================================
+insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status, age_label, skill_label, role_label)
+select pg_temp.u(v.id), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'Criteria ' || v.id, 'open', v.age, v.skill, v.role
+from (values
+  ('003101', null, null, null),
+  ('003102', '  Open ', 'ALL LEVELS', ' n/a '),
+  ('003103', 'Senior I', null, null),
+  ('003104', null, 'Open', null),
+  ('003105', null, null, 'Amateur'),
+  ('003106', 'Senior I', 'Bronze', null),
+  ('003107', null, 'Bronze', 'Pro-Am'),
+  ('003108', 'Senior I', 'Bronze', 'Pro-Am'),
+  ('003109', '{age_division,level}', 'O''Brien "Gold" \ , }', E'Pro|Am\n{status}'),
+  ('003110', 'Série Ñ ≥50', null, null),
+  ('003111', 'A|B', 'C', null),
+  ('003112', 'A', 'B|C', null),
+  ('003113', null, null, null),
+  ('003114', null, null, null)) as v(id, age, skill, role);
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status)
+select pg_temp.u('0081' || right(v.id, 2)), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u(v.id), 'Criteria ' || v.id, 'confirmed', 'unverified'
+from (values ('003101'), ('003102'), ('003103'), ('003104'), ('003105'), ('003106'), ('003107'), ('003108'), ('003109'), ('003110'), ('003111'), ('003112'), ('003113'), ('003114')) as v(id);
+-- one adult dancer each, except: 113 a student, 114 a professional
+insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name)
+select pg_temp.u('00e001'), pg_temp.u('0081' || lpad(n::text, 2, '0')), pg_temp.u('0070' || (26 + n)::text), case n when 13 then 'student' when 14 then 'professional' else 'dancer' end, 'leader', 'C' || n
+from generate_series(1, 14) n;
+create or replace function pg_temp.crit(p_entry text) returns text[] language sql as $$ select public._r15_required_criteria(pg_temp.u(p_entry)) $$;
+
+select pg_temp.chk('criteria empty: null labels', pg_temp.crit('008101') = '{}'::text[], pg_temp.crit('008101')::text);
+select pg_temp.chk('criteria empty: open and blank synonyms, any case and padding', pg_temp.crit('008102') = '{}'::text[], pg_temp.crit('008102')::text);
+select pg_temp.chk('criteria one: age', pg_temp.crit('008103') = array['age_division'], pg_temp.crit('008103')::text);
+select pg_temp.chk('criteria one: level (Open is a level category)', pg_temp.crit('008104') = array['level'], pg_temp.crit('008104')::text);
+select pg_temp.chk('criteria one: status from the division role label', pg_temp.crit('008105') = array['status'], pg_temp.crit('008105')::text);
+select pg_temp.chk('criteria one: status from a student participant', pg_temp.crit('008113') = array['status'], pg_temp.crit('008113')::text);
+select pg_temp.chk('criteria one: status from a professional participant', pg_temp.crit('008114') = array['status'], pg_temp.crit('008114')::text);
+select pg_temp.chk('criteria many: age and level', pg_temp.crit('008106') = array['age_division', 'level'], pg_temp.crit('008106')::text);
+select pg_temp.chk('criteria many: level and status', pg_temp.crit('008107') = array['level', 'status'], pg_temp.crit('008107')::text);
+select pg_temp.chk('criteria many: all three', pg_temp.crit('008108') = array['age_division', 'level', 'status'], pg_temp.crit('008108')::text);
+select pg_temp.chk('criteria special characters in labels (braces, quotes, backslash, comma, pipe, newline)', pg_temp.crit('008109') = array['age_division', 'level', 'status'], pg_temp.crit('008109')::text);
+select pg_temp.chk('criteria non-ASCII label', pg_temp.crit('008110') = array['age_division'], pg_temp.crit('008110')::text);
+select pg_temp.chk('criteria unknown entry fails closed (all three)', public._r15_required_criteria(gen_random_uuid()) = array['age_division', 'level', 'status']);
+select pg_temp.chk('labels containing the old delimiter do not share a fingerprint', public._r15_entry_fingerprint(pg_temp.u('008111')) <> public._r15_entry_fingerprint(pg_temp.u('008112')));
+
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_ok('RPC criteria NULL array on an unclassified division', pg_temp.decide('008101', 'eligible', 'criteria_verified_by_organizer', 'null', 101));
+select pg_temp.expect_ok('RPC criteria empty array', pg_temp.decide('008102', 'eligible', 'criteria_verified_by_organizer', $$'{}'::text[]$$, 102));
+select pg_temp.expect_ok('RPC criteria duplicates', pg_temp.decide('008103', 'eligible', 'criteria_verified_by_organizer', $$array['age_division', 'age_division']$$, 103));
+select pg_temp.expect_ok('RPC criteria superset', pg_temp.decide('008104', 'eligible', 'criteria_verified_by_organizer', $$array['status', 'level', 'age_division']$$, 104));
+select pg_temp.expect_msg('RPC criteria NULL element refused', pg_temp.decide('008105', 'eligible', 'criteria_verified_by_organizer', $$array[null]::text[]$$, 105), 'unknown verification criterion');
+select pg_temp.expect_msg('RPC criteria unknown value with braces refused', pg_temp.decide('008105', 'eligible', 'criteria_verified_by_organizer', $$array['{status}']$$, 106), 'unknown verification criterion');
+select pg_temp.expect_msg('RPC criteria NULL on a classified division refused', pg_temp.decide('008105', 'eligible', 'criteria_verified_by_organizer', 'null', 107), 'requires verification of: status');
+select pg_temp.expect_msg('RPC criteria subset of many refused and the missing list is built', pg_temp.decide('008108', 'eligible', 'criteria_verified_by_organizer', $$array['status']$$, 108), 'requires verification of: age_division, level, status');
+select pg_temp.expect_ok('RPC all three on a special-character division', pg_temp.decide('008109', 'eligible', 'criteria_verified_by_organizer', $$array['age_division', 'level', 'status']$$, 109));
+select pg_temp.expect_ok('RPC status for a student participant', pg_temp.decide('008113', 'eligible', 'criteria_verified_by_organizer', $$array['status']$$, 110));
+reset role;
+select pg_temp.chk('cleared after the criteria decisions', pg_temp.reason('008101') is null and pg_temp.reason('008102') is null and pg_temp.reason('008103') is null
+  and pg_temp.reason('008104') is null and pg_temp.reason('008109') is null and pg_temp.reason('008113') is null, concat_ws(',', pg_temp.reason('008101'), pg_temp.reason('008103'), pg_temp.reason('008109'), pg_temp.reason('008113')));
+-- a determination that lists fewer criteria than required (owner-inserted, current fingerprint) never clears
+insert into public.event_competition_eligibility_determinations (event_id, entry_id, outcome, reason_code, criteria, fingerprint, decided_by, decided_role, request_id)
+values (pg_temp.u('00e001'), pg_temp.u('008106'), 'eligible', 'criteria_verified_by_organizer', array['age_division'], public._r15_entry_fingerprint(pg_temp.u('008106')), pg_temp.u('000001'), 'studio_owner', pg_temp.rq(901));
+update public.event_competition_entries set eligibility_status = 'eligible' where id = pg_temp.u('008106');
+select pg_temp.chk('a determination missing a required criterion does not clear', pg_temp.reason('008106') = 'entry_criteria_missing', coalesce(pg_temp.reason('008106'), 'null'));
+
+-- ============================================================================
 -- I. No conversion, no new audit noise from the migration itself, privileges
 -- ============================================================================
 select pg_temp.chk('no pre-existing entry changed status or eligibility except through explicit RPC/owner steps of this suite',
@@ -414,6 +482,8 @@ select pg_temp.chk('internal predicates are not callable by API roles',
   and not has_function_privilege('authenticated', 'public.r15_raise_not_cleared(text,uuid[],jsonb)', 'EXECUTE')
   and not has_function_privilege('anon', 'public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)', 'EXECUTE')
   and has_function_privilege('authenticated', 'public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)', 'EXECUTE'));
+select pg_temp.chk('the S5 participant guard is enabled (ALWAYS) again after the legacy seeding',
+  not exists (select 1 from pg_trigger where tgname = 'event_competition_entry_participants_s5_age_guard' and tgrelid = 'public.event_competition_entry_participants'::regclass and tgenabled <> 'A'));
 select pg_temp.as_user(pg_temp.u('000099'));
 select pg_temp.expect_msg('a non-manager cannot call the RPC', pg_temp.decide('008001', 'needs_review', 'documents_pending', $$'{}'::text[]$$, 40), 'COMP_R15_NOT_FOUND');
 reset role;
@@ -425,11 +495,13 @@ do $$
 declare
   v_total int;
   v_failures text;
+  v_pred text;
 begin
   select count(*) into v_total from t_results;
+  v_pred := case when obj_description(to_regprocedure('public._comp_participant_age_clearance(uuid)'), 'pg_proc') = 'R15-TEST-STAND-IN' then 'STAND-IN, not age-gate evidence' else 'real' end;
   select string_agg(name || ' [' || detail || ']', '; ') into v_failures from t_results where not ok;
   if v_failures is null then
-    raise exception 'R15 SQL SUITE PASS (% checks)', v_total;
+    raise exception 'R15 SQL SUITE PASS (% checks; S5 predicate: %)', v_total, v_pred;
   end if;
   raise exception 'R15 SQL SUITE FAIL: %', v_failures;
 end $$;
