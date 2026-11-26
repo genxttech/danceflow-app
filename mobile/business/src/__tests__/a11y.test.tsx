@@ -15,6 +15,7 @@ import { MoreScreen } from "@/screens/MoreScreen";
 import { TodayScreen } from "@/screens/TodayScreen";
 import SignInScreen from "../../app/sign-in";
 import { auditA11y } from "@/test-utils/a11y";
+import { FRONT_DESK_CARDS, INSTRUCTOR_CARDS, OWNER_CARDS, UNAVAILABLE_CARDS } from "@/test-utils/pulseFixtures";
 import { fakeApi, STUDIO_ID, StaffTestProviders, workspace } from "@/test-utils/staff";
 
 jest.mock("expo-router", () => ({ router: { push: jest.fn() }, useFocusEffect: (effect: () => void | (() => void)) => jest.requireActual<typeof import("react")>("react").useEffect(effect, [effect]), }));
@@ -253,6 +254,29 @@ describe("every screen passes the audit", () => {
       next: { id: "a1", appointmentType: "private_lesson", title: null, status: "scheduled", startsAt: "2026-11-10T16:00:00.000Z", endsAt: "2026-11-10T16:45:00.000Z" },
       newClientsLast7Days: 3,
       ...overrides,
+    };
+    withProviders(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => pulse) }));
+    await flush();
+    expectClean();
+  });
+
+  it.each([
+    ["owner (all five cards)", OWNER_CARDS, "studio", null],
+    ["front desk (no ARIA)", FRONT_DESK_CARDS, "studio", null],
+    ["instructor (own scope)", INSTRUCTOR_CARDS, "own", "ins-1"],
+    ["every card unavailable", UNAVAILABLE_CARDS, "studio", null],
+  ] as const)("Pulse command-center cards (%s)", async (_label, cards, scope, instructorId) => {
+    const pulse: StaffPulse = {
+      studioId: STUDIO_ID,
+      timeZone: "America/New_York",
+      date: "2026-11-10",
+      asOf: "2026-11-10T15:00:00.000Z",
+      scope,
+      instructorId,
+      today: { total: 5, upcoming: 4, cancelled: 1, truncated: false },
+      next: { id: "a1", appointmentType: "private_lesson", title: null, status: "scheduled", startsAt: "2026-11-10T16:00:00.000Z", endsAt: "2026-11-10T16:45:00.000Z" },
+      newClientsLast7Days: scope === "studio" ? 3 : null,
+      cards,
     };
     withProviders(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => pulse) }));
     await flush();

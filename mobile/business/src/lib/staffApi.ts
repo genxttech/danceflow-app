@@ -1,3 +1,5 @@
+import { toPulseCards, type PulseCards } from "@/lib/pulseCards";
+
 /*
   Client for the /api/staff/* contract (docs/mobile/Staff_API_Contract.md).
 
@@ -86,6 +88,8 @@ export type StaffPulse = {
   next: { id: string; appointmentType: string; title: string | null; status: string; startsAt: string; endsAt: string } | null;
   /** null for an instructor, who has no studio-wide client view. */
   newClientsLast7Days: number | null;
+  /** Only when asked for (GET /pulse?include=cards) and the server serves them; absent otherwise. */
+  cards?: PulseCards | null;
 };
 
 export type AppointmentDetail = TodayAppointment & {
@@ -388,7 +392,7 @@ export type StaffApi = {
   /** Slice 3: GET /workspaces/{id}/schedule?date=. The whole studio's day for owner, admin and front desk; instructors get 403 role_not_permitted. */
   studioSchedule: (studioId: string, date?: string) => Promise<StaffStudioDay>;
   /** Slice 3: GET /workspaces/{id}/pulse. Counts and the next appointment; studio scope for owner, admin and front desk, own scope for an instructor. */
-  pulse: (studioId: string) => Promise<StaffPulse>;
+  pulse: (studioId: string, options?: { cards?: boolean }) => Promise<StaffPulse>;
   /** Slice 2: GET /workspaces/{id}/clients?q=&cursor=&limit= (limit 1–50). Front desk and admins: active clients. Instructors: the clients they teach. */
   searchClients: (studioId: string, params: { q?: string; cursor?: string | null; limit?: number }) => Promise<ClientPage>;
   /** Slice 2: GET /workspaces/{id}/clients/{clientId}. An instructor gets 404 for a client they don't teach. */
@@ -491,6 +495,7 @@ export function toStaffPulse(raw: unknown): StaffPulse {
           }
         : null,
     newClientsLast7Days: r.scope === "studio" && typeof r.newClientsLast7Days === "number" ? count(r.newClientsLast7Days) : null,
+    ...("cards" in r ? { cards: toPulseCards(r.cards) } : {}),
   };
 }
 
@@ -559,14 +564,27 @@ export function toAttendanceResult(raw: unknown, clientId: string): AttendanceRe
 
 type RequestOptions = { method?: "GET" | "PUT" | "POST" | "DELETE"; body?: unknown; headers?: Record<string, string> };
 
+/** A request with no answer after this long is given up as a network error, so a hung connection never leaves a spinner forever. A write resends with the same Idempotency-Key. */
+export const REQUEST_TIMEOUT_MS = 20_000;
+
+/** Bearer tokens travel only over HTTPS. Plain http is allowed for the emulator and loopback of a QA build, never for a real host. */
+export function isAllowedBaseUrl(url: string) {
+  if (/^https:\/\//i.test(url)) return true;
+  return /^http:\/\/(10\.0\.2\.2|localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url);
+}
+
 export function createStaffApi(options: StaffApiOptions): StaffApi {
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
+  if (!isAllowedBaseUrl(baseUrl)) throw new Error("The DanceFlow web address must start with https://.");
   const doFetch = options.fetchImpl ?? ((input, init) => fetch(input, init));
   const sleep = options.sleepImpl ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
   async function send(path: string, token: string, request: RequestOptions) {
+    const controller = typeof AbortController === "undefined" ? null : new AbortController();
+    const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
     try {
       return await doFetch(`${baseUrl}/api/staff${path}`, {
+        ...(controller ? { signal: controller.signal } : {}),
         method: request.method ?? "GET",
         headers: {
           Accept: "application/json",
@@ -579,6 +597,8 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
       });
     } catch {
       throw new StaffApiError(0, "network_error", "We could not reach DanceFlow.");
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -639,7 +659,7 @@ export function createStaffApi(options: StaffApiOptions): StaffApi {
     today: (studioId, date) => call<StaffToday>(`${ws(studioId)}/today${date ? `?date=${encodeURIComponent(date)}` : ""}`),
     studioSchedule: async (studioId, date) =>
       toStaffStudioDay(await call<unknown>(`${ws(studioId)}/schedule${date ? `?date=${encodeURIComponent(date)}` : ""}`)),
-    pulse: async (studioId) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse`)),
+    pulse: async (studioId, options) => toStaffPulse(await call<unknown>(`${ws(studioId)}/pulse${options?.cards ? "?include=cards" : ""}`)),
     appointment: (studioId, appointmentId) =>
       call<AppointmentDetail>(`${ws(studioId)}/appointments/${encodeURIComponent(appointmentId)}`),
     searchClients: async (studioId, { q, cursor, limit }) => {

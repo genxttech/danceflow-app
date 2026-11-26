@@ -9,7 +9,7 @@ import { fakeApi, STUDIO_ID, StaffTestProviders } from "@/test-utils/staff";
   and never present the 500 as the whole day. Fixtures below are 500 rows, the size the server returns at the cap.
 */
 
-jest.mock("expo-router", () => ({ router: { push: jest.fn() } }));
+jest.mock("expo-router", () => ({ router: { push: jest.fn() }, useFocusEffect: (effect: () => void | (() => void)) => jest.requireActual<typeof import("react")>("react").useEffect(effect, [effect]) }));
 jest.mock("react-native-safe-area-context", () => {
   const { View } = jest.requireActual("react-native");
   return { SafeAreaView: View };

@@ -44,6 +44,8 @@ const cfg = {
   events: flag("events") || flag("past-events") || flag("past-registrations"), // also seed an event + paid ticket and audit Event detail and the Wallet ticket screen
   viewsRef: opt("views-ref", ""), // git ref that has the PR 647 migrations (index 20270222091000, views 20270222092000, cutover 20270222093000); default origin/main, then the 647 branch
   cutover: flag("cutover"), // with --claim: also apply the dancer cutover (drop the direct dancer read policies), as after Gate 2
+  a1: flag("a1"), // A1 assistant device checks (shared/qa-a1): Part A with no --features (flags OFF), Part B with --features lumiAssistant
+  features: opt("features", ""), // baked as EXPO_PUBLIC_DANCER_FEATURES in this QA build only; with a value, the mock web also answers lumiEnabled=true
   noTeardown: flag("keep"), // debugging only
   email: "dana.dancer@example.test",
   email2: "evan.other@example.test",
@@ -199,7 +201,7 @@ async function startRealWeb(anon, service, link) {
 }
 
 function startMock() {
-  state.mock = spawn("node", [join(here, "mock-web.mjs")], { stdio: "ignore" });
+  state.mock = spawn("node", [join(here, "mock-web.mjs")], { stdio: "ignore", env: { ...process.env, ...(cfg.features ? { QA_LUMI_ENABLED: "1" } : {}) } });
 }
 
 function build(anon) {
@@ -217,7 +219,7 @@ function build(anon) {
   const orig = readFileSync(manifest, "utf8");
   state.restoreManifest = () => writeFileSync(manifest, orig);
   if (!orig.includes("usesCleartextTraffic")) writeFileSync(manifest, orig.replace("<application", '<application android:usesCleartextTraffic="true"'));
-  writeFileSync(join(app, ".env"), [`EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:${cfg.kong}`, `EXPO_PUBLIC_SUPABASE_ANON_KEY=${anon}`, `EXPO_PUBLIC_DANCEFLOW_WEB_URL=http://10.0.2.2:${cfg.mockPort}`, ""].join("\n"));
+  writeFileSync(join(app, ".env"), [`EXPO_PUBLIC_SUPABASE_URL=http://10.0.2.2:${cfg.kong}`, `EXPO_PUBLIC_SUPABASE_ANON_KEY=${anon}`, `EXPO_PUBLIC_DANCEFLOW_WEB_URL=http://10.0.2.2:${cfg.mockPort}`, ...(cfg.features ? [`EXPO_PUBLIC_DANCER_FEATURES=${cfg.features}`] : []), ""].join("\n"));
   state.envFile = join(app, ".env");
   for (const d of ["generated/assets", "intermediates/assets", "intermediates/merged_assets", "intermediates/compressed_assets", "intermediates/incremental", "outputs/apk/release"]) {
     rmSync(join(app, "android", "app", "build", d), { recursive: true, force: true });
@@ -406,6 +408,28 @@ async function screens(link) {
       }
     }
   }
+}
+
+// ---- A1 assistant device checks (shared with the Business harness) ----
+async function a1Scenario(link) {
+  const { run: runA1 } = createRequire(import.meta.url)("../../../shared/qa-a1/a1-device-checks.js");
+  sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]);
+  await sleep(15000);
+  const ok = await freshSignIn(link, cfg.email, "a1-dana");
+  if (!ok) throw new Error("a1: sign-in did not complete");
+  const open = (url) => async () => { openLink(url); await sleep(3500); };
+  await runA1({
+    adb: (a) => sh(a), hierarchy, shot, record, sleep, out: cfg.out, pkg: cfg.pkg, assistantName: "LUMI", flagsOn: !!cfg.features, density: state.density,
+    writeFile: (p, t) => writeFileSync(p, t),
+    screens: [
+      { id: "home", open: open("danceflow://home"), launcher: true },
+      { id: "schedule", open: open("danceflow://schedule"), launcher: true },
+      { id: "wallet", open: open("danceflow://wallet"), launcher: true },
+      { id: "events-list", open: open("danceflow://discover/events"), launcher: true },
+      { id: "lumi-screen", open: open("danceflow://lumi"), launcher: false, allowName: /LUMI/ },
+    ],
+    secondUser: async () => (await freshSignIn(link, cfg.email2, "a1-evan")) === true,
+  });
 }
 
 // ---- verified-email claim scenario (--claim): 604 function on a disposable stack, Dana, Evan, function missing, offline ----
@@ -874,7 +898,10 @@ async function pastEventsScenario(link) {
   // an ended registration is reached through the wallet ticket screen above and the event's own page. Recorded as an observation, not a pass of a new behaviour.
   const regs = await read("ended-registrations", "danceflow://schedule/events", { scrolls: 6, wait: 12000 });
   record("past-events history (observation): the Tickets & registrations screen lists upcoming events only (" + (has(regs, NAMES.endedLastWeek) ? "ended event shown" : "ended event not shown, as before the fix") + ")", has(regs, NAMES.baseline), "unchanged behaviour; the baseline upcoming registration is listed");
-  record("past-events history: receipts/orders for an ended event: NOT RUN (no seeded order; BLOCKED, not passed)", true, "BLOCKED");
+  // The order screen for the ended event's paid order (a mock-web fixture; the app reads it through the same API call it uses in production).
+  const endedOrder = await read("ended-order", "danceflow://events/orders/99999999-9999-4999-8999-999999999991", { scrolls: 3, wait: 12000 });
+  record("past-events history: the paid order for an ended event is still reachable and shows its status", endedOrder.includes("Tickets are ready") && /\$25/.test(endedOrder), "");
+  record("past-events history: the ended event's order offers Open Wallet", endedOrder.includes("Open Wallet"), "");
 
   // 7. Empty state: make every public event ended, then read the lists again.
   const upd = q("update public.events set start_date = current_date - 30, end_date = current_date - 29, start_time = '19:00', end_time = '22:00', timezone = 'America/New_York' where studio_id = '11111111-1111-4111-8111-111111111111'");
@@ -1151,7 +1178,8 @@ try {
   if (!/Success/.test(inst.stdout)) throw new Error(`install failed: ${inst.stdout}${inst.stderr}`);
   state.installed = true;
   await checkReachable();
-  if (cfg.pastRegistrations) await pastRegistrationsScenario(link);
+  if (cfg.a1) await a1Scenario(link);
+  else if (cfg.pastRegistrations) await pastRegistrationsScenario(link);
   else if (cfg.pastEvents) await pastEventsScenario(link);
   else if (cfg.claimWithheld) await claimWithheldScenario(link, anon);
   else if (cfg.claimVisual) await claimVisualScenario(link);

@@ -33,7 +33,8 @@ describe("Student large-text audit", () => {
   it("only AppText renders text (raw <Text> would ignore the scale cap)", () => {
     const offenders = files
       // LegalLinks nests <Text> spans inside one AppText; a span inherits the parent cap.
-      .filter((f) => !f.endsWith(`${sep}AppText.tsx`) && !f.endsWith(`${sep}LegalLinks.tsx`))
+      // The shared assistant UI renders text through one wrapper that applies theme.fontCap (Student sets 1.35, same as AppText).
+      .filter((f) => !f.endsWith(`${sep}AppText.tsx`) && !f.endsWith(`${sep}LegalLinks.tsx`) && rel(f) !== "src/assistant/shared/ui.tsx")
       .filter((f) => /<Text[\s>]/.test(readFileSync(f, "utf8")))
       .map(rel);
     expect(offenders).toEqual([]);

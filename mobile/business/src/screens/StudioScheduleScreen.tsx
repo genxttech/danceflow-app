@@ -1,20 +1,22 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StateMessage } from "@/components/StateMessage";
-import { formatDayHeading, personName, shiftDate } from "@/lib/format";
+import { formatDayHeading, formatTime, personName, shiftDate } from "@/lib/format";
+import { dateInZone, nextUp } from "@/lib/nextUp";
+import { NextUpCard } from "@/components/NextUpCard";
 import { isStaffFeatureEnabled } from "@/lib/features";
 import { shouldKeepStale } from "@/lib/stale";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import { StaleBanner } from "@/components/StaleBanner";
 import type { StaffStudioDay, StudioAppointment } from "@/lib/staffApi";
-import { AppointmentRow } from "@/screens/TodayScreen";
+import { appointmentHeadline, AppointmentRow } from "@/screens/TodayScreen";
 import { colors, radius, space } from "@/theme";
 
 type LoadState =
@@ -58,7 +60,7 @@ export function DayModeSwitch({ mode, onChange }: { mode: DayMode; onChange: (mo
 /** The whole studio's day, for owner, admin and front desk. Rows open the same appointment detail as Today (broad staff already have access there). */
 export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactNode } = {}) {
   const api = useStaffApi();
-  const { workspace, reload: reloadWorkspaces, signOut } = useStaffSession();
+  const { me, workspace, reload: reloadWorkspaces, signOut } = useStaffSession();
   const studioId = workspace?.studioId ?? null;
 
   // null asks the server for today in the studio's own zone.
@@ -95,6 +97,26 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
     void load("initial");
   }, [load]);
 
+  // Coming back to the screen (after checking someone in) re-reads the day, so "Next up" never shows a lesson that already has its result. The first focus is the
+  // initial load above.
+  // (A stable callback: a changed day must not look like a new focus.)
+  const focusedOnce = useRef(false);
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
+  useFocusEffect(
+    useCallback(() => {
+      if (focusedOnce.current) void latestLoad.current("refresh");
+      focusedOnce.current = true;
+    }, []),
+  );
+
+  // "Next up" depends on the clock (a class that ends moves to "Still to record"): re-evaluate every 30 seconds while the screen is open.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const shownDate = state.status === "ready" ? state.day.date : date;
 
   function goToDay(offset: number) {
@@ -108,6 +130,14 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
   }
 
   const day = state.status === "ready" ? state.day : null;
+  // The one obvious next action, for today only (a past or future day has no "next"). Today is judged by the calendar date in the studio's zone, so stepping away
+  // and back to today still counts. The role must be able to mark attendance, the same condition the appointment screen needs for its controls.
+  const studio = me?.workspaces.find((w) => w.studioId === studioId);
+  const mayMark = studio?.accessAllowed === true && studio.capabilities?.markAttendance === true;
+  const next =
+    day && mayMark && (date === null || day.date === dateInZone(nowMs, day.timeZone))
+      ? nextUp(day.appointments, nowMs, { oneToOne: isStaffFeatureEnabled("appointmentAttendance"), classes: isStaffFeatureEnabled("attendance") })
+      : null;
 
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load("refresh")} tintColor={colors.plum} />}>
@@ -147,6 +177,16 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
           testID="studio-empty"
           title={date === null ? "Nothing on the studio schedule today" : "Nothing on the studio schedule"}
           body="Lessons, classes and rentals at this studio appear here."
+        />
+      ) : null}
+
+      {day && next ? (
+        <NextUpCard
+          kind={next.kind}
+          start={formatTime(next.appointment.startsAt, day.timeZone)}
+          headline={appointmentHeadline(next.appointment)}
+          behind={next.behind}
+          onOpen={() => open(next.appointment, day.timeZone)}
         />
       ) : null}
 

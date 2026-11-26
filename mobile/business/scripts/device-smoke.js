@@ -306,6 +306,7 @@ async function signIn(email) {
     while (Date.now() < end) {
       const nodes = dump();
       if (lib.hasLabel(nodes, /^Today$/)) return;
+      if (lib.hasLabel(nodes, "Temporarily unavailable")) throw new Error("signed in, but the first screen shows 'Temporarily unavailable' (a staff API call failed; see web-server.log and diag.json)");
       if (lib.hasLabel(nodes, "did not match")) {
         log(`sign-in refused on attempt ${attempt}; retyping`);
         break;
@@ -333,7 +334,13 @@ function commitPreflight() {
   const build = headOf(path.resolve(opts.buildDir));
   const web = headOf(REPO);
   log(`commits: build tree ${build}  web tree ${web}  expected ${opts.expectCommit ?? "(not given)"}`);
-  if (build === "unknown" || build !== web) throw new Error(`the build tree (${build}) and the web server tree (${web}) are not the same commit`);
+  // A1 compares a PINNED pre-A1 app build against the same current web server: both SHAs are recorded in the evidence, and staff API behavior is unchanged by A1.
+  if (opts.a1) {
+    if (build === "unknown") throw new Error("the build tree commit is unknown");
+    fs.writeFileSync(path.join(OUT, "a1-trees.txt"), `build tree ${build}
+web tree ${web}
+`);
+  } else if (build === "unknown" || build !== web) throw new Error(`the build tree (${build}) and the web server tree (${web}) are not the same commit`);
   if (opts.expectCommit && !build.startsWith(opts.expectCommit)) throw new Error(`the trees are at ${build}, not the expected ${opts.expectCommit}`);
   for (const [name, dir] of [["build", path.resolve(opts.buildDir)], ["web", REPO]]) {
     const dirty = run("git", ["-C", dir, "status", "--porcelain", "--untracked-files=no", "--", "src", "mobile/business/src", "mobile/business/app"]).stdout.trim();
@@ -394,9 +401,13 @@ async function restartWeb(policy) {
 async function startWeb() {
   const env = webEnv(opts.writes ? WRITE_POLICY() : null);
   log("next build (production; several minutes)");
+  // A web server left behind by an earlier (killed) run keeps the port, the new `next start` dies with EADDRINUSE, and the old server (pointing at a stack that is gone) answers 401 to the readiness probe: the app then signs in and every staff call returns 503.
+  const stale = await fetch(`http://localhost:${opts.webPort}/api/staff/me`, { signal: AbortSignal.timeout(5000) }).then(() => true, (error) => error?.name === "TimeoutError");
+  if (stale) throw new Error(`port ${opts.webPort} is already served by another process (a stale next start from an earlier run?): stop it before running`);
   const build = run("npx", ["next", "build"], { cwd: REPO, env });
   if (build.status !== 0) throw new Error(`next build failed (exit ${build.status}): ${(build.stderr || build.stdout).slice(-400)}`);
-  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env, stdio: "ignore", shell: WIN });
+  const webLog = fs.openSync(path.join(OUT, "web-server.log"), "a");
+  state.webProc = spawn(WIN ? "npx.cmd" : "npx", ["next", "start", "-p", String(opts.webPort)], { cwd: REPO, env, stdio: ["ignore", webLog, webLog], shell: WIN });
   for (let i = 0; i < 60; i++) {
     try {
       const r = await fetch(`http://localhost:${opts.webPort}/api/staff/me`);
@@ -444,7 +455,7 @@ function buildApk() {
     EXPO_PUBLIC_SUPABASE_ANON_KEY: state.stack.ISO_QA_ANON_KEY,
     EXPO_PUBLIC_DANCEFLOW_WEB_URL: `http://10.0.2.2:${opts.webPort}`,
     // WRITES mode builds with the four Phase 1A write words too; they are OFF in every shipping build unless Build-ReleaseAab.ps1 passes its evidence gate.
-    EXPO_PUBLIC_STAFF_FEATURES: opts.writes ? ["pulse", "studioSchedule", ...lib.WRITE_WORDS].join(",") : "pulse,studioSchedule",
+    EXPO_PUBLIC_STAFF_FEATURES: (opts.writes ? ["pulse", "studioSchedule", ...lib.WRITE_WORDS] : opts.aria ? ["pulse", "studioSchedule", "ariaAssistant"] : ["pulse", "studioSchedule"]).join(","),
     DANCEFLOW_UPLOAD_STORE_FILE: process.env.DANCEFLOW_UPLOAD_STORE_FILE || "C:/dfr-qa/qa-only-DO-NOT-UPLOAD.keystore",
     DANCEFLOW_UPLOAD_STORE_PASSWORD: process.env.DANCEFLOW_UPLOAD_STORE_PASSWORD || "qa-only-throwaway",
     DANCEFLOW_UPLOAD_KEY_ALIAS: process.env.DANCEFLOW_UPLOAD_KEY_ALIAS || "qa-only",
@@ -522,6 +533,7 @@ async function flows(apk) {
   state.installed = true;
   const owner = "owen.owner@example.test";
   if (opts.writes) return writeFlows(owner);
+  if (opts.a1) return a1Flows(owner);
   const ownerScreens = async (tag) => {
     await check(`${tag}: Today has the My day / Studio switch and a Pulse tab`, async () => {
       await tapLabel(/^Today$/);
@@ -545,8 +557,8 @@ async function flows(apk) {
   setFont("1.0");
   setNight(false);
   if (opts.a11y) {
-    fs.writeFileSync(path.join(OUT, "density.txt"), (/(d+)s*$/.exec(sh("wm density")) ?? [, "420"])[1]);
-    fs.writeFileSync(path.join(OUT, "height.txt"), (/x(d+)/.exec(sh("wm size")) ?? [, "0"])[1]);
+    fs.writeFileSync(path.join(OUT, "density.txt"), (/(\d+)\s*$/.exec(sh("wm density")) ?? [, "420"])[1]);
+    fs.writeFileSync(path.join(OUT, "height.txt"), (/x(\d+)/.exec(sh("wm size")) ?? [, "0"])[1]);
   }
   launch();
   if (opts.a11y) {
@@ -650,6 +662,96 @@ const WRITE_POLICY = (extra = {}) => JSON.stringify({ enabled: lib.WRITE_WORDS, 
 /** The checks that must all pass for each write word to be called proven (names are the exact check() names below). */
 const CAP_CHECKS = lib.WRITE_CAPABILITY_CHECKS;
 const GATE_CHECKS = ["writes: policy off shows 'This change is turned off'", "writes: build below the minimum shows 'Update DanceFlow Business'", "writes: 2.0 font + dark, notes and check-in screens usable"];
+
+async function a1Flows(owner) {
+  const { run: runA1 } = require("../../shared/qa-a1/a1-device-checks.js");
+  setFont("1.0");
+  setNight(false);
+  // The AVD keeps the app's data between runs (`adb install -r`), so a session from an earlier run's stack can come back signed in against THIS stack. Record what the app
+  // shows first (screens, host-side probes of the stack and the web app, the app's JS log), then clear the app data so every run starts signed out.
+  const diag = { probes: {}, steps: [] };
+  for (const [name, url] of [["web /api/staff/me", `http://localhost:${opts.webPort}/api/staff/me`], ["stack auth health", `${state.stack.TW4A_LOCAL_URL}/auth/v1/health`]]) {
+    try {
+      diag.probes[name] = (await fetch(url)).status;
+    } catch (error) {
+      diag.probes[name] = `unreachable: ${error.message}`;
+    }
+  }
+  try {
+    const tok = await (await fetch(`${state.stack.TW4A_LOCAL_URL}/auth/v1/token?grant_type=password`, { method: "POST", headers: { "content-type": "application/json", apikey: state.stack.ISO_QA_ANON_KEY }, body: JSON.stringify({ email: owner, password: PASSWORD }) })).json();
+    const bearer = { authorization: `Bearer ${tok.access_token}` };
+    const me = await fetch(`http://localhost:${opts.webPort}/api/staff/me`, { headers: bearer });
+    const meText = await me.text();
+    diag.probes["signed-in /api/staff/me"] = `${me.status} ${meText.slice(0, 300)}`;
+    const ws = /"(?:workspaceId|workspace_id|id)":"([0-9a-f-]{36})"/.exec(meText)?.[1];
+    if (ws) {
+      const today = await fetch(`http://localhost:${opts.webPort}/api/staff/workspaces/${ws}/today`, { headers: bearer });
+      diag.probes["signed-in today"] = `${today.status} ${(await today.text()).slice(0, 300)}`;
+    }
+  } catch (error) {
+    diag.probes["signed-in probe"] = `failed: ${error.message}`;
+  }
+  launch();
+  await sleep(12000);
+  shot("diag-0-launch-persisted-data");
+  diag.steps.push({ step: "after launch with the data of earlier runs", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  const tryAgain = lib.findTappable(dump(), /^Try again$/);
+  if (tryAgain) {
+    tapNode(tryAgain);
+    await sleep(8000);
+    shot("diag-1-after-try-again");
+    diag.steps.push({ step: "after tapping Try again", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  }
+  fs.writeFileSync(path.join(OUT, "diag-logcat-js.txt"), adb("logcat", "-d", "-t", "3000", "-s", "ReactNativeJS:*").stdout);
+  adb("shell", "pm", "clear", APP);
+  launch();
+  await sleep(8000);
+  shot("diag-2-after-pm-clear");
+  diag.steps.push({ step: "after pm clear + cold launch", signInScreen: !!lib.hasLabel(dump(), "Sign in to your studio"), errorCard: !!lib.hasLabel(dump(), "Temporarily unavailable") });
+  fs.writeFileSync(path.join(OUT, "diag.json"), JSON.stringify(diag, null, 2));
+  log(`diag: ${JSON.stringify(diag)}`);
+  await signIn(owner);
+  const tab = (label) => async () => {
+    await home();
+    await tapLabel(label);
+    await sleep(2000);
+  };
+  const raw = () => adb("exec-out", "uiautomator", "dump", "/dev/tty").stdout;
+  await runA1({
+    adb: (a) => adb(...a),
+    hierarchy: raw,
+    shot: (file) => shot(path.basename(file, ".png")),
+    record: (name, ok, detail = "") => {
+      state.results.push(lib.makeResult(name, ok, detail));
+      log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? ` (${detail})` : ""}`);
+    },
+    sleep,
+    out: OUT,
+    pkg: APP,
+    assistantName: "ARIA",
+    promptText: "show me pulse", // matches ARIA stub rule words ["pulse"]: reply "Preview answer" + the Open Pulse chip
+    flagsOn: !!opts.aria,
+    density: Number((/(\d+)\s*$/.exec(sh("wm density")) ?? [, "420"])[1]),
+    writeFile: (p, t) => fs.writeFileSync(p, t),
+    screens: [
+      { id: "today", open: tab(/^Today$/), launcher: true },
+      { id: "pulse", open: tab(/^Pulse$/), launcher: true },
+      { id: "clients", open: tab(/^Clients$/), launcher: true },
+      { id: "more", open: tab(/^More$/), launcher: true },
+    ],
+    secondUser: async () => {
+      adb("shell", "am", "force-stop", APP);
+      adb("shell", "pm", "clear", APP);
+      launch();
+      try {
+        await signIn("ida.instructor@example.test");
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+}
 
 async function openStudioDay() {
   await tapLabel(/^Today$/);

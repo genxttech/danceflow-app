@@ -42,9 +42,13 @@ export function tabsForWorkspace(workspace: StaffWorkspace | null | undefined, o
   return TAB_ORDER.filter((tab) => tabs.has(tab));
 }
 
-/** The tab a workspace opens on. */
-export function initialTab(workspace: StaffWorkspace | null | undefined, options: { pulseForAll?: boolean } = {}): TabKey {
+/**
+ * The tab a workspace opens on. `pulseHome` (flag, default off): owner, admin and front desk land on Pulse when it is listed; an instructor keeps Today (their own day is the same
+ * information, and Pulse is not their command center).
+ */
+export function initialTab(workspace: StaffWorkspace | null | undefined, options: { pulseForAll?: boolean; pulseHome?: boolean } = {}): TabKey {
   const tabs = tabsForWorkspace(workspace, options);
+  if (options.pulseHome && options.pulseForAll && tabs.includes("pulse") && isStudioWideRole(workspace?.role)) return "pulse";
   return tabs.includes("today") ? "today" : tabs[0];
 }
 

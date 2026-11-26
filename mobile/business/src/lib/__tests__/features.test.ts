@@ -29,3 +29,14 @@ describe("staff feature words", () => {
     expect([...WRITE_FEATURES]).toEqual(["appointmentAttendance", "clientNotes", "clientCreate", "classRoster"]);
   });
 });
+
+describe("Pulse command-center words", () => {
+  it("pulseCards and pulseHome are OFF by default and only on when named", () => {
+    expect(parseStaffFeatures(undefined).has("pulseCards")).toBe(false);
+    expect(parseStaffFeatures(undefined).has("pulseHome")).toBe(false);
+    expect(parseStaffFeatures("pulse").has("pulseCards")).toBe(false);
+    const both = parseStaffFeatures("pulse,pulseCards,pulseHome");
+    expect(both.has("pulseCards") && both.has("pulseHome")).toBe(true);
+    expect(parseStaffFeatures("pulseCards,-pulseCards").has("pulseCards")).toBe(false);
+  });
+});

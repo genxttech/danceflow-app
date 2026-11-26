@@ -2,6 +2,7 @@ import { Redirect } from "expo-router";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { Screen } from "@/components/Screen";
 import { initialTab } from "@/lib/navigation";
+import { isStaffFeatureEnabled } from "@/lib/features";
 import { useStaffSession } from "@/lib/staff";
 
 export default function Index() {
@@ -14,5 +15,5 @@ export default function Index() {
       </Screen>
     );
   }
-  return <Redirect href={`/${initialTab(workspace)}`} />;
+  return <Redirect href={`/${initialTab(workspace, { pulseForAll: isStaffFeatureEnabled("pulse"), pulseHome: isStaffFeatureEnabled("pulseHome") })}`} />;
 }

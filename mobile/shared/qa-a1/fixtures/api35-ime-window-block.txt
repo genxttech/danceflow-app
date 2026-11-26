@@ -1,0 +1,2 @@
+  Window #6 Window{56dedc3 u0 InputMethod}:
+    touchable region=SkRegion((0,1580,1080,2337))
