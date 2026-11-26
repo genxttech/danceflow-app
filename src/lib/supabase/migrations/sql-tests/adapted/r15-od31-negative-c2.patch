@@ -1,0 +1,16 @@
+diff --git a/docs/competition/governance/audit/guarded-baseline/test_T_od31_guarded_baseline_negative.sql b/docs/competition/governance/audit/guarded-baseline/test_T_od31_guarded_baseline_negative.sql
+index d72eee3..7ad6269 100644
+--- a/docs/competition/governance/audit/guarded-baseline/test_T_od31_guarded_baseline_negative.sql
++++ b/docs/competition/governance/audit/guarded-baseline/test_T_od31_guarded_baseline_negative.sql
+@@ -145,8 +145,9 @@ select pg_temp.chk('C1b ... audited as status_change with no reason, and the hea
+ select pg_temp.chk('C1c ... and the entry still counts in the ballot/results heat set (scoring unaffected by the parent status)',
+   '00000000-0000-0000-0000-cf1031800002'::uuid = any (public._compe2_heat_entries('00000000-0000-0000-0000-cf1031d00001'::uuid)));
+ -- C2 FINDING OD31-F2: the parent entry TRIGGER privilege is still granted to clients (only the heat-entry table was revoked by U18)
+-select pg_temp.chk('C2 CHARACTERIZATION (finding F2): authenticated still holds TRIGGER on event_competition_entries (U18 revoked it on heat entries only)',
+-  has_table_privilege('authenticated', 'public.event_competition_entries', 'TRIGGER'));
++-- ADAPTED COPY (R-15 / S6): the entry TRIGGER privilege is revoked by the R-15 write guard and by the S6 entry guard; before either, finding F2 stands.
++select pg_temp.chk('C2 CHARACTERIZATION (finding F2): authenticated holds TRIGGER on event_competition_entries only until a guard that revokes it is installed',
++  has_table_privilege('authenticated', 'public.event_competition_entries', 'TRIGGER') = (not exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_entries'::regclass and tgname in ('r15_guard_entry_eligibility_write', 'cf1_s6_guard_entry_status'))));
+ -- C3 FINDING OD31-F3 (SQL-session only): the scratch workflow marker is a plain GUC. In a session that can run arbitrary SQL, a manager can satisfy the U18-S condition
+ --    without the RPC: audited parent-entry scratch (the audit trigger writes the row), then set the GUC, then scratch the heat entry. Not reachable via PostgREST
+ --    (set_config lives in pg_catalog, which is not an exposed schema; no exposed function sets the marker for an arbitrary caller other than the lifecycle RPC).

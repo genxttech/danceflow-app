@@ -120,6 +120,24 @@ In-process PostgreSQL (PGlite) with **minimal stand-in tables**, not the compose
 
 **U18, U18-S, JC1.** Gate correct (couples seeded eligible with no determination are placed into a published order of an active round). Coordinator decision 2026-11-26: the released suites stay byte-identical to their pins; they run on R-15 chains only as labelled temporary adapted copies, built from src/lib/supabase/migrations/sql-tests/adapted/ (patch, blob hashes and runner rules). Originals run unpatched on the baseline chain.
 
+## Integrated run5 (2026-11-26; S4 `cabc41b7`, 865 `aa9ec144`, 864 `cdac85fb`, 863 `d6315d85`, 877 `7341af1d`, 867 `6dc6b2d4`; logs `C:/dfr/s5int-out/run5/`)
+
+Executed: apply, rollback and re-apply 8 of 8; the S5, R-11, R-10 S3 and R-15 suites (R-15: 106 checks, real S5 predicate), A3, PV-1, NS1, 10D.1, F3, 10C, 10C.4 passed composed; U18, U18-S, JC1 passed as ADAPTED COPIES only.
+
+| run5 failure | Verdict | Change after run5 (not executed) |
+|---|---|---|
+| R2 refund write gate, R2 entry refunds: check-in refused | gate correct: couples had no determination | clearance seeded through the helper after the participants, on top of the S5 date-of-birth lines |
+| 10D floor schedule: publish refused | gate correct: one couple is seeded `unverified` | the suite keeps planning it provisionally, now asserts publication is refused, then records the organizer decision through the RPC and publishes |
+| O1 day of: `COMPO1_NOT_PUBLISHED` | cause not confirmed by the log; the publish before it needs clearance | clearance seeded; the shared publish helper now seeds under `supabase_admin` too (it only did under `postgres`, so it never ran in the runner: **fixture defect**) |
+| E2 ballots: placement refused | gate correct | S3 added the block in PR 864 (head `a1b0eb9d`) |
+| OD-31 negative: C2 | expected change (TRIGGER revoked) | `sql-tests/adapted/r15-od31-negative-c2.patch`; OD-31 keeps the released suite unchanged |
+
+**Left after these changes (static review, not executed):** `r2_entry_refunds` still cannot pass: it also fails on the base chain alone at its direct heat activation (`COMPO1_HEAT_STATUS_WRITER`, the suite predates O1), so nothing after that statement has run on this chain. `e1_officials` is pre-existing. No guard was found to be wrong.
+
+**Runner dependency (S5 owner):** `comp-s5-integrated-run.sh` takes `o1_day_of`, both R2 suites and `phase10d_floor_schedule` from PR 863. The final versions (S5 lines plus clearance) are in PR 866, so the forward phase must take those four from PR 866, keeping the S5-only phase on PR 863. A three-way merge of the four files showed no conflicts.
+
+**Review of this change:** independent static review of the seeding commit: two findings (the runner dependency and the pre-existing R2 refunds failure above); no other problem found.
+
 ## Known gaps
 
 App changes above; suites not yet adapted; D-R15-4 (authorization semantics), D-R15-5 (waiver categories), whether early ballot-mark refusal is wanted (lock-time refusal is mandatory and present); division label / participant edits during a running round make a determination stale (recoverable by re-determination, not frozen). The blocker stays OPEN until the integrated release candidate passes end-to-end verification (register entry `DFPOL-R15-ELIGIBILITY-ENFORCEMENT`).

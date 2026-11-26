@@ -62,3 +62,17 @@ describe("R-15 adapted copies of the pinned U18 / U18-S / JC1 suites", () => {
     expect(added).toEqual([...HOOK, ...HOOK, ...HOOK, ...HOOK]);
   });
 });
+
+describe("R-15 adapted copy of the OD-31 negative suite", () => {
+  const patch = readFileSync(path.join(dir, "r15-od31-negative-c2.patch"), "utf8").replace(/\r\n/g, "\n").split("\n");
+
+  it("changes only the C2 characterization", () => {
+    const removed = patch.filter((line) => line.startsWith("-") && !line.startsWith("--- "));
+    const added = patch.filter((line) => line.startsWith("+") && !line.startsWith("+++ "));
+    expect(removed).toHaveLength(2);
+    expect(removed.join("\n")).toContain("C2 CHARACTERIZATION");
+    expect(added).toHaveLength(3);
+    expect(added.join("\n")).toContain("'r15_guard_entry_eligibility_write', 'cf1_s6_guard_entry_status'");
+    expect(patch.filter((line) => line.startsWith("@@"))).toHaveLength(1);
+  });
+});

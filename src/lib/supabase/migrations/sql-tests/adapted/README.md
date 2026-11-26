@@ -23,3 +23,15 @@ Rules for the runner:
 5. Prepend `fixtures/r15_clear_entries.sql`; it requires the real S5 predicate.
 
 A suite for another PR's later edit of these files (PR 877 edits U18-S) needs this patch regenerated against that blob.
+
+## OD-31 negative suite (second patch)
+
+`r15-od31-negative-c2.patch` changes one characterization, C2, in OD-31's suite (PR 856 head `056b945f`). That suite records that `authenticated` holds TRIGGER on
+`event_competition_entries`; the R-15 write guard (`20270301131000`) and the S6 entry guard deliberately revoke it. The adapted expectation is: the privilege is
+held exactly while neither guard is installed. The released suite stays unchanged (OD-31 keeps it as pre-R-15 evidence).
+
+| Suite | Released blob | Adapted copy blob |
+|---|---|---|
+| `docs/competition/governance/audit/guarded-baseline/test_T_od31_guarded_baseline_negative.sql` | `d72eee3687648257488252f4fcb590eaf4f357b1` | `7ad6269c2c0de911e9c88ca62341b1f738a5c76e` |
+
+Same rules as above: temporary copy only, check both blobs, originals run unpatched on the baseline, results labelled ADAPTED COPY.
