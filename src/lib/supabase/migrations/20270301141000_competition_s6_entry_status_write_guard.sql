@@ -9,11 +9,13 @@
 -- pending erases the state; (c) service_role could call the internal R2 withdrawal definers directly. The U18 / U18-S guards cover the HEAT-entry table only.
 --
 -- Fix, fail-closed, for any session role other than the owner roles (postgres, supabase_admin: an allowlist, the same convention as U18 and S4/R15):
---   * AFTER INSERT OR UPDATE: any change of status is refused; an INSERT must be 'pending' with no registration / order / cart link;
---   * BEFORE UPDATE: id, event_id, registration_id, order_id, order_item_id and registration_cart_id cannot be changed;
---   * BEFORE DELETE: refused for an entry whose status is not pending or confirmed, whose history contains a scratched / withdrawn / disqualified / complete status, or that is confirmed and
---     linked to a registration or order. (An unused pending entry, and an unlinked confirmed entry that never held one of those statuses, can still be deleted: existing behaviour that the
---     10A and callback-final suites rely on.)
+--   * AFTER INSERT OR UPDATE: any change of status is refused; an INSERT must be 'pending';
+--   * BEFORE INSERT: no registration / order / cart link and no scratch, withdrawal or confirmation evidence;
+--   * BEFORE UPDATE: id, event_id, registration_id, order_id, order_item_id, registration_cart_id and the lifecycle evidence (scratched_at, scratch_reason, withdrawn_at, withdrawal_reason,
+--     confirmed_at) cannot be changed; lifecycle_version only together with the late-entry flag (mark_competition_entry_late, an invoker function);
+--   * BEFORE DELETE: refused unless the entry is pending or confirmed, has no registration / order / cart link, was never confirmed through the product (confirmed_at is null), has no
+--     history containing a scratched / withdrawn / disqualified / complete status, and has no heat entry other than 'scheduled'. (Unused pending entries and unlinked, never-confirmed entries
+--     can still be deleted: existing behaviour that the 10A and callback-final suites rely on.)
 --   * EXECUTE on _r2_withdraw_entry and _r2_apply_participation is revoked from service_role (their only callers are owner-run definers).
 -- The link and delete rules are BEFORE triggers on purpose: a foreign-key referential action (ON DELETE SET NULL of registration_id / order_id, cascade deletes) runs as the table owner at
 -- BEFORE time, while a queued AFTER trigger would see the client role again.
@@ -44,7 +46,13 @@ begin
   if to_regprocedure('public._r2_withdraw_entry(uuid, text, text)') is null or to_regprocedure('public._r2_apply_participation(uuid)') is null then
     raise exception 'S6 guard preflight failed: the R2 functions are missing.';
   end if;
-  -- the rollback restores these privileges, so they must be what it expects (the recorded prior state)
+  -- the rules rely on the audit trigger writing history that clients cannot rewrite
+  if not exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_entries'::regclass and tgname = 'audit_competition_entry_change' and tgenabled <> 'D')
+     or has_table_privilege('authenticated', 'public.event_competition_entry_changes', 'update') and exists (select 1 from pg_policy where polrelid = 'public.event_competition_entry_changes'::regclass and polcmd in ('*', 'w', 'd'))
+     or (select pg_get_userbyid(relowner) from pg_class where oid = 'public.event_competition_entries'::regclass) not in ('postgres', 'supabase_admin') then
+    raise exception 'S6 guard preflight failed: the entry audit trigger, the append-only history or the table owner is not as expected.';
+  end if;
+  -- the privileges this migration revokes are recorded for the rollback; refuse a state it was not written for
   if not has_function_privilege('service_role', 'public._r2_withdraw_entry(uuid, text, text)', 'execute')
      or not has_function_privilege('service_role', 'public._r2_apply_participation(uuid)', 'execute')
      or not has_table_privilege('service_role', 'public.event_competition_entries', 'trigger')
@@ -75,7 +83,9 @@ begin
   end if;
   if tg_op = 'DELETE' then
     if old.status not in ('pending', 'confirmed')
-       or (old.status = 'confirmed' and (old.registration_id is not null or old.order_id is not null or old.order_item_id is not null or old.registration_cart_id is not null))
+       or old.confirmed_at is not null
+       or old.registration_id is not null or old.order_id is not null or old.order_item_id is not null or old.registration_cart_id is not null
+       or exists (select 1 from public.event_competition_heat_entries he where he.entry_id = old.id and he.status <> 'scheduled')
        or exists (select 1 from public.event_competition_entry_changes c
                   where c.entry_id = old.id
                     and (c.previous_state ->> 'status' in ('scratched', 'withdrawn', 'disqualified', 'complete')
@@ -84,7 +94,22 @@ begin
     end if;
     return old;
   end if;
+  if tg_when = 'BEFORE' and tg_op = 'INSERT' then
+    if new.registration_id is not null or new.order_id is not null or new.order_item_id is not null or new.registration_cart_id is not null then
+      raise exception 'COMP_S6_ENTRY_LINK_WRITER: an entry cannot be linked to a registration or order by a direct table write.' using errcode = '42501';
+    end if;
+    if new.scratched_at is not null or new.scratch_reason is not null or new.withdrawn_at is not null or new.withdrawal_reason is not null or new.confirmed_at is not null then
+      raise exception 'COMP_S6_ENTRY_EVIDENCE_WRITER: scratch, withdrawal and confirmation evidence cannot be written by a direct table write.' using errcode = '42501';
+    end if;
+    return new;
+  end if;
   if tg_when = 'BEFORE' then
+    if new.scratched_at is distinct from old.scratched_at or new.scratch_reason is distinct from old.scratch_reason or new.withdrawn_at is distinct from old.withdrawn_at
+       or new.withdrawal_reason is distinct from old.withdrawal_reason or new.confirmed_at is distinct from old.confirmed_at
+       or (new.lifecycle_version is distinct from old.lifecycle_version
+           and not coalesce(new.late_entry and not old.late_entry and new.lifecycle_version = old.lifecycle_version + 1, false)) then
+      raise exception 'COMP_S6_ENTRY_EVIDENCE_WRITER: scratch, withdrawal and confirmation evidence cannot be changed by a direct table write.' using errcode = '42501';
+    end if;
     if new.id is distinct from old.id or new.event_id is distinct from old.event_id
        or new.registration_id is distinct from old.registration_id or new.order_id is distinct from old.order_id
        or new.order_item_id is distinct from old.order_item_id or new.registration_cart_id is distinct from old.registration_cart_id then
@@ -95,9 +120,6 @@ begin
   if tg_op = 'INSERT' then
     if new.status is distinct from 'pending' then
       raise exception 'COMP_S6_ENTRY_STATUS_WRITER: an entry cannot be created as % by a direct table write; entries start pending.', new.status using errcode = '42501';
-    end if;
-    if new.registration_id is not null or new.order_id is not null or new.order_item_id is not null or new.registration_cart_id is not null then
-      raise exception 'COMP_S6_ENTRY_LINK_WRITER: an entry cannot be linked to a registration or order by a direct table write.' using errcode = '42501';
     end if;
     return new;
   end if;
@@ -115,15 +137,23 @@ create trigger cf1_s6_guard_entry_status
   after insert or update on public.event_competition_entries
   for each row execute function public.cf1_s6_guard_entry_status();
 alter table public.event_competition_entries enable always trigger cf1_s6_guard_entry_status;
--- identity / link rules and delete rules BEFORE (referential actions are visible as the owner here)
+-- identity / link / evidence rules and delete rules BEFORE (referential actions are visible as the owner here; the link rule fires before foreign-key checks)
 create trigger cf1_s6_guard_entry_links
-  before update on public.event_competition_entries
+  before insert or update on public.event_competition_entries
   for each row execute function public.cf1_s6_guard_entry_status();
 alter table public.event_competition_entries enable always trigger cf1_s6_guard_entry_links;
 create trigger cf1_s6_guard_entry_delete
   before delete on public.event_competition_entries
   for each row execute function public.cf1_s6_guard_entry_status();
 alter table public.event_competition_entries enable always trigger cf1_s6_guard_entry_delete;
+
+-- record the TRIGGER privileges as they are now, so the rollback restores exactly these (service_role's TRIGGER and EXECUTE are required by the preflight)
+do $$
+begin
+  execute format('comment on function public.cf1_s6_guard_entry_status() is %L',
+    'S6 prior trigger grantees: ' || concat_ws(',', case when has_table_privilege('anon', 'public.event_competition_entries', 'trigger') then 'anon' end,
+      case when has_table_privilege('authenticated', 'public.event_competition_entries', 'trigger') then 'authenticated' end, 'service_role'));
+end $$;
 
 revoke trigger on public.event_competition_entries from anon, authenticated, service_role;
 revoke execute on function public._r2_withdraw_entry(uuid, text, text) from service_role;

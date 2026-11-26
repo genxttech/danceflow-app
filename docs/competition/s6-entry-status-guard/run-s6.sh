@@ -37,6 +37,10 @@ while :; do
 done
 printf 'session: Competition OD-31 S6 entry status guard\njob: local Postgres %s (chain + S6 + suites + rollback proof)\nstart: %s\nexpected minutes: 30\n' "$NAME" "$(date -u +%FT%TZ)" > "$LOCK/owner.txt"
 log "lock taken"
+# recorded again under the lock: this is what actually runs
+( cd "$M" && ls | grep -E '^[0-9]{14}_.*competition.*\.sql$' | LC_ALL=C sort | xargs sha256sum ) > "$OUT/migrations.sha256"
+sha256sum "$OUT/migrations.sha256" | cut -d' ' -f1 > "$OUT/migrations.fingerprint"; ( cd "$REPO" && git rev-parse HEAD > "$OUT/head.txt"; git status --porcelain > "$OUT/tree-dirty.txt" )
+log "under lock: head $(cat "$OUT/head.txt"), fingerprint $(cat "$OUT/migrations.fingerprint"), uncommitted files $(wc -l < "$OUT/tree-dirty.txt")"
 
 docker run -d --name "$NAME" --label df.s6=1 --network none -e POSTGRES_PASSWORD=postgres "$IMAGE" > /dev/null || { echo BLOCKED > "$OUT/result.txt"; log "BLOCKED: docker run failed"; exit 4; }
 PSQL=(docker exec -i -e PGPASSWORD=postgres "$NAME" psql -U supabase_admin -d postgres -X -q -v ON_ERROR_STOP=1)
@@ -73,7 +77,7 @@ runsuite(){ # $1 name [$2 directory]
   [ -f "$d/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$TSV"; return; }
   timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$d/$s.sql" > "$OUT/suite-$(basename "$TSV" .tsv)-$s.log" 2>&1
   local line res; line="$(grep -E "SUITE (PASS|FAIL)|PASS \(|FAIL" "$OUT/suite-$(basename "$TSV" .tsv)-$s.log" | tail -1 | cut -c1-500)"
-  case "$line" in *PASS*) res=PASS;; *) res=FAIL;; esac
+  case "$line" in *"SUITE PASS ("*) res=PASS;; *) res=FAIL;; esac
   printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$TSV"; log "$(basename "$TSV" .tsv) $s: $res"
 }
 # PR 867 evidence: the chain at this point is exactly the PR 867 migration set (live line + JC1 / U18 / U18-S; no S6 file applied yet), and the SQL suites in this tree
@@ -99,6 +103,28 @@ for s in $SUITES; do runsuite "$s"; done
 # concurrency (real second connections)
 S6_OUT="$OUT" bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/concurrency.log" 2>&1; log "concurrency: $(tail -1 "$OUT/concurrency.log")"
 
+# mutation checks: a deliberately broken guard or function must make the tests FAIL, otherwise the tests prove nothing about that rule
+: > "$OUT/mutants.tsv"
+mutant(){ # $1 name  $2 function signature  $3 anchor text  $4 replacement  $5 test (suite|race)
+  printf "drop table if exists public._s6_mut; create table public._s6_mut as select pg_get_functiondef('%s'::regprocedure) as d;\ndo \$m\$ declare d text := (select d from public._s6_mut); begin if position(\$a\$%s\$a\$ in d) = 0 then raise exception 'mutant anchor missing'; end if; execute replace(d, \$a\$%s\$a\$, \$b\$%s\$b\$); end \$m\$;\n" "$2" "$3" "$3" "$4" > "$OUT/mut-$1.sql"
+  if ! "${PSQL[@]}" < "$OUT/mut-$1.sql" > "$OUT/mut-$1.log" 2>&1; then printf '%s\tNOT APPLIED\n' "$1" >> "$OUT/mutants.tsv"; return; fi
+  local det=NOT-DETECTED
+  if [ "$5" = race ]; then S6_OUT="$OUT" bash "$M/sql-tests/test_T_competition_s6_entry_status_concurrency.sh" "$NAME" > "$OUT/mut-$1-test.log" 2>&1 || det=DETECTED
+  else "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$M/sql-tests/test_T_competition_s6_entry_status_guard.sql" > "$OUT/mut-$1-test.log" 2>&1; grep -q "SUITE PASS (" "$OUT/mut-$1-test.log" || det=DETECTED; fi
+  "${PSQL[@]}" -c "do \$r\$ begin execute (select d from public._s6_mut); end \$r\$; drop table public._s6_mut;" >> "$OUT/mut-$1.log" 2>&1 || det=RESTORE-FAILED
+  printf '%s\t%s\n' "$1" "$det" >> "$OUT/mutants.tsv"; log "mutant $1: $det"
+}
+G='public.cf1_s6_guard_entry_status()'; L='public.change_competition_entry_lifecycle(uuid, text, text, text)'
+mutant insert-link-rule "$G" "if new.registration_id is not null or new.order_id is not null or new.order_item_id is not null or new.registration_cart_id is not null then" "if false then" suite
+mutant delete-status-rule "$G" "if old.status not in ('pending', 'confirmed')" "if false" suite
+mutant delete-order-link "$G" "or old.order_id is not null " "" suite
+mutant evidence-rule "$G" "new.scratch_reason is distinct from old.scratch_reason or " "" suite
+mutant entry-lock "$L" "for no key update;" ";" race
+mutant heat-lock "$L" "order by h.id
+  for share;" "order by h.id;" race
+"${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-after-mutants.txt"
+diff -q "$OUT/state-P2-after-140000-141000.txt" "$OUT/state-after-mutants.txt" >/dev/null || { log "mutants: state NOT restored"; echo "restore	NOT-DETECTED" >> "$OUT/mutants.tsv"; }
+
 # rollback proof: back to exactly the pre-S6 state
 "${PSQL[@]}" -1 < "$M/rollback/20270301141000_competition_s6_entry_status_write_guard_rollback.sql" > "$OUT/rb-141000.log" 2>&1; echo "rollback 141000 rc=$?" >> "$OUT/migrations-applied.txt"
 "${PSQL[@]}" -1 < "$M/rollback/20270301140000_competition_s6_entry_lifecycle_definer_rollback.sql" > "$OUT/rb-140000.log" 2>&1; echo "rollback 140000 rc=$?" >> "$OUT/migrations-applied.txt"
@@ -112,5 +138,6 @@ grep -q '^FAIL' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
 grep -Eq 'rc=[1-9]' "$OUT/migrations-applied.txt" && FAILS=$((FAILS+1))
 for tsv in suites.tsv suites-pr867.tsv suite-s6-after-reapply.tsv; do n=$(awk -F'\t' '$2!="PASS"' "$OUT/$tsv" | wc -l); [ "$n" -gt 0 ] && { log "$tsv: $n suite(s) not PASS"; FAILS=$((FAILS+1)); }; done
 grep -q 'S6 CONCURRENCY PASS' "$OUT/concurrency.log" || FAILS=$((FAILS+1))
+awk -F'\t' '$2!="DETECTED"' "$OUT/mutants.tsv" | grep -q . && { log "mutants not all detected"; FAILS=$((FAILS+1)); }
 [ "$(cat "$OUT/rollback-result.txt" 2>/dev/null)" = PASS ] || FAILS=$((FAILS+1))
 log "done"; if [ "$FAILS" = 0 ]; then echo PASS > "$OUT/result.txt"; else echo "NOT-ALL-PASS ($FAILS groups)" > "$OUT/result.txt"; exit 1; fi

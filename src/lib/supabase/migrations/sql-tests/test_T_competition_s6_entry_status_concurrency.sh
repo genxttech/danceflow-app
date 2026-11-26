@@ -15,7 +15,7 @@ SU() { docker exec -i -e PGPASSWORD=postgres "$C" psql -U supabase_admin -d post
 SUX() { docker exec -i -e PGPASSWORD=postgres "$C" psql -U supabase_admin -d postgres -q -At "$@"; }
 RUN="${RUN:-$(printf '%02x' $(($(date +%s) % 256)))}"
 U() { printf '00000000-0000-0000-0000-c1a6%s%06x' "$RUN" "$((16#$1))"; }
-MGR=$(U a0); STUDIO=$(U 51); EV=$(U e0); PROG=$(U 61); CON=$(U 62); DIV=$(U 71); ENT=$(U 91)
+MGR=$(U a0); STUDIO=$(U 51); EV=$(U e0); PROG=$(U 61); CON=$(U 62); DIV=$(U 71); ENT=$(U 91); ENT2=$(U 92); RND=$(U 81); VER=$(U c1); FH=$(U f1); HEAT=$(U d1)
 OUT="${S6_OUT:-${TMPDIR:-/tmp}}"
 PASS=0; FAILS=""
 ok() { if [ "$2" = "1" ]; then PASS=$((PASS+1)); else FAILS="$FAILS; $1"; fi; }
@@ -36,8 +36,16 @@ insert into public.event_competition_programs (id, event_id, studio_id, name, di
 insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status) values ('$CON', '$EV', '$PROG', 'C', 'single_dance', 'pro_am', 'open');
 insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status) values ('$DIV', '$EV', '$PROG', '$CON', 'D', 'open');
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
-  values ('$ENT', '$EV', '$PROG', '$DIV', 'race', 'confirmed', 'eligible', '1');
+  values ('$ENT', '$EV', '$PROG', '$DIV', 'race', 'confirmed', 'eligible', '1'), ('$ENT2', '$EV', '$PROG', '$DIV', 'heat race', 'confirmed', 'eligible', '2');
+insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values ('$VER', '$EV', 1, 'v1', 'published', now());
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method, target_advancement_count)
+  values ('$RND', '$EV', '$PROG', '$DIV', 'R', 'preliminary', 1, 'active', 'callback_tally', 1);
+insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values ('$FH', '$EV', '$VER', 1);
+insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, status, lock_state, contest_id, schedule_version_id, floor_heat_id)
+  values ('$HEAT', '$EV', '$DIV', '$RND', 1, 'scheduled', 'open', '$CON', '$VER', '$FH');
+insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order, status) values ('$EV', '$DIV', '$HEAT', '$ENT2', 1, 'scheduled');
 SQL
+VER0=$(SU -c "select lifecycle_version from public.event_competition_entries where id = '$ENT'")
 
 CLAIMS="select set_config('request.jwt.claims', json_build_object('sub','$MGR','role','authenticated')::text, false);"
 # gate: wait (server side, up to 120 s) until A has scratched and holds the advisory lock
@@ -98,4 +106,38 @@ ok "C (owner definer writer) raised no error" "$(noerr "$OUT/s6c_c.out")"
 ok "D (second manager submit) was a no-op without error" "$(noerr "$OUT/s6c_d.out")"
 ok "final status is scratched (not withdrawn)" "$([ "$STATUS" = "scratched" ] && echo 1 || echo 0)"
 ok "exactly one audit row, the scratch with the reason" "$([ "$AUD" = "1" ] && [ "$AUDS" = "1" ] && echo 1 || echo 0)"
+ok "A's evidence survived the second submit (reason 'S6 race', version advanced exactly once)" "$([ "$(SU -c "select (scratch_reason = 'S6 race' and lifecycle_version = $VER0 + 1)::int from public.event_competition_entries where id = '$ENT'")" = "1" ] && echo 1 || echo 0)"
+
+# Race 2: the heat starts AFTER the RPC's unlocked check and BEFORE its locks. H holds the heat row (status -> active, uncommitted) until the RPC is waiting on it.
+( SU <<SQL > "$OUT/s6c_h.out" 2>&1
+begin;
+set local session_replication_role = replica;
+update public.event_competition_heats set status = 'active' where id = '$HEAT';
+select pg_advisory_xact_lock(424243);
+do \$w\$
+declare n integer := 0;
+begin
+  for i in 1..150 loop
+    perform pg_stat_clear_snapshot();
+    select count(*) into n from pg_stat_activity where wait_event_type = 'Lock' and pid <> pg_backend_pid() and backend_type = 'client backend';
+    exit when n >= 1;
+    perform pg_sleep(0.2);
+  end loop;
+  raise notice 'S6HEATWAITERS=%', n;
+end \$w\$;
+commit;
+SQL
+) &
+PH=$!
+( SUX <<SQL > "$OUT/s6c_r.out" 2>&1
+${GATE//424242/424243}
+set role authenticated; $CLAIMS
+select public.change_competition_entry_lifecycle('$ENT2', 'scratched', 'S6 heat race', 'retain');
+SQL
+) &
+PR=$!
+wait $PH; wait $PR
+ok "race 2: the RPC waited for the starting heat" "$(grep -q 'S6HEATWAITERS=[1-9]' "$OUT/s6c_h.out" && echo 1 || echo 0)"
+ok "race 2: the RPC re-checked under the lock and refused (COMP_ENTRY_LIFECYCLE_PLACED)" "$(grep -q 'COMP_ENTRY_LIFECYCLE_PLACED' "$OUT/s6c_r.out" && echo 1 || echo 0)"
+ok "race 2: entry still confirmed and heat entry still scheduled" "$([ "$(SU -c "select (e.status = 'confirmed' and h.status = 'scheduled')::int from public.event_competition_entries e join public.event_competition_heat_entries h on h.entry_id = e.id where e.id = '$ENT2'")" = "1" ] && echo 1 || echo 0)"
 if [ -z "$FAILS" ]; then echo "S6 CONCURRENCY PASS ($PASS checks; $WAITERS lock waiters observed)"; exit 0; else echo "S6 CONCURRENCY FAIL:$FAILS (status=$STATUS audit=$AUD waiters=${WAITERS:-none})"; sed 's/^/  A| /' "$OUT/s6c_a.out"; sed 's/^/  B| /' "$OUT/s6c_b.out"; sed 's/^/  C| /' "$OUT/s6c_c.out"; sed 's/^/  D| /' "$OUT/s6c_d.out"; exit 1; fi

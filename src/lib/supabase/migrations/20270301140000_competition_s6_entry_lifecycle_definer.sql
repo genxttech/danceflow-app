@@ -27,6 +27,10 @@ begin
   if (select pg_get_userbyid(proowner) from pg_proc where oid = v_oid) not in ('postgres', 'supabase_admin') then raise exception 'S6 preflight failed: unexpected function owner.'; end if;
   -- never re-grant a function another slice retired: managers must currently hold EXECUTE and the SC1-branch replacement must not be installed
   if not has_function_privilege('authenticated', v_oid, 'execute') then raise exception 'S6 preflight failed: authenticated no longer holds EXECUTE (retired by another slice); do not re-grant.'; end if;
+  -- the rollback restores exactly this ACL, so refuse any other prior state (for example a privilege another change has revoked)
+  if (select array_agg(a::text order by a::text collate "C") from pg_proc p, unnest(p.proacl) a where p.oid = v_oid)
+     is distinct from array['=X/postgres', 'anon=X/postgres', 'authenticated=X/postgres', 'postgres=X/postgres', 'service_role=X/postgres'] then
+    raise exception 'S6 preflight failed: the lifecycle function ACL is not the recorded prior ACL; reconcile before applying.'; end if;
   if exists (select 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'scratch_competition_entry') then
     raise exception 'S6 preflight failed: scratch_competition_entry is installed; reconcile the scratch workflow ownership first.'; end if;
   if to_regprocedure('public.can_manage_event_competition(uuid)') is null or to_regprocedure('public._r2_entry_participation_class(uuid)') is null then

@@ -200,6 +200,38 @@ select pg_temp.chk('D4b an unlinked confirmed entry with only eligibility histor
 delete from public.event_competition_entries where id = pg_temp.id('830001');
 select pg_temp.chk('D4c the owner can still delete a protected entry', not exists (select 1 from public.event_competition_entries where id = pg_temp.id('830001')));
 
+-- D3c. INSERT cannot create a linked entry or planted evidence (the link rule fires before any foreign-key check, so the refusal is the guard's)
+select pg_temp.run('inslink_' || c, 'authenticated', format('insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number, %I) values (%L, %L, %L, %L, %L, %L, %L, %L, gen_random_uuid())',
+  c, gen_random_uuid(), pg_temp.id('e00001'), pg_temp.id('001001'), pg_temp.id('003001'), 'lk', 'pending', 'unverified', 'L' || c))
+from unnest(array['registration_id','order_id','order_item_id','registration_cart_id']) c;
+select pg_temp.chk('D3c ' || k || ': a client INSERT of a pending entry with this link is refused', r like '42501 COMP_S6_ENTRY_LINK_WRITER%', r) from t_r where k like 'inslink\_%';
+select pg_temp.run('insev', 'service_role', format('insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number, scratch_reason) values (%L, %L, %L, %L, %L, %L, %L, %L, %L)',
+  gen_random_uuid(), pg_temp.id('e00001'), pg_temp.id('001001'), pg_temp.id('003001'), 'ev', 'pending', 'unverified', 'EV1', 'planted'));
+select pg_temp.chk('D3c a client INSERT cannot plant scratch evidence', pg_temp.r('insev') like '42501 COMP_S6_ENTRY_EVIDENCE_WRITER%', pg_temp.r('insev'));
+-- D3d. lifecycle evidence cannot be edited or erased; the invoker late-entry function still works
+select pg_temp.run('ev_' || c, 'authenticated', pg_temp.upd('810006', c || ' = ' || v))
+from (values ('scratched_at', 'now()'), ('scratch_reason', '''x'''), ('withdrawn_at', 'now()'), ('withdrawal_reason', '''x'''), ('confirmed_at', 'now()'), ('lifecycle_version', 'lifecycle_version + 1')) u(c, v);
+select pg_temp.chk('D3d ' || k || ': a manager cannot write this lifecycle evidence column', r like '42501 COMP_S6_ENTRY_EVIDENCE_WRITER%', r) from t_r where k like 'ev\_%';
+select pg_temp.run('late', 'authenticated', format('select public.mark_competition_entry_late(%L, %L)', pg_temp.id('810007'), 'late'));
+select pg_temp.chk('D3d the invoker function mark_competition_entry_late still works for a manager', pg_temp.r('late') = 'OK'
+  and (select late_entry from public.event_competition_entries where id = pg_temp.id('810007')), pg_temp.r('late'));
+-- D4d. each delete rule on its own: current status without history, waitlisted, each link on its own, product confirmation, a pending linked entry, a non-scheduled heat entry
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+select pg_temp.id('84000' || i), pg_temp.id('e00001'), pg_temp.id('001001'), pg_temp.id('003001'), 'dd' || i, s, 'eligible', '82' || i
+from unnest(array['disqualified','waitlisted','confirmed','confirmed','confirmed','pending','confirmed']) with ordinality u(s, i);
+set local session_replication_role = replica;
+update public.event_competition_entries set order_id = gen_random_uuid() where id = pg_temp.id('840003');
+update public.event_competition_entries set order_item_id = gen_random_uuid() where id = pg_temp.id('840004');
+update public.event_competition_entries set registration_cart_id = gen_random_uuid() where id = pg_temp.id('840005');
+update public.event_competition_entries set registration_id = gen_random_uuid() where id = pg_temp.id('840006');
+update public.event_competition_entries set confirmed_at = now() where id = pg_temp.id('840007');
+set local session_replication_role = origin;
+select pg_temp.run('dd_' || n, 'authenticated', format('delete from public.event_competition_entries where id = %L', pg_temp.id(n)))
+from unnest(array['840001','840002','840003','840004','840005','840006','840007','800004']) n;
+select pg_temp.chk('D4d ' || k || ': refused (' || case k when 'dd_840001' then 'disqualified without history' when 'dd_840002' then 'waitlisted' when 'dd_840003' then 'order link' when 'dd_840004' then 'order item link'
+    when 'dd_840005' then 'cart link' when 'dd_840006' then 'pending with registration link' when 'dd_840007' then 'confirmed through the product' else 'danced heat entry' end || ')',
+  r like '42501 COMP_S6_ENTRY_DELETE_WRITER%', r) from t_r where k like 'dd\_%';
+
 -- E. bypass attempts
 select set_config('app.competition_entry_change_type', 'scratch', true), set_config('app.competition_entry_change_reason', 'forged marker', true);
 select pg_temp.run('e1a', 'authenticated', pg_temp.upd('810003', $s$status = 'scratched'$s$));
