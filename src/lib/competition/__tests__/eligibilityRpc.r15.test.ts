@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ELIGIBILITY_UNAVAILABLE_MESSAGE, eligibilityErrorMessage, loadClearanceStates, recordEligibilityDecision } from "../eligibilityRpc";
+import { ELIGIBILITY_ERRORS, ELIGIBILITY_UNAVAILABLE_MESSAGE, eligibilityErrorCode, isEligibilityErrorCode, isNotClearedRefusal, loadClearanceStates, NOT_CLEARED_MESSAGE, recordEligibilityDecision } from "../eligibilityRpc";
+import { friendlyDayOfError } from "../dayOf";
 
 const decision = { entryId: "entry-1", outcome: "eligible", reasonCode: "criteria_verified_by_organizer", criteria: ["age_division"], requestId: "req-1" };
 
@@ -34,11 +35,38 @@ describe("R-15 eligibility writes go only through the database function", () => 
     await expect(recordEligibilityDecision(c, decision)).rejects.toThrow(ELIGIBILITY_UNAVAILABLE_MESSAGE);
     expect(c.tableAccess()).toBe(0);
   });
-  it("surfaces the function's refusal sentence and hides other database text", () => {
-    expect(eligibilityErrorMessage({ code: "23514", message: "COMP_R15_DETERMINATION_INVALID: every competitor must have an established adult age; this cannot be waived." }))
-      .toBe("every competitor must have an established adult age; this cannot be waived.");
-    expect(eligibilityErrorMessage({ code: "42501", message: "COMP_R15_NOT_FOUND: entry was not found or cannot be managed." })).toMatch(/permission/);
-    expect(eligibilityErrorMessage({ code: "XX000", message: "relation secret_table row 42" })).not.toContain("secret_table");
+  it.each([
+    ["COMP_R15_DETERMINATION_INVALID: every competitor must have an established adult age; this cannot be waived.", "adult"],
+    ["COMP_R15_DETERMINATION_INVALID: this entry's division requires verification of: level.", "criteria"],
+    ["COMP_R15_DETERMINATION_INVALID: a waiver cannot be used for an event that declares any sanctioning.", "waiver"],
+    ["COMP_R15_DETERMINATION_INVALID: a withdrawn entry cannot be given an eligibility decision.", "entry_state"],
+    ["COMP_R15_DETERMINATION_INVALID: unknown verification criterion.", "invalid"],
+    ["COMP_R15_NOT_FOUND: entry was not found or cannot be managed.", "permission"],
+    ["relation secret_table row 42", "failed"],
+  ])("classifies a database refusal without passing its text on (%s)", (message, code) => {
+    expect(eligibilityErrorCode({ code: "23514", message })).toBe(code);
+    expect(ELIGIBILITY_ERRORS[eligibilityErrorCode({ message })]).not.toContain("secret_table");
+  });
+  it("accepts only its own codes from a URL", () => {
+    expect(isEligibilityErrorCode("adult")).toBe(true);
+    for (const value of ["toString", "<script>", "", undefined]) expect(isEligibilityErrorCode(value)).toBe(false);
+  });
+  it("tells staff why a gate refused an uncleared entry", () => {
+    for (const message of ["COMP_R15_PROVISIONAL_ASSIGNMENT: x", "COMP_R15_ENTRY_NOT_CLEARED: y"]) {
+      expect(isNotClearedRefusal(message)).toBe(true);
+      expect(friendlyDayOfError({ message, code: "P0001" })).toBe(NOT_CLEARED_MESSAGE);
+    }
+    expect(isNotClearedRefusal("COMPO1_BAD_STATE: z")).toBe(false);
+  });
+  it("reads with the exact function and parameter name", async () => {
+    const c = client({ data: "cleared" });
+    await loadClearanceStates(c, ["a"]);
+    expect(c.calls).toEqual([{ fn: "competition_entry_clearance_state", args: { p_entry_id: "a" } }]);
+  });
+  it("keeps every answer with its own entry across batches", async () => {
+    const ids = Array.from({ length: 45 }, (_, i) => String(i));
+    const states = await loadClearanceStates({ rpc: async (_fn, args) => ({ data: Number(args.p_entry_id) % 2 ? "provisional" : "cleared", error: null }) }, ids);
+    expect(ids.every((id) => states.get(id) === (Number(id) % 2 ? "provisional" : "cleared"))).toBe(true);
   });
   it("reads clearance states, treats a missing function as unavailable and any unknown answer as not cleared, and throws otherwise", async () => {
     expect([...(await loadClearanceStates(client({ data: "cleared" }), ["a", "b"])).values()]).toEqual(["cleared", "cleared"]);
@@ -55,7 +83,7 @@ describe("R-15 eligibility writes go only through the database function", () => 
     });
     const offenders = walk(root).filter((file) => {
       const text = readFileSync(file, "utf8");
-      return /\.(insert|update|upsert)\(\s*\{[^}]*\beligibility_status\b/.test(text) || text.includes("eligibility_determination");
+      return /\.(insert|update|upsert)\(\s*[\[{][\s\S]{0,300}?\beligibility_status\s*[:,}]/.test(text) || text.includes("eligibility_determination");
     });
     expect(offenders).toEqual([]);
   }, 60000);

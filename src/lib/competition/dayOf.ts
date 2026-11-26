@@ -4,6 +4,7 @@
   everything here only decides what to show and which button to offer.
 */
 
+import { isNotClearedRefusal, NOT_CLEARED_MESSAGE } from "@/lib/competition/eligibilityRpc";
 import { withRetryOnce, type RpcCall, type RpcResult } from "@/lib/competition/results/advancement";
 import { hasResultMessage, isRetryableText, resultErrorMessage } from "@/lib/competition/results/messages";
 
@@ -129,6 +130,7 @@ export function heatStateLabel(state: HeatRunState) {
 /** Plain-language message for staff; never a raw database error. */
 export function friendlyDayOfError(error: { message?: string; code?: string | null } | null | undefined) {
   const message = error?.message ?? "";
+  if (isNotClearedRefusal(message)) return NOT_CLEARED_MESSAGE;
   const match = message.match(/COMPO1_[A-Z_]+:\s*([\s\S]+?)(?:\n|$)/);
   if (match) return match[1].replace(/\s+/g, " ").trim();
   if (/COMP10D_SCHEDULE_PUBLISHED|COMPO1_RUN_IN_PROGRESS/.test(message)) return "The running order cannot change once heats have started.";

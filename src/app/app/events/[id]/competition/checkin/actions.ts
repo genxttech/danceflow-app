@@ -1,5 +1,6 @@
 "use server";
 
+import { loadClearanceStates, type RpcClient } from "@/lib/competition/eligibilityRpc";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -56,7 +57,9 @@ async function recalculateSession(supabase: Awaited<ReturnType<typeof createClie
   const waiverRows = waiverResult.data ?? [];
   const checkinParticipants = participantResult.data ?? [];
   const waiverComplete = requiredTemplateIds.size === 0 || checkinParticipants.every((participant) => participant.waiver_status === "waived" || [...requiredTemplateIds].every((templateId) => waiverRows.some((row) => row.checkin_participant_id === participant.id && row.template_id === templateId)));
-  const entriesComplete = entries.length > 0 && entries.every((entry) => ["confirmed", "complete"].includes(entry.status) && ["eligible", "waived"].includes(entry.eligibility_status) && ["verified", "corrected"].includes(entry.verification_status));
+  // R-15: a status alone is not clearance; the database answers (a missing function counts as not cleared).
+  const clearance = await loadClearanceStates(supabase as unknown as RpcClient, entries.filter((entry) => ["eligible", "waived"].includes(entry.eligibility_status)).map((entry) => entry.id));
+  const entriesComplete = entries.length > 0 && entries.every((entry) => ["confirmed", "complete"].includes(entry.status) && clearance.get(entry.id) === "cleared" && ["verified", "corrected"].includes(entry.verification_status));
   const entryBlocked = entries.some((entry) => entry.eligibility_status === "ineligible" || entry.verification_status === "disputed");
   const targets = buildCompetitionCredentialTargets({ entries, divisions: divisionResult.data ?? [], rules: ruleResult.data ?? [], participants: (entryParticipantResult.data ?? []).filter((item) => entries.some((entry) => entry.id === item.entry_id)) });
   const credentials = credentialResult.data ?? [];

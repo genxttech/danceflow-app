@@ -2,10 +2,11 @@
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { ELIGIBILITY_CRITERIA, validateEligibilityDecision, type EligibilityCriterion } from "@/lib/competition/eligibilityGate";
-import { recordEligibilityDecision, type RpcClient } from "@/lib/competition/eligibilityRpc";
+import { EligibilityDecisionError, eligibilityErrorCode, recordEligibilityDecision, type EligibilityErrorCode, type RpcClient } from "@/lib/competition/eligibilityRpc";
 import { entryParticipantsAdultVerified, loadEntryRequiredCriteria } from "@/lib/competition/eligibilityGateServer";
 
 const ELIGIBILITY = ["unverified", "eligible", "needs_review", "ineligible", "waived"];
@@ -35,6 +36,11 @@ function refresh(eventId: string) {
   revalidatePath(`/app/events/${eventId}/competition/readiness`);
 }
 
+/** A refusal is shown on the registrations page; a thrown server-action message would be hidden in production. */
+function refused(eventId: string, code: EligibilityErrorCode): never {
+  redirect(`/app/events/${eventId}/competition/registrations?eligibilityError=${code}`);
+}
+
 export async function updateCompetitionEntryEligibilityAction(formData: FormData): Promise<void> {
   const eventId = text(formData, "eventId");
   const entryId = text(formData, "entryId");
@@ -52,9 +58,17 @@ export async function updateCompetitionEntryEligibilityAction(formData: FormData
   const verifiedCriteria = (formData.getAll("criteria") as string[]).map(String).filter((item): item is EligibilityCriterion => (ELIGIBILITY_CRITERIA as readonly string[]).includes(item));
   const participantsAdult = await entryParticipantsAdultVerified(supabase, eventId, entryId);
   const problem = validateEligibilityDecision({ outcome: eligibilityStatus, reasonCode, required: classification.required, verifiedCriteria, participantsAdult });
-  if (problem) throw new Error(problem);
+  if (problem) {
+    const code = eligibilityErrorCode({ message: problem });
+    refused(eventId, code === "failed" ? "invalid" : code);
+  }
   const criteria = eligibilityStatus === "eligible" ? verifiedCriteria : [];
-  await recordEligibilityDecision(supabase as unknown as RpcClient, { entryId, outcome: eligibilityStatus, reasonCode, criteria, requestId: randomUUID() });
+  try {
+    await recordEligibilityDecision(supabase as unknown as RpcClient, { entryId, outcome: eligibilityStatus, reasonCode, criteria, requestId: randomUUID() });
+  } catch (error) {
+    if (error instanceof EligibilityDecisionError) refused(eventId, error.code);
+    throw error;
+  }
   refresh(eventId);
 }
 
