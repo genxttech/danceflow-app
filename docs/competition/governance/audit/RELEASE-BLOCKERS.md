@@ -14,3 +14,5 @@ for the approving manager (RF-11.2). Evidence and reasons for leaving them out: 
 
 Flip condition for the PR 859 static markers (`r11.approval.static.test.ts`, `KNOWN BLOCKER RB-11.1/RB-11.2`, `it.fails`): they read only the F2 migration text and therefore stay
 "expected to fail" even after this migration is applied; after the migration is applied they must be re-pointed to the R-11 migration text and flipped to normal `it` tests.
+
+**Open question under RB-11.2 (second review, unverified):** a never-published approved or corrected round can be cancelled (`cancel_competition_round`) and replaced by a new round, whose first approval counts as initial and so allows the self-approval override. Not run end to end; outside the function PR 865 changes; needs an owner decision before RB-11.2 is treated as closed.
