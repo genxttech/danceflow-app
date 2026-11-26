@@ -124,6 +124,28 @@ ok=0; [ "$w" -ge 1 ] && grep -q '^ok' $TD/m16b_b3v.out && grep -q '"erased"' $TD
 note "B2b verify first: waiting=$w left=$left"
 must "B2b erase waits for the verify and then removes everything" "$ok"
 
+# ---- B4 finalize holds the lock first; revoke-all waits and then ends the new invitation
+X=$(seed 21 pending); R=$(f "$X" 2); P=$(f "$X" 4); GI=$(uid 4 21)
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role service_role; $(finsql "$P" "$GI" 1 "gt-b4-$OFF") select pg_sleep(6); commit;" > $TD/m16b_b4_fin.out 2>&1 ) &
+sleep 2
+( as_staff "$U" "select public.intake_revoke_invitations('$S', '$R');" > $TD/m16b_b4.out 2>&1 ) &
+sleep 2; w=$(advwait); wait
+st=$(q "select coalesce(revoked_reason, 'live') from public.intake_invitations where id = '$GI';")
+ok=0; [ "$w" -ge 1 ] && grep -q '^issued:1' $TD/m16b_b4_fin.out && [ "$st" = "staff_revoked" ] && ok=1
+note "B4 finalize first: waiting=$w invitation=$st"
+must "B4 revoke-all waits for the finalize and then revokes the new guardian invitation" "$ok"
+
+# ---- B5 a re-request holds the lock first; an issue on the old link waits and is refused
+X=$(seed 22); R=$(f "$X" 2); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 22)
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; set local role authenticated; set local request.jwt.claims = '{\"sub\":\"$U\",\"role\":\"authenticated\"}'; $(reqsql "$R" b5) select pg_sleep(6); commit;" > $TD/m16b_b5_req.out 2>&1 ) &
+sleep 2
+( svc "$(isssql "$SS" "$CH" right "$H")" > $TD/m16b_b5.out 2>&1 ) &
+sleep 2; w=$(advwait); wait
+n=$(q "select count(*) from public.intake_email_challenges where request_id = '$R';")
+ok=0; [ "$w" -ge 1 ] && grep -q '^requested:' $TD/m16b_b5_req.out && [ "$(last $TD/m16b_b5.out)" = "invalid" ] && [ "$n" = "0" ] && ok=1
+note "B5 re-request first: waiting=$w issue=$(last $TD/m16b_b5.out) challenges=$n"
+must "B5 an issue on the old link waits for the re-request and writes nothing" "$ok"
+
 # ---- C1 eight concurrent wrong verifies: exactly five counted
 X=$(seed 16); C=$(f "$X" 1); SS=$(f "$X" 3); H=$(f "$X" 5); CH=$(uid 6 16)
 svc "$(isssql "$SS" "$CH" right "$H")" >/dev/null

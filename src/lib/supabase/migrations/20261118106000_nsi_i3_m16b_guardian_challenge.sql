@@ -1044,7 +1044,8 @@ begin
   end if;
   select * into q from public.intake_requests r where r.id = s.request_id and r.studio_id = s.studio_id;
   if q.id is null or intake_private.erasure_barrier_active(q.studio_id, q.client_id) then return; end if;
-  perform intake_private.assert_drift_free(q.studio_id, q.client_id, q.id);
+  -- a read answers with no row on tenant drift, it never raises
+  if not exists (select 1 from public.clients c where c.id = q.client_id and c.studio_id = q.studio_id) then return; end if;
   select * into i from public.intake_invitations x where x.id = s.invitation_id;
   return query
     select p.email, p.email_hmac_kid from public.intake_respondents p
@@ -1101,8 +1102,9 @@ begin
   v_bucket := sha256(convert_to('intake/challenge-issue/v1|' || coalesce(p.id, q.id)::text, 'UTF8'));
   v_ok := public.intake_rate_limit_hit(v_bucket, 5, 3600);
   v_ok := public.intake_rate_limit_hit(v_bucket, 20, 86400) and v_ok;
-  v_ok := public.intake_rate_limit_hit(p_ip_bucket, 30, 3600) and v_ok;
-  v_ok := public.intake_rate_limit_hit(p_email_bucket, 10, 3600) and v_ok;
+  -- the app's buckets are domain-separated here, so they share no counter with any other use of the same hash
+  v_ok := public.intake_rate_limit_hit(sha256(convert_to('intake/challenge-issue-ip/v1|', 'UTF8') || p_ip_bucket), 30, 3600) and v_ok;
+  v_ok := public.intake_rate_limit_hit(sha256(convert_to('intake/challenge-issue-email/v1|', 'UTF8') || p_email_bucket), 10, 3600) and v_ok;
   if not v_ok then return 'limited'; end if;
   if p.id is null or p.redacted_at is not null then return 'invalid'; end if;
   if p.assurance <> 'declared_unverified' then return 'already_done'; end if;

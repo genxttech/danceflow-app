@@ -93,6 +93,10 @@ mutate "finalize ignores a linked recipient" $FI "if q.guardian_recipient_link_i
 mutate "finalize keeps an interim respondent" $FI "where p.request_id = q.id and p.role = 'guardian' and p.superseded_at is null;" "where false;" "B04c"
 mutate "address read ignores the bound recipient" $TG "and p.email_hmac = i.recipient_email_hmac and p.email_hmac_kid = i.recipient_email_hmac_kid;" ";" "B07a"
 mutate "address read ignores assurance" $TG "and p.assurance = 'declared_unverified' and p.email is not null" "and p.email is not null" "B07a"
+mutate "issue counts the raw app bucket" $IS "sha256(convert_to('intake/challenge-issue-ip/v1|', 'UTF8') || p_ip_bucket)" "p_ip_bucket" "B08a"
+mutate "address read ignores a revoked session" $TG "if s.id is null or s.revoked_at is not null or" "if s.id is null or" "B07a"
+mutate "address read ignores link validity" $TG " or not intake_private.link_valid(s.invitation_id) then" " then" "B06"
+mutate "verify ignores the respondent of the challenge" $VE "or c.respondent_id <> p.id " "" "B09a"
 mutate "issue ignores the send-to hash" $IS "or i.recipient_email_hmac is distinct from p_send_to_email_hmac or i.recipient_email_hmac_kid is distinct from p_send_to_kid then" "then" "B07b"
 mutate "issue ignores the respondent hash" $IS "if i.recipient_email_hmac is distinct from p.email_hmac or i.recipient_email_hmac_kid is distinct from p.email_hmac_kid" "if false" "B07b"
 mutate "issue ignores the buckets" $IS "if not v_ok then return 'limited'; end if;" "null;" "B08a"
@@ -205,6 +209,7 @@ raceprobe "request without lock_client" 1000 "A1" public.intake_guardian_request
 raceprobe "issue without lock_client" 2000 "A2" public.intake_issue_email_challenge "perform intake_private.lock_client(s.studio_id, v_client);" "null;"
 raceprobe "verify without lock_client" 3000 "A3" public.intake_verify_email_challenge "perform intake_private.lock_client(s.studio_id, v_client);" "null;"
 raceprobe "finalize without lock_client" 4000 "B1" public.intake_guardian_finalize_invitation "perform intake_private.lock_client(v_studio, v_client);" "null;"
+raceprobe "revoke-all without lock_client" 7000 "B4" public.intake_revoke_invitations "perform intake_private.lock_client(p_studio_id, v_client);" "null;"
 raceprobe "verify without the isolation guard" 5000 "E1" public.intake_verify_email_challenge "if current_setting('transaction_isolation') <> 'read committed' then" "if false then"
 raceprobe "purge deletes challenges of unlocked clients" 6000 "P1" intake_private.purge_expired_impl "and (x.studio_id::text || ':' || x.client_id::text) = any (v_locked)
       and not intake_private.client_has_active_hold(x.studio_id, x.client_id)

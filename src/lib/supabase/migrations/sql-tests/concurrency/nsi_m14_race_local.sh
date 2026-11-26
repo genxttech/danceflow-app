@@ -91,20 +91,23 @@ verdict "R2-P2A purge transaction began before the hold committed" "$deleted"
 # ---- R2a: purge DELETE blocked on a row lock; the hold creator (RPC) must WAIT on the client lock until the purge commits (the CORRECT outcome in BOTH modes)
 P=$(seed_client 3); C3=${P%%|*}; REST=${P#*|}; R3=${REST%%|*}
 backdate "$R3"
-( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_sessions where request_id = '$R3' for update; select pg_sleep(8); commit;" > /dev/null 2>&1 ) &
+( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "begin; select id from public.intake_sessions where request_id = '$R3' for update; select pg_sleep(18); commit;" > /dev/null 2>&1 ) &
 sleep 2
 ( docker exec -i "$DB" psql -U postgres -d postgres -X -At -c "set role service_role; select public.intake_purge_expired(500)::text; select clock_timestamp();" > $TD/m14_r2a_purge.out 2>&1 ) &
 sleep 2
-t0=$(date +%s)
 ( as_staff "$PA" "select public.intake_create_legal_hold('$S', 'client', '$C3', 'm14 r2a', 'm14 r2a', now() + interval '30 days');" > $TD/m14_r2a_hold.out 2>&1 ) &
-sleep 2
-waiting=$(q "select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory';")
+# deterministic: sample until the creator is seen waiting WHILE the purge is still blocked; the hold must not exist at that moment
+waiting=0; early=unseen
+for k in $(seq 1 24); do
+  waiting=$(q "select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and wait_event = 'advisory';")
+  if [ "$waiting" -ge 1 ]; then early=$(q "select count(*) from public.intake_legal_holds where client_ref = '$C3';"); break; fi
+  sleep 0.5
+done
 wait
-t1=$(date +%s)
 gone=$(q "select count(*) from public.intake_sessions where request_id = '$R3';")
 holds=$(q "select count(*) from public.intake_legal_holds where client_ref = '$C3';")
-ok=0; [ "$waiting" -ge 1 ] && [ "$gone" = "0" ] && [ "$holds" = "1" ] && [ $((t1 - t0)) -ge 4 ] && ok=1
-note "R2a hold creator waiting on the advisory lock=$waiting; purge deleted (sessions left=$gone); hold exists afterwards=$holds; total $((t1 - t0)) s"
+ok=0; [ "$waiting" -ge 1 ] && [ "$early" = "0" ] && [ "$gone" = "0" ] && [ "$holds" = "1" ] && ok=1
+note "R2a hold creator waiting on the advisory lock=$waiting (hold rows while blocked=$early); purge deleted (sessions left=$gone); hold exists afterwards=$holds"
 must "R2a RPC hold creation waits on the client lock while the purge runs, the purge deletes (the hold did not exist yet), the hold exists afterwards" "$ok"
 
 # ---- R2b: the backstop: a hold inserted DIRECTLY bypassing the lock (replica role disables the insert trigger), in a transaction that began BEFORE the purge,

@@ -343,7 +343,7 @@ select pg_temp.chk('B06 a guardian link opens a guardian session in the requeste
   pg_temp.kv('b6_ctx') = pg_temp.part(pg_temp.kv('g6a'), 1) and pg_temp.kv('b6_aud') = 'guardian:' || pg_temp.u('owner_a')::text
   and pg_temp.kv('b6_adult_ctx') = 'NONE' and pg_temp.kv('b6_adult_iss') = 'invalid' and pg_temp.kv('b6_adult_tgt') = 'NONE' and pg_temp.kv('b6_link_ctx') = 'NONE'
   and pg_temp.kv('b6_reissue_g') = pg_temp.part(pg_temp.kv('g6s'), 1) and pg_temp.kv('b6_reissue_s') = 'NONE'
-  and pg_temp.kv('b6_pre_ctx') = pg_temp.part(pg_temp.kv('g6r'), 1) and pg_temp.kv('b6_rev_ctx') = 'NONE' and pg_temp.kv('b6_rev0') = 'ok'
+  and pg_temp.kv('b6_pre_ctx') = pg_temp.part(pg_temp.kv('g6r'), 1) and pg_temp.kv('b6_rev_ctx') = 'NONE' and pg_temp.kv('b6_rev0') = 'ok' and pg_temp.is_uuid(pg_temp.kv('b6_open'))
   and (select superseded_at is not null from public.intake_guardian_invitation_requests where id = pg_temp.part(pg_temp.kv('p6only'), 6)::uuid),
   concat_ws(' | ', pg_temp.kv('b6_ctx'), pg_temp.kv('b6_aud'), pg_temp.kv('b6_adult_ctx'), pg_temp.kv('b6_adult_iss'), pg_temp.kv('b6_link_ctx'), pg_temp.kv('b6_reissue_g'), pg_temp.kv('b6_reissue_s'), pg_temp.kv('b6_rev_ctx')));
 
@@ -382,9 +382,16 @@ select pg_temp.setkv('i_a', pg_temp.iss(pg_temp.kv('g7a'), gen_random_uuid(), 'c
 select pg_temp.setkv('c7', gen_random_uuid()::text);
 select pg_temp.setkv('i_ok', pg_temp.iss(pg_temp.kv('g7'), pg_temp.kv('c7')::uuid, 'right'));
 select pg_temp.setkv('i_dup', pg_temp.iss(pg_temp.kv('g7'), pg_temp.kv('c7')::uuid, 'right'));
+select pg_temp.setkv('g7rv', pg_temp.gset()); select pg_temp.setkv('g7dr', pg_temp.gset());
+select pg_temp.svc(format('select public.intake_revoke_session(decode(%L, ''hex''))', pg_temp.hx(pg_temp.part(pg_temp.kv('g7rv'), 8))));
+select pg_temp.setkv('t_rev', pg_temp.tgt(pg_temp.kv('g7rv')));
+select pg_temp.setkv('t_dr0', pg_temp.tgt(pg_temp.kv('g7dr')));
+select pg_temp.own(format('update public.clients set studio_id = %L where id = %L', pg_temp.kv('sb'), pg_temp.part(pg_temp.kv('g7dr'), 4)));
+select pg_temp.setkv('t_dr1', pg_temp.tgt(pg_temp.kv('g7dr')));
 select pg_temp.chk('B07a the address read returns the stored address and key id only to a valid guardian session whose current respondent matches the bound recipient; zero rows for no respondent, other hash or key, verified, no address, student session or closed gate',
   pg_temp.kv('t_ok') = 'guardian@nsi-m16b.invalid:1' and pg_temp.kv('t_none') = 'NONE' and pg_temp.kv('t_h') = 'NONE' and pg_temp.kv('t_k') = 'NONE'
-  and pg_temp.kv('t_a') = 'NONE' and pg_temp.kv('t_e') = 'NONE' and pg_temp.kv('t_stud') = 'NONE' and pg_temp.kv('t_gate') = 'NONE',
+  and pg_temp.kv('t_a') = 'NONE' and pg_temp.kv('t_e') = 'NONE' and pg_temp.kv('t_stud') = 'NONE' and pg_temp.kv('t_gate') = 'NONE'
+  and pg_temp.kv('t_rev') = 'NONE' and pg_temp.kv('t_dr0') <> 'NONE' and pg_temp.kv('t_dr1') = 'NONE',
   concat_ws(' | ', pg_temp.kv('t_ok'), pg_temp.kv('t_none'), pg_temp.kv('t_h'), pg_temp.kv('t_k'), pg_temp.kv('t_a'), pg_temp.kv('t_e'), pg_temp.kv('t_stud'), pg_temp.kv('t_gate')));
 select pg_temp.chk('B07b a challenge needs respondent hash, send-to hash and bound recipient all equal (one word, invalid, otherwise); student session invalid; verified respondent already_done; gate_closed first; a repeated id is invalid; the stored row copies the bound hash and expires in ten minutes',
   pg_temp.kv('i_gate') = 'gate_closed' and pg_temp.kv('v_gate') = 'gate_closed' and pg_temp.kv('i_stud') = 'invalid' and pg_temp.kv('i_none') = 'invalid' and pg_temp.kv('i_h') = 'invalid'
@@ -410,10 +417,12 @@ select pg_temp.svc(format('select public.intake_rate_limit_hit(sha256(convert_to
 select pg_temp.setkv('l_day', pg_temp.iss(pg_temp.kv('g8d'), gen_random_uuid(), 'c'));
 select pg_temp.clear_limits();
 select pg_temp.setkv('g8ip', pg_temp.gset());
-select pg_temp.svc(format('select public.intake_rate_limit_hit(decode(%L, ''hex''), 30, 3600)', pg_temp.hx('ip-x'))) from generate_series(1, 30);
+select pg_temp.svc(format('select public.intake_rate_limit_hit(sha256(convert_to(''intake/challenge-issue-ip/v1|'', ''UTF8'') || decode(%L, ''hex'')), 30, 3600)', pg_temp.hx('ip-x'))) from generate_series(1, 30);
 select pg_temp.setkv('l_ip', pg_temp.iss(pg_temp.kv('g8ip'), gen_random_uuid(), 'c', null, 1, pg_temp.hx('ip-x')));
-select pg_temp.svc(format('select public.intake_rate_limit_hit(decode(%L, ''hex''), 10, 3600)', pg_temp.hx('em-x'))) from generate_series(1, 10);
+select pg_temp.svc(format('select public.intake_rate_limit_hit(sha256(convert_to(''intake/challenge-issue-email/v1|'', ''UTF8'') || decode(%L, ''hex'')), 10, 3600)', pg_temp.hx('em-x'))) from generate_series(1, 10);
 select pg_temp.setkv('l_em', pg_temp.iss(pg_temp.kv('g8ip'), gen_random_uuid(), 'c', null, 1, null, pg_temp.hx('em-x')));
+select pg_temp.svc(format('select public.intake_rate_limit_hit(decode(%L, ''hex''), 30, 3600)', pg_temp.hx('ip-raw'))) from generate_series(1, 40);
+select pg_temp.setkv('l_raw', pg_temp.iss(pg_temp.kv('g8ip'), gen_random_uuid(), 'c', null, 1, pg_temp.hx('ip-raw')));
 select pg_temp.clear_limits();
 select pg_temp.setkv('g8h', pg_temp.gset()); select pg_temp.mkch(pg_temp.kv('g8h'), '30 minutes') from generate_series(1, 4);
 select pg_temp.setkv('l_h4', pg_temp.iss(pg_temp.kv('g8h'), gen_random_uuid(), 'c'));
@@ -435,7 +444,7 @@ select pg_temp.iss(pg_temp.kv('g8s'), pg_temp.kv('c8a')::uuid, 'a'); select pg_t
 select pg_temp.setkv('v8old', pg_temp.ver(pg_temp.kv('g8s'), pg_temp.kv('c8a')::uuid, 'a'));
 select pg_temp.chk('B08a every issue attempt is counted before anything is compared: five wrong ones leave the sixth correct one limited; the daily, network and address buckets limit too',
   (select count(*) = 5 from generate_series(1, 5) n where pg_temp.kv('l_a_' || n) = 'invalid') and pg_temp.kv('l_a_6') = 'limited' and pg_temp.kv('l_a_7') = 'ok'
-  and pg_temp.kv('l_day') = 'limited' and pg_temp.kv('l_ip') = 'limited' and pg_temp.kv('l_em') = 'limited',
+  and pg_temp.kv('l_day') = 'limited' and pg_temp.kv('l_ip') = 'limited' and pg_temp.kv('l_em') = 'limited' and pg_temp.kv('l_raw') = 'ok',
   concat_ws(' | ', pg_temp.kv('l_a_1'), pg_temp.kv('l_a_6'), pg_temp.kv('l_a_7'), pg_temp.kv('l_day'), pg_temp.kv('l_ip'), pg_temp.kv('l_em')));
 select pg_temp.chk('B08b caps counted from challenge rows: 5 per hour, 10 per day, 50 per invitation; a new challenge supersedes the open one, which then answers superseded without counting',
   pg_temp.kv('l_h4') = 'ok' and pg_temp.kv('l_h5') = 'limited' and pg_temp.kv('l_t9') = 'ok' and pg_temp.kv('l_t10') = 'limited' and pg_temp.kv('l_f49') = 'ok' and pg_temp.kv('l_f50') = 'limited'
@@ -471,10 +480,15 @@ select pg_temp.setkv('v_inv', pg_temp.ver(pg_temp.kv('g9i'), pg_temp.kv('c9i')::
 select pg_temp.setkv('g9r', pg_temp.gset()); select pg_temp.setkv('c9r', gen_random_uuid()::text); select pg_temp.iss(pg_temp.kv('g9r'), pg_temp.kv('c9r')::uuid, 'right');
 select pg_temp.greq('owner_a', pg_temp.part(pg_temp.kv('g9r'), 1), 'fresh');
 select pg_temp.setkv('v_rereq', pg_temp.ver(pg_temp.kv('g9r'), pg_temp.kv('c9r')::uuid, 'right'));
+select pg_temp.setkv('g9s', pg_temp.gset()); select pg_temp.setkv('c9s', gen_random_uuid()::text); select pg_temp.iss(pg_temp.kv('g9s'), pg_temp.kv('c9s')::uuid, 'right');
+update public.intake_respondents set superseded_at = now() where id = pg_temp.part(pg_temp.kv('g9s'), 9)::uuid;
+select pg_temp.setkv('g9s_new', pg_temp.resp(pg_temp.part(pg_temp.kv('g9s'), 1), pg_temp.part(pg_temp.kv('g9s'), 6)));
+select pg_temp.setkv('v_oldresp', pg_temp.ver(pg_temp.kv('g9s'), pg_temp.kv('c9s')::uuid, 'right'));
 select pg_temp.chk('B09a a wrong code is counted and returns invalid; the fifth leaves the sixth (correct) locked; a foreign or unknown id costs nobody an attempt',
   pg_temp.kv('v_w1') = 'invalid' and pg_temp.kv('v_w1n') = '1' and (select count(*) = 5 from generate_series(1, 5) n where pg_temp.kv('v_l_' || n) = 'invalid')
   and pg_temp.kv('v_locked') = 'locked' and pg_temp.chv(pg_temp.kv('c9l')::uuid, 'attempts') = '5' and pg_temp.asr(pg_temp.part(pg_temp.kv('g9l'), 9)) = 'declared_unverified'
-  and pg_temp.kv('v_foreign') = 'invalid' and pg_temp.kv('v_unknown') = 'invalid' and pg_temp.chv(pg_temp.kv('c9o')::uuid, 'attempts') = '0',
+  and pg_temp.kv('v_foreign') = 'invalid' and pg_temp.kv('v_unknown') = 'invalid' and pg_temp.chv(pg_temp.kv('c9o')::uuid, 'attempts') = '0'
+  and pg_temp.kv('v_oldresp') = 'invalid' and pg_temp.chv(pg_temp.kv('c9s')::uuid, 'attempts') = '0' and pg_temp.asr(pg_temp.kv('g9s_new')) = 'declared_unverified',
   concat_ws(' | ', pg_temp.kv('v_w1'), pg_temp.kv('v_w1n'), pg_temp.kv('v_locked'), pg_temp.kv('v_foreign')));
 select pg_temp.chk('B09b the right code consumes the challenge and verifies the respondent once; reuse is invalid and a new issue already_done; expired, attested, redacted hash, other invitation and re-requested link never count an attempt or verify',
   pg_temp.kv('v_ok') = 'ok' and pg_temp.asr(pg_temp.part(pg_temp.kv('g9'), 9)) = 'email_code_verified' and pg_temp.chv(pg_temp.kv('c9')::uuid, 'consumed_at') <> 'null' and pg_temp.chv(pg_temp.kv('c9')::uuid, 'attempts') = '2'
@@ -563,7 +577,7 @@ create or replace function pg_temp.has(p_g text) returns text language sql as $$
       || (select count(*) from public.intake_guardian_invitation_requests where request_id = pg_temp.part(p_g, 1)::uuid)::text || '/'
       || (select count(*) from public.intake_invitations where request_id = pg_temp.part(p_g, 1)::uuid and audience = 'guardian')::text $$;
 select pg_temp.chk('B12a purge removes an old guardian path in order (challenge, pending request, sessions, invitation) in one run and never aborts on a reference; challenges/pending/invitations left: 0/0/0',
-  pg_temp.kv('purge') not like 'ERR%' and pg_temp.kv('purge') like '%"challenges"%' and pg_temp.kv('purge') like '%"invitation_requests"%' and pg_temp.has(pg_temp.kv('u_all')) = '0/0/0',
+  pg_temp.kv('purge') not like 'ERR%' and pg_temp.kv('purge') ~ '"challenges": [1-9]' and pg_temp.kv('purge') ~ '"invitation_requests": [1-9]' and pg_temp.has(pg_temp.kv('u_all')) = '0/0/0',
   pg_temp.kv('purge') || ' | ' || pg_temp.has(pg_temp.kv('u_all')));
 select pg_temp.chk('B12b purge keeps consumed challenges with their invitation and finalized request; keeps an unconsumed challenge until both it and its invitation are a day past; a held client keeps everything; a young invitation keeps its finalized request',
   pg_temp.has(pg_temp.kv('u_cons')) = '1/1/1' and pg_temp.has(pg_temp.kv('u_live')) = '1/1/1' and pg_temp.has(pg_temp.kv('u_held')) = '1/1/1'
@@ -577,8 +591,8 @@ select pg_temp.chk('B12c unfinalized and superseded requests are purged after ex
 select pg_temp.chk('B13 every new event carries request and client references, only the audience, generation and count keys, and no hash, address or code',
   (select count(distinct event_type) = 4 and bool_and(request_ref is not null and client_ref is not null
           and (metadata - array['audience', 'generation', 'count']) = '{}'::jsonb and metadata ->> 'audience' = 'guardian'
-          and metadata::text !~ 'hm-|@|right|hp-')
-     from public.intake_audit_events where event_type in ('guardian_invitation_requested', 'guardian_invitation_issued', 'guardian_email_challenge_issued', 'guardian_email_verified'))
+          and to_jsonb(e)::text !~ 'hm-|hp-|nsi-m16b|@')
+     from public.intake_audit_events e where event_type in ('guardian_invitation_requested', 'guardian_invitation_issued', 'guardian_email_challenge_issued', 'guardian_email_verified'))
   and exists (select 1 from public.intake_audit_events where event_type = 'guardian_email_challenge_issued' and actor_type = 'guardian' and object_ref = pg_temp.kv('c9')::uuid)
   and exists (select 1 from public.intake_audit_events where event_type = 'guardian_email_verified' and actor_type = 'guardian' and object_ref = pg_temp.part(pg_temp.kv('g9'), 9)::uuid),
   '');
