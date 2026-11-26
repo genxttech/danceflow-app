@@ -354,9 +354,10 @@ select pg_temp.expect_msg('direct update to eligible is refused', $q$update publ
 select pg_temp.expect_msg('direct update to waived is refused', $q$update public.event_competition_entries set eligibility_status = 'waived' where id = pg_temp.u('008001')$q$, 'COMP_R15_ELIGIBILITY_WRITE_REFUSED');
 select pg_temp.expect_msg('direct edit of the metadata determination is refused', $q$update public.event_competition_entries set metadata = jsonb_build_object('eligibility_determination', jsonb_build_object('outcome', 'eligible')) where id = pg_temp.u('008001')$q$, 'COMP_R15_ELIGIBILITY_WRITE_REFUSED');
 select pg_temp.expect_msg('a staff-created entry already eligible is refused',
-  $q$insert into public.event_competition_entries (event_id, program_id, division_id, display_name, status, eligibility_status) values (pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Sneaky', 'confirmed', 'eligible')$q$, 'COMP_R15_ELIGIBILITY_WRITE_REFUSED');
+  $q$insert into public.event_competition_entries (event_id, program_id, division_id, display_name, status, eligibility_status) values (pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Sneaky', 'pending', 'eligible')$q$, 'COMP_R15_ELIGIBILITY_WRITE_REFUSED');
+-- status 'pending': S6 (PR 877), when installed, refuses a client INSERT in any other status.
 select pg_temp.expect_ok('a staff-created unverified entry is allowed (provisional)',
-  $q$insert into public.event_competition_entries (event_id, program_id, division_id, display_name, status, eligibility_status) values (pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Staff Added', 'confirmed', 'unverified')$q$);
+  $q$insert into public.event_competition_entries (event_id, program_id, division_id, display_name, status, eligibility_status) values (pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Staff Added', 'pending', 'unverified')$q$);
 select pg_temp.expect_ok('unrelated updates still work (entry number)', $q$update public.event_competition_entries set entry_number = '101' where id = pg_temp.u('008001')$q$);
 select pg_temp.expect_msg('a client cannot create a competing trigger', $q$create trigger sneaky after update on public.event_competition_entries for each row execute function public.r15_guard_entry_eligibility_write()$q$, 'permission denied');
 select pg_temp.expect_msg('a client cannot update a determination', $q$update public.event_competition_eligibility_determinations set outcome = 'eligible'$q$, 'permission denied');
