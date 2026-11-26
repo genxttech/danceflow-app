@@ -2,6 +2,7 @@
 -- (anon, authenticated and service_role). If the S4/R15 eligibility write guard is installed it revoked TRIGGER from anon and authenticated itself, so only service_role is re-granted then.
 -- No data to repair. Roll back in this order: 20270301141000 first, then 20270301140000.
 begin;
+set local lock_timeout = '5s';
 
 do $$
 begin
@@ -11,6 +12,7 @@ begin
 end $$;
 
 drop trigger if exists cf1_s6_guard_entry_delete on public.event_competition_entries;
+drop trigger if exists cf1_s6_guard_entry_links on public.event_competition_entries;
 drop trigger if exists cf1_s6_guard_entry_status on public.event_competition_entries;
 drop function if exists public.cf1_s6_guard_entry_status();
 grant execute on function public._r2_withdraw_entry(uuid, text, text) to service_role;

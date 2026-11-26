@@ -58,8 +58,8 @@ done
 log "chain applied: $(grep -c '^OK' "$OUT/migrations-applied.txt") ok, $(grep -c '^FAIL' "$OUT/migrations-applied.txt") failed"
 
 cat > "$OUT/state.sql" <<'SQL'
-select 'fn|' || p.proname || '|' || pg_get_function_identity_arguments(p.oid) || '|' || p.prosecdef || '|' || pg_get_userbyid(p.proowner) || '|' || coalesce(p.proacl::text, 'NULL') || '|' || coalesce(p.proconfig::text, 'NULL') || '|' || md5(p.prosrc)
-  from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('change_competition_entry_lifecycle', 'cf1_s6_guard_entry_status') order by 1;
+select 'fn|' || p.proname || '|' || pg_get_function_identity_arguments(p.oid) || '|' || p.prosecdef || '|' || pg_get_userbyid(p.proowner) || '|' || coalesce(p.proacl::text, 'NULL') || '|' || coalesce(p.proconfig::text, 'NULL') || '|' || md5(replace(p.prosrc, chr(13), ''))
+  from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('change_competition_entry_lifecycle', 'cf1_s6_guard_entry_status', '_r2_withdraw_entry', '_r2_apply_participation') order by 1;
 select 'trg|' || g.tgname || '|' || g.tgenabled || '|' || pg_get_triggerdef(g.oid) from pg_trigger g where g.tgrelid = 'public.event_competition_entries'::regclass and not g.tgisinternal order by 1;
 select 'acl|' || coalesce(c.relacl::text, 'NULL') from pg_class c where c.oid = 'public.event_competition_entries'::regclass;
 select 'priv|' || r || '|' || string_agg(p, ',' order by p) from unnest(array['anon','authenticated','service_role']) r, unnest(array['select','insert','update','delete','truncate','references','trigger']) p
@@ -68,18 +68,19 @@ SQL
 "${PSQL[@]}" -At < "$OUT/state.sql" > "$OUT/state-P0-before-S6.txt"
 
 TSV="$OUT/suites.tsv"
-runsuite(){ # $1 name
-  local s="$1"
-  [ -f "$M/sql-tests/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$TSV"; return; }
-  timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$M/sql-tests/$s.sql" > "$OUT/suite-$s.log" 2>&1
-  local line res; line="$(grep -E "SUITE (PASS|FAIL)|PASS \(|FAIL" "$OUT/suite-$s.log" | tail -1 | cut -c1-500)"
+runsuite(){ # $1 name [$2 directory]
+  local s="$1" d="${2:-$M/sql-tests}"
+  [ -f "$d/$s.sql" ] || { printf '%s\tMISSING\t\n' "$s" >> "$TSV"; return; }
+  timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$d/$s.sql" > "$OUT/suite-$(basename "$TSV" .tsv)-$s.log" 2>&1
+  local line res; line="$(grep -E "SUITE (PASS|FAIL)|PASS \(|FAIL" "$OUT/suite-$(basename "$TSV" .tsv)-$s.log" | tail -1 | cut -c1-500)"
   case "$line" in *PASS*) res=PASS;; *) res=FAIL;; esac
   printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$TSV"; log "$(basename "$TSV" .tsv) $s: $res"
 }
 # PR 867 evidence: the chain at this point is exactly the PR 867 migration set (live line + JC1 / U18 / U18-S; no S6 file applied yet), and the SQL suites in this tree
-# differ from the PR 867 head only by the two added S6 test files.
+# are run from the PR 867 head commit (this branch edits two setup writes in the U18-S suite).
 TSV="$OUT/suites-pr867.tsv"; : > "$TSV"
-for s in test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_callback_final_advancement test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_f2_results; do runsuite "$s"; done
+PR867_REF=6dc6b2d4e5657f27754c9dfc62e977f642ecb04c; mkdir -p "$OUT/pr867-sql-tests"
+for s in test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_callback_final_advancement test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_f2_results; do ( cd "$REPO" && git show "$PR867_REF:src/lib/supabase/migrations/sql-tests/$s.sql" ) > "$OUT/pr867-sql-tests/$s.sql"; runsuite "$s" "$OUT/pr867-sql-tests"; done
 
 # F3 read-back BEFORE S6 (state read-back of the forged-marker chain on the pre-S6 database)
 "${PSQL[@]}" -v ON_ERROR_STOP=0 < "$REPO/docs/competition/s6-entry-status-guard/f3-readback.sql" > "$OUT/f3-readback-before-S6.log" 2>&1

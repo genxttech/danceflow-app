@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Competition S6 -- entry status guard under a REAL race: three connections on one entry.
-#   A  manager, lifecycle RPC (definer): scratch the entry, then holds its transaction open for 4 s (row lock held)
-#   B  manager (authenticated), starts 1 s later: direct UPDATE status -> 'withdrawn'. Must WAIT on A's row lock, then be REFUSED (42501 COMP_S6_ENTRY_STATUS_WRITER)
-#   D  manager, second submit of the same scratch (hardening 20270301142000): must WAIT, then be a no-op
-#   C  owner-role definer writer (the real _r2_withdraw_entry), starts 1 s later: must WAIT, then change nothing (the entry is already scratched, its WHERE excludes terminal states) and not error
+#   A  manager, lifecycle RPC (definer): scratch the entry, then holds its transaction open for 8 s (row lock held)
+#   B  manager (authenticated), starts while A holds: direct UPDATE status -> 'withdrawn'. Must WAIT on A's row lock, then be REFUSED (42501 COMP_S6_ENTRY_STATUS_WRITER)
+#   D  manager, second submit of the same scratch (20270301140000): must WAIT, then be a no-op
+#   C  owner-role definer writer (the real _r2_withdraw_entry), same time: must WAIT, then change nothing (the entry is already scratched, its WHERE excludes terminal states) and not error
 # Expected end state: entry 'scratched', exactly ONE audit row (change_type scratch), B refused, C no error and no second audit row.
 # Usage: bash test_T_competition_s6_entry_status_concurrency.sh [container]   (needs the chain through BOTH S6 migrations; superuser supabase_admin)
 # Fixtures COMMIT and are removed at the end (even on failure). Prints "S6 CONCURRENCY PASS (<n> checks)" or "S6 CONCURRENCY FAIL: ..." and exits non-zero on failure.
@@ -43,12 +43,12 @@ CLAIMS="select set_config('request.jwt.claims', json_build_object('sub','$MGR','
 set role authenticated; $CLAIMS
 begin;
 select public.change_competition_entry_lifecycle('$ENT', 'scratched', 'S6 race', 'retain');
-select pg_sleep(4);
+select pg_sleep(8);
 commit;
 SQL
 ) &
 PA=$!
-sleep 1
+for i in $(seq 1 40); do [ "$(SU -c "select count(*) from pg_stat_activity where query ilike '%pg_sleep(8)%' and state = 'active' and pid <> pg_backend_pid()")" -ge 1 ] && break; sleep 0.25; done
 ( SUX <<SQL > "$OUT/s6c_b.out" 2>&1
 set role authenticated; $CLAIMS
 update public.event_competition_entries set status = 'withdrawn' where id = '$ENT';
@@ -66,8 +66,8 @@ select public.change_competition_entry_lifecycle('$ENT', 'scratched', 'S6 race s
 SQL
 ) &
 PD=$!
-sleep 1
-WAITING=$(SU -c "select count(*) from pg_stat_activity where wait_event_type = 'Lock' and pid <> pg_backend_pid()")
+WAITING=0
+for i in $(seq 1 24); do WAITING=$(SU -c "select count(*) from pg_stat_activity where wait_event_type = 'Lock' and pid <> pg_backend_pid()"); [ "$WAITING" -ge 3 ] && break; sleep 0.25; done
 wait $PA; wait $PB; wait $PC; wait $PD
 
 STATUS=$(SU -c "select status from public.event_competition_entries where id = '$ENT'")
@@ -76,7 +76,7 @@ AUDS=$(SU -c "select count(*) from public.event_competition_entry_changes where 
 ok "A (lifecycle RPC) finished without error" "$([ -z "$(grep -i error "$OUT/s6c_a.out")" ] && echo 1 || echo 0)"
 ok "B (direct manager write) was refused with COMP_S6_ENTRY_STATUS_WRITER (42501)" "$(grep -q 'COMP_S6_ENTRY_STATUS_WRITER' "$OUT/s6c_b.out" && echo 1 || echo 0)"
 ok "C (owner definer writer) raised no error" "$([ -z "$(grep -i error "$OUT/s6c_c.out")" ] && echo 1 || echo 0)"
-ok "D (second manager submit of the same scratch) waited, then was a no-op without error (needs 20270301142000)" "$([ -z "$(grep -i error "$OUT/s6c_d.out")" ] && echo 1 || echo 0)"
+ok "D (second manager submit of the same scratch) waited, then was a no-op without error (20270301140000)" "$([ -z "$(grep -i error "$OUT/s6c_d.out")" ] && echo 1 || echo 0)"
 ok "B, C and D were all waiting on a lock while A held its transaction ($WAITING lock waiters)" "$([ "${WAITING:-0}" -ge 3 ] && echo 1 || echo 0)"
 ok "final status is scratched (not withdrawn)" "$([ "$STATUS" = "scratched" ] && echo 1 || echo 0)"
 ok "exactly one audit row, the scratch with the reason" "$([ "$AUD" = "1" ] && [ "$AUDS" = "1" ] && echo 1 || echo 0)"

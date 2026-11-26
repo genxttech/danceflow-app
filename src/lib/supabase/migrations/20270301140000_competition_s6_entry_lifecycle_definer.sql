@@ -15,6 +15,7 @@
 -- Rollback: rollback/20270301140000_competition_s6_entry_lifecycle_definer_rollback.sql (run after 20270301141000's rollback).
 
 begin;
+set local lock_timeout = '5s';
 
 do $$
 declare v_oid oid := to_regprocedure('public.change_competition_entry_lifecycle(uuid, text, text, text)');
@@ -30,6 +31,8 @@ begin
     raise exception 'S6 preflight failed: scratch_competition_entry is installed; reconcile the scratch workflow ownership first.'; end if;
   if to_regprocedure('public.can_manage_event_competition(uuid)') is null or to_regprocedure('public._r2_entry_participation_class(uuid)') is null then
     raise exception 'S6 preflight failed: a required helper function is missing.'; end if;
+  if not has_function_privilege((select proowner from pg_proc where oid = v_oid), 'public._r2_entry_participation_class(uuid)', 'execute') then
+    raise exception 'S6 preflight failed: the lifecycle function owner cannot execute _r2_entry_participation_class.'; end if;
 end $$;
 
 create or replace function public.change_competition_entry_lifecycle(
@@ -58,6 +61,20 @@ begin
     raise exception 'Entry was not found or cannot be managed.';
   end if;
 
+  -- refuse a locked, certified or placed entry BEFORE taking any row lock (a refused call must not lock an advanced couple: CF1 rows U55 / U22)
+  if exists (
+    select 1
+    from public.event_competition_heat_entries he
+    join public.event_competition_heats h on h.id = he.heat_id
+    where he.entry_id = selected_entry_id and h.lock_state in ('locked', 'certified')
+  ) then
+    raise exception 'This entry is in a locked or certified heat and requires the correction workflow.';
+  end if;
+  -- the refund (R2) participation rule: a danced or disqualified placement, or a heat that is active or complete, is not a plain scratch
+  if public._r2_entry_participation_class(selected_entry_id) in ('locked', 'certified') then
+    raise exception 'COMP_ENTRY_LIFECYCLE_PLACED: this entry has danced, been placed or is in an active or completed heat; use the correction or refund workflow.';
+  end if;
+
   -- lock order: the entry's heats (FOR SHARE, id order, so a concurrent start or lock cannot slip between the checks and the writes), then the entry row
   perform 1 from public.event_competition_heats h
   where h.id in (select he.heat_id from public.event_competition_heat_entries he where he.entry_id = selected_entry_id)
@@ -70,6 +87,7 @@ begin
     raise exception 'Entry was not found or cannot be managed.';
   end if;
 
+  -- the same refusals again, now under the locks
   if exists (
     select 1
     from public.event_competition_heat_entries he
@@ -122,7 +140,7 @@ do $$
 declare v_oid oid := to_regprocedure('public.change_competition_entry_lifecycle(uuid, text, text, text)');
 begin
   if not (select prosecdef from pg_proc where oid = v_oid)
-     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'ac27d4fe7d546804014fcbf55046f390'
+     or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from '25fdb16ba0e23069254c249c3a738aac'
      or has_function_privilege('anon', v_oid, 'execute') or has_function_privilege('service_role', v_oid, 'execute')
      or not has_function_privilege('authenticated', v_oid, 'execute') then
     raise exception 'S6 postflight failed (lifecycle definer).';

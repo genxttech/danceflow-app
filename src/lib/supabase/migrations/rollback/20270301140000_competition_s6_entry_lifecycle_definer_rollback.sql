@@ -8,7 +8,7 @@ declare v_oid oid := to_regprocedure('public.change_competition_entry_lifecycle(
 begin
   if exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_entries'::regclass and tgname = 'cf1_s6_guard_entry_status') then
     raise exception 'S6 rollback refused: roll back 20270301141000 first.'; end if;
-  if v_oid is null or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'ac27d4fe7d546804014fcbf55046f390' then
+  if v_oid is null or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from '25fdb16ba0e23069254c249c3a738aac' then
     raise exception 'S6 rollback refused: change_competition_entry_lifecycle is not the 20270301140000 definition (another change would be overwritten).'; end if;
 end $$;
 
