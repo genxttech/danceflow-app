@@ -755,3 +755,29 @@ Context: ballots need only an active round and a published heat, not a started h
 > Record this ballot ruling, then present the first B2 independent-approver question individually with the full recommendation and its implications.
 
 **Sequencing as recorded by the coordinator:** no additional ballot-related SQL is written until the requirement 10 verification has been reported to the owner. DanceFlow Studio/Custom policy, not a governing-body compliance claim.
+
+## 16. B2 Question 8: who may approve a replacement or corrected result (2026-11-26)
+
+Presented: the B2 design as drafted (PR 901), also barring ballot entry (coordinator addition), or also barring the publisher. Owner decision, verbatim:
+
+> B2 QUESTION 8 DECISION: ALSO BAR BALLOT ENTRY.
+> For replacement or corrected competition results, an independent approver must not have:
+>
+> 1. Calculated the result being approved.
+> 2. Opened the associated correction.
+> 3. Cancelled the superseded round as part of the replacement.
+> 4. Entered, transcribed or modified any ballot contributing to the replacement result.
+>
+> Apply independence using immutable, server-trusted actor history for the relevant result lineage, not merely the current round ID.
+> Do not disqualify someone solely because they entered ballots for unrelated competitions or rounds.
+> The approver must hold an appropriate authorized event-level role. Do not automatically require a second studio manager where another qualified independent official is permitted by the approved Studio policy.
+> Preserve legitimate one-manager Studio operations when a separate authorized scorer or official can satisfy these requirements.
+> For cases without a qualified independent approver, fail closed and identify the operational limitation. Do not invent a self-approval exception for replacement results.
+> Coordinate with OD-07, OD-11 and OD-12, including paper-ballot verification, immutable audit records and correction lineage.
+> Include positive and negative tests for the independence matrix, multiple ballot contributors, actor-role changes, unrelated rounds and replacement attempts.
+> Continue B2 as design only until its architecture and enforcement dependencies receive independent review and separate implementation authorization.
+> PR #864's reported passing tests are encouraging, but independently verify that package and investigate the two pre-existing suite failures before requesting approval.
+> No SQL apply, merge, deployment or public activation is authorized.
+> Record Question 8 and proceed to the next B2 decision individually.
+
+**Coordinator notes (open, not decided):** (a) the decision covers corrected results too; PR 865 as drafted bars only the calculator and the correction opener for corrected results, so it does not yet meet items 3 and 4; (b) only a competition manager can approve in the current code, so approval by another qualified official needs an approver role that has not been designed. DanceFlow Studio/Custom policy.
