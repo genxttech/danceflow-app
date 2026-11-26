@@ -55,13 +55,17 @@ export async function loadRosterFundingCandidates(params: {
     if (row.funding_type !== "package" && row.funding_type !== "membership") continue;
     const unlimited = row.is_unlimited === true;
     const remaining = unlimited || row.remaining === null || row.remaining === undefined ? null : Number(row.remaining);
-    candidates.push({
+    const candidate: FundingCandidate = {
       billingType: row.funding_type === "package" ? "package_credit" : "membership",
       sourceId: row.source_id,
       label: row.label,
       unlimited,
       remaining: remaining === null || Number.isFinite(remaining) ? remaining : null,
-    });
+    };
+    // A plan with two matching benefits comes back twice. The app picks by source, so list each once, with the lower count.
+    const seen = candidates.findIndex((other) => other.billingType === candidate.billingType && other.sourceId === candidate.sourceId);
+    if (seen < 0) candidates.push(candidate);
+    else if (candidate.remaining !== null && (candidates[seen].remaining === null || candidate.remaining < candidates[seen].remaining!)) candidates[seen] = candidate;
   }
   return { ok: true, candidates };
 }

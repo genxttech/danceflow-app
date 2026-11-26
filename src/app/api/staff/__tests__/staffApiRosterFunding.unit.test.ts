@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /*
   GET .../appointments/{id}/roster/funding: roles, validation, the shape of each candidate and how database refusals become stable codes. The real database function
-  (eligibility, accepted funding types, tenancy) is exercised in localStack.staffApiClassRoster.test.ts.
+  (eligibility, the class's accepted funding types, tenancy) is exercised in localStack.staffApiClassRoster.test.ts.
 */
 
 const mocks = vi.hoisted(() => ({ guard: null as unknown, rpc: vi.fn() }));
@@ -92,6 +92,16 @@ describe("roster funding candidates", () => {
     });
   });
 
+  it("lists a source that comes back twice once, with the lower count", async () => {
+    mocks.rpc.mockResolvedValue({
+      data: [row({ funding_type: "membership", source_id: "m1", remaining: "4" }), row({ funding_type: "membership", source_id: "m1", remaining: "2" }), row({ funding_type: "membership", source_id: "m1", remaining: "3" })],
+      error: null,
+    });
+    const body = await (await call()).json();
+    expect(body.candidates).toHaveLength(1);
+    expect(body.candidates[0]).toMatchObject({ sourceId: "m1", remaining: 2 });
+  });
+
   it.each(["Group class not found.", "Client not found for this studio.", "Not authorized to resolve funding eligibility for this studio."])(
     "answers %s as not_found without the database text",
     async (message) => {
@@ -100,7 +110,7 @@ describe("roster funding candidates", () => {
       expect(response.status).toBe(404);
       const body = await response.json();
       expect(body.code).toBe("not_found");
-      expect(JSON.stringify(body)).not.toContain("studio.");
+      expect(body).toEqual({ code: "not_found", error: "Class or dancer not found." });
     },
   );
 

@@ -341,6 +341,13 @@ describe.skipIf(!enabled)("staff API class roster against real RLS and the enrol
       expect(enrolled.status).toBe(201);
     });
 
+    it("keeps to the class's accepted funding types", async () => {
+      const classId = newClass();
+      expect(((await (await list(USERS.owner, classId, C5)).json()) as { candidates: unknown[] }).candidates).toHaveLength(1);
+      psql(`insert into public.group_class_enrollment_policies (studio_id, appointment_id, accepted_funding_types) values ('${STUDIO_A}', '${classId}', array['package']::text[]);`);
+      expect(await (await list(USERS.owner, classId, C5)).json()).toEqual({ candidates: [] });
+    });
+
     it("lists a membership with allowance, and nothing for a dancer with nothing", async () => {
       const classId = newClass();
       const covered = (await (await list(USERS.owner, classId, C5)).json()) as { candidates: { billingType: string; sourceId: string; label: string }[] };
