@@ -103,7 +103,8 @@ if [ "$adapted_ok" = 1 ] && ( cd "$ADIR" && git -c core.autocrlf=false apply -p1
 else log "ADAPTED: patch not applied; composed phase keeps the released copies"; fi
 # S6 composed dir: composed suites + hooked temporary copies of the two S6 suites (same hook block, inserted only; ADAPTED COPY)
 rm -rf "$CHAIN/sql-tests-s6comp"; cp -r "$CHAIN/sql-tests" "$CHAIN/sql-tests-s6comp"
-HOOK="$(grep -m1 '^+.*r15_clear_entries' "$ADIR/hook.patch" | sed 's/^+//')"
+HOOK="$(awk 'index($0,"+-- S4/R-15")==1 {on=1} on && substr($0,1,1)=="+" {print substr($0,2); if ($0=="+end $r15$;") exit}' "$ADIR/hook.patch")"
+printf '%s' "$HOOK" | grep -q 'perform pg_temp.r15_clear_entries' || { log "ADAPTED: hook block with the helper call not found in the S4 patch"; HOOK=""; }
 n=test_T_competition_s6_entry_status_guard; src="$CHAIN/sql-tests-s6base/$n.sql"
 if [ -n "$HOOK" ] && sed -n '49p' "$src" | grep -qi '^insert into public.event_competition_heat_entries' && sed -n '291p' "$src" | grep -qi '^insert into public.event_competition_heat_entries'; then
   HOOK="$HOOK" awk 'NR==49 || NR==291 { print ENVIRON["HOOK"] } { print }' "$src" > "$CHAIN/sql-tests-s6comp/$n.sql"
@@ -192,7 +193,7 @@ run_suites(){ # <tag>
 }
 
 # 4b. BASELINE: the base chain alone (attributes failures: anything failing here is not caused by the new migrations)
-BASE_SUITES="test_T_competition_cf1_a3_results test_T_competition_pv1_recompute test_T_competition_e1_officials test_T_competition_ns1_no_show test_T_phase10d1_heat_entry_eligibility test_T_od31_guarded_baseline_negative test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_r2_entry_refunds test_T_competition_o1_day_of test_T_competition_cf1_f3_publication test_T_phase10d_floor_schedule test_T_competition_r2_refund_write_gate test_T_phase10c_competitor_registration test_T_phase10c4_participant_roles"
+BASE_SUITES="test_T_competition_cf1_a3_results test_T_competition_pv1_recompute test_T_competition_e1_officials test_T_competition_e2_ballots test_T_competition_ns1_no_show test_T_phase10d1_heat_entry_eligibility test_T_od31_guarded_baseline_negative test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_r2_entry_refunds test_T_competition_o1_day_of test_T_competition_cf1_f3_publication test_T_phase10d_floor_schedule test_T_competition_r2_refund_write_gate test_T_phase10c_competitor_registration test_T_phase10c4_participant_roles"
 ALL_SUITES="$SUITES"; SUITES="$BASE_SUITES"; SUITE_DIR=sql-tests-base; run_suites baseline
 # 4d. S6 (PR 877) on the base chain, no R-15 gates: byte-exact suites from PR 877 (the U18-S "with_s6" file is PR 877's own labelled variant)
 s6_apply(){ local t="$1"; for f in $(ls "$CHAIN/s6" 2>/dev/null | sort); do apply "$CHAIN/s6" "$f" "$t" || return 1; done; }
