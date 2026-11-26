@@ -728,6 +728,11 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       redirect(appendQueryParam(fallback, "campaign_error", contentIssue));
     }
 
+    // M-0 F4: while frozen the database hides campaigns, so a new draft would be invisible to its author.
+    if (await isMarketingSendPaused(supabase)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "marketing_paused"));
+    }
+
     const { error } = await supabase.from("marketing_campaigns").insert({
       studio_id: studioId,
       name,
@@ -751,6 +756,8 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       redirect(appendQueryParam(fallback, "campaign_error", "save_failed"));
     }
   } catch (error) {
+    // A redirect thrown inside the try (validation, authorization, paused) is the intended response.
+    if (isRedirectError(error)) throw error;
     console.error("createMarketingCampaignDraftAction failed", error);
     redirect(appendQueryParam(fallback, "campaign_error", "save_failed"));
   }
