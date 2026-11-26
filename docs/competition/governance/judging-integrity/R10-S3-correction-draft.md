@@ -27,6 +27,8 @@ S3 changes in `102000` since `5eea51ff`: new trigger `compr10_official_status_pa
 attendance now inserts first and evaluates the real resulting panel (a refusal rolls back); confirmation is required for the change that turns a valid panel invalid, for `present` as well as `absent`, and not again for later changes on an already
 invalid panel; audit refs now separate `panel_break_confirmed` and `recovery_case_opened`. `101000`: comment only. `100000`: unchanged. Tests: S3 suite updated; E1 and E2 suites adjusted (section 6).
 
+At S4 (R-15) request, the E2 suite later gained a clearance call that does nothing unless S4's test fixture is loaded. **Not executed** by any run recorded here (run 2 pins `cde6b1225`, before it).
+
 ## 3. What ships
 
 | File | Behavior |
