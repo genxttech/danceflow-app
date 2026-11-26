@@ -781,3 +781,36 @@ Presented: the B2 design as drafted (PR 901), also barring ballot entry (coordin
 > Record Question 8 and proceed to the next B2 decision individually.
 
 **Coordinator notes (open, not decided):** (a) the decision covers corrected results too; PR 865 as drafted bars only the calculator and the correction opener for corrected results, so it does not yet meet items 3 and 4; (b) only a competition manager can approve in the current code, so approval by another qualified official needs an approver role that has not been designed. DanceFlow Studio/Custom policy.
+
+## 17. B2 Question 1: Option C, independence for multiple rounds of one division and dance (2026-11-26)
+
+Presented: A (refuse publication of a second round), B (allow; independence only after another such round has a ballot or result), C (allow; require independence for every approval once the place has held two rounds). Owner decision, verbatim:
+
+> B2 QUESTION 1 DECISION: OPTION C — REQUIRE INDEPENDENCE FOR MULTIPLE ROUNDS OF THE SAME DIVISION AND DANCE.
+> Approve this as the design policy for Studio/Custom Competition OS.
+> Requirements:
+>
+> 1. Allow legitimate multiple rounds, separate flights, standby rounds and authorized replacements for the same division and dance.
+> 2. Once the trusted published running-order history establishes multiple rounds for the same division and dance, require independent approval of the affected results, including the first round.
+> 3. Do not wait until a second round has ballots or a calculated result before establishing this requirement.
+> 4. Prevent timing attacks in which a manager self-approves a spare round before the original result is calculated or before a second round is formally added.
+> 5. If an earlier result was legitimately self-approved before a second round was introduced, preserve its historical approval record. Require appropriate independent revalidation before proceeding with a multi-round result publication; never silently rewrite the original audit history.
+> 6. Apply the Question 8 separation-of-duties requirements. The approver cannot be the calculator, correction initiator, relevant round canceller or contributor to ballots used in the result.
+> 7. Preserve legitimate single-manager Studio operations for genuinely independent initial results. Do not introduce an unrestricted self-approval exception for multiple-round or replacement-result situations.
+> 8. Distinguish legitimate multi-round competition structures from duplicate or replacement attempts using immutable contest identity, round lineage and authorized lifecycle history.
+> 9. Coordinate with OD-26's controlled running-order changes. Do not permit direct table manipulation to create an untracked second round.
+> 10. Document that the current approval system supports managers only. Design any additional qualified-approver role separately with explicit authorization, least privilege and audit requirements.
+> 11. Include tests for first-round timing attacks, legitimate flights, preliminary-to-final advancement, standby rounds, previously approved results, correction attempts, concurrency and unauthorized approvals.
+> 12. Keep the different-dance replacement bypass OPEN for B2 Question 9. Do not claim Option C closes it.
+> 13. Obtain independent review of the updated B2 design before requesting implementation authorization.
+>
+> B2 remains DESIGN ONLY. No new schema implementation, SQL apply, protected merge, deployment or public activation is authorized.
+> Record Question 1 as Option C and proceed to the next unresolved B2 question individually. Do not repeat Questions 4, 5 or 6 if they are fully resolved by existing decisions; document that linkage instead.
+
+**Linkage of other B2 questions**
+
+* **Q4** (must separate non-advancement rounds all need independence): resolved, yes, by this decision (requirements 1-3).
+* **Q5** (may a round canceller approve): resolved for the superseded or relevant round by section 16 item 3 and requirement 6 here: no. One narrower point is NOT resolved and stays open as design question Q11: a manager who cancelled a lineage round for an unrelated operational reason.
+* **Q6** (one person, no scorer, genuine re-dance): resolved by section 16 (fail closed, no self-approval exception) and requirement 7. A further approver role is a separate design item (requirement 10, design question Q10).
+
+**Design obligation noted by the coordinator (open):** Option C as drafted does not prevent every timing attack in requirement 4: it is open where the spare result is published before the second round enters the running order, and where the original never enters the system. The design must close this or state it for a decision.
