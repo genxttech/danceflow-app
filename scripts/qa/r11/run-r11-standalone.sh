@@ -46,6 +46,9 @@ for s in $SUITES; do git show "HEAD:$M/sql-tests/$s.sql" > "$CHAIN/sql-tests/$s.
 git show "HEAD:$M/sql-tests/fixtures/competition_round_ready.sql" > "$CHAIN/sql-tests/fixtures/competition_round_ready.sql" 2>/dev/null
 git show "HEAD:$M/sql-tests/concurrency/run_f2_races.sh" > "$CHAIN/run_f2_races.sh"
 git show "HEAD:$M/sql-tests/probe_R_competition_r11_cancel_recreate.sql" > "$CHAIN/probe.sql" || { log "BLOCKED: probe missing at HEAD"; exit 4; }
+for f in "$CHAIN"/base/*.sql "$CHAIN/new/$MIG" "$CHAIN/rollback/${MIG%.sql}_rollback.sql" "$CHAIN"/sql-tests/*.sql "$CHAIN/probe.sql" "$CHAIN/run_f2_races.sh"; do
+  [ -s "$f" ] || { log "BLOCKED: composed file is empty or missing: $f"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
+done
 HEADSHA=$(git rev-parse HEAD); POST=$(grep -o "v_post constant text := '[0-9a-f]*'" "$CHAIN/new/$MIG" | grep -o "[0-9a-f]\{32\}")
 log "HEAD $HEADSHA; live $(git rev-parse "$LIVE"); candidate $(git rev-parse "$CAND"); base files $(wc -l < "$OUT/migrations-base.sha256"), base fingerprint $(cat "$OUT/base-fingerprint.txt"); migration sha256 $(sha256sum "$CHAIN/new/$MIG" | cut -d' ' -f1); pins pre=$PRE post=$POST"
 
@@ -84,7 +87,7 @@ run_suite() { # <tag> <suite>
   local f="$CHAIN/sql-tests/$2.sql" pre=()
   grep -q 'pg_temp\.compo1_fixture_' "$f" && pre+=("$CHAIN/sql-tests/fixtures/competition_round_ready.sql")
   cat ${pre[@]+"${pre[@]}"} "$f" | sed 's/\r$//' | timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/suite-$1-$2.log" 2>&1
-  local line; line="$(grep -E "SUITE (PASS|FAIL)" "$OUT/suite-$1-$2.log" | head -1 | sed 's/^.*ERROR:  //' | cut -c1-400)"
+  local line; line="$(grep -E "ERROR:  COMPETITION .*SUITE (PASS|FAIL)" "$OUT/suite-$1-$2.log" | head -1 | sed 's/^.*ERROR:  //' | cut -c1-400)"
   [ -n "$line" ] || line="NO VERDICT: $(grep -m1 ERROR "$OUT/suite-$1-$2.log" | cut -c1-300)"
   case "$line" in *"SUITE PASS"*) RES=PASS;; *) RES=FAIL;; esac
   printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$RES" "$line" >> "$OUT/suites.tsv"; log "[$1] ${2#test_T_}: $RES  $(echo "$line" | cut -c1-220)"
@@ -116,7 +119,10 @@ if [ -n "$PL" ]; then
   log "PROBE (observation):"; cat "$OUT/probe-forward.txt" >> "$OUT/runner.log"; cat "$OUT/probe-forward.txt"
 else log "PROBE: NO VERDICT: $(grep -m1 ERROR "$OUT/probe-forward.log" | cut -c1-300)"; BAD=$((BAD+1)); fi
 check "forward: the R-11 suite passes" "$(res_of forward test_T_competition_r11_approval_override_scope)" PASS
-check "baseline: the R-11 suite fails before the migration (blockers reproduce)" "$(res_of baseline test_T_competition_r11_approval_override_scope)" FAIL
+check "baseline: the R-11 suite ran to its verdict, failed, and the failures name the blockers" "$(awk -F'	' '$1=="baseline" && $2=="test_T_competition_r11_approval_override_scope" && $4 ~ /SUITE FAIL/ {print "FAIL-with-verdict"}' "$OUT/suites.tsv") $(grep -c "RB-11" "$OUT/suite-baseline-test_T_competition_r11_approval_override_scope.log" | awk '{print ($1>0)?"RB-11":"no-RB-11"}')" "FAIL-with-verdict RB-11"
+check "every SQL suite produced a verdict (baseline and forward)" "$(awk -F'	' '($1=="baseline"||$1=="forward") && $2!="run_f2_races" && $4 !~ /SUITE (PASS|FAIL)/' "$OUT/suites.tsv" | wc -l | tr -d ' ')" 0
+for s in test_T_competition_cf1_a3_results test_T_competition_pv1_recompute; do check "forward: ${s#test_T_} passes" "$(res_of forward "$s")" PASS; done
+check "the probe completed routes R and B" "$(grep -cE '^.(R|B). RESULT' "$OUT/probe-forward.txt" 2>/dev/null)" 2
 for s in $SUITES run_f2_races; do
   [ "$(res_of baseline "$s")" = PASS ] && check "no regression: ${s#test_T_} passed on the base chain and still passes" "$(res_of forward "$s")" PASS
 done

@@ -3,8 +3,9 @@
 -- always ends by raising "COMPETITION R11 CANCEL-RECREATE PROBE: ..." with one OK / REFUSED line per step, so nothing persists. Run only as a
 -- superuser on a LOCAL QA database, after the migrations under test. Generated from the R-11 suite's helpers (UUID block ...-b11ff4XXXXXX).
 --
--- Fixtures (superuser, replica mode where the lifecycle offers no shortcut): division D1 with round r1, division D2 with round r2 AND a second,
--- never-started round r3 (sequence 2) whose heat with the same couples is already in the published running order ("spare round").
+-- Fixtures (superuser, replica mode where the lifecycle offers no shortcut): division D1 with round r1 AND a never-started round r4 (sequence 3),
+-- division D2 with round r2 AND a never-started round r3 (sequence 2). Every round has one numbered floor heat in the published running order with the
+-- same couples as its division ("spare" heats for r3 and r4).
 -- r1 and r2 are then taken to a corrected, recalculated, never-published state (A1 calculates, A2 approves, A1 corrects, A1 recalculates).
 -- EVERY probe step runs as authenticated manager A1 through lifecycle functions or ordinary table writes under RLS. No replica mode in the probe.
 
@@ -218,6 +219,8 @@ end $$;
 
 grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
 
+create or replace function pg_temp.fl(n int) returns uuid language sql immutable as $$ select pg_temp.u('0c01' || lpad(n::text, 2, '0')) $$;
+grant execute on all functions in schema pg_temp to authenticated;
 -- ============================================================================
 -- Fixtures (superuser)
 -- ============================================================================
@@ -245,19 +248,21 @@ insert into public.event_competition_divisions (id, event_id, program_id, contes
 select pg_temp.did(d), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D' || d, 'open' from generate_series(1, 2) d;
 insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
 select pg_temp.rid(x.n), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(x.d), 'R' || x.n, 'final', x.seq, 'draft', 'ordinal_majority'
-from (values (1, 1, 1), (2, 2, 1), (3, 2, 2)) x(n, d, seq);
+from (values (1, 1, 1), (2, 2, 1), (3, 2, 2), (4, 1, 3)) x(n, d, seq);
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
 select pg_temp.eid(d, i), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(d), 'E' || d || i, 'confirmed', 'eligible', (d * 10 + i)::text
 from generate_series(1, 2) d cross join generate_series(1, 3) i;
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
   (pg_temp.u('00c001'), pg_temp.u('00e001'), 1, 'v1', 'published', now());
-insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status)
-select pg_temp.hid(x.n), pg_temp.u('00e001'), pg_temp.did(x.d), pg_temp.rid(x.n), x.n, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled' from (values (1, 1), (2, 2), (3, 2)) x(n, d);
+insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number)
+select pg_temp.fl(n), pg_temp.u('00e001'), pg_temp.u('00c001'), n from generate_series(1, 4) n;
+insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, floor_heat_id, status)
+select pg_temp.hid(x.n), pg_temp.u('00e001'), pg_temp.did(x.d), pg_temp.rid(x.n), x.n, pg_temp.u('002001'), pg_temp.u('00c001'), pg_temp.fl(x.n), 'scheduled' from (values (1, 1), (2, 2), (3, 2), (4, 1)) x(n, d);
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order)
-select pg_temp.u('00e001'), pg_temp.did(x.d), pg_temp.hid(x.n), pg_temp.eid(x.d, i), i from (values (1, 1), (2, 2), (3, 2)) x(n, d) cross join generate_series(1, 3) i;
+select pg_temp.u('00e001'), pg_temp.did(x.d), pg_temp.hid(x.n), pg_temp.eid(x.d, i), i from (values (1, 1), (2, 2), (3, 2), (4, 1)) x(n, d) cross join generate_series(1, 3) i;
 insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number)
-select pg_temp.u('00e001'), pg_temp.hid(n), 'waltz', 'Waltz', 1 from generate_series(1, 3) n;
+select pg_temp.u('00e001'), pg_temp.hid(n), 'waltz', 'Waltz', 1 from generate_series(1, 4) n;
 set session_replication_role = origin;
 select pg_temp.as_user(pg_temp.u('000001'));
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000011'), 'judge', pg_temp.u('f10001'));
@@ -298,7 +303,7 @@ begin
     v_ok := true;
     v_msg := 'OK (rows ' || v_n || ')';
   exception when others then
-    v_msg := 'REFUSED ' || sqlstate || ' ' || left(sqlerrm, 170);
+    v_msg := 'REFUSED ' || sqlstate || ' ' || left(replace(sqlerrm, chr(10), ' '), 170);
   end;
   execute 'reset role';
   insert into t_probe (route, step, outcome) values (p_route, p_step, v_msg);
@@ -310,19 +315,23 @@ language sql stable security definer as $$
 $$;
 -- Panel, schedule, start, paper ballots entered by A1, couples marked danced, heat lock, ballot lock, calculate, SELF-approve with a
 -- substantive reason, publish: the whole run of one new round by one manager.
-create or replace function pg_temp.run_round(p_route text, p int, p_round uuid, p_heat uuid) returns void
+create or replace function pg_temp.run_round(p_route text, p_floor uuid, p_round uuid, p_heat uuid) returns void
 language plpgsql as $$
-declare j record;
+declare j record; s text;
 begin
   for j in select * from (values ('000011', 'A', '[3,2,1]'), ('000012', 'B', '[3,1,2]'), ('000013', 'C', '[2,3,1]')) v(u, l, marks) loop
     perform pg_temp.step(p_route, 'assign judge ' || j.l || ' to the new round', format($q$select public.assign_competition_panel_member(%L, %L, %L, gen_random_uuid())$q$, p_round, pg_temp.off('00e001', j.u), j.l));
   end loop;
   perform pg_temp.step(p_route, 'schedule_competition_round', format($q$select public.schedule_competition_round(%L, gen_random_uuid())$q$, p_round));
   perform pg_temp.step(p_route, 'start_competition_round', format($q$select public.start_competition_round(%L, gen_random_uuid())$q$, p_round));
+  perform pg_temp.step(p_route, 'observation: direct table write marking couples danced', format($q$update public.event_competition_heat_entries set status = 'danced' where heat_id = %L$q$, p_heat));
+  foreach s in array array['staging', 'active'] loop
+    perform pg_temp.step(p_route, 'advance_competition_floor_heat ' || s, format($q$select public.advance_competition_floor_heat(%L, %L, gen_random_uuid())$q$, p_floor, s));
+  end loop;
   for j in select * from (values ('000011', 'A', '[3,2,1]'), ('000012', 'B', '[3,1,2]'), ('000013', 'C', '[2,3,1]')) v(u, l, marks) loop
     perform pg_temp.step(p_route, 'A1 enters a paper ballot for judge ' || j.l || ' (different placements)', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, %L::jsonb, gen_random_uuid())$q$, p_round, p_heat, pg_temp.off('00e001', j.u), pg_temp.mkh(p_heat, j.marks::jsonb)));
   end loop;
-  perform pg_temp.step(p_route, 'A1 marks the couples danced (table write)', format($q$update public.event_competition_heat_entries set status = 'danced' where heat_id = %L$q$, p_heat));
+  perform pg_temp.step(p_route, 'advance_competition_floor_heat complete', format($q$select public.advance_competition_floor_heat(%L, 'complete', gen_random_uuid())$q$, p_floor));
   perform pg_temp.step(p_route, 'lock the heat', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'probe run of the new round')$q$, p_heat));
   perform pg_temp.step(p_route, 'lock ballots', format($q$select public.lock_competition_round_ballots(%L, gen_random_uuid())$q$, p_round));
   perform pg_temp.step(p_route, 'calculate', format($q$select public.calculate_competition_round(%1$L, x.i ->> 'engine_key', x.i ->> 'engine_version', x.i ->> 'input_hash', pg_temp.th(), '[{"step":1}]'::jsonb, pg_temp.run_engine(x.i -> 'evidence') -> 'rows', coalesce(pg_temp.run_engine(x.i -> 'evidence') -> 'warnings', '[]'::jsonb), gen_random_uuid()) from (select public.competition_round_calculation_input(%1$L) i) x$q$, p_round));
@@ -342,26 +351,32 @@ select 'start', 'r1 and r2 corrected and recalculated, never published', string_
   || ', heat ' || (select h.status || '/' || h.lock_state from public.event_competition_heats h where h.id = pg_temp.hid(x.n)), '; ') from (values (1), (2)) x(n);
 select pg_temp.step('start', 'control: A1 cannot self-approve corrected r1', $q$select public.approve_competition_round_result(pg_temp.rid(1), pg_temp.vid(1, 2), 'only manager present on the floor today', gen_random_uuid())$q$);
 
--- Route A: cancel r1, create a new round in the same division, build a new heat with the SAME couples and attach it to the published order.
+-- Route A: cancel r1, create a new round in the same division, try to build a new heat and attach it to the published order.
 select pg_temp.step('A', 'cancel_competition_round(r1)', $q$select public.cancel_competition_round(pg_temp.rid(1), 'running this round again', gen_random_uuid())$q$);
 select pg_temp.step('A', 'delete the cancelled round (its history)', $q$delete from public.event_competition_rounds where id = pg_temp.rid(1)$q$);
 select pg_temp.step('A', 'insert a new round, sequence 1 (taken)', $q$insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values (pg_temp.u('061100'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(1), 'R1 again', 'final', 1, 'draft', 'ordinal_majority')$q$);
 select pg_temp.step('A', 'insert a new round, sequence 2', $q$insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values (pg_temp.u('061100'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(1), 'R1 again', 'final', 2, 'draft', 'ordinal_majority')$q$);
 select pg_temp.step('A', 'insert a new heat with no schedule version', $q$insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, status) values (pg_temp.u('0d1100'), pg_temp.u('00e001'), pg_temp.did(1), pg_temp.u('061100'), 91, pg_temp.u('002001'), 'scheduled')$q$);
 select pg_temp.step('A', 'put the same couples in the new heat', $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) select pg_temp.u('00e001'), pg_temp.did(1), pg_temp.u('0d1100'), pg_temp.eid(1, i), i from generate_series(1, 3) i$q$);
-select pg_temp.step('A', 'add the dance to the new heat', $q$insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number) values (pg_temp.u('00e001'), pg_temp.u('0d1100'), 'waltz', 'Waltz', 1)$q$);
-select pg_temp.step('A', 'schedule the round while the heat is outside the published order', $q$select public.schedule_competition_round(pg_temp.u('061100'), gen_random_uuid())$q$);
--- Route C (the normal way to change a running order): a new draft version, then publish it.
-select pg_temp.step('C', 'create a new draft schedule version', $q$insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.u('00c009'), pg_temp.u('00e001'), 9, 'v9', 'draft')$q$);
-select pg_temp.step('C', 'mark the new version published (table write)', $q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = pg_temp.u('00c009')$q$);
-select pg_temp.step('C', 'publish_competition_schedule_version', $q$select public.publish_competition_schedule_version(pg_temp.u('00c009'))$q$);
--- Route A continued: attach the prepared heat to the already published version.
-select pg_temp.step('A', 'attach the prepared heat to the PUBLISHED version (table write)', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c001') where id = pg_temp.u('0d1100')$q$);
-select pg_temp.run_round('A', 1, pg_temp.u('061100'), pg_temp.u('0d1100'));
+select pg_temp.step('A', 'attach that heat to the PUBLISHED version (table write)', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c001') where id = pg_temp.u('0d1100')$q$);
+select pg_temp.step('A', 'schedule the new round while its heat is outside the published order', $q$select public.schedule_competition_round(pg_temp.u('061100'), gen_random_uuid())$q$);
+select pg_temp.step('A', 'delete the unplaced heat again', $q$delete from public.event_competition_heats where id = pg_temp.u('0d1100')$q$);
 
--- Route B: a second round already in the published order before the correction ("spare round"). Cancelling r2 is not even required.
+-- Route C (the normal way to change a running order): a populated draft version, then publish it.
+select pg_temp.step('C', 'create a new draft schedule version', $q$insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.u('00c009'), pg_temp.u('00e001'), 9, 'v9', 'draft')$q$);
+select pg_temp.step('C', 'add a numbered floor heat to the draft', $q$insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.fl(9), pg_temp.u('00e001'), pg_temp.u('00c009'), 1)$q$);
+select pg_temp.step('C', 'add a heat of the new round to the draft', $q$insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, floor_heat_id, status) values (pg_temp.u('0d1900'), pg_temp.u('00e001'), pg_temp.did(1), pg_temp.u('061100'), 92, pg_temp.u('002001'), pg_temp.u('00c009'), pg_temp.fl(9), 'scheduled')$q$);
+select pg_temp.step('C', 'put the same couples in the draft heat', $q$insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order) select pg_temp.u('00e001'), pg_temp.did(1), pg_temp.u('0d1900'), pg_temp.eid(1, i), i from generate_series(1, 3) i$q$);
+select pg_temp.step('C', 'publish_competition_schedule_version', $q$select public.publish_competition_schedule_version(pg_temp.u('00c009'))$q$);
+select pg_temp.step('C', 'mark the draft published (table write)', $q$update public.event_competition_schedule_versions set status = 'published', published_at = now() where id = pg_temp.u('00c009')$q$);
+
+-- Route R: move the never-run published heat of spare round r4 to the new round by a table write, then run the new round.
+select pg_temp.step('R', 'repoint the unrun published heat of r4 to the new round (table write of round_id)', $q$update public.event_competition_heats set round_id = pg_temp.u('061100') where id = pg_temp.hid(4)$q$);
+select pg_temp.run_round('R', pg_temp.fl(4), pg_temp.u('061100'), pg_temp.hid(4));
+
+-- Route B: run the spare round r3 that was already in the published order. Cancelling r2 is not even required.
 select pg_temp.step('B', 'cancel_competition_round(r2)', $q$select public.cancel_competition_round(pg_temp.rid(2), 'running this round again', gen_random_uuid())$q$);
-select pg_temp.run_round('B', 3, pg_temp.rid(3), pg_temp.hid(3));
+select pg_temp.run_round('B', pg_temp.fl(3), pg_temp.rid(3), pg_temp.hid(3));
 
 do $$
 declare v text;
