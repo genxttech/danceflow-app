@@ -21,9 +21,9 @@ create temp table t_before as select (select count(*) from public.intake_guardia
   (select count(*) from public.intake_audit_events where event_type = 'guardian_attested') as n_aud;
 
 select pg_temp.chk('L01 M16a is applied: the m16a markers are on the six bodies, the inventory is 113 functions, the catalog self-check passes',
-  (select count(*) = 6 and bool_and(position('nsi-body:m16a' in prosrc) > 0)
+  (select count(*) = 6 and bool_and(prosrc ~ 'nsi-body:m16[ab]')
      from pg_proc where proname in ('respondents_guard', 'audit_write', 'erase_client_impl', 'attestations_insert_guard', 'attestations_update_guard', 'intake_attest_guardian'))
-  and (select count(*) = 113 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
+  and (select count(*) = (case when to_regclass('public.intake_email_challenges') is not null then 122 else 113 end) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
   and (select 'ok' = (select 'ok' from (select intake_private.assert_catalog()) x)));
 
 select pg_temp.chk('L02 privileges: the attest function is executable by authenticated only; the guards by nobody; the table has no API privileges and the restricted role only SELECT and DELETE',

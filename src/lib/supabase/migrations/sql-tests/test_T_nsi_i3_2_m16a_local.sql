@@ -197,9 +197,9 @@ select pg_temp.chk('A07 a submitted request that still needs guardian consent ca
 
 -- ===== A08 markers, ACLs, catalog ==========================================================================================
 select pg_temp.chk('A08 every M16a body carries the m16a marker; the function inventory is 113; the table has no API privileges and the restricted role has only SELECT and DELETE; the new functions have the expected grants; the catalog self-check passes',
-  (select count(*) = 6 and bool_and(position('nsi-body:m16a' in prosrc) > 0)
+  (select count(*) = 6 and bool_and(prosrc ~ 'nsi-body:m16[ab]')
      from pg_proc where proname in ('respondents_guard', 'audit_write', 'erase_client_impl', 'attestations_insert_guard', 'attestations_update_guard', 'intake_attest_guardian'))
-  and (select count(*) = 113 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
+  and (select count(*) = (case when to_regclass('public.intake_email_challenges') is not null then 122 else 113 end) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
   and not has_table_privilege('anon', 'public.intake_guardian_attestations', 'select') and not has_table_privilege('authenticated', 'public.intake_guardian_attestations', 'select')
   and not has_table_privilege('service_role', 'public.intake_guardian_attestations', 'select') and not has_table_privilege('service_role', 'public.intake_guardian_attestations', 'insert')
   and has_table_privilege('intake_destructive', 'public.intake_guardian_attestations', 'select') and has_table_privilege('intake_destructive', 'public.intake_guardian_attestations', 'delete')

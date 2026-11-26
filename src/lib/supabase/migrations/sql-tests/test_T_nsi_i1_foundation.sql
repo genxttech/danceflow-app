@@ -50,7 +50,7 @@ end $$;
 select pg_temp.chk('F01 catalog self-check passes', pg_temp.try('select intake_private.assert_catalog()') = 'ok',
   pg_temp.try('select intake_private.assert_catalog()'));
 select pg_temp.chk('F02 exactly 19 intake tables (18 + M7 grants; 22 from M12), all with RLS',
-  (select count(*) = case when to_regclass('public.intake_sessions') is not null then (case when to_regclass('public.intake_guardian_attestations') is not null then 23 else 22 end) else 19 end and bool_and(relrowsecurity) from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r'));
+  (select count(*) = case when to_regclass('public.intake_sessions') is not null then (case when to_regclass('public.intake_email_challenges') is not null then 25 when to_regclass('public.intake_guardian_attestations') is not null then 23 else 22 end) else 19 end and bool_and(relrowsecurity) from pg_class where relnamespace = 'public'::regnamespace and relname like 'intake\_%' and relkind = 'r'));
 select pg_temp.chk(format('F03 %s has no privilege on %s', r, c.relname),
   not (has_table_privilege(r, c.oid, 'SELECT') or has_table_privilege(r, c.oid, 'INSERT') or has_table_privilege(r, c.oid, 'UPDATE')
        or has_table_privilege(r, c.oid, 'DELETE') or has_table_privilege(r, c.oid, 'TRUNCATE')))
@@ -66,7 +66,8 @@ from pg_class c where c.relnamespace = 'public'::regnamespace and c.relname like
 select pg_temp.chk(format('F05 intake_destructive privilege on %s matches matrix', c.relname),
   case when c.relname in ('intake_requests', 'intake_request_appointments', 'intake_respondents', 'intake_responses', 'intake_response_revisions',
                           'intake_minor_determinations', 'intake_completions', 'intake_client_relationship_state', 'intake_guardian_designations',
-                          'intake_invitations', 'intake_sessions', 'intake_rate_limits', 'intake_guardian_attestations')
+                          'intake_invitations', 'intake_sessions', 'intake_rate_limits', 'intake_guardian_attestations',
+                          'intake_guardian_invitation_requests', 'intake_email_challenges')
        then has_table_privilege('intake_destructive', c.oid, 'SELECT') and has_table_privilege('intake_destructive', c.oid, 'DELETE')
             and not has_table_privilege('intake_destructive', c.oid, 'INSERT') and not has_table_privilege('intake_destructive', c.oid, 'UPDATE')
        else not (has_table_privilege('intake_destructive', c.oid, 'SELECT') or has_table_privilege('intake_destructive', c.oid, 'INSERT')

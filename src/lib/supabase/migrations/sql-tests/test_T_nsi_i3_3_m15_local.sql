@@ -299,7 +299,7 @@ select pg_temp.chk('N15 fulfillment_state: no completion is incomplete (never hi
 select pg_temp.chk('N16 every M15 body carries the m15 marker; the function inventory is 110; the new functions are owned by the migration owner with the expected grants; the catalog self-check passes',
   (select count(*) = 7 and bool_and(position('nsi-body:m15' in prosrc) > 0)
      from pg_proc where proname in ('studio_local_date', 'age_in_years', 'intake_determine_minor_from_birthday', 'intake_declare_minor_status', 'intake_session_minor_state', 'intake_minor_basis', 'fulfillment_state'))
-  and (select count(*) = (case when to_regclass('public.intake_guardian_attestations') is not null then 113 else 110 end) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
+  and (select count(*) = (case when to_regclass('public.intake_email_challenges') is not null then 122 when to_regclass('public.intake_guardian_attestations') is not null then 113 else 110 end) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where (n.nspname = 'public' and p.proname like 'intake\_%') or n.nspname = 'intake_private')
   and (select bool_and(not has_function_privilege('anon', p.oid, 'EXECUTE') and not has_function_privilege('intake_destructive', p.oid, 'EXECUTE'))
          from pg_proc p where p.proname in ('intake_determine_minor_from_birthday', 'intake_declare_minor_status', 'intake_session_minor_state', 'intake_minor_basis', 'studio_local_date', 'age_in_years'))
   and has_function_privilege('intake_destructive', 'intake_private.fulfillment_state(uuid)', 'EXECUTE')

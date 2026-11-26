@@ -26,11 +26,12 @@ say "   up exit code $rc"; tail -3 "$OUT/up_a.err" | cut -c1-300 | sed 's/^/   /
 CA=$(dbof nsira); [ -n "$CA" ] || { bad "no db container for A"; fail=99; }
 if [ -n "$CA" ] && [ $rc -eq 0 ]; then
   FPA=$(fp "$CA"); APA=$(apfp "$CA"); say "   NSI catalog fingerprint A: $FPA   appointments fp A: $APA"
-  [ "$FPA" = "${NSI_EXPECT_FP:-63e82e902ac004b406195a9164b944b2}|807" ] || [ "$FPA" = "${NSI_EXPECT_FP:-63e82e902ac004b406195a9164b944b2}	807" ] || bad "A NSI fingerprint is not the M16a value (got $FPA)"
+  [ "$(echo "$FPA" | tr "	" "|")" = "${NSI_EXPECT_FP:-__M16B_FP__}" ] || bad "A NSI fingerprint is not the M16b value (got $FPA)"
   docker exec "$CA" psql -U postgres -At -c "select intake_private.assert_catalog(); select 'assert_catalog ok'" 2>&1 | tail -1 | sed 's/^/   /'
   dump "$CA" > "$OUT/schema_a.sql"; wc -l "$OUT/schema_a.sql" | sed 's/^/   dump lines: /'
   docker rename "$CA" nsi-i2-replay-a
   run() { r=$(LINES_OUT=2 "$SQLT/run_i2_m7_m9_local.sh" nsi-i2-replay-a "$1" "$APA" | grep -E "SUITE" | head -1 | cut -c1-1500); say "   $2: ${r:-<no result>}"; echo "$r" | grep -q PASS || bad "$2: $r"; }
+  run test_T_nsi_i3_2_m16b_local.sql "M16b suite on A"
   run test_T_nsi_i3_2_m16a_local.sql "M16a suite on A"
   run test_T_nsi_i3_3_m15_local.sql "M15 suite on A"
   run test_T_nsi_i3_1_m14_local.sql "M14 suite on A"
@@ -44,8 +45,9 @@ if [ -n "$CA" ] && [ $rc -eq 0 ]; then
     r=$({ echo "set nsi.test_local = 'on'; set nsi.appointments_fp = '$APA';"; cat "$SQLT/$f.sql"; } | docker exec -i nsi-i2-replay-a psql -U postgres -q 2>&1 | grep -E "SUITE" | head -1 | cut -c1-1500)
     say "   $f on A: ${r:-<no result>}"; echo "$r" | grep -q PASS || bad "$f on A: $r"
   done
-  say "== rollbacks on A: M16a -> M15 -> M14 -> M13 -> M12 -> M11 -> M10 -> M9"
+  say "== rollbacks on A: M16b -> M16a -> M15 -> M14 -> M13 -> M12 -> M11 -> M10 -> M9"
   rbk() { docker exec -i nsi-i2-replay-a psql -U postgres -q -v ON_ERROR_STOP=1 < "$MIG/rollback/$1.sql" 2>&1 | grep -iE "^ERROR|FATAL" | head -2; }
+  e=$(rbk 20261118106000_nsi_i3_m16b_guardian_challenge_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "63e82e902ac004b406195a9164b944b2" ] && say "   M16b rollback -> M16a fingerprint identical" || bad "M16b rollback: $e"
   e=$(rbk 20261118105000_nsi_i3_m16a_guardian_attestation_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "3fc0eea416e8f820856935a2b94d078a" ] && say "   M16a rollback -> M15 fingerprint identical" || bad "M16a rollback: $e"
   e=$(rbk 20261118104000_nsi_i3_m15_minor_determination_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "be5a715adedad4197649593d23c6ce09" ] && say "   M15 rollback -> M14 fingerprint identical" || bad "M15 rollback: $e"
   e=$(rbk 20261118103000_nsi_i3_m14_hold_semantics_rollback); [ -z "$e" ] && [ "$(fp nsi-i2-replay-a | cut -c1-32)" = "97e13781e9f0498d8e452c64d6d43e18" ] && say "   M14 rollback -> M13 fingerprint identical" || bad "M14 rollback: $e"

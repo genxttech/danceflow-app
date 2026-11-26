@@ -371,7 +371,7 @@ select pg_temp.chk('S12c function privileges: staff RPCs are executable by authe
   and not has_function_privilege('service_role', 'intake_private.purge_expired_impl(int)', 'execute') and not has_function_privilege('authenticated', 'intake_private.link_valid(uuid)', 'execute')
   and not has_function_privilege('service_role', 'intake_private.link_valid(uuid)', 'execute'));
 select pg_temp.chk('S12d erase_client_impl carries the m12 marker, purge and erase implementations are owned by the restricted role, the catalog self-check passes',
-  (select prosrc ~ 'nsi-body:m(12|14|16a)' from pg_proc where proname = 'erase_client_impl')
+  (select prosrc ~ 'nsi-body:m(12|14|16a|16b)' from pg_proc where proname = 'erase_client_impl')
   and (select bool_and(pg_get_userbyid(proowner) = 'intake_destructive') from pg_proc where proname in ('erase_client_impl', 'purge_expired_impl'))
   and pg_temp.try('select intake_private.assert_catalog()') = 'ok');
 select pg_temp.chk('S12e no token, secret, hash or salt appears in any audit row; nothing was queued for delivery; no write touched appointments or account links',
