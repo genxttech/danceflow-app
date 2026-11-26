@@ -30,8 +30,6 @@ Limits: the spare heat was installed by fixture (superuser, replica mode). The a
 
 A rule must recognise "the same contest again". The only identities held are the **entry** and the **dance record**. They recognise a replacement only when it reuses them. A replacement prepared with a different dance record ("Waltz" / "Waltz 2") or a second set of entries for the same people cannot be told apart from a legitimate second category by anything in the database; matching on people would flag legitimate cases (the same couple in Newcomer and Open). **Lineage is therefore reliable only for a subset, and no rule is implemented.**
 
-Review: an independent reviewer checked a first version against the code and the probe logs and corrected it (planner wording, dance identity, progression exception, B2 slot rules); this text includes those corrections and **was not re-reviewed**.
-
 ## 4. B1: exact entry-and-dance rule (narrow)
 
 **Rule (precise).** At approval of a version V of round r (taking the event lock, not only the round lock): the pairs are every entry in V's stored `input.entries` crossed with every dance in `input.danceIds`, with dance identity **normalized** (a catalog id resolved to its dance key; a heat dance without a catalog id, or an empty set, fails closed: no single-staff override). A pair is *taken* when **any version of any other round of the event** contains it, **unless** that other round is the source of an unrevoked advancement into r (`event_competition_round_advancements`: `source_round_id` = that round, `target_round_id` = r, matching source version) and the source round is not cancelled. If any pair is taken, V counts as a replacement: no single-staff override, and the approver must be neither V's calculator nor anyone who opened a correction of, or cancelled, a round holding a taken pair.
@@ -58,6 +56,8 @@ Review: an independent reviewer checked a first version against the code and the
 
 * **Refuse the override in any division with two result-bearing rounds:** flags every preliminary-to-Final and multi-dance division (rejected by the no-broad-heuristic condition).
 * **Remove the single-staff override:** single-manager studios could not approve at all (contradicts ratified R-11).
+
+**Owner decision (2026-11-26, recorded in PR 795 section 13): B2, design only. B1 is not chosen and no interim rule is built. Design: [OPTION-B2-DESIGN.md](OPTION-B2-DESIGN.md), which supersedes the B2 sketch in section 5 where they differ. The options below are kept as the record of what was offered.**
 
 ## 7. The decision
 
