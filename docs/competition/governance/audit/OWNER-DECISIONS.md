@@ -676,3 +676,15 @@ This section updates section 11, where the probe was PENDING. No decision is rec
 **Option D:** draft PR 899 (head `60b4edd7e`). A review found a blocker (direct writes could still unpublish or replace the live order); the fix is not re-reviewed and the SQL run is PENDING. D does not close NC, CS or CA.
 
 **Option B:** docs-only draft PR 901 (head `50f35237c`). Lineage is reliable only for a subset, so no code was written. Owner choice pending between B1 (exact entry-and-dance rule, with or without rounds that hold ballots but no result), B2 (contest identity fixed at running-order publication) or neither. The write-up was not re-reviewed after corrections. R-11 blockers stay OPEN. No hosted action was taken or requested.
+
+## 13. R-11 Option B: owner chose B2, design (2026-11-26)
+
+Owner decision, verbatim: "Design B2". This closes the choice left open in section 12.
+
+**Chosen:** B2, a contest identity fixed at running-order publication (PR 901, section 5). **B1 was not chosen**, with or without the ballots variant, and no interim B1 rule is to be built.
+
+**Scope as recorded by the coordinator:** design work only (documents). It does not authorize B2 code or migrations, any DEV or PROD SQL apply, merge, deployment or activation. Implementation needs a separate owner go-ahead on the reviewed design.
+
+**Known residuals presented with the choice:** duplicate dance catalog records, a second entry set or new division for the same people, and another event. The design must either close each one or state it for a later decision.
+
+**Status:** R-11 stays an OPEN Studio/Custom release blocker; the four executed routes remain open until B2 is built, verified and applied. Option D (PR 899) continues under the section 11 approval and does not close NC, CS or CA.
