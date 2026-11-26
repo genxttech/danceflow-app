@@ -253,7 +253,8 @@ export async function loadFeedEvents(admin: SupabaseLike, subject: FeedSubject, 
       const entry = attendeeByAppointment.get(a.appointment_id) ?? { booked: false, cancelledAt: null, changedAt: null };
       if (a.status === "booked") entry.booked = true;
       else entry.cancelledAt = [entry.cancelledAt, a.cancelled_at ?? a.updated_at].filter(Boolean).sort().pop() ?? null;
-      entry.changedAt = [entry.changedAt, a.updated_at].filter(Boolean).sort().pop() ?? null; // newest change across ALL rows
+      // newest change across ALL rows. The cancel functions set cancelled_at without touching updated_at (no trigger on this table).
+      entry.changedAt = [entry.changedAt, a.updated_at, a.cancelled_at].filter(Boolean).sort().pop() ?? null;
       attendeeByAppointment.set(a.appointment_id, entry);
     }
     const attendeeAppointmentIds = [...attendeeByAppointment.keys()].filter((id) => !rows.has(id));
