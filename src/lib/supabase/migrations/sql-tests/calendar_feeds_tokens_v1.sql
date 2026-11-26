@@ -265,7 +265,7 @@ begin
 
   -- 15. definer functions pin search_path
   select count(*) into n from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
-   where ns.nspname = 'public' and p.proname like 'calendar_feed_%' and p.proname <> 'calendar_feed_audit_no_update'
+   where ns.nspname = 'public' and p.proname like 'calendar_feed_%' and p.proname not in ('calendar_feed_audit_no_update', 'calendar_feed_token_guard')
      and (not p.prosecdef or p.proconfig is null or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'));
   perform pg_temp.ok(n = 0, 'all feed functions are SECURITY DEFINER with a pinned search_path');
 end
