@@ -51,11 +51,16 @@ using (
 create or replace function public.protect_integration_audit_event()
 returns trigger language plpgsql
 set search_path = public
-as $$
+as $
 begin
+  -- The one permitted change: deleting a user clears actor_user_id (ON DELETE SET NULL runs as an update). Anything else is refused.
+  if old.actor_user_id is not null and new.actor_user_id is null
+     and (to_jsonb(new) - 'actor_user_id') = (to_jsonb(old) - 'actor_user_id') then
+    return new;
+  end if;
   raise exception 'Integration audit events are immutable';
 end;
-$$;
+$;
 
 drop trigger if exists protect_integration_audit_events on public.integration_audit_events;
 create trigger protect_integration_audit_events

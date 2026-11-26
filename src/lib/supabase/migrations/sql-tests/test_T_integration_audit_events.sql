@@ -49,6 +49,13 @@ select pg_temp.chk('bad provider, event type, outcome and non-object details are
   and pg_temp.val_as('service_role', null, $q$insert into public.integration_audit_events (studio_id, provider, event_type, outcome) values ('f1000000-0000-4000-8000-00000000000a', 'wave', 'x', 'weird') returning 'ok'$q$) like 'ERR%'
   and pg_temp.val_as('service_role', null, $q$insert into public.integration_audit_events (studio_id, provider, event_type, details) values ('f1000000-0000-4000-8000-00000000000a', 'wave', 'x', '[1]') returning 'ok'$q$) like 'ERR%');
 select pg_temp.chk('oversized details are rejected', pg_temp.val_as('service_role', null, format($q$insert into public.integration_audit_events (studio_id, provider, event_type, details) values ('f1000000-0000-4000-8000-00000000000a', 'wave', 'x', jsonb_build_object('k', %L)) returning 'ok'$q$, repeat('x', 9000))) like 'ERR%');
+-- deleting an auth user who acted must succeed, clear only the actor, and leave the row otherwise immutable
+insert into auth.users (id, email) values ('f0000000-0000-4000-8000-0000000000c1', 'leaver@audit.test');
+insert into public.integration_audit_events (studio_id, provider, event_type, actor_user_id) values ('f1000000-0000-4000-8000-00000000000a', 'wave', 'leaver', 'f0000000-0000-4000-8000-0000000000c1');
+select pg_temp.chk('actor cannot be rewritten to someone else', pg_temp.val_as('postgres', null, $q$update public.integration_audit_events set actor_user_id = 'f0000000-0000-4000-8000-0000000000a1' where event_type = 'leaver' returning 'ok'$q$) like '%immutable%');
+select pg_temp.chk('clearing the actor together with another change is refused', pg_temp.val_as('postgres', null, $q$update public.integration_audit_events set actor_user_id = null, outcome = 'failed' where event_type = 'leaver' returning 'ok'$q$) like '%immutable%');
+select pg_temp.chk('deleting the acting user succeeds', pg_temp.val_as('postgres', null, $q$with d as (delete from auth.users where id = 'f0000000-0000-4000-8000-0000000000c1' returning 1) select count(*)::text from d$q$) = '1');
+select pg_temp.chk('audit row survives with a cleared actor', (select count(*) = 1 and bool_and(actor_user_id is null and outcome = 'succeeded') from public.integration_audit_events where event_type = 'leaver'));
 -- studio deletion must still cascade (a delete trigger would have blocked it)
 delete from public.studios where id = 'f1000000-0000-4000-8000-00000000000b';
 select pg_temp.chk('deleting a studio cascades its audit rows', not exists (select 1 from public.integration_audit_events where studio_id = 'f1000000-0000-4000-8000-00000000000b'));
