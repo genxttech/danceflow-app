@@ -87,7 +87,23 @@ Triggers on `event_competition_entries` (same-timing triggers fire in name order
 
 ## 9. Test files
 
-`test_T_competition_s6_entry_status_guard.sql` (sections A every status × role, B leaving every status, C unaffected writes, D INSERT, links and DELETE, E bypass attempts, F legitimate operations, H lifecycle rules, G consistency and coexisting triggers), `test_T_competition_s6_entry_status_concurrency.sh` (four real connections; asserts the racers wait), `f3-readback.sql`, `run-s6.sh`. **Edited existing file:** `test_T_competition_u18s_heat_entry_scratch_audit.sql`, two setup writes of the parent entry now run as the owner (as a client they are refused once S6 is installed); the U18-S assertions are unchanged. Roles are simulated with `SET ROLE`; there is no PostgREST/HTTP request.
+`test_T_competition_s6_entry_status_guard.sql` (sections A every status × role, B leaving every status, C unaffected writes, D INSERT, links and DELETE, E bypass attempts, F legitimate operations, H lifecycle rules, G consistency and coexisting triggers), `test_T_competition_s6_entry_status_concurrency.sh` (four real connections; asserts the racers wait), `f3-readback.sql`, `run-s6.sh`. **No existing suite file is modified.** One adapted copy is added: `test_T_competition_u18s_heat_entry_scratch_audit_with_s6.sql` (section 9a). Roles are simulated with `SET ROLE`; there is no PostgREST/HTTP request.
+
+### 9a. The adapted U18-S suite
+
+* **Pinned original, unchanged:** `test_T_competition_u18s_heat_entry_scratch_audit.sql`, sha256 `ff95a63dee7e14c6e48110bece0646c1ecbe192f367e40e7d6b39920970833fe`, byte-identical in this PR, in PR 867 and on the candidate branch. It is the suite for a chain **without** S6.
+* **Why a copy is needed:** two of its setup steps write the parent entry's status as the client role `authenticated` and expect `OK`. S6's purpose is to refuse exactly that write (`COMP_S6_ENTRY_STATUS_WRITER`), so on a chain with S6 those two checks of the original fail.
+* **Exact difference (besides a four-line header):**
+
+```diff
+-insert into t_dir select pg_temp.try_as('authenticated', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800002'$q$);
++insert into t_dir select pg_temp.try_as('postgres', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800002'$q$);
+-insert into t_old select pg_temp.try_as('authenticated', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800006'$q$);
++insert into t_old select pg_temp.try_as('postgres', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800006'$q$);
+```
+
+* **Coverage:** no assertion is added, removed or reworded (17 checks in each). What does change in meaning: the check "direct parent-entry status write does not unlock a direct heat-entry scratch" now proves it for a parent status written by the owner; the claim that a *client* cannot make that parent write at all is proved by the S6 suite instead.
+* Runs: the originals passed 8/8 on the PR 867 chain (run 1). In run 1 the same two-line change had been applied to the file in place; its 17-check pass with S6 applied is evidence for the adapted text, not for the new file. Run 2 runs the original on the pre-S6 chain, and both the original (expected to fail its two client-write setup checks) and the adapted copy with S6 applied: **PENDING**.
 
 ## 10. Results
 
@@ -99,7 +115,7 @@ Container from `cf1host:found` (`sha256:a9ff85eb...afd3`, PostgreSQL 17.6), role
 |---|---|
 | **PR 867 migration set** (before any S6 file; suites from the PR 867 head) | **8 / 8 PASS**: U18 21, U18-S 17, JC1 15, callback-final 199, A5 186, A6 247, HL1 42, F2 198 |
 | S6 suite, S6 applied, and again after rollback + re-apply | **PASS, 89 checks, both times** |
-| Regression suites with S6 applied | **PASS**: U18 21, U18-S 17 (edited), JC1 15, A2 35, A5 186, A6 247, HL1 42, F2 198, OD-17 59, A4 55, callback-final 199, R2 write gate 21, E2 211, 10D.1 22 |
+| Regression suites with S6 applied | **PASS**: U18 21, U18-S 17 (**adapted**, then an in-place edit), JC1 15, A2 35, A5 186, A6 247, HL1 42, F2 198, OD-17 59, A4 55, callback-final 199, R2 write gate 21, E2 211, 10D.1 22 |
 | `test_T_competition_o1_day_of` | **FAIL**: calls `pg_temp.compo1_fixture_activate_round`, defined by another suite (not runnable alone) |
 | `test_T_phase10a_competition_foundation` | **FAIL**, 2 checks, both "Competition template not found" (starter template not present in this database). No other check in it failed, including the manager delete of an erroneous entry. Pre-S6 baseline of this and the previous suite: queued in run 2 |
 | Concurrency script | **INVALID, not a pass**: its client-side polling was too slow on this machine, the racers started after A had committed (0 lock waiters). The end-state checks held, the race was not exercised. Script rewritten to synchronise inside the database; queued in run 2 |

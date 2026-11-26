@@ -77,7 +77,7 @@ runsuite(){ # $1 name [$2 directory]
   printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$TSV"; log "$(basename "$TSV" .tsv) $s: $res"
 }
 # PR 867 evidence: the chain at this point is exactly the PR 867 migration set (live line + JC1 / U18 / U18-S; no S6 file applied yet), and the SQL suites in this tree
-# are run from the PR 867 head commit (this branch edits two setup writes in the U18-S suite).
+# are run from the PR 867 head commit (the S6 stage uses the adapted U18-S copy; the pinned original is not modified).
 TSV="$OUT/suites-pr867.tsv"; : > "$TSV"
 PR867_REF=6dc6b2d4e5657f27754c9dfc62e977f642ecb04c; mkdir -p "$OUT/pr867-sql-tests"
 for s in ${PR867_SUITES:-test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_callback_final_advancement test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_hl1_heat_guards test_T_competition_f2_results}; do ( cd "$REPO" && git show "$PR867_REF:src/lib/supabase/migrations/sql-tests/$s.sql" ) > "$OUT/pr867-sql-tests/$s.sql"; runsuite "$s" "$OUT/pr867-sql-tests"; done
@@ -92,7 +92,7 @@ select 'fn:'||p.proname from pg_proc p where p.pronamespace='public'::regnamespa
 SQL
 "${PSQL[@]}" -At < "$OUT/probe.sql" > "$OUT/state-after.txt"
 
-SUITES="${ONLY_SUITES:-test_T_competition_s6_entry_status_guard test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_cf1_a2_lock test_T_competition_hl1_heat_guards test_T_competition_f2_results test_T_competition_cf1_od17_enforcement test_T_competition_cf1_a4_minimum_integration test_T_competition_cf1_callback_final_advancement test_T_competition_r2_refund_write_gate test_T_competition_e2_ballots test_T_competition_o1_day_of test_T_phase10a_competition_foundation test_T_phase10d1_heat_entry_eligibility}"
+SUITES="${ONLY_SUITES:-test_T_competition_s6_entry_status_guard test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit_with_s6 test_T_competition_jc1_inactive_judge_absent test_T_competition_cf1_a5_exclusion test_T_competition_cf1_a6_withdrawal test_T_competition_cf1_a2_lock test_T_competition_hl1_heat_guards test_T_competition_f2_results test_T_competition_cf1_od17_enforcement test_T_competition_cf1_a4_minimum_integration test_T_competition_cf1_callback_final_advancement test_T_competition_r2_refund_write_gate test_T_competition_e2_ballots test_T_competition_o1_day_of test_T_phase10a_competition_foundation test_T_phase10d1_heat_entry_eligibility}"
 TSV="$OUT/suites.tsv"; : > "$TSV"
 for s in $SUITES; do runsuite "$s"; done
 
