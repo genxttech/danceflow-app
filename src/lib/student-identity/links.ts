@@ -70,7 +70,7 @@ export async function getStudentStudioLinks(user: User) {
     throw new Error(`Student studio-link lookup failed: ${linksError.message}`);
   }
 
-  let typedLinks = (links ?? []) as LinkRow[];
+  const typedLinks = (links ?? []) as LinkRow[];
 
 
   const clientIds = typedLinks.map((link) => link.client_id);
