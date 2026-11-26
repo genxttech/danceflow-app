@@ -2,7 +2,7 @@
 
 **Status: DESIGN. No code, no migration, nothing applied, nothing executed.** DanceFlow Studio/Custom policy, not a governing-body rule. Implementation is not authorized.
 
-**Owner decisions folded in** (PR 795, `OWNER-DECISIONS.md`): B2, design only (section 13); **Q8** independent approval (section 16, `cb13176ad`); **Q1 = option C** with 13 requirements (section 17, `0ac792352`). Q4 and Q6 are resolved by these; Q5 is resolved for relevant-round cancellers (Q11 stays open). **Q9, the different-dance replacement, is OPEN and not closed by option C.**
+**Owner decisions folded in** (PR 795, `OWNER-DECISIONS.md`): B2, design only (section 13); **Q8** independent approval (section 16, `cb13176ad`); **Q1 = option C** (section 17, `0ac792352`); **Q9** show the recorded dance and disclose, **bypass not accepted** (section 18, `364575afc`). Q4 and Q6 are resolved; Q5 for relevant-round cancellers (Q11 stays open). **R-11 and B2 are BLOCKED** while the paths in section 6B stay open.
 
 Earlier texts failed independent review three times (by reading). Review status of this text: section 14. Code claims cite `src/lib/supabase/migrations/` (short: the timestamp) or `src/`, read on `release/website-embeds` (`49dbaee1b`). **Every behavior described for B2 is unexecuted.**
 
@@ -56,11 +56,11 @@ One slot per dance, so a round holding two dances occupies two. Entries are not 
 
 ## 5. Dance identity
 
-* `dance_identity` = the catalog dance's key, normalized (trim, lower case, spaces and punctuation removed).
-* Every heat dance entering a published order must have a catalog `dance_id` of the round's program that is an **active offering of the heat's division**, matching key and label; the catalog must hold no two rows with equal normalized key or name.
+* **Identity is the catalog dance row id**, frozen once it appears in the history. Keys, names and labels are user-typed and are **not** a security boundary (Q9 requirement 8); `dance_identity` in this document means that row id.
+* Every heat dance entering a published order must have a catalog `dance_id` of the round's program that is an **active offering of the heat's division**, matching key and label; the catalog must hold no two rows with equal normalized key or name (data hygiene only: no independence decision relies on it).
 * A referenced catalog row cannot change key or name or be deleted; no dance is added after profile lock.
 * A result naming a dance with no bound slot needs independent approval.
-* Open: synonyms and look-alike characters (Q2). Offerings stay manager-writable, so a manager can add a dance to a division (Q9).
+* Two rows meaning one dance (synonyms, look-alikes) are different dances to the rule (Q2). Offerings stay manager-writable (section 6B).
 
 ## 6. The rule (option C)
 
@@ -70,9 +70,39 @@ One slot per dance, so a round holding two dances occupies two. Entries are not 
 3. another round of the **same division** is **unbound** (any dance on its history rows, heats, ballots or results lacks a bound row) and has a history row, a ballot, a result or a cancellation;
 4. r has depth > 0 and no unrevoked advancement into r has a source bound at depth-1, not cancelled, whose source version is still that round's approved version.
 
+5. **(proposed, Q16)** r is **amended**: its (round, dance row) memberships in any published version differ from the division's **baseline**, the memberships recorded by the first publication holding a heat of that division. A round bound by advancement with its source's dances is not amended.
+
 **multi(r) = own(r), or multi(s) for an advancement source s of r.** Rules 2 and 3 ignore r's own advancement ancestors.
 
-A result is **affected** when multi(r) or it is corrected (PR 865's history test). An affected result needs section 8's independence: at approval, at revalidation and at result publication. This includes **the first round**, from the moment the history holds a second one (requirements 2, 3). A result that is not affected keeps PR 865's initial rule, including the single-manager override with a substantive reason (requirement 7). No override exists for an affected result.
+A result is **affected** when multi(r), amended(r) (if Q16 adopts it) or it is corrected (PR 865's history test). For an amended result the lineage is the **whole division**, because the history cannot say which contest it replaces. Section 7's conditions apply to amended results as to multi ones. An affected result needs section 8's independence: at approval, at revalidation and at result publication. This includes **the first round**, from the moment the history holds a second one (requirements 2, 3). A result that is not affected keeps PR 865's initial rule, including the single-manager override with a substantive reason (requirement 7). No override exists for an affected result.
+
+## 6B. Different-dance replacement (Q9): what is decided, evaluated and open
+
+**Decided:** published results show the recorded dance ([OPTION-B2-DANCE-DISPLAY.md](OPTION-B2-DANCE-DISPLAY.md)); no blanket division-wide independence merely because a division has several dances; one-manager initial results stay; **the bypass is not accepted for activation**. Which cases option C already catches is being verified separately (requirement 5); no result of that is claimed here.
+
+**Evaluation (requirements 6-7).** Everything is derived from the published history; no user flag, label or name decides (requirement 8).
+
+| After the division's baseline publication | Independence under rule 5 | Legitimate cost | What it cannot see |
+|---|---|---|---|
+| A dance not in the baseline is added | yes | adding a forgotten dance needs an independent person | a spare already in the baseline |
+| A spare or standby round is repurposed (its dances change, or a heat moves between rounds) | yes, for each round whose memberships changed; changing back does not clear it | fixing a wrong assignment after publication | a spare first published under that dance |
+| A published dance assignment changes by a new running order | yes (any version differing from the baseline); direct changes to published heats or dances are refused | the same | draft edits before the baseline |
+| A new round for a dance already present | already option C | | |
+| An offering is added | no restriction by itself; counts once a round using it is published (first row above) | none | an offering added before the baseline |
+
+* **Controlled amendments.** The history itself identifies an amendment. A recorded amendment step with a reason is OD-26's domain; the restriction does not depend on it. Requiring a second person **at scheduling time** was evaluated and is not proposed: it adds a workflow and protects nothing that the approval restriction does not.
+* **Timing variant (Q16).** Apply rule 5 from the baseline (proposed), or only to changes after the division's first danced heat (cheaper; by reading it then covers only placement-only danced heats and future controlled changes, because a new running order is refused after a run status).
+* **Coordination.** Option D guards published heats and versions; B2-3 adds the dance-row guard (old and new heat). Q8: amended results need section 8 with division lineage. OD-12: a verification record should store the dance row id shown to the verifier, and a later membership change should void it.
+
+**Still open after option C and rule 5 (R-11 and B2 BLOCKED):**
+* a spare included in the **baseline** under a dance row with no other round (any label), including one planned in drafts, or a duplicate or synonym row: self-approvable;
+* any baseline round whose stated dance is not what was really danced: the system records the schedule, not the floor;
+* a second division or event (Q3).
+
+**Candidate closures for the owner (Q17; none adopted):**
+1. Make **OD-12 independent paper verification** (already decided, unbuilt) a prerequisite of activation. By reading its design, one person can then not create typed ballot content alone: the verifier must differ from the transcriber and the adjudicator; digital ballots are the judge's own. Remaining: collusion or controlled accounts, and one person still approves. Recommended.
+2. Require independence when the approver typed contributing ballots **and** the division has another round in the history. Closes the typed one-person path without OD-12, but restricts one-manager multi-dance studios that type their own ballots, close to what requirement 2 declined.
+3. Division-wide independence: declined by requirement 2.
 
 ## 7. Timing, revalidation and publication (requirements 3-5)
 
@@ -137,8 +167,8 @@ Not barred as designed: contributors only to rounds outside the lineage or to no
 | Extra round enters after a self-approved publication | further publications blocked; earlier one live (Q14) |
 | Original never in the system | open (Q15) |
 | Second entry set | closed |
-| **Spare labelled with another dance** | **open (Q9), narrowed.** It escapes only while the labelled dance has **no other round** of that division in the history (bound at depth 0, or counted unbound). If it has one, the label doubles that slot. If one arrives later, section 7 applies. A manager can manufacture a free dance by adding an offering. The real round stays self-approvable and the result does not show the dance |
-| Duplicate catalog rows | closed; synonyms open (Q2) |
+| **Spare labelled with another dance** | Escapes option C only while that dance has no other round of the division in the history. Rule 5 (proposed) further requires independence when it is added or repurposed after the baseline. **Open** for a spare in the baseline (section 6B) |
+| Duplicate catalog rows | equal normalized rows refused as hygiene; synonyms are different dances to the rule (Q2, section 6B) |
 | Second division or program with the same people | open (Q3) |
 | Another event; superuser; direct publication-snapshot rows; round renaming | outside this rule |
 
@@ -180,6 +210,11 @@ Refusals are checked at approval, revalidation and result publication.
 | I7-I9 | other events, divisions, bound other-dance rounds; calculator of a superseded version; builder who did nothing barred; ordinary preliminary contributor to a multi Final; partly bound round | allowed, except the partly bound round counts |
 | I10 | approver later cancels a lineage round; revalidation by another; no eligible person | publication refused; then allowed; fails closed with report |
 | R1 | one manager enters and calculates, second manager approves and the first publishes | allowed |
+| P1 | several single-dance rounds in one division, all in the baseline; preliminary to Final by advancement; direct Final; republished, renumbered or split heats with unchanged memberships | one manager, self-approval allowed |
+| P2 | semifinal plus Final of one dance; re-dance as a second round; flights | independent person required and succeeds; publishing a re-dance after a run status stays refused as today; a multi-dance single round still cannot be calculated |
+| B1-B4 | relabelled spare on a dance with other rounds; new dance added after baseline; repurposed standby; dance changed then changed back | independent (B1 by option C; B2-B4 by rule 5) |
+| B5-B6 | spare in the baseline under an otherwise unused dance; duplicate dance row in the baseline | **self-approval passes: open, documented** |
+| B7 | dance row moved off a certified heat; label rename | refused; shown label unchanged |
 | H1 | history immutability; event deletion cascade; rollback and re-apply; pins; ACL; existing suites before and after | refused / exact / no regression |
 
 ## 13. Phased plan (slots `20270301160000`-`169000`)
@@ -188,28 +223,31 @@ Refusals are checked at approval, revalidation and result publication.
 |---|---|---|---|
 | `160000` | B2-1 | dance identity, offering and dedupe guard | none |
 | `161000` | B2-2 | slot, history tables, read functions | B2-1 |
-| `162000` | B2-3 | history triggers, publication binding, heat-dance guard | Option D, B2-2, U18 |
+| `162000` | B2-3 | history triggers, publication binding, heat-dance guard, baseline (rule 5 if adopted) | Option D, B2-2, U18 |
 | `163000` | B2-4 | advancement binding | B2-3 |
 | `164000` | B2-5 | lineage, independence predicate, eligibility report (no authority change) | B2-4 |
 | no SQL | B2-app | eligibility, revalidation, warnings, messages | before B2-6 |
 | `165000` | B2-6 | revalidation; approval and result-publication rule; event lock | PR 865, B2-5, U18 |
 | `166000` | reserved | approver role, only if separately authorized, and never before B2-6 enforces items 1-4 | Q10 |
-| `167000`-`169000` | reserved | follow-ups | |
+| `167000` | B2-D | recorded-dance display (separate specification) | none |
+| `168000`-`169000` | reserved | follow-ups | |
 
 Each PR: forward, rollback, SQL suite, local run, independent review. None is authorized.
 
 ## 14. Owner questions and what is not verified
 
-Resolved: Q1 (C), Q4, Q6, Q8, Q5 for relevant-round cancellers. Open, one at a time: **Q9** (being put to the owner now), then Q14, Q15, Q10, Q11, Q12, Q13, Q2, Q3, Q7.
+Resolved: Q1 (C), Q4, Q6, Q8, Q9 (display and disclose; bypass not accepted), Q5 for relevant-round cancellers. Open, one at a time: **Q14** (being put to the owner now), then Q15, Q16, Q17, Q18, Q10, Q11, Q12, Q13, Q2, Q3, Q7.
 
-* **Q9.** The relabelled spare (section 9, narrowed): (i) show the dance on the published result and disclose that the route stays open (does not stop wrong marks under another dance; payload change not slotted); (ii) require independence whenever the division holds any other round, which closes the label route against barred persons and affects every multi-dance division from its first dance; (iii) disclose only. Recommendation: (i).
 * **Q14.** A self-approved result is published and a second round then enters. The published result: (i) stays live, shown to staff as awaiting revalidation (designed); (ii) is hidden by an append-only suspension until revalidated, history preserved; (iii) in addition to (i) or (ii), also refuse a new running order once any placement is danced, closing the running-order route (it blocks legitimate additions that are possible today only in that case).
 * **Q15.** The other round never enters the system: (i) accept and disclose (recommended; requirement 7 preserves single-manager initial results); (ii) require independence for every result, which reverses requirement 7.
+* **Q16.** After the baseline publication, should an added dance, a repurposed spare or a changed assignment require independent approval (rule 5)? (i) yes, from the baseline (recommended; every later edit of that kind costs a one-manager studio self-approval for those rounds); (ii) only for changes after the first danced heat; (iii) no.
+* **Q17.** How is the remaining baseline-spare path closed before activation: OD-12 verification as a prerequisite (recommended), the typed-ballot restriction, both, or another adjudication?
+* **Q18.** Is the dance name enough public disclosure, with the "scheduled, not confirmed as danced" notice for staff only?
 * **Q10.** Which roles may approve besides managers, who grants them and by when (separate document).
 * **Q11.** May a manager who cancelled a lineage round for an unrelated operational reason approve? Is a correction opened anywhere in the lineage "associated"? Designed: no, and yes.
 * **Q12.** Bar the adjudicator of a card typed by someone else, and contributors to a multi ancestor's ballots? Designed: both; ordinary ancestors' contributors are not barred.
 * **Q13.** May an OD-12 verifier, OD-11 reviewer or authorizer, correction co-signer, exclusion or absence recorder, or pre-calculation reopener approve? The decisions do not name them; barring any raises minimum staffing.
-* **Q2.** Custom dances: per-program dedupe (synonyms open) or rules-profile identities with independence required for custom dances?
+* **Q2.** Identity is the frozen dance row, so two rows meaning one dance differ to the rule. (i) Accept, with name dedupe as hygiene only (recommended together with Q17); (ii) let only dances with a rules-profile identity (existence not verified) bear a self-approvable result, all others needing independence.
 * **Q3.** Second division with the same people and dance: accept and disclose (recommended) or refuse identical rosters?
 * **Q7.** Existing published orders: leave unbound (recommended) or reviewed backfill?
 
