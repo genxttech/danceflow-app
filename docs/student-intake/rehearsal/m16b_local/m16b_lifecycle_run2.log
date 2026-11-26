@@ -1,0 +1,192 @@
+lock-acquired 2026-11-26T16:37:10Z
+== container LC: M1-M16a, then M16b
+   fingerprint M16a: 63e82e902ac004b406195a9164b944b2|807
+   fingerprint M16b: 072acfaac996fcc3042d426983569802|884
+   M16b boundary suite: ERROR:  NSI I3-2 M16b SUITE PASS (23 checks)
+   M16a suite on M16b: ERROR:  NSI I3-2 M16a SUITE PASS (8 checks)
+   M15 suite on M16b: ERROR:  NSI I3-3 M15 SUITE PASS (16 checks)
+   M14 suite on M16b: ERROR:  NSI I3-1 M14 SUITE PASS (8 checks)
+   M13 suite on M16b: ERROR:  NSI I3-1 M13 SUITE PASS (5 checks)
+   M12 suite on M16b: ERROR:  NSI I3-1 SUITE PASS (26 checks)
+   M11 suite on M16b: ERROR:  NSI I2 M11 SUITE PASS (18 checks)
+   M16b test_T_nsi_i1_foundation: ERROR:  NSI I1 DEV-SAFE SUITE PASS (121 checks)
+   M16b test_T_nsi_i2_local: ERROR:  NSI I2 SUITE PASS (92 checks)
+   test_T_nsi_i3_1_devsafe: ERROR:  NSI I3-1 DEV-SAFE SUITE PASS (9 checks)
+   test_T_nsi_i3_3_devsafe: ERROR:  NSI I3-3 DEV-SAFE SUITE PASS (5 checks)
+   test_T_nsi_i3_2_devsafe: ERROR:  NSI I3-2 M16a DEV-SAFE SUITE PASS (4 checks)
+   test_T_nsi_i3_2_m16b_devsafe: ERROR:  NSI I3-2 M16b DEV-SAFE SUITE PASS (4 checks)
+== suite-level mutation probes on M16b (each mutated copy must make the named check FAIL; the good file is re-applied afterwards)
+   probe request without the minor check: detected (B02)
+   probe request ignores a linked recipient: detected (B02)
+   probe request keeps the old invitation: detected (B03)
+   probe request keeps old sessions: detected (B03)
+   probe request keeps open challenges: detected (B03)
+   probe request keeps the respondent: detected (B03)
+   probe finalize ignores pending expiry: detected (B04b)
+   probe finalize ignores a later staff revoke: detected (B04b)
+   probe finalize without the minor check: detected (B04b)
+   probe finalize ignores a linked recipient: detected (B04b)
+   probe finalize keeps an interim respondent: detected (B04c)
+   probe address read ignores the bound recipient: detected (B07a)
+   probe address read ignores assurance: detected (B07a)
+   probe issue counts the raw app bucket: detected (B08a)
+   probe address read ignores a revoked session: detected (B07a)
+   probe address read ignores link validity: detected (B06)
+   probe verify ignores the respondent of the challenge: detected (B09a)
+   probe issue ignores the send-to hash: detected (B07b)
+   probe issue ignores the respondent hash: detected (B07b)
+   probe issue ignores the buckets: detected (B08a)
+   probe no hourly cap: detected (B08b)
+   probe no daily cap: detected (B08b)
+   probe no per-invitation cap: detected (B08b)
+   probe issue keeps the open challenge: detected (B08b)
+   probe verify does not count: detected (B09a)
+   probe verify never locks: detected (B09a)
+   probe verify ignores expiry: detected (B09b)
+   probe verify ignores the invitation: detected (B09b)
+   probe verify ignores existing assurance: detected (B09b)
+   probe guard without consumption: detected (B10)
+   probe guard allows a revoked invitation: detected (B10)
+   probe guard allows an older generation: detected (B10)
+   probe guard ignores the hash: detected (B10)
+   probe guardian link ignores the determination: detected (B06)
+   probe guardian link ignores a linked recipient: detected (B06)
+   probe recipient not immutable: detected (B05a)
+   probe student re-issue ends all sessions: detected (B06)
+   probe revoke-all keeps open requests: detected (B04b)
+   probe pending rows mutable: detected (B05b)
+   probe attempts can jump: detected (B05b)
+   probe challenge hash unchecked on insert: detected (B05b)
+   probe erase keeps challenges: detected (B11)
+   probe erase keeps pending requests: detected (B11)
+   probe purge deletes consumed challenges: detected (B12b)
+   probe purge ignores the invitation state: detected (B12b)
+   probe purge drops referenced pending rows: detected (B12b)
+   probe purge deletes unexpired requests: detected (B12c)
+   probe purge deletes referenced invitations: detected (B12a)
+   catalog identical after the probes
+   M16b boundary suite after the probes: ERROR:  NSI I3-2 M16b SUITE PASS (23 checks)
+== replays and refusals on an M16b database
+   replay M16b ok
+   fingerprint unchanged by the M16b replay
+   M16a replay over M16b refused
+   M16a rollback over M16b refused
+   refusals left the catalog unchanged
+   M16b replay refused when an m16c marker exists
+   M16b rollback refused when an m16c marker exists
+== rollback refusals, one row type at a time
+   rollback refused: pending request row
+   rollback refused: challenge row
+   rollback refused: guardian invitation
+   rollback refused: guardian session
+   rollback refused: verified respondent
+   rollback refused: guardian_invitation_requested event
+   rollback refused: guardian_invitation_issued event
+   rollback refused: guardian_email_challenge_issued event
+   rollback refused: guardian_email_verified event
+   refused rollbacks left the catalog unchanged
+== rollback restores M16a exactly
+   rollback M16b -> M16a fingerprint identical
+   constraints, indexes and columns identical to M16a
+   M16a suite after rollback: ERROR:  NSI I3-2 M16a SUITE PASS (8 checks)
+   M15 suite after rollback: ERROR:  NSI I3-3 M15 SUITE PASS (16 checks)
+   M14 suite after rollback: ERROR:  NSI I3-1 M14 SUITE PASS (8 checks)
+   second rollback refused on an M16a database
+== forward preflight: two current guardian respondents on one request
+   M16b refused with the count
+   the refused migration changed nothing
+   re-applied M16b fingerprint identical
+== container RACE: M1-M16b; M16b races, M16a / M15 / M14 races (regression), harness-level probes
+   [M16b] A1 request: waiting=1 result=requested:5f98754e-f elapsed=7s
+   [M16b] A1 the staff request takes the client lock before it writes: ok
+   [M16b] A2 issue: waiting=0 rows-while-held=1 result=ok
+   [M16b] A2 issue takes the client lock before it writes: FAIL
+   [M16b] A3 verify: waiting=0 attempts-while-held=1 result=invalid attempts=1
+   [M16b] A3 verify takes the client lock before it counts: FAIL
+   [M16b] B1 revoke first: waiting=1 result=superseded invitations=0
+   [M16b] B1 finalize waits for revoke-all and then refuses without issuing: ok
+   [M16b] B2a erase first: waiting=0 result=invalid left=0
+   [M16b] B2a verify waits for the erase and answers invalid: FAIL
+   [M16b] B2b verify first: waiting=1 left=0
+   [M16b] B2b erase waits for the verify and then removes everything: ok
+   [M16b] B4 finalize first: waiting=1 invitation=staff_revoked
+   [M16b] B4 revoke-all waits for the finalize and then revokes the new guardian invitation: ok
+   [M16b] B5 re-request first: waiting=0 issue=invalid challenges=0
+   [M16b] B5 an issue on the old link waits for the re-request and writes nothing: FAIL
+   [M16b] C1 eight wrong codes: invalid=5 locked=3 attempts=5
+   [M16b] C1 concurrent verifies never lose an attempt and never pass five: ok
+   [M16b] C2 two requests: open=1
+   [M16b] C2 two concurrent requests both succeed and leave one open row: ok
+   [M16b] C3 two issues: ok / ok open/all=1/2
+   [M16b] C3 two concurrent issues both succeed and leave one open challenge: ok
+   [M16b] P1 purge under a held lock: rows=1/1 then=0/0 first={"sessions": 0, "challenges": 0, "invitations": 0, "rate_limits": 0, "clients_locked": 0, "clients_candidate": 1, "invit
+   [M16b] P1 the purge skips a locked client without failing and removes it on the next run: ok
+   [M16b] E1 every writer refuses REPEATABLE READ / READ UNCOMMITTED (55000), including on unknown ids: ok
+   [M16b] SUMMARY m16b races: failures=4
+FAIL: M16b race harness
+   [M16a on M16b] A1 attest: waiting=1 result=attested rows=1 assurance=staff_attested elapsed=7s
+   [M16a on M16b] A1 attest takes the client lock before it writes (waits for the holder, then attests): ok
+   [M16a on M16b] B1 erase first: waiting=1 result=erasure_barrier requests left=0 attestations=0
+   [M16a on M16b] B1 attest waits for the erase, re-reads, sees the request gone and returns erasure_barrier without writing: ok
+   [M16a on M16b] C1 two concurrent attestations: attested / already_done rows=1
+   [M16a on M16b] C1 two concurrent attestations leave exactly one row (one attested, one already_done): ok
+   [M16a on M16b] E1 attest under RR: BEGIN 1 SET SET ERROR:  nsi: attestation requires READ COMMITTED (the barrier and hold che
+   [M16a on M16b] E1 attest (unknown request) under RR: BEGIN 1 SET SET ERROR:  nsi: attestation requires READ COMMITTED (the barrier and hold che
+   [M16a on M16b] E1 attest refuses REPEATABLE READ and READ UNCOMMITTED (55000), including on the unknown-request path: ok
+   [M16a on M16b] SUMMARY m16a races: failures=0
+   [M15 on M16b] A1 determine: waiting=1 result=determined_adult rows=1 elapsed=7s
+   [M15 on M16b] A1 determine takes the client lock before it writes (waits for the holder, then determines): ok
+   [M15 on M16b] A2 declare: waiting=1 result=declared_adult rows=1 elapsed=7s
+   [M15 on M16b] A2 declare takes the client lock before it writes (waits for the holder, then declares): ok
+   [M15 on M16b] A3 reads while the client lock is held: state=unknown (2609 ms) basis_rows=0 (1619 ms) holder still holding after both reads=yes
+   [M15 on M16b] A3 session_minor_state and intake_minor_basis finish while another session still holds the client lock (they do not wait for it): ok
+   [M15 on M16b] A2b declare while another session holds the session row: client lock held by declare=yes result=declared_adult
+   [M15 on M16b] A2b declare holds the client lock while it waits for the session row (client lock first, then the session row): ok
+   [M15 on M16b] B1 erase-first (determine already past its unlocked read): waiting=1 result=erasure_barrier requests left=0 rows=0
+   [M15 on M16b] B1 determine waits for the erase, then re-reads, sees the request gone and returns erasure_barrier without writing: ok
+   [M15 on M16b] B2 erase committed first: SET
+   [M15 on M16b] B2 determine after a committed erase raises unknown request (22023), no exception from the gate or a foreign key: ok
+   [M15 on M16b] C1 two concurrent determinations: determined_adult / already_current rows=1
+   [M15 on M16b] C1 two concurrent determinations leave exactly one row (one determined, one already_current): ok
+   [M15 on M16b] D1 declare vs revoke: result=invalid rows=0 waited 6s
+   [M15 on M16b] D1 a declaration that waited on a concurrent revoke re-checks the session and writes nothing (invalid): ok
+   [M15 on M16b] E1 determine (unknown request) under RR: ERROR:  nsi: minor determination requires READ COMMITTED (the barrier and hold c
+   [M15 on M16b] E1 determine under RR: BEGIN 1 SET ERROR:  nsi: minor determination requires READ COMMITTED (the barrie
+   [M15 on M16b] E1 declare under RR: BEGIN 1 SET ERROR:  nsi: minor declaration requires READ COMMITTED (the barrier 
+   [M15 on M16b] E1 determine under READ UNCOMMITTED: BEGIN 1 SET ERROR:  nsi: minor determination requires READ COMMITTED (the barrie
+   [M15 on M16b] E1 both writers refuse REPEATABLE READ and READ UNCOMMITTED (55000): ok
+   [M15 on M16b] SUMMARY m15 races: failures=0
+   [M14 on M16b] R1 held client rows left=1
+   [M14 on M16b] R1 erase vs a hold committed after the erase transaction began: defect absent (expected for EXPECT=fixed)
+   [M14 on M16b] R2-P2A purge output: COMMIT; sessions left=1
+   [M14 on M16b] R2-P2A purge transaction began before the hold committed: defect absent (expected for EXPECT=fixed)
+   [M14 on M16b] R2a hold creator waiting on the advisory lock=1 (hold rows while blocked=0); purge deleted (sessions left=0); hold exists afterwards=1
+   [M14 on M16b] R2a RPC hold creation waits on the client lock while the purge runs, the purge deletes (the hold did not exist yet), the hold exists afterwards: ok
+   [M14 on M16b] R2b purge output: PL/pgSQL function public.intake_purge_expired(integer) line 3 at RETURN; rows left=1; hold committed=1
+   [M14 on M16b] R2b a direct hold that bypassed the lock: the guard refuses (42501) and the row remains: ok
+   [M14 on M16b] R2c direct delete while another writer holds the client: ERROR:  nsi: delete refused: another writer holds this client CONTEXT:  PL/pgSQL function intake_private.delet; rows left=1
+   [M14 on M16b] R2c delete guard lock-then-check: defect absent (expected for EXPECT=fixed)
+   [M14 on M16b] R2d a direct hold insert waited 7 s for the lock holder
+   [M14 on M16b] R2d hold-insert trigger takes the client lock: defect absent (expected for EXPECT=fixed)
+   [M14 on M16b] R3 lock_client: BEGIN 1 ERROR:  nsi: an intake writer requires READ COMMITTED (the hold checks rely on see
+   [M14 on M16b] R3 hold creation: BEGIN 1 SET SET ERROR:  nsi: an intake writer requires READ COMMITTED (the hold checks rel
+   [M14 on M16b] R3 erase: BEGIN 1 SET SET ERROR:  nsi: erasure requires READ COMMITTED (the hold checks rely on seei
+   [M14 on M16b] R3 purge: BEGIN 1 SET ERROR:  nsi: the purge requires READ COMMITTED (the hold checks rely on seeing
+   [M14 on M16b] R3 isolation guard under REPEATABLE READ: defect absent (expected for EXPECT=fixed)
+   [M14 on M16b] R4 starvation: the M14 suite (T07). R5 strengthened C7: the concurrency harness (C7). R6 P04 pair: the M13 suite (P04).
+   [M14 on M16b] SUMMARY m14 races (fixed): failures=0
+   race probe request without lock_client: detected (A1)
+   race probe issue without lock_client: detected (A2)
+FAIL: race probe verify without lock_client NOT detected (A3)
+FAIL: apply M17 on nsi-i2-m16br: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: race probe finalize without lock_client: mutated file did not apply: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: apply M17 on nsi-i2-m16br: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: race probe revoke-all without lock_client: mutated file did not apply: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: apply M17 on nsi-i2-m16br: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: race probe verify without the isolation guard: mutated file did not apply: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: apply M17 on nsi-i2-m16br: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: race probe purge deletes challenges of unlocked clients: mutated file did not apply: Error response from daemon: No such container: nsi-i2-m16br
+FAIL: apply M17 on nsi-i2-m16br: Error response from daemon: No such container: nsi-i2-m16br
+SUMMARY m16b lifecycle (all): failures=11
+exit 1 2026-11-26T17:46:52Z
+released 2026-11-26T17:46:55Z

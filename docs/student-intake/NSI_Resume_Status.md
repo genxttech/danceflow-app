@@ -258,3 +258,19 @@ Already settled and not reopened: guardian address Option B; no standalone NSI p
 **Harness change (`c6ffc1af7`):** every ordering now uses an advisory-lock gate and a check that the caller is waiting on the client lock; probes run one scenario each; new stage `m16brace`. Test code only; the migration and rollback bytes are unchanged. It is not covered by the earlier code review.
 
 **Open:** run 3 (`m16brace`, queued), then the full-chain replay.
+
+## 25. M16b PARKED (2026-11-26, APPS coordinator: NSI is outside the release critical path)
+Queue ticket `20261126T175109Z-nsi-m16b-race` deleted and its runner stopped at 21:20Z. **Run 3 never started.** No lock, container or ticket of this work remains. Do not re-queue until the coordinator says so. Run logs: `rehearsal/m16b_local/` (run 2 is the log as it ended, including the lines caused by removing the container).
+
+**Proven on the current migration (sha256 `98655a73...`) and rollback (`828531de...`) bytes, run 2, local only:** the passed list in section 24, and M16b race scenarios A1, B1, B2b, B4, C1, C2, C3, P1 and E1 (under the earlier sleep-ordered harness).
+
+**Unproven:**
+1. Race scenarios A2 and A3 (issue and verify wait for the client lock), B2a (verify waits for an erase) and B5 (an issue on the old link waits for a re-request): failed in run 2. Timing is the likely cause, not confirmed; a product defect is not ruled out.
+2. All seven race mutation probes: no valid result on the current bytes (run 1 detected six of six, on the bytes before the review fixes).
+3. The gate-based race harness and the `m16brace` stage (`c6ffc1af7`): never run, not reviewed.
+4. The full-chain replay with M16b: never run. Its expected fingerprint is the run 2 value.
+5. The review fixes in `bae71eceb`: no independent re-review.
+
+M16b is therefore not finished: not ready for a DEV apply request (N2) or for presenting a head for approval (B6), and I3-4 stays unstarted (N3 order).
+
+**To resume:** take a new ticket and the heavy lock, run `nsi_i3_2_m16b_lifecycle_local.sh <public schema dump> m16brace` (estimate about 40 minutes, unmeasured), then `scripts/qa/nsi-full-chain-replay.sh` pinned to the head (about 75 minutes) on its own ticket. The schema dump used so far is `%TEMP%\nsi\pub_schema.sql` (sha256 `15d8c0a1dc5e159cb35c24a3b8582c34f51758381ad368eb4bcde54f0131740`), a temporary location that may be cleared.
