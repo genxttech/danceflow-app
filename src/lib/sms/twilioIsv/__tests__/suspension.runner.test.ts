@@ -237,7 +237,7 @@ describe("runSubaccountVerification (read-only)", () => {
 
 describe("messages never claim a spending ceiling", () => {
   it("no message calls suspension a cap or a limit on spending", () => {
-    const all = ["succeeded", "already_in_state", "failed", "refused", "unknown"].map((o) => suspensionMessage({ kind: "done", outcome: o as never, code: null, stateBefore: "active", stateAfter: "suspended", recorded: true }).message);
+    const all = ["succeeded", "already_in_state", "failed", "refused", "unknown"].map((o) => suspensionMessage({ kind: "done", outcome: o as never, code: null, stateBefore: "active", stateAfter: "suspended", recorded: true, locations: 1, holdsPlaced: 1 }).message);
     for (const m of all) expect(m.replace(/not a spending ceiling/g, "")).not.toMatch(/ceiling|\bcap\b|guarantee|hard limit|spending limit/i);
   });
 });
