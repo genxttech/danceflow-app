@@ -12,7 +12,7 @@ Authorization: OWNER-DECISIONS.md section 21 (non-applied drafts, local QA, revi
 
 | Order | PR / work | Head | State | Writer |
 |---|---|---|---|---|
-| 1 | 867 under-18 and judge guards into Git | `6dc6b2d4e` | **ready for owner approval** | OD-31 session |
+| 1 | 867 under-18 and judge guards into Git | `6dc6b2d4e` | **MERGED** 21:19Z as `57c33191` | done |
 | 2 | 865 approval limits | `d5c3bed52` | suite passes; concurrency unverified | R-11 session |
 | 3 | 864 panel readiness + app confirm flag + E1 fix | `9d7477c09` | changing | R-10 session |
 | 3a | R2-refunds test fix (test only) | new | in progress | R-10 session |
@@ -22,7 +22,7 @@ Authorization: OWNER-DECISIONS.md section 21 (non-applied drafts, local QA, revi
 | 7 | 877 entry status and started-heat guard | `8c738c4d8` | run in progress | OD-31 session |
 | 8 | 878 scratch screen (after 877, or together) | `22c27b505` | full build queued | SC1 session |
 | 9 | P1 restriction migration + app messages (slots `20270301180000`+) | none yet | **unbuilt** | OD-31 session |
-| 10 | 899 published-order guard (needed subset under evaluation) | `d2ee7e3f4` | fix unexecuted | R-11 session |
+| 10 | 899 published-order guard (by reading, P1 needs all of it) | `04d1252b8` | fix unexecuted; does not itself forbid replacement or cancellation after start | R-11 session |
 | 11 | 844 event deletion guard | `b56ea086f` | local SQL passes; some e2e fixtures will be refused | unassigned |
 | 12 | 832 official-body block (app) | `12bef34b0` | unit tests only | unassigned |
 
@@ -58,7 +58,7 @@ Rollback: app first, then SQL in reverse release order. Competition flags stay O
 
 ## 6. Owner approval sequence
 
-1. **Now:** approve PR 867 (Git only).
+1. ~~Approve PR 867 (Git only)~~ done, merged 2026-11-26. Next merge approval: not yet ready.
 2. Each later PR merge, at an exact head, once reviewed.
 3. Composed P1 test results.
 4. DEV SQL apply. 5. PROD SQL apply. 6. App promotion. 7. Residual and OD-05/10/15 rulings. 8. Pilot flag activation. 9. Public registration and any fee-bearing action (separate).

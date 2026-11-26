@@ -932,3 +932,7 @@ Presented: MVP-RELEASE-ASSESSMENT.md section 12 (scope P1 including no self-appr
 > AUTHORIZATION LIMITS: Non-applied draft corrections, local QA, independent review and release preparation only. No protected PR merge, hosted SQL apply, deployment, public registration activation or provider charges are authorized. P1 is the release target, not yet release-ready. Proceed with the smallest safe implementation and close existing release blockers before expanding scope.
 
 **Slot allocation:** P1 pilot restrictions `20270301180000`-`189000`.
+
+## 22. PR 867 approved and merged (2026-11-26)
+
+Owner approved PR 867 on GitHub (review 6080550225, `genxttech`, APPROVED, commit `6dc6b2d4e5657f27754c9dfc62e977f642ecb04c`, 21:16:27Z) and told the coordinator "i approved it". The coordinator confirmed head, base `49dbaee1b`, passing checks and a clean merge state, marked it ready and squash-merged that head at 21:19:06Z: merge commit `57c33191026c3237b02945da2cbf36802ef39043` on `release/website-embeds`, tree identical to the approved head, 10 files. Only a Preview deployment (`danceflow-app-qfem`, not production) was created. No SQL was applied; production was not promoted.
