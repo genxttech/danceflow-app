@@ -91,7 +91,23 @@ Triggers on `event_competition_entries` (same-timing triggers fire in name order
 
 ## 10. Results
 
-See the section appended after the local run. Until then nothing in this directory is verified by execution.
+### Run 1 (executed 2026-11-26 11:02-11:14Z, local only; head `9236cc4fd`; evidence in `evidence/run1/`)
+
+Container from `cf1host:found` (`sha256:a9ff85eb...afd3`, PostgreSQL 17.6), role `supabase_admin`, roles simulated with `SET ROLE`; 39 competition migration files composed (fingerprint `6783fe12...f95d`); 23 applied before S6 with 0 failures, then both S6 files, both rollbacks (exit 0) and both S6 files again.
+
+| Stage | Result |
+|---|---|
+| **PR 867 migration set** (before any S6 file; suites from the PR 867 head) | **8 / 8 PASS**: U18 21, U18-S 17, JC1 15, callback-final 199, A5 186, A6 247, HL1 42, F2 198 |
+| S6 suite, S6 applied, and again after rollback + re-apply | **PASS, 89 checks, both times** |
+| Regression suites with S6 applied | **PASS**: U18 21, U18-S 17 (edited), JC1 15, A2 35, A5 186, A6 247, HL1 42, F2 198, OD-17 59, A4 55, callback-final 199, R2 write gate 21, E2 211, 10D.1 22 |
+| `test_T_competition_o1_day_of` | **FAIL**: calls `pg_temp.compo1_fixture_activate_round`, defined by another suite (not runnable alone) |
+| `test_T_phase10a_competition_foundation` | **FAIL**, 2 checks, both "Competition template not found" (starter template not present in this database). No other check in it failed, including the manager delete of an erroneous entry. Pre-S6 baseline of this and the previous suite: queued in run 2 |
+| Concurrency script | **INVALID, not a pass**: its client-side polling was too slow on this machine, the racers started after A had committed (0 lock waiters). The end-state checks held, the race was not exercised. Script rewritten to synchronise inside the database; queued in run 2 |
+| Rollback proof | **INVALID as run**: the state query stopped at an ambiguous-operator error after the function rows, so "identical" covered function definitions, ACLs and security flags only, not triggers or table grants. Query fixed and the check now fails if any part is missing; queued in run 2 |
+
+**F3, now executed with a state read-back (`evidence/run1/f3-readback-*.log`).** Before S6, in a SQL session as `authenticated`: the direct parent scratch succeeded, then with the forged marker the direct heat-entry scratch succeeded and the heat entry **read back as `scratched`** (marker alone, parent not scratched: refused). So F3 is a **confirmed bypass** on the U18-S chain (SQL session only; no API path is known to set that setting). After S6 the first step is refused (`COMP_S6_ENTRY_STATUS_WRITER`), the second is refused (`COMP_U18S_SCRATCH_UNAUDITED`) and nothing changes.
+
+Not executed anywhere: PostgREST/HTTP requests, referential SET NULL / cascade from registrations or orders, any hosted database.
 
 ## 11. Independent review
 
