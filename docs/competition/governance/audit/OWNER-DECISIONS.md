@@ -839,3 +839,43 @@ Presented: show the dance and disclose; require independence across the whole di
 > B2 remains design-only. No SQL apply, protected merge, deployment or public Competition OS activation is authorized.
 
 **Status:** R-11 and B2 remain BLOCKED. DanceFlow Studio/Custom policy, not a governing-body compliance claim.
+
+## 19. B2 Question 14: hide until revalidated; owner decisions consolidated from here (2026-11-26)
+
+Presented: keep a self-approved published result live and flag staff, or hide it until revalidated (with an optional ban on new running orders once a couple is marked danced). Owner decision and process instruction, verbatim:
+
+> COMPETITION COORDINATOR — CHANGE THE OWNER DECISION PROCESS.
+>
+> First, record B2 Question 14:
+>
+> DECISION: HIDE UNTIL REVALIDATED.
+>
+> When an authorized, validated change introduces another round requiring independent approval of an already published result, place the affected result in an Awaiting Revalidation state.
+>
+> Preserve the original result, approval and immutable audit history. Display a neutral notice rather than silently removing the result.
+>
+> Do not allow unauthorized or unverified running-order modifications to trigger result suspension. Require authorized, audited changes and protect against denial-of-service abuse.
+>
+> Do not implement until the B2 design receives its required independent review and separate implementation authorization.
+>
+> NEXT — CONSOLIDATE ALL REMAINING OWNER DECISIONS.
+>
+> Stop presenting every B2 implementation question in a separate turn.
+>
+> 1. Collect all unanswered B2 questions, including Questions 2, 3, 7, 10–13, 15 and any newly identified questions.
+> 2. Include the outstanding ballot-integrity design questions from the combined review of PRs #856 and #908.
+> 3. Remove questions already answered by previous owner decisions. Preserve those decisions and link their IDs.
+> 4. Group remaining questions by architectural dependency, such as: contest identity and result lineage; independent approval and official roles; published-result revalidation; ballot integrity and corrections; running-order security; legitimate multi-round competition operations.
+> 5. For each question present: ID and exact decision; verified evidence versus unverified assumptions; options and consequences; recommended choice; security and operational implications; dependencies on other decisions; whether this is genuinely an owner policy decision or an engineering detail Claude can resolve under existing authorization.
+> 6. Clearly identify any mutually exclusive choices or decisions that depend on earlier answers. Do not bundle incompatible choices into a blanket approval.
+> 7. Independently review the package for contradictions, duplicate questions, missing safeguards and inconsistencies with OD-01–OD-32 and R-01–R-16.
+> 8. Present ONE consolidated owner decision package with a compact response format, such as: B2-Q2 recommended; B2-Q3 option A; B2-Q7 recommended.
+> 9. Do not require a separate conversation turn for every question. I will review the recommendations and answer multiple decisions together, requesting deeper analysis only where necessary.
+> 10. Continue all previously authorized independent engineering, testing and security reviews while this package is assembled.
+> 11. Preserve the distinction between policy authorization, design approval, implementation authorization, protected merges and hosted deployment approvals.
+>
+> IMPORTANT: This process change does not reduce the rigor of Competition OS governance. It eliminates unnecessary conversational serialization while retaining source evidence, independent reviews, negative testing, auditability and owner control.
+>
+> No new SQL apply, protected merge, deployment or public activation is authorized.
+>
+> Present the consolidated package when its recommendations and dependencies have been independently checked.
