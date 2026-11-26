@@ -63,7 +63,7 @@ export function lockHeatHint(input: HeatLockInput): string | null {
 
 export function lockHeatConfirm(heatNumber: number, kind: LockKind = "danced"): string {
   return kind === "early"
-    ? `Lock heat ${heatNumber}? It has not been danced. The floor can't start or change it until it is reopened. Officials can still scratch entries with a reason.`
+    ? `Lock heat ${heatNumber}? It has not been danced. The floor can't start or change it until it is reopened. Entries in it cannot be scratched while it is locked.`
     : `Lock heat ${heatNumber}? Floor changes to this heat will be refused once locked.`;
 }
 

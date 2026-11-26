@@ -41,14 +41,19 @@ export async function loadScratchOffer(supabase: ScratchOfferSupabase, eventId: 
   ]);
   if (!placements || !closedEntries) return { loaded: false, blocked: new Set() };
 
+  const blocked = new Set<string>((closedEntries as { id: string }[]).map((entry) => entry.id));
   const byEntry = new Map<string, PlacementState[]>();
   for (const row of placements as PlacementRow[]) {
     const heat = Array.isArray(row.heat) ? row.heat[0] : row.heat;
+    // An unreadable heat could be on the floor or finished: offer nothing for that entry.
+    if (!heat) {
+      blocked.add(row.entry_id);
+      continue;
+    }
     const list = byEntry.get(row.entry_id) ?? [];
-    list.push({ heatLockState: heat?.lock_state ?? "open", placementStatus: row.status, heatStatus: heat?.status ?? null });
+    list.push({ heatLockState: heat.lock_state ?? "open", placementStatus: row.status, heatStatus: heat.status });
     byEntry.set(row.entry_id, list);
   }
-  const blocked = new Set<string>((closedEntries as { id: string }[]).map((entry) => entry.id));
   for (const [entryId, states] of byEntry) {
     const placementClass = classifyPlacements(states);
     if (placementClass !== "open" && placementClass !== "unplaced") blocked.add(entryId);

@@ -39,7 +39,10 @@ async function loadHeatEntries(supabase: ScratchSupabase, eventId: string, entry
     .select("status, heat:event_competition_heats(lock_state, status)")
     .eq("entry_id", entryId)
     .eq("event_id", eventId);
-  return { rows: (result.data ?? []) as HeatEntryRow[], error: result.error };
+  const rows = (result.data ?? []) as HeatEntryRow[];
+  // A placement whose heat cannot be read could be on the floor or finished: treat the whole read as failed.
+  const unreadable = rows.some((row) => !(Array.isArray(row.heat) ? row.heat[0] : row.heat));
+  return { rows, error: result.error ?? (unreadable ? { message: "A heat of this entry could not be read." } : null) };
 }
 
 function placementStates(rows: HeatEntryRow[]) {

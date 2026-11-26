@@ -142,10 +142,10 @@ export function hasOpenPlacement(heatEntryStatuses: string[]): boolean {
 const ERROR_MESSAGES: Record<string, string> = {
   COMP_SC1_NOT_FOUND: "This entry was not found, or you cannot manage it.",
   COMP_SC1_NOT_SCRATCHABLE: "This entry can no longer be scratched.",
-  COMP_SC1_LOCKED: "This entry is in a locked heat. Changes go through the correction workflow.",
+  COMP_SC1_LOCKED: "This entry is in a locked heat, so it cannot be scratched while the heat is locked.",
   COMP_SC1_CERTIFIED: "This entry is in a certified heat. Changes go through the results correction workflow.",
-  COMP_SC1_DANCED: "A heat of this entry has started or finished, or a danced or disqualified status is recorded. Changes go through the results correction workflow.",
-  COMP_SC1_DISQUALIFIED_PLACEMENT: "A heat placement of this entry carries a disqualified status. Changes go through the results correction workflow.",
+  COMP_SC1_DANCED: "A heat of this entry has started or finished, or a danced or disqualified status is recorded, so the whole entry cannot be scratched or withdrawn.",
+  COMP_SC1_DISQUALIFIED_PLACEMENT: "A heat placement of this entry carries a disqualified status, so the whole entry cannot be scratched or withdrawn.",
   COMP_SC1_REASON_REQUIRED: "Give a reason (up to 500 characters). It is recorded permanently.",
   COMP_SC1_INCONSISTENT: "The scratch could not be confirmed (the entry or its heat placements did not read back as scratched). Reload and check the entry before trying again.",
   COMP_SC1_STRANDED: "This entry is already out of the competition but still has open heat placements. Nothing was changed. Have the entry corrected before the heat runs.",

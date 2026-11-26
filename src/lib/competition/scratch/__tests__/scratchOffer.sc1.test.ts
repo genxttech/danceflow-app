@@ -4,16 +4,20 @@ import { scratchPreflight, classifyPlacements } from "@/lib/competition/scratch/
 import { loadScratchOffer, mayOfferScratch, type ScratchOfferSupabase } from "@/lib/competition/scratch/scratchOffer";
 
 type Placement = { entry_id: string; status: string; heat: { lock_state: string; status: string } };
+const PAGES = [
+  ["day-of", /\{mayOfferScratch\(scratchOffer, entry\.entryId\) \? \(\s*<Link href=\{scratchHref\(id, entry\.entryId\)\}/],
+  ["registrations", /\.includes\(entry\.status\) \? null : mayOfferScratch\(scratchOffer, entry\.id\) \? <Link href=\{scratchHref\(id, entry\.id\)\}/],
+] as const;
 
 const heat = (status: string, lock_state = "open") => ({ status, lock_state });
 const placed = (entry_id: string, heatStatus: string, status = "scheduled", lock = "open"): Placement => ({ entry_id, status, heat: heat(heatStatus, lock) });
 
 function fake(options: { placements?: Placement[]; closed?: string[]; fail?: string; maxRows?: number }) {
-  const calls: { table: string; filters: [string, unknown][] }[] = [];
+  const calls: { table: string; columns: string; filters: [string, unknown][] }[] = [];
   const supabase: ScratchOfferSupabase = {
     from: (table) => ({
-      select: () => {
-        const call = { table, filters: [] as [string, unknown][] };
+      select: (columns) => {
+        const call = { table, columns, filters: [] as [string, unknown][] };
         calls.push(call);
         const query = {
           eq: (c: string, v: string) => (call.filters.push([c, v]), query),
@@ -57,6 +61,19 @@ describe("SC1 whole-entry scratch offer (Option A)", () => {
     expect(mayOfferScratch(offer, "b")).toBe(false);
   });
 
+  it("reads the heat status and lock state it decides on", async () => {
+    const { supabase, calls } = fake({});
+    await loadScratchOffer(supabase, "ev");
+    expect(calls.find((c) => c.table === "event_competition_heat_entries")?.columns).toBe("entry_id, status, heat:event_competition_heats(lock_state, status)");
+  });
+
+  it("offers nothing for an entry with a placement whose heat cannot be read", async () => {
+    const unreadable = { entry_id: "e", status: "scheduled", heat: null } as unknown as Placement;
+    const offer = await loadScratchOffer(fake({ placements: [placed("e", "scheduled"), unreadable, placed("other", "scheduled")] }).supabase, "ev");
+    expect(mayOfferScratch(offer, "e")).toBe(false);
+    expect(mayOfferScratch(offer, "other")).toBe(true);
+  });
+
   it("offers nothing for a disqualified or complete entry status", async () => {
     const { supabase, calls } = fake({ closed: ["d"] });
     expect(mayOfferScratch(await loadScratchOffer(supabase, "ev"), "d")).toBe(false);
@@ -79,10 +96,10 @@ describe("SC1 whole-entry scratch offer (Option A)", () => {
     expect(mayOfferScratch(offer, "anything")).toBe(false);
   });
 
-  it.each(["day-of", "registrations"])("the %s page shows its scratch link only through mayOfferScratch", (page) => {
+  it.each(PAGES)("the %s page shows its one scratch link only when mayOfferScratch allows it", (page, guarded) => {
     const source = readFileSync(`src/app/app/events/[id]/competition/${page}/page.tsx`, "utf8");
-    const links = source.split("href={scratchHref(").length - 1;
-    expect(links).toBe(1);
-    expect(source.slice(0, source.indexOf("href={scratchHref(")).slice(-200)).toContain("mayOfferScratch(scratchOffer");
+    expect(source).toMatch(guarded);
+    expect(source.split("scratchHref(").length - 1).toBe(1);
+    expect(source).not.toContain("registrations/scratch");
   });
 });

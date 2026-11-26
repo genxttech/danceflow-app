@@ -63,7 +63,7 @@ export default async function ScratchEntryPage({
   const decision = scratchPreflight({ entryStatus: entry.status, placementClass });
   const out = isAlreadyScratched(entry.status);
   const stranded = out && hasOpenPlacement(placements.map((p) => p.status));
-  const loadFailed = Boolean(placementResult.error || changeResult.error);
+  const loadFailed = Boolean(placementResult.error || changeResult.error || placements.some((p) => !p.heat));
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-3xl px-4 py-8">
