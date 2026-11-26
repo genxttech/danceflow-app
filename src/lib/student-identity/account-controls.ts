@@ -88,7 +88,49 @@ async function deleteUserRows(
   }
 }
 
+/**
+ * Self-service deletion removes the login itself (auth user + profiles row), and
+ * user_studio_roles / profiles cascade on that delete. A login that also runs a
+ * studio, an organizer account or the platform would silently lose that access
+ * and could leave a studio without its owner, so self-service deletion refuses it.
+ */
+export class AccountDeletionBlockedError extends Error {
+  constructor(readonly reasons: Array<"studio_role" | "organizer_role" | "platform_admin">) {
+    super(
+      "This login also manages a studio, an organizer account or the platform, so it can't be deleted here. Hand over or remove those roles first, or contact DanceFlow support.",
+    );
+    this.name = "AccountDeletionBlockedError";
+  }
+}
+
+export async function managedAccessBlockingDeletion(userId: string) {
+  const admin = createAdminClient();
+  const [studioRoles, organizerRoles, profile] = await Promise.all([
+    admin.from("user_studio_roles").select("id").eq("user_id", userId).eq("active", true).limit(1),
+    admin.from("organizer_users").select("id").eq("user_id", userId).eq("active", true).limit(1),
+    admin.from("profiles").select("platform_role").eq("id", userId).limit(1),
+  ]);
+
+  for (const result of [studioRoles, organizerRoles, profile]) {
+    if (result.error) {
+      throw new Error(`Account role check failed: ${result.error.message}`);
+    }
+  }
+
+  const reasons: AccountDeletionBlockedError["reasons"] = [];
+  if ((studioRoles.data ?? []).length > 0) reasons.push("studio_role");
+  if ((organizerRoles.data ?? []).length > 0) reasons.push("organizer_role");
+  const platformRole = (profile.data as Array<{ platform_role?: string | null }> | null)?.[0]?.platform_role;
+  if (platformRole === "platform_admin") reasons.push("platform_admin");
+  return reasons;
+}
+
 export async function deleteDanceFlowAccount(user: User) {
+  const blockingRoles = await managedAccessBlockingDeletion(user.id);
+  if (blockingRoles.length > 0) {
+    throw new AccountDeletionBlockedError(blockingRoles);
+  }
+
   const admin = createAdminClient();
   const now = new Date().toISOString();
   const userReferenceHash = hash(user.id);
