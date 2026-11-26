@@ -3,14 +3,14 @@
 Status: DESIGN FOR REVIEW. No SQL or application change is made or authorized. Nothing here is executed or tested.
 Authority: owner decision of 2026-11-26, items 8-15 (`governance/audit/OWNER-DECISIONS.md` section 14, PR 795, `3515c5524`).
 Policy label: **everything proposed here is DanceFlow Studio/Custom policy**, not a governing-body requirement or compliance claim.
-Read at: live line `49dbaee1b`; Option A as draft PR 877 (`5a8c5456`) and draft PR 878 (`17dfe49c`). Both are unapplied and may change.
+Read at: live line `49dbaee1b`; Option A as draft PR 877 (`5a8c5456`) and draft PR 878. Both are unapplied and may change.
 
 ## 1. Summary
 
 - Option A blocks whole-entry Scratch and withdrawal once any heat of the entry is active, completed, danced or disqualified.
-- The default schedule planner puts one entry into a separate heat for each dance in `individual` and `choose_count` divisions (`individual` is also the fallback). After the first of those heats starts, the later ones can only end in a No-show.
+- The default schedule planner puts one entry into a separate heat for each dance in `individual` and `choose_count` divisions (`individual` is also the fallback). Today one of those dances cannot be withdrawn on its own: before any heat starts only the whole entry can be scratched, and afterwards a skipped dance can only end in a No-show.
 - **Minimum viable C (recommended): a per-heat withdrawal and reinstatement writer for heats that have not started (section 6), the existing A6 workflow for callback Finals, and a small advance-withdrawal notice for a Final whose callback result is not yet approved (section 5).**
-- **Impairment: material for per-dance divisions with more than one dance**, where advance word about a later dance cannot be recorded truthfully. Not material for divisions that run once per round with a callback Final, if the conditions in section 5.3 hold.
+- **Impairment: material for per-dance divisions with more than one dance** (and for any later round not built from a callback result), where advance word about one heat cannot be recorded truthfully. Not material for divisions that run once per round with a callback Final, if the conditions in section 5.3 hold.
 
 ## 2. Facts the design rests on (read from code, not executed)
 
@@ -32,7 +32,7 @@ Read at: live line `49dbaee1b`; Option A as draft PR 877 (`5a8c5456`) and draft 
 | Outcome | Scope | When | Writer | Entry status |
 | --- | --- | --- | --- | --- |
 | Scratch / withdrawal (whole entry) | entry | before any heat starts | lifecycle RPC | scratched / withdrawn |
-| Withdrawal from a later heat (A6 for callback Finals; section 6 if built) | one not-started heat | before that heat is staging | A6 / new writer | unchanged |
+| Withdrawal from one heat (A6 for callback Finals; section 6 if built) | one not-started heat | before that heat is staging | A6 / new writer | unchanged |
 | No-show | one heat entry | heat active or complete, couple absent | NS1 | unchanged |
 | Excluded (organizer decision) | round ranking | two-person CF1 A5 | A5 | unchanged |
 | Disqualified | stored status only; no DanceFlow writer (OD-20) | n/a | none | n/a |
@@ -59,7 +59,7 @@ Needed only for a callback Final before its result is approved: no Final heat en
 ### 5.2 Procedure
 
 1. Other entries not yet started: scratch them whole (F1).
-2. Later heat of a partly danced entry, not a callback Final: the per-heat writer, before the heat is staging.
+2. One heat of an entry that keeps other heats (before or after any has started), not a callback Final: the per-heat writer, before that heat is staging.
 3. Callback Final, result approved, not staging: request and co-sign A6. If the advancement is applied between request and co-signature, request again (F5).
 4. Callback result not yet approved: record the notice, then step 3 after approval. Do not stage the Final while an open notice has no completed A6 decision (procedure only).
 5. A couple absent when its heat runs, with no earlier notice: No-show.
@@ -68,9 +68,10 @@ Needed only for a callback Final before its result is approved: no Final heat en
 
 | Format | Without any C work |
 | --- | --- |
-| Per-dance divisions with two or more dances (F2) | **Yes.** After the first dance heat starts, a withdrawal from the others cannot be recorded until each runs, and then only as a No-show. This fails requirement 10 and conflicts with Option A requirement 4. |
+| Per-dance divisions with two or more dances (F2) | **Yes.** Advance word that one dance will be skipped cannot be recorded, whether or not an earlier dance has started: a whole-entry scratch removes every dance and is only allowed before any heat starts, so the skipped dance can only become a No-show when it runs. This fails requirement 10 and conflicts with Option A requirement 4. |
+| A later round not built from a callback result (A6 requires a preliminary `promote_callback` source round) | **Yes, if such rounds are used.** Only a No-show once the heat runs. |
 | One heat per round with a callback Final | No, if the finals flag is on (F6), two authorized people can co-sign, and staff submit A6 between approval and staging. Advance word before approval is held by hand. |
-| Entries with a single heat | No: there is no later heat, and the whole entry can be scratched until it starts. |
+| Entries with a single heat | No: there is no later heat, and the whole entry can be scratched until that heat starts or is locked. |
 
 Whether initial Studio/Custom events will use per-dance divisions with several dances is an owner and product fact this design does not establish. If they will not, the notice alone (or nothing) is enough for launch.
 
@@ -91,16 +92,16 @@ Recording nothing is not a workable substitute where ballots are collected: an a
 `withdraw_competition_heat_entry(p_heat_entry_id, p_reason, p_request_id)` and a matching reinstatement function, `SECURITY DEFINER`, authenticated only.
 
 - **Authority:** event managers (`can_manage_event_competition`, which includes organizer staff) with verified email. Whether OD-26's "explicit event-level scheduling permission" should apply instead is an owner decision. Judges and scorers never.
-- **Preconditions (before and again under lock):** the entry is pending, confirmed or waitlisted; **another heat of the entry has started, finished or carries a danced or disqualified status** (otherwise use the whole-entry lifecycle, so this writer cannot empty an entry silently); heat entry scheduled or checked in; heat `scheduled` and lock open; round not locked, complete or cancelled; no ballot for the heat; no calculated, approved or published result for the round; not a CF1 callback Final (A6 owns those); a Final keeps at least two eligible couples.
+- **Preconditions (before and again under lock):** the entry is pending, confirmed or waitlisted; **the entry keeps at least one other placement that is not scratched**, started or not (so this writer cannot empty an entry; leaving every heat is the whole-entry lifecycle, or A6); heat entry scheduled or checked in; heat `scheduled` and lock open; round not `ballots_locked`, complete or cancelled; no ballot for the heat; no calculated, approved or published result for the round; not a CF1 callback Final (A6 owns those); a Final keeps at least two eligible couples.
 - **Writes:** one append-only row in `event_competition_heat_withdrawals` (event, heat, heat entry, entry, dances of the heat, prior status, reason, actor, role, request id), then that heat entry to `scratched`. The entry row and entry dances are not updated.
-- **No silent return:** a guard, like the A6 guard, refuses placing the entry again for those dances in any schedule version unless reinstated, and the planner must say why.
+- **No silent return:** a guard, like the A6 guard, refuses placing the entry again for those dances of that round, in any schedule version, unless reinstated, and the planner must say why.
 - **Why `scratched`:** engines, ballots, F8 and F10 already handle it with no scoring change. Consequence: where it is the entry's only heat in a round, results label the couple "scratched" for that round. A separate status or wording needs engine and recompute work; owner decision.
 - **Idempotency:** same actor, target and reason under the same request id returns the stored row; any other reuse is refused.
 - **Reinstatement:** only while the same heat, round, ballot and result preconditions hold; restores the recorded prior status; its own append-only row. Without it a mistaken withdrawal would have no repair.
 
 ### 6.1 Concurrency
 
-Ballot submission takes only a round `FOR SHARE` lock, with no event or heat lock, so the writer must lock the **round `FOR UPDATE`** or a ballot can land after its "no ballot" check. Proposed order: event lock (as A6 and O1), the heat `FOR SHARE` (conflicts with start and lock transitions), the round `FOR UPDATE`, the heat entry `FOR UPDATE`; re-check under lock. Heat then round matches the floor advance; No-show locks the round only. The order must be reviewed and race-tested before any SQL is written.
+Ballot submission takes only a round `FOR SHARE` lock, with no event or heat lock, so the writer must lock the **round `FOR UPDATE`** or a ballot can land after its "no ballot" check. Proposed order: event lock (as A6 and O1), the heat `FOR SHARE` (conflicts with start and lock transitions), the round `FOR UPDATE`, the entry `FOR SHARE` (as A6, so a concurrent whole-entry change cannot pass the status check), the heat entry `FOR UPDATE`; re-check under lock. Heat then round matches the floor advance; No-show locks the round only. The order must be reviewed and race-tested before any SQL is written.
 
 ## 7. Effects (requirement 11)
 
@@ -125,13 +126,13 @@ Ballot submission takes only a round `FOR SHARE` lock, with no event or heat loc
 **Other open findings under Option A** (from the independent review; not fixed by this design):
 
 - The refund page still offers "Request scratch (official decision required)" for started or danced entries. By reading, it raises an exception and scratches nothing. The owner should say whether that counts as offering a withdrawal.
-- The day-of console can offer "Mark no-show" on a leftover scheduled placement of an already withdrawn entry.
+- A leftover scheduled placement of an already scratched or withdrawn entry cannot be cleared in the app. Draft PR 878 stops offering "Mark no-show" on it (a withdrawal is not a No-show), so a heat holding one needs a correction before its ballots can complete.
 
 ## 9. Authorization, audit, rollback, tests (requirement 14)
 
 - **Audit:** append-only tables with delete and update protection (as `protect_competition_history_evidence`), actor, role, reason, time, request id. No medical detail is required or invited.
 - **Rollback:** app first, then SQL. The SQL rollback refuses once any notice or withdrawal row exists, as A6 does; evidence is never dropped.
-- **Negative tests (not written):** non-manager, judge, scorer, other studio, anonymous and service role; unverified email; replay and reused request id; heat staging, active, complete, cancelled, locked, certified; ballot present; approved or published result; callback Final sent to the new writer; entry with no started heat; calculated result; Final dropping below two; replanning a withdrawn dance; reinstatement after staging or a ballot; concurrent heat start, heat lock, ballot submit, no-show, whole-entry scratch and A6 co-sign; entry status and other heats unchanged byte for byte; no refund, order or registration change; U18-S direct writes still refused; notice changes no ranking or ballot list; results never show a notice as a No-show.
+- **Negative tests (not written):** non-manager, judge, scorer, other studio, anonymous and service role; unverified email; replay and reused request id; heat staging, active, complete, cancelled, locked, certified; ballot present; approved or published result; callback Final sent to the new writer; the entry's only unscratched placement; calculated result; Final dropping below two; replanning a withdrawn dance; reinstatement after staging or a ballot; concurrent heat start, heat lock, ballot submit, no-show, whole-entry scratch and A6 co-sign; entry status and other heats unchanged byte for byte; no refund, order or registration change; U18-S direct writes still refused; notice changes no ranking or ballot list; results never show a notice as a No-show.
 
 ## 10. Coordination (requirement 15)
 
@@ -172,4 +173,4 @@ Section numbering follows the audit's citations; page numbers and effective date
 
 No SQL, test or UI walkthrough was run for this design. Not established: which formats initial events will use; whether the UI permits a hand-built later round; a one-couple Final after a No-show; callback behaviour when the pool shrinks to the target; lock-order safety; S4/S5 behaviour on a heat-entry scratch.
 
-One independent read-only review of the first draft found its impairment conclusion wrong (it missed per-dance heats) and found errors about A6, the finals flag and locking. This version addresses them.
+Independent read-only review: the first draft's impairment conclusion was wrong (it missed per-dance heats) with errors about A6, the finals flag and locking; the second draft's writer precondition refused a skipped dance before any heat had started. This version addresses those findings.
