@@ -57,14 +57,14 @@ check("creator unchanged", (await creator()) === user(1), null);
 check("instructor still reads no slots afterwards", emptyList(await call("GET", "/event_private_lesson_slots?select=*", INSTRUCTOR)), null);
 const otherTake = await call("PATCH", `/events?id=eq.${E1}`, OTHER, { created_by: user(6) });
 check("other studio cannot take creator", emptyList(otherTake) || refused(otherTake), otherTake);
-const upsert = await fetch(`${base}/events?on_conflict=id`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${INSTRUCTOR}`, Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify({ id: E1, studio_id: "a8100000-0000-4000-8000-00000000000a", name: "E1", slug: "rest-e1", status: "published", visibility: "public", start_date: "2027-03-01", end_date: "2027-03-01", created_by: user(3) }) });
+const upsert = await fetch(`${base}/events?on_conflict=id`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${INSTRUCTOR}`, Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify({ id: E1, studio_id: "a8100000-0000-4000-8000-00000000000a", name: "E1", slug: "rest-e1", event_type: "workshop", status: "published", visibility: "public", start_date: "2027-03-01", end_date: "2027-03-01", created_by: user(3) }) });
 const upsertBody = await upsert.json().catch(() => null);
 check("upsert cannot take creator", refused({ status: upsert.status, data: upsertBody }) && (await creator()) === user(1), { status: upsert.status, data: upsertBody });
 for (const [label, token] of [["anon", null], ["service role", SERVICE], ["instructor", INSTRUCTOR]]) {
   const probe = await call("POST", "/rpc/zz_rest_creator_probe", token, { p: user(3) });
   check(`${label} cannot use an owner-run function to change creator`, refused(probe) && (await creator()) === user(1), probe);
 }
-const forged = await call("POST", "/events", INSTRUCTOR, { studio_id: "a8100000-0000-4000-8000-00000000000a", name: "F", slug: "rest-forged", status: "draft", visibility: "public", start_date: "2027-03-01", end_date: "2027-03-01", created_by: user(1) });
+const forged = await call("POST", "/events", INSTRUCTOR, { studio_id: "a8100000-0000-4000-8000-00000000000a", name: "F", slug: "rest-forged", event_type: "workshop", status: "draft", visibility: "public", start_date: "2027-03-01", end_date: "2027-03-01", created_by: user(1) });
 check("insert naming someone else is refused", refused(forged), forged);
 const service = await call("PATCH", `/events?id=eq.${E1}`, SERVICE, { created_by: user(3) });
 check("service role cannot change creator", refused(service), service);
