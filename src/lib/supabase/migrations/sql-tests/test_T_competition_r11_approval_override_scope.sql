@@ -18,18 +18,19 @@
 --   r5  corrected: opener (A2) is not the calculator (A1), A3 independent     r6  correction opened from `calculated` (never approved)
 --   r7  stale input hash with an override reason                              r8  superseded (non-latest) version with an override reason
 --   r9  ineligible couple with an override reason                             r10 exclusion co-sign separation (request/co-sign by the same person)
---   r11 unauthorized callers of approve                                       r12 minimum-two callback Final (helpers stubbed inside the rolled-back suite)
+--   r11 unauthorized callers of approve                                       r12 minimum-two callback Final with one couple (real helpers; own program)
+--   r13 corrected shown by an earlier APPROVAL only                           r14 corrected shown by an A7 CAUSE row only
+--   r15 corrected shown by an F2 correction EVENT only                        r16 stored rows that differ from the database's calculation (real PV-1)
+-- No engine, gate or predicate is stubbed: results are the database engine's own rows (_comppv1_run) and PV-1 verifies them for real. The only
+-- shortcuts are superuser fixture writes (session_replication_role = replica) to build states the lifecycle does not offer, each named at its use.
 
 begin;
-do $pv1n$
+do $tx$
 begin
   if now() = statement_timestamp() then
-    raise exception 'PV-1 neutralizer refused: run this suite inside one explicit transaction (no per-statement autocommit), on a local QA database only';
+    raise exception 'R11 suite refused: run it inside one explicit transaction (no per-statement autocommit), on a local QA database only';
   end if;
-  if to_regprocedure('public._comppv1_verify(jsonb,jsonb,jsonb)') is not null then
-    execute 'create or replace function public._comppv1_verify(p_ev jsonb, p_rows jsonb, p_warnings jsonb) returns void language plpgsql as $b$ begin null; end $b$';
-  end if;
-end $pv1n$;
+end $tx$;
 
 create or replace function pg_temp.hl1_danced(p_heat uuid) returns void language plpgsql security definer as $$
 begin
@@ -94,6 +95,7 @@ begin
   if v_unexpected then insert into t_results values (p_name, false, 'statement unexpectedly succeeded'); end if;
 end $$;
 
+create or replace function pg_temp.helper_ok(p text) returns boolean language sql security definer as $$ select public._cf1_reason_is_substantive(p) $$;
 create or replace function pg_temp.u(p_suffix text) returns uuid language sql immutable as $$ select ('00000000-0000-0000-0000-b11ff4' || p_suffix)::uuid $$;
 create or replace function pg_temp.n(p_sql text) returns bigint
 language plpgsql as $$ declare r bigint; begin execute p_sql into r; return r; end $$;
@@ -129,12 +131,10 @@ language sql stable security definer as $$
   from (select he.entry_id, row_number() over (order by he.entry_id)::int rn
         from public.event_competition_heat_entries he where he.heat_id = pg_temp.hid(p)) x
 $$;
-create or replace function pg_temp.rows(p int) returns jsonb
-language sql stable security definer as $$
-  select jsonb_agg(jsonb_build_object('entry_id', x.entry_id, 'placement', x.rn) order by x.rn)
-  from (select he.entry_id, row_number() over (order by he.entry_id)::int rn
-        from public.event_competition_heat_entries he where he.heat_id = pg_temp.hid(p)) x
-$$;
+-- The database's own engine result for an evidence document (PV-1's independent calculation). SECURITY DEFINER in pg_temp: the function is not
+-- executable by API roles.
+create or replace function pg_temp.run_engine(p_ev jsonb) returns jsonb
+language sql stable security definer as $$ select public._comppv1_run('ordinal', p_ev) $$;
 create or replace function pg_temp.th() returns text language sql immutable as $$ select encode(sha256(convert_to('[{"step":1}]', 'UTF8')), 'hex') $$;
 create or replace function pg_temp.vid(p int, p_version int) returns uuid
 language sql stable security definer as $$
@@ -156,11 +156,15 @@ language sql stable security definer as $$
 $$;
 create or replace function pg_temp.calc(p int, p_req uuid default gen_random_uuid()) returns jsonb
 language plpgsql as $$
-declare v_in jsonb;
+declare v_in jsonb; v_res jsonb;
 begin
   v_in := public.competition_round_calculation_input(pg_temp.rid(p));
+  v_res := pg_temp.run_engine(v_in -> 'evidence');
+  if not coalesce((v_res ->> 'ok')::boolean, false) then
+    raise exception 'R11 suite: the database engine refused round %: %', p, v_res ->> 'reason';
+  end if;
   return public.calculate_competition_round(pg_temp.rid(p), v_in ->> 'engine_key', v_in ->> 'engine_version', v_in ->> 'input_hash',
-    pg_temp.th(), '[{"step":1}]'::jsonb, pg_temp.rows(p), '[]'::jsonb, p_req);
+    pg_temp.th(), '[{"step":1}]'::jsonb, v_res -> 'rows', coalesce(v_res -> 'warnings', '[]'::jsonb), p_req);
 end $$;
 create or replace function pg_temp.approve(p int, p_version int, p_reason text default null, p_req uuid default gen_random_uuid()) returns jsonb
 language plpgsql as $$
@@ -257,17 +261,21 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values
 
 insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required) values
   (pg_temp.u('00e001'), pg_temp.u('00a001'), 'R11 Comp', 't-r11-e1', 'competition', current_date + 30, current_date + 30, 'published', 'public', true);
-insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status) values
-  (pg_temp.u('001001'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Country', 'country', 'relative', 'skating', 'configured');
+insert into public.event_competition_programs (id, event_id, studio_id, name, discipline_family, competition_mode, scoring_method, status, advancement_method) values
+  (pg_temp.u('001001'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Country', 'country', 'relative', 'skating', 'configured', 'none'),
+  (pg_temp.u('001002'), pg_temp.u('00e001'), pg_temp.u('00a001'), 'Callback', 'ballroom', 'relative', 'skating', 'configured', 'promote_callback');
 insert into public.event_competition_contests (id, event_id, program_id, name, contest_type, entry_format, status) values
-  (pg_temp.u('002001'), pg_temp.u('00e001'), pg_temp.u('001001'), 'ProAm', 'single_dance', 'pro_am', 'open');
+  (pg_temp.u('002001'), pg_temp.u('00e001'), pg_temp.u('001001'), 'ProAm', 'single_dance', 'pro_am', 'open'),
+  (pg_temp.u('002002'), pg_temp.u('00e001'), pg_temp.u('001002'), 'Callback ProAm', 'single_dance', 'pro_am', 'open');
+create or replace function pg_temp.prog(n int) returns uuid language sql immutable as $$ select pg_temp.u(case when n = 12 then '001002' else '001001' end) $$;
+create or replace function pg_temp.cont(n int) returns uuid language sql immutable as $$ select pg_temp.u(case when n = 12 then '002002' else '002001' end) $$;
 insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
-select pg_temp.did(d), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D' || d, 'open' from generate_series(1, 12) d;
+select pg_temp.did(d), pg_temp.u('00e001'), pg_temp.prog(d), pg_temp.cont(d), 'D' || d, 'open' from generate_series(1, 16) d;
 insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
-select pg_temp.rid(n), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(n), 'R' || n, 'final', 1, 'draft', 'ordinal_majority' from generate_series(1, 12) n;
+select pg_temp.rid(n), pg_temp.u('00e001'), pg_temp.prog(n), pg_temp.did(n), 'R' || n, 'final', case when n = 12 then 2 else 1 end, 'draft', 'ordinal_majority' from generate_series(1, 16) n;
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
-select pg_temp.eid(n, i), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.did(n), 'E' || n || i, 'confirmed', 'eligible', (n * 10 + i)::text
-from generate_series(1, 12) n cross join generate_series(1, 3) i;
+select pg_temp.eid(n, i), pg_temp.u('00e001'), pg_temp.prog(n), pg_temp.did(n), 'E' || n || i, 'confirmed', 'eligible', (n * 10 + i)::text
+from generate_series(1, 16) n cross join generate_series(1, 3) i;
 
 -- S4 / R-15 (20270301110000+), when installed: an entry takes part only after the organizer clears it, and clearance needs an established adult age
 -- (S5, 20270301120000). The suite establishes this the authorized way and ONLY that way: adult competitors as participants, then
@@ -285,33 +293,34 @@ begin
   execute $i$
     insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, date_of_birth)
     select pg_temp.u('07' || lpad(n::text, 2, '0') || lpad(i::text, 2, '0')), pg_temp.u('00e001'), 'Dancer', 'R11-' || n || '-' || i, 'staff', date '1985-06-15'
-    from generate_series(1, 12) n cross join generate_series(1, 3) i $i$;
+    from generate_series(1, 16) n cross join generate_series(1, 3) i $i$;
   execute $i$
     insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name)
     select pg_temp.u('00e001'), pg_temp.eid(n, i), pg_temp.u('07' || lpad(n::text, 2, '0') || lpad(i::text, 2, '0')), 'dancer', 'leader', 'R11 ' || n || '-' || i
-    from generate_series(1, 12) n cross join generate_series(1, 3) i $i$;
+    from generate_series(1, 16) n cross join generate_series(1, 3) i $i$;
   perform pg_temp.as_user(pg_temp.u('000001'));
   execute $i$
     select public.set_competition_entry_eligibility(pg_temp.eid(n, i), 'eligible', 'criteria_verified_by_organizer', '{}'::text[], gen_random_uuid())
-    from generate_series(1, 12) n cross join generate_series(1, 3) i $i$;
+    from generate_series(1, 16) n cross join generate_series(1, 3) i $i$;
   perform set_config('role', 'none', true);
   perform set_config('request.jwt.claims', '', true);
 end $s4$;
 reset role;
-select pg_temp.chk('fixture (S4 present only): all 36 entries are cleared through set_competition_entry_eligibility and available for execution',
+select pg_temp.chk('fixture (S4 present only): all 48 entries are cleared through set_competition_entry_eligibility and available for execution',
   case when to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is null then true
-       else (select count(*) = 36 and bool_and(public._cf1_entry_unavailable_reason(e.id) is null)
+       else (select count(*) = 48 and bool_and(public._cf1_entry_unavailable_reason(e.id) is null)
              from public.event_competition_entries e where e.event_id = pg_temp.u('00e001')) end);
 
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
   (pg_temp.u('00c001'), pg_temp.u('00e001'), 1, 'v1', 'published', now());
 insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status)
-select pg_temp.hid(n), pg_temp.u('00e001'), pg_temp.did(n), pg_temp.rid(n), n, pg_temp.u('002001'), pg_temp.u('00c001'), 'scheduled' from generate_series(1, 12) n;
+select pg_temp.hid(n), pg_temp.u('00e001'), pg_temp.did(n), pg_temp.rid(n), n, pg_temp.cont(n), pg_temp.u('00c001'), 'scheduled' from generate_series(1, 16) n;
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order)
-select pg_temp.u('00e001'), pg_temp.did(n), pg_temp.hid(n), pg_temp.eid(n, i), i from generate_series(1, 12) n cross join generate_series(1, 3) i;
+select pg_temp.u('00e001'), pg_temp.did(n), pg_temp.hid(n), pg_temp.eid(n, i), i from generate_series(1, 16) n cross join generate_series(1, 3) i
+where n <> 12 or i = 1;   -- r12 holds one couple only
 insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number)
-select pg_temp.u('00e001'), pg_temp.hid(n), 'waltz', 'Waltz', 1 from generate_series(1, 12) n;
+select pg_temp.u('00e001'), pg_temp.hid(n), 'waltz', 'Waltz', 1 from generate_series(1, 16) n;
 set session_replication_role = origin;
 
 select pg_temp.as_user(pg_temp.u('000001'));
@@ -321,11 +330,11 @@ select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000013'),
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000016'), 'scorer', pg_temp.u('f10005'));
 select public.add_competition_official(pg_temp.u('00e001'), pg_temp.u('000017'), 'chair', pg_temp.u('f10006'));
 reset role;
-select pg_temp.panel(n) from generate_series(1, 12) n where n <> 11;
+select pg_temp.panel(n) from generate_series(1, 16) n where n <> 11;
 select pg_temp.panel(11, true);
 
 set session_replication_role = replica;
-update public.event_competition_rounds set status = 'active' where id in (select pg_temp.rid(n) from generate_series(1, 12) n);
+update public.event_competition_rounds set status = 'active' where id in (select pg_temp.rid(n) from generate_series(1, 16) n);
 set session_replication_role = origin;
 
 do $$
@@ -342,9 +351,16 @@ begin
   perform public.pin_competition_round_scoring(id) from public.event_competition_rounds;
 end $$;
 
-select pg_temp.prep(n) from generate_series(1, 12) n;
+select pg_temp.prep(n) from generate_series(1, 16) n where n <> 12;
+-- r12: one couple, so each judge ranks it first
+select pg_temp.submit_as('000011', 12, '[1]'), pg_temp.submit_as('000012', 12, '[1]'), pg_temp.submit_as('000013', 12, '[1]');
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.hl1_danced(pg_temp.hid(12));
+select public.set_competition_heat_lock_state(pg_temp.hid(12), 'locked', 'fixture');
+select public.lock_competition_round_ballots(pg_temp.rid(12), gen_random_uuid());
+reset role;
 
-select pg_temp.chk('fixture: r1..r12 are ballots_locked', (select count(*) = 12 from public.event_competition_rounds where status = 'ballots_locked'));
+select pg_temp.chk('fixture: r1..r16 are ballots_locked', (select count(*) = 16 from public.event_competition_rounds where status = 'ballots_locked'));
 
 -- ============================================================================
 -- S. Structure of the installed function (static facts about the pinned text; the md5 line is the post-migration pin)
@@ -355,8 +371,8 @@ select pg_temp.chk('S: approve is SECURITY DEFINER with a pinned search_path, ex
   and not has_function_privilege('anon', 'public.approve_competition_round_result(uuid,uuid,text,uuid)', 'execute'));
 select pg_temp.chk('S: approve signature unchanged (p_round_id, p_result_version_id, p_override_reason, p_request_id)',
   (select array_to_string(proargnames, ',') = 'p_round_id,p_result_version_id,p_override_reason,p_request_id' from pg_proc where oid = 'public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure));
-select pg_temp.chk('S: approve text is the post-R-11 pin (md5 5adf8f1680306964abb688068616b4ce, CRs removed)',
-  md5(replace(pg_get_functiondef('public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure), E'\r', '')) = '5adf8f1680306964abb688068616b4ce');
+select pg_temp.chk('S: approve text is the post-R-11 pin (md5 2d178c29177ebf2ec14a46bf510ccc12, CRs removed)',
+  md5(replace(pg_get_functiondef('public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure), E'\r', '')) = '2d178c29177ebf2ec14a46bf510ccc12');
 select pg_temp.chk('S: ordering in the installed text: stale checks < history read < override refusal < audit event < roster check < approved write; PV-1 verify after the hash check',
   (with d as (select replace(pg_get_functiondef('public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure), E'\r', '') t)
    select position('COMP_REQUEST_REUSED' in t) < position('COMP_RESULT_STALE' in t)
@@ -387,10 +403,14 @@ select pg_temp.chk('S: _cf1_reason_is_substantive is IMMUTABLE and not executabl
   (select p.provolatile = 'i' and not p.prosecdef from pg_proc p where p.oid = 'public._cf1_reason_is_substantive(text)'::regprocedure)
   and not has_function_privilege('authenticated', 'public._cf1_reason_is_substantive(text)', 'execute')
   and not has_function_privilege('anon', 'public._cf1_reason_is_substantive(text)', 'execute'));
+select pg_temp.chk('S: the four Final withdrawal RPCs exist (so the next check covers them)',
+  (select count(distinct p.proname) = 4 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in
+    ('withdraw_advanced_entry_from_final', 'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'cancel_final_withdrawal_request')));
 select pg_temp.chk('S: none of the exclusion / withdrawal / correction co-sign / advancement RPCs takes an override, force or bypass parameter, and no body references an approval override',
   not exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace
                and p.proname in ('request_round_exclusion', 'cosign_round_exclusion', 'request_round_exclusion_reversal', 'cosign_round_exclusion_reversal',
-                                 'cosign_competition_correction', 'apply_competition_round_advancement', 'publish_competition_round_result', 'withdraw_competition_round_result')
+                                 'cosign_competition_correction', 'apply_competition_round_advancement', 'publish_competition_round_result', 'withdraw_competition_round_result',
+                                 'withdraw_advanced_entry_from_final', 'reinstate_withdrawn_entry_to_final', 'cosign_final_withdrawal_request', 'cancel_final_withdrawal_request')
                and (array_to_string(p.proargnames, ',') ~* '(override|force|bypass)' or position('result_approval_override' in p.prosrc) > 0)));
 
 -- ============================================================================
@@ -435,15 +455,24 @@ select pg_temp.expect_msg('RB-11.1: no reason', $q$select pg_temp.approve(3, 1)$
 select pg_temp.expect_msg('RB-11.1: whitespace-only reason', $q$select pg_temp.approve(3, 1, '     ')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
 select pg_temp.expect_msg('RB-11.1: one-character reason "x" is refused', $q$select pg_temp.approve(3, 1, 'x')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
 select pg_temp.expect_msg('RB-11.1: two-character reason', $q$select pg_temp.approve(3, 1, 'ok')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
-select pg_temp.expect_msg('RB-11.1: placeholder "n/a"', $q$select pg_temp.approve(3, 1, 'n/a')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
-select pg_temp.expect_msg('RB-11.1: placeholder "testing"', $q$select pg_temp.approve(3, 1, 'testing')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1: short placeholder "n/a" (refused by length)', $q$select pg_temp.approve(3, 1, 'n/a')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1: short placeholder "testing" (refused by length)', $q$select pg_temp.approve(3, 1, 'testing')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
 select pg_temp.expect_msg('RB-11.1: a repeated character (20+ characters)', $q$select pg_temp.approve(3, 1, repeat('a', 25))$q$, 'COMP_SECOND_APPROVER_REQUIRED');
 select pg_temp.expect_msg('RB-11.1: 20+ characters but a single word', $q$select pg_temp.approve(3, 1, 'sixteencharacterslongword')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
 select pg_temp.expect_msg('RB-11.1: four words but fewer than 20 characters', $q$select pg_temp.approve(3, 1, 'a b c d')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
 select pg_temp.expect_msg('RB-11.1: the same word repeated (20+ characters, only one distinct word)', $q$select pg_temp.approve(3, 1, 'urgent urgent urgent urgent urgent')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
-select pg_temp.expect_msg('RB-11.1: a reason over 500 characters', format($q$select pg_temp.approve(3, 1, %L)$q$, repeat('word ', 101)), 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1: a reason over 500 characters made of distinct words (only the length rule applies)', format($q$select pg_temp.approve(3, 1, %L)$q$,
+  (select string_agg('word' || g, ' ' order by g) from generate_series(1, 90) g)), 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.chk('RB-11.1: control: that reason is over 500 characters and would pass every other rule', (select length(string_agg('word' || g, ' ' order by g)) > 500 from generate_series(1, 90) g));
 select pg_temp.expect_msg('RB-11.1 (review): "a b c d" padded with non-breaking spaces to 21+ characters', format($q$select pg_temp.approve(3, 1, %L)$q$, 'a b c d' || repeat(chr(160), 14)), 'COMP_SECOND_APPROVER_REQUIRED');
-select pg_temp.expect_msg('RB-11.1 (review): four punctuation tokens', $q$select pg_temp.approve(3, 1, '!!!! ???? .... ----')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1 (review): punctuation tokens only, 20+ characters (passes the shared helper)', $q$select pg_temp.approve(3, 1, '!!!! ???? .... ---- ++++')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1 (review): fewer than 12 letters/digits, otherwise valid (only the letters rule)', $q$select pg_temp.approve(3, 1, 'ab cd ef gh !!!!!!!!!!!!')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1 (review): three real words padded with punctuation words (only the four-real-words rule)', $q$select pg_temp.approve(3, 1, 'abcdefgh ijklmnop qrstuvwx !!!! ????')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1 (distinct): one word repeated plus punctuation tokens (passes the shared helper)', $q$select pg_temp.approve(3, 1, 'urgent urgent urgent urgent . -')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1 (distinct): one word varied only by case and punctuation', $q$select pg_temp.approve(3, 1, 'Urgentcase urgentcase! URGENTCASE, urgentcase?')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.expect_msg('RB-11.1 (distinct): only two different real words', $q$select pg_temp.approve(3, 1, 'urgent matter urgent matter - .')$q$, 'COMP_SECOND_APPROVER_REQUIRED');
+select pg_temp.chk('RB-11.1: control: the shared helper alone ACCEPTS the punctuation-padded cases (so the refusals above come from this function)',
+  (select bool_and(pg_temp.helper_ok(s)) from unnest(array['!!!! ???? .... ---- ++++', 'ab cd ef gh !!!!!!!!!!!!', 'abcdefgh ijklmnop qrstuvwx !!!! ????', 'urgent urgent urgent urgent . -', 'Urgentcase urgentcase! URGENTCASE, urgentcase?']) s));
 select pg_temp.expect_msg('RB-11.1 (review): a leading tab and three real words', format($q$select pg_temp.approve(3, 1, %L)$q$, E'\taaaaaaaaaaaaaaaaa b c'), 'COMP_SECOND_APPROVER_REQUIRED');
 select pg_temp.expect_msg('RB-11.1 (review): zero-width padding', format($q$select pg_temp.approve(3, 1, %L)$q$, 'a b c d' || repeat(chr(8203), 14)), 'COMP_SECOND_APPROVER_REQUIRED');
 reset role;
@@ -614,12 +643,18 @@ select pg_temp.chk('audit: every approval of a corrected version (version > 1 of
                 and (a.approved_by = a.calculated_by or exists (select 1 from public.event_competition_correction_causes c where c.round_id = v.round_id and c.opened_by = a.approved_by))));
 
 -- ============================================================================
--- r9b minimum-two callback Final: the helpers are stubbed INSIDE this rolled-back suite transaction so that a one-eligible-couple callback Final
--- is reached with a fresh hash; the override reason must not bypass COMP_ROSTER_BELOW_MINIMUM. (The full A4 integration suite covers the real helpers.)
+-- r12 minimum-two callback Final with REAL helpers. One couple: a Final with no earlier round has no minimum, so it calculates. Fixture write
+-- (replica) then puts a preliminary round before it in its promote_callback program, which makes it a callback Final without changing the stored
+-- evidence (the input hash stays current), so approval reaches the roster check.
 -- ============================================================================
 select pg_temp.as_calc('000001', 12);
-create or replace function public._cf1_is_callback_final(p_round_id uuid) returns boolean language sql stable as $$ select true $$;
-create or replace function public._cf1_eligible_roster_count(p_round_id uuid) returns integer language sql stable as $$ select 1 $$;
+select pg_temp.chk('r12: calculated with one couple; not yet a callback Final', pg_temp.vstatus(12, 1) = 'calculated' and not public._cf1_is_callback_final(pg_temp.rid(12)));
+set session_replication_role = replica;
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
+values (pg_temp.u('061700'), pg_temp.u('00e001'), pg_temp.prog(12), pg_temp.did(12), 'R12 prelim', 'preliminary', 1, 'approved', 'callback_tally');
+set session_replication_role = origin;
+select pg_temp.chk('r12: now a callback Final with exactly one eligible couple, input hash unchanged', public._cf1_is_callback_final(pg_temp.rid(12)) and public._cf1_eligible_roster_count(pg_temp.rid(12)) = 1
+  and (select public._compf2_input_hash(v.round_id, v.engine_key, v.engine_version) = v.input_hash from public.event_competition_result_versions v where v.id = pg_temp.vid(12, 1)));
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('no-override (minimum two couples): a self-approval with a substantive reason cannot bypass COMP_ROSTER_BELOW_MINIMUM', $q$select pg_temp.approve(12, 1, 'only manager present on the floor today')$q$, 'COMP_ROSTER_BELOW_MINIMUM');
 reset role;
@@ -628,6 +663,81 @@ select pg_temp.expect_msg('no-override (minimum two couples): nor can an indepen
 reset role;
 select pg_temp.chk('r12: both refusals rolled back (version calculated, no approval, no override event)', pg_temp.vstatus(12, 1) = 'calculated' and pg_temp.napprovals(12) = 0
   and pg_temp.nevents(12, 'result_approval_override') = 0);
+
+-- ============================================================================
+-- r13: an earlier APPROVAL is the only history (no cause row, no correction event). Fixture write (replica) reopens the round without the
+-- correction function, so only source 1 exists.
+-- ============================================================================
+select pg_temp.as_calc('000001', 13);
+select pg_temp.as_approve('000002', 13, 1);
+set session_replication_role = replica;
+update public.event_competition_result_versions set status = 'stale' where id = pg_temp.vid(13, 1);
+update public.event_competition_rounds set status = 'ballots_locked', correction_open = false where id = pg_temp.rid(13);
+set session_replication_role = origin;
+select pg_temp.as_calc('000001', 13);
+select pg_temp.chk('r13: only the earlier approval exists', pg_temp.napprovals(13) = 1
+  and not exists (select 1 from public.event_competition_correction_causes where round_id = pg_temp.rid(13))
+  and not exists (select 1 from public.event_competition_result_events where round_id = pg_temp.rid(13) and refs ->> 'correction' = 'true'));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('single source (approval): the calculator cannot self-approve with a substantive reason', $q$select pg_temp.approve(13, 2, 'only manager present on the floor today')$q$, 'COMP_CORRECTION_APPROVER_REQUIRED');
+reset role;
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_ok('single source (approval): another manager (no correction opener exists) approves', $q$select pg_temp.approve(13, 2)$q$);
+reset role;
+select pg_temp.chk('r13: recorded with refs.initial = false', (select count(*) = 1 from public.event_competition_result_events where round_id = pg_temp.rid(13) and kind = 'result_approved' and refs ->> 'initial' = 'false'));
+
+-- ============================================================================
+-- r14: an A7 CAUSE row is the only history (superuser insert; opener A2). No approval of another version, no correction event.
+-- ============================================================================
+select pg_temp.as_calc('000001', 14);
+insert into public.event_competition_correction_causes (event_id, round_id, cause, excluded_entry_ids, baseline_version_id, opened_by, reason, request_id)
+values (pg_temp.u('00e001'), pg_temp.rid(14), 'judge_entry_error', '{}'::uuid[], pg_temp.vid(14, 1), pg_temp.u('000002'), 'fixture cause only', gen_random_uuid());
+select pg_temp.chk('r14: only the cause row exists', pg_temp.napprovals(14) = 0
+  and (select count(*) = 1 from public.event_competition_correction_causes where round_id = pg_temp.rid(14))
+  and not exists (select 1 from public.event_competition_result_events where round_id = pg_temp.rid(14) and refs ->> 'correction' = 'true'));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('single source (cause): the calculator cannot self-approve with a substantive reason', $q$select pg_temp.approve(14, 1, 'only manager present on the floor today')$q$, 'COMP_CORRECTION_APPROVER_REQUIRED');
+reset role;
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('single source (cause): the opener named only by the cause row cannot approve', $q$select pg_temp.approve(14, 1)$q$, 'COMP_CORRECTION_APPROVER_REQUIRED');
+reset role;
+select pg_temp.as_user(pg_temp.u('000003'));
+select pg_temp.expect_ok('single source (cause): an independent third manager approves', $q$select pg_temp.approve(14, 1)$q$);
+reset role;
+
+-- ============================================================================
+-- r15: an F2 correction EVENT is the only history (superuser insert; opener A2). No approval of another version, no cause row.
+-- ============================================================================
+select pg_temp.as_calc('000001', 15);
+insert into public.event_competition_result_events (event_id, round_id, kind, actor_user_id, from_state, to_state, request_id, reason, refs)
+values (pg_temp.u('00e001'), pg_temp.rid(15), 'round_state_changed', pg_temp.u('000002'), 'calculated', 'ballots_locked', gen_random_uuid(), 'fixture event only', '{"correction": true}'::jsonb);
+select pg_temp.chk('r15: only the correction event exists', pg_temp.napprovals(15) = 0
+  and not exists (select 1 from public.event_competition_correction_causes where round_id = pg_temp.rid(15))
+  and (select count(*) = 1 from public.event_competition_result_events where round_id = pg_temp.rid(15) and refs ->> 'correction' = 'true'));
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('single source (event): the calculator cannot self-approve with a substantive reason', $q$select pg_temp.approve(15, 1, 'only manager present on the floor today')$q$, 'COMP_CORRECTION_APPROVER_REQUIRED');
+reset role;
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('single source (event): the opener named only by the event cannot approve', $q$select pg_temp.approve(15, 1)$q$, 'COMP_CORRECTION_APPROVER_REQUIRED');
+reset role;
+select pg_temp.as_user(pg_temp.u('000003'));
+select pg_temp.expect_ok('single source (event): an independent third manager approves', $q$select pg_temp.approve(15, 1)$q$);
+reset role;
+
+-- ============================================================================
+-- r16: real PV-1 at approval. Fixture write (replica) alters one stored placement; the input hash is still current.
+-- ============================================================================
+select pg_temp.as_calc('000001', 16);
+set session_replication_role = replica;
+update public.event_competition_result_rows set placement = coalesce(placement, 0) + 5 where result_version_id = pg_temp.vid(16, 1) and entry_id = pg_temp.eid(16, 1);
+set session_replication_role = origin;
+select pg_temp.as_user(pg_temp.u('000001'));
+select pg_temp.expect_msg('no-override (PV-1): a self-approval with a substantive reason cannot approve rows that differ from the database calculation', $q$select pg_temp.approve(16, 1, 'only manager present on the floor today')$q$, 'COMP_RESULT_RECOMPUTE_MISMATCH');
+reset role;
+select pg_temp.as_user(pg_temp.u('000002'));
+select pg_temp.expect_msg('no-override (PV-1): nor can a second manager', $q$select pg_temp.approve(16, 1)$q$, 'COMP_RESULT_RECOMPUTE_MISMATCH');
+reset role;
+select pg_temp.chk('r16: nothing approved', pg_temp.vstatus(16, 1) = 'calculated' and pg_temp.napprovals(16) = 0 and pg_temp.nevents(16, 'result_approval_override') = 0);
 
 -- ============================================================================
 -- Verdict

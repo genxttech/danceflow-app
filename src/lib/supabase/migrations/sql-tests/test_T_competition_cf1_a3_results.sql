@@ -399,7 +399,7 @@ select pg_temp.chk('U79: the ten redefined functions match the post-A3 md5 pins 
     ('public.competition_judge_ballot_sheet(uuid)', '2506cb2f466d1738fb1a8f298e805b5f|8e129175282c88ed3590e3d162fbb47c'),
     ('public._compf2_evidence(uuid,text,text)', '415a823b4a689cae26b8a20187af58e7'), ('public.competition_round_results_review(uuid)', 'c9d747907caad0a88b75da1c53862f43'),
     ('public.calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)', 'bc3cc4397e740444a4d4a53d93b499cc|167529bada8ca5a4dd98e22d4d0a3252'),
-    ('public.approve_competition_round_result(uuid,uuid,text,uuid)', 'ac33e456925e64665db1ea0547bae18b|3cf63c3bb00a78142ea2c8e70a8b4a0c|5adf8f1680306964abb688068616b4ce')) t(sig, pin)
+    ('public.approve_competition_round_result(uuid,uuid,text,uuid)', 'ac33e456925e64665db1ea0547bae18b|3cf63c3bb00a78142ea2c8e70a8b4a0c|2d178c29177ebf2ec14a46bf510ccc12')) t(sig, pin)
     -- A pin may list the post-A3 text and its pinned successors (PV-1 20270215090000 / OJ-1 20270215091000 / R-11 20270301090000), separated by |.
     where md5(replace(pg_get_functiondef(t.sig::regprocedure), E'\r', '')) = any (string_to_array(t.pin, '|'))));
 select pg_temp.chk('U61: lock_competition_round_ballots is NOT touched by A3 (still the HL1 text 6e417534...; A2 owns it)',
@@ -866,10 +866,13 @@ begin
         using errcode = 'P0001';
     end if;
   elsif v_override and (not public._cf1_reason_is_substantive(v_reason)
-                        -- review hardening: padding (NBSP, zero-width, punctuation) cannot satisfy the length or word rules; real letters/digits and real words are counted
+                        -- review hardening: padding (NBSP, zero-width, punctuation) cannot satisfy the length or word rules. Only letters and digits count:
+                        -- at least 12 of them, at least four words holding one, and at least three DIFFERENT such words (punctuation and case ignored).
                         or length(regexp_replace(v_reason, '[^[:alnum:]]', '', 'g')) < 12
-                        or (select count(*) from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 4) then
-    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve an initial result only with a substantive override reason (20-500 characters, at least four words).'
+                        or (select count(*) from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 4
+                        or (select count(distinct lower(regexp_replace(w, '[^[:alnum:]]', '', 'g')))
+                              from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 3) then
+    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve an initial result only with a substantive override reason (20-500 characters, at least four words, three of them different).'
       using errcode = 'P0001';
   end if;
 $r2n$, $r2o$  v_override := v_ver.calculated_by = v_uid;

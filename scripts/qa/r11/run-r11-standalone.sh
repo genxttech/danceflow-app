@@ -9,7 +9,7 @@
 # Migrations and suites come from git objects: base = origin/release/website-embeds competition files + JC1/U18/U18-S from
 # origin/release/competition-cf1-app-candidate; the R-11 migration, rollback and suites = HEAD of this worktree.
 #   baseline : suites on the base chain (attribution: the R-11 suite is EXPECTED to fail here)
-#   forward  : apply R-11, suites again; a suite that passed on the baseline must still pass
+#   forward  : apply R-11, suites again; a suite that passed on the baseline must still pass; then the cancel-and-recreate probe (observation)
 #   rollback : rollback (md5 + ACL = base), rollback replay, suites f2 / a3 / pv1 again
 #   reapply  : apply again, replay (no-op), R-11 suite and f2 again
 # Exit codes: 0 all R-11 expectations met; 1 an expectation failed; 4 BLOCKED (nothing is reported as passed when it did not run).
@@ -43,6 +43,7 @@ SUITES="test_T_competition_r11_approval_override_scope test_T_competition_f2_res
 for s in $SUITES; do git show "HEAD:$M/sql-tests/$s.sql" > "$CHAIN/sql-tests/$s.sql" || { log "BLOCKED: suite $s missing at HEAD"; exit 4; }; done
 git show "HEAD:$M/sql-tests/fixtures/competition_round_ready.sql" > "$CHAIN/sql-tests/fixtures/competition_round_ready.sql" 2>/dev/null
 git show "HEAD:$M/sql-tests/concurrency/run_f2_races.sh" > "$CHAIN/run_f2_races.sh"
+git show "HEAD:$M/sql-tests/probe_R_competition_r11_cancel_recreate.sql" > "$CHAIN/probe.sql" || { log "BLOCKED: probe missing at HEAD"; exit 4; }
 HEADSHA=$(git rev-parse HEAD); POST=$(grep -o "v_post constant text := '[0-9a-f]*'" "$CHAIN/new/$MIG" | grep -o "[0-9a-f]\{32\}")
 log "HEAD $HEADSHA; live $(git rev-parse "$LIVE"); candidate $(git rev-parse "$CAND"); base files $(wc -l < "$OUT/migrations-base.sha256"), base fingerprint $(cat "$OUT/base-fingerprint.txt"); migration sha256 $(sha256sum "$CHAIN/new/$MIG" | cut -d' ' -f1); pins pre=$PRE post=$POST"
 
@@ -105,6 +106,13 @@ check "forward: approve md5 = post pin" "$(amd5)" "$POST"
 check "forward: owner / ACL / definer / search_path unchanged" "$(acl)" "$ACL0"
 for s in $SUITES; do run_suite forward "$s"; done
 races forward
+# observation only (no pass/fail expectation): what the cancel-and-recreate path allows after the migration
+tr -d '\r' < "$CHAIN/probe.sql" | timeout 900 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/probe-forward.log" 2>&1
+PL="$(grep -m1 "CANCEL-RECREATE PROBE" "$OUT/probe-forward.log")"
+if [ -n "$PL" ]; then
+  echo "${PL#*PROBE: }" | awk '{ gsub(/ \|\| /, "\n"); print }' > "$OUT/probe-forward.txt"
+  log "PROBE (observation):"; cat "$OUT/probe-forward.txt" >> "$OUT/runner.log"; cat "$OUT/probe-forward.txt"
+else log "PROBE: NO VERDICT: $(grep -m1 ERROR "$OUT/probe-forward.log" | cut -c1-300)"; BAD=$((BAD+1)); fi
 check "forward: the R-11 suite passes" "$(res_of forward test_T_competition_r11_approval_override_scope)" PASS
 check "baseline: the R-11 suite fails before the migration (blockers reproduce)" "$(res_of baseline test_T_competition_r11_approval_override_scope)" FAIL
 for s in $SUITES run_f2_races; do

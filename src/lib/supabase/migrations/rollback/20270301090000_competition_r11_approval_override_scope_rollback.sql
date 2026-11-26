@@ -1,7 +1,7 @@
 -- Rollback for 20270301090000_competition_r11_approval_override_scope.sql (R-11 correction). NOT APPLIED ANYWHERE.
 -- Restores the exact pinned pre-migration text of public.approve_competition_round_result(uuid,uuid,text,uuid) (post A3 + PV-1, md5 3cf63c3b...,
 -- the text F2 + A3 + PV-1 produce) by reversing the three exact-fragment replacements, and only if the installed text still is the post-migration text
--- (md5 5adf8f1680306964abb688068616b4ce). create or replace keeps owner, SECURITY DEFINER, search_path and the ACL; nothing else is created, altered or dropped.
+-- (md5 2d178c29177ebf2ec14a46bf510ccc12). create or replace keeps owner, SECURITY DEFINER, search_path and the ACL; nothing else is created, altered or dropped.
 -- Restoring this text RE-OPENS RB-11.1 and RB-11.2 (one-character override reason; override reachable for corrected result versions).
 -- Stored approval rows and audit events written while the migration was live are not touched (an event written under the new text carries an extra
 -- refs.initial key; the table schemas are unchanged, so old readers ignore it).
@@ -13,7 +13,7 @@ do $$
 declare
   v_sig constant text := 'public.approve_competition_round_result(uuid,uuid,text,uuid)';
   v_pre constant text := '3cf63c3bb00a78142ea2c8e70a8b4a0c';
-  v_post constant text := '5adf8f1680306964abb688068616b4ce';
+  v_post constant text := '2d178c29177ebf2ec14a46bf510ccc12';
   v_old1 constant text := $o$  v_override boolean;
 $o$;
   v_new1 constant text := $n$  v_override boolean;
@@ -47,10 +47,13 @@ $o$;
         using errcode = 'P0001';
     end if;
   elsif v_override and (not public._cf1_reason_is_substantive(v_reason)
-                        -- review hardening: padding (NBSP, zero-width, punctuation) cannot satisfy the length or word rules; real letters/digits and real words are counted
+                        -- review hardening: padding (NBSP, zero-width, punctuation) cannot satisfy the length or word rules. Only letters and digits count:
+                        -- at least 12 of them, at least four words holding one, and at least three DIFFERENT such words (punctuation and case ignored).
                         or length(regexp_replace(v_reason, '[^[:alnum:]]', '', 'g')) < 12
-                        or (select count(*) from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 4) then
-    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve an initial result only with a substantive override reason (20-500 characters, at least four words).'
+                        or (select count(*) from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 4
+                        or (select count(distinct lower(regexp_replace(w, '[^[:alnum:]]', '', 'g')))
+                              from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 3) then
+    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve an initial result only with a substantive override reason (20-500 characters, at least four words, three of them different).'
       using errcode = 'P0001';
   end if;
 $n$;

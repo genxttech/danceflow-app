@@ -16,7 +16,7 @@
 -- The function is redefined by exact-fragment replacement of the pinned effective text (the same pinned-md5 method as F2 / A3 / PV-1), so a
 -- later divergence of the function fails the migration instead of being overwritten silently:
 --     pre-migration text  (post A3 + PV-1) md5 3cf63c3bb00a78142ea2c8e70a8b4a0c
---     post-migration text                  md5 5adf8f1680306964abb688068616b4ce
+--     post-migration text                  md5 2d178c29177ebf2ec14a46bf510ccc12
 -- (md5 of pg_get_functiondef with CRs removed; the pre md5 equals the PV-1 pin; both were also reproduced offline from the migration texts.)
 --
 -- Behavior after this migration
@@ -34,7 +34,8 @@
 --      change between the check and the approval row.
 --   2. INITIAL: unchanged D3. A different authorized manager approves normally; the calculator may self-approve only with an override reason
 --      that satisfies _cf1_reason_is_substantive (20-500 characters, at least four words, at least three distinct, no placeholder, not one
---      repeated character: the rule A6 already uses). Refusal code stays COMP_SECOND_APPROVER_REQUIRED (the app maps it today).
+--      repeated character: the rule A6 already uses) AND, in this function only, at least 12 letters/digits, four words holding one, and three
+--      different such words with punctuation and case ignored. Refusal code stays COMP_SECOND_APPROVER_REQUIRED (the app maps it today).
 --      The override is audited exactly as before (event kind result_approval_override, actor, version, input hash, calculator, reason, time;
 --      approvals row with override_reason); refs.initial = true is added. A normal approval records refs.initial = true or false.
 --   3. CORRECTED: the override does not exist. The approval is refused with the NEW code COMP_CORRECTION_APPROVER_REQUIRED (unmapped in the UI until a later app change: it shows the generic "could not be done" text instead of the misleading override hint) when the approver is the calculator of
@@ -56,7 +57,7 @@ do $$
 declare
   v_sig constant text := 'public.approve_competition_round_result(uuid,uuid,text,uuid)';
   v_pre constant text := '3cf63c3bb00a78142ea2c8e70a8b4a0c';
-  v_post constant text := '5adf8f1680306964abb688068616b4ce';
+  v_post constant text := '2d178c29177ebf2ec14a46bf510ccc12';
   v_old1 constant text := $o$  v_override boolean;
 $o$;
   v_new1 constant text := $n$  v_override boolean;
@@ -90,10 +91,13 @@ $o$;
         using errcode = 'P0001';
     end if;
   elsif v_override and (not public._cf1_reason_is_substantive(v_reason)
-                        -- review hardening: padding (NBSP, zero-width, punctuation) cannot satisfy the length or word rules; real letters/digits and real words are counted
+                        -- review hardening: padding (NBSP, zero-width, punctuation) cannot satisfy the length or word rules. Only letters and digits count:
+                        -- at least 12 of them, at least four words holding one, and at least three DIFFERENT such words (punctuation and case ignored).
                         or length(regexp_replace(v_reason, '[^[:alnum:]]', '', 'g')) < 12
-                        or (select count(*) from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 4) then
-    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve an initial result only with a substantive override reason (20-500 characters, at least four words).'
+                        or (select count(*) from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 4
+                        or (select count(distinct lower(regexp_replace(w, '[^[:alnum:]]', '', 'g')))
+                              from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 3) then
+    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve an initial result only with a substantive override reason (20-500 characters, at least four words, three of them different).'
       using errcode = 'P0001';
   end if;
 $n$;

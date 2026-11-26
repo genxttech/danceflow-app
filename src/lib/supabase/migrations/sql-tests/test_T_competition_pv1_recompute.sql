@@ -60,9 +60,9 @@ select pg_temp.chk('W2 approve re-verifies the stored version after the input-ha
   (with d as (select replace(pg_get_functiondef('public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure), E'\r', '') t)
    select position('recalculate before approving' in t) < position('_comppv1_verify' in t)
       and position('_comppv1_verify' in t) < position('update public.event_competition_rounds set status = ''approved''' in t) from d));
-select pg_temp.chk('W3 md5 pins: calculate 167529ba..., approve 3cf63c3b... (or its R-11 successor 5adf8f16...)',
+select pg_temp.chk('W3 md5 pins: calculate 167529ba..., approve 3cf63c3b... (or its R-11 successor 2d178c29...)',
   md5(replace(pg_get_functiondef('public.calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)'::regprocedure), E'\r', '')) = '167529bada8ca5a4dd98e22d4d0a3252'
-  and md5(replace(pg_get_functiondef('public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure), E'\r', '')) in ('3cf63c3bb00a78142ea2c8e70a8b4a0c', '5adf8f1680306964abb688068616b4ce'));
+  and md5(replace(pg_get_functiondef('public.approve_competition_round_result(uuid,uuid,text,uuid)'::regprocedure), E'\r', '')) in ('3cf63c3bb00a78142ea2c8e70a8b4a0c', '2d178c29177ebf2ec14a46bf510ccc12'));
 select pg_temp.chk('W4 no API role can execute any _comppv1_ function (internal to the SECURITY DEFINER RPCs)',
   (select bool_and(not has_function_privilege(r, p.oid, 'execute'))
    from pg_proc p, unnest(array['anon', 'authenticated', 'service_role']) r
