@@ -906,3 +906,29 @@ Owner confirmation, verbatim (the instruction first arrived as a relay from the 
 > Make this the Competition coordinator's immediate release-planning priority and return one actionable recommendation rather than another large decision questionnaire.
 
 **Effect:** the consolidated decision package of section 19 and advanced B2 questions are PAUSED pending this evaluation. All existing decisions and findings stand.
+
+## 21. P1 approved: restricted Studio/Custom pilot, non-applied drafting (2026-11-26)
+
+Presented: MVP-RELEASE-ASSESSMENT.md section 12 (scope P1 including no self-approval in the pilot and no ballots before a heat starts). Owner decision, verbatim:
+
+> COMPETITION OS — APPROVE RESTRICTED STUDIO/CUSTOM PILOT P1 DRAFTING.
+> YES. Approve P1 as the target for our first controlled Competition OS pilot.
+> This authorization is limited to a constrained MVP scope, necessary non-applied correction drafts, testing, independent review and release preparation.
+> RELEASE OBJECTIVE: Deliver the smallest secure, usable Studio/Custom competition workflow without waiting for optional advanced capabilities or the full B2 architecture.
+> REQUIREMENTS:
+> 1. Freeze P1 feature scope. Include only essential registration, eligibility, scheduling, judging, supported scoring, initial approval and safe result publication.
+> 2. Defer advanced replacement rounds, re-dances, post-publication corrections, complex running-order changes and unsupported governing-body profiles where they can be safely disabled.
+> 3. Enforce disabled operations at trusted database and application boundaries. Hiding controls or turning off UI flags alone is insufficient.
+> 4. Preserve mandatory security, age eligibility, authorization, tenant isolation, audit and scoring-integrity protections. Do not accept known reachable vulnerabilities as an MVP shortcut.
+> 5. Prefer completing existing PRs over creating additional architecture. Write only the minimum new corrections demonstrably necessary for P1.
+> 6. Evaluate Option D (#899) against P1's restricted running-order requirements. Finish its existing review and tests; do not automatically expand its implementation.
+> 7. Keep B2 design work deferred unless an executable test demonstrates that P1 cannot safely operate without it.
+> 8. Complete an integrated local test of the actual P1 release composition, including all interacting SQL guards and representative end-to-end competition workflows.
+> 9. Prepare a single concise P1 release package showing: exact included features and disabled operations; required existing PRs and their dependency order; remaining mandatory blockers; executed versus pending tests; necessary DEV/PROD SQL steps; exact owner approval sequence; deferred post-P1 enhancements.
+> 10. Do not ask additional architectural questions unless the answer materially changes P1 safety or usability.
+> 11. Keep engineering execution parallel wherever safe. Respect heavy-QA FIFO locking without blocking independent lightweight work.
+> 12. Present the next exact owner action that moves P1 toward an actual release, rather than another broad design questionnaire.
+>
+> AUTHORIZATION LIMITS: Non-applied draft corrections, local QA, independent review and release preparation only. No protected PR merge, hosted SQL apply, deployment, public registration activation or provider charges are authorized. P1 is the release target, not yet release-ready. Proceed with the smallest safe implementation and close existing release blockers before expanding scope.
+
+**Slot allocation:** P1 pilot restrictions `20270301180000`-`189000`.
