@@ -1,6 +1,6 @@
 # Decision note: guardian address storage and M16b sequencing (P1 of the revision 2 re-review)
 
-Status: **PENDING OWNER DECISION.** Nothing in this note is applied: the parent specification is unchanged, no SQL is authored, no DEV or PROD change is authorized. Silence is not approval.
+Status: **DECIDED: Option B** (owner, 2026-11-26, relayed by the Apps coordinator from the owner's reply "Yes, Option B"). The Option B amendment below is applied to parent section 10.3 item 10 and the Option B follow-on text changes are made in the M16b specification. The decision authorizes local, dark authoring of M16b only: no DEV or PROD SQL apply, no activation, no I3-4 implementation. The separate draft P1-A wording item (M16b spec 10.6) is still pending. The text below is kept as it was put to the owner.
 
 ## The question
 Parent `NSI_I3_2_DB_Spec.md` section 10.3 item 10 says: "**Dependence on I3-4** (session-bound save and submit, `NSI_I3_1_DB_Spec.md` line 77) is stated, and nothing in M16b is built before it is decided." The M16b spec says I3-4 blocks only **activation**, and its revision 2 introduced an app-encrypted copy of the staff-recorded guardian address (keyed by the pending row) with no stated location, so erase, purge and legal holds did not cover it. Both must be settled: where the address lives, and whether M16b SQL may be authored before I3-4 is implemented.
