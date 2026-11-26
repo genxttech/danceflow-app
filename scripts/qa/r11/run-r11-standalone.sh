@@ -24,11 +24,13 @@ IMAGE=cf1host:found
 NAME="df-r11sa-$$"
 MIG=20270301090000_competition_r11_approval_override_scope.sql
 PRE=3cf63c3bb00a78142ea2c8e70a8b4a0c
-mkdir -p "$OUT"; CHAIN="$OUT/chain"; rm -rf "$CHAIN"; mkdir -p "$CHAIN/base" "$CHAIN/new" "$CHAIN/rollback" "$CHAIN/sql-tests/fixtures"
+mkdir -p "$OUT"; CHAIN="$OUT/chain"; rm -rf "$CHAIN"; mkdir -p "$CHAIN/base" "$CHAIN/new" "$CHAIN/rollback" "$CHAIN/sql-tests/fixtures"; rm -f "$OUT/result.txt" "$OUT/probe-forward.txt"
 : > "$OUT/runner.log"; BAD=0
 log() { echo "[$(date -u +%H:%M:%SZ)] $*" | tee -a "$OUT/runner.log"; }
 TOOK=0
-cleanup() { docker rm -f -v "$NAME" >/dev/null 2>&1; [ "$TOOK" = 1 ] && rm -rf "$LOCK"; rm -f "$TICKET"; }
+# The ticket is deleted only when the whole job passed (rule 8: a multi-step job keeps one ticket until it is done); on anything else the lock is
+# released and the ticket stays so the corrected job can run next. Delete it by hand when giving up.
+cleanup() { docker rm -f -v "$NAME" >/dev/null 2>&1; [ "$TOOK" = 1 ] && rm -rf "$LOCK"; if [ "$(cat "$OUT/result.txt" 2>/dev/null)" = PASS ]; then rm -f "$TICKET"; fi; }
 trap cleanup EXIT
 cd "$REPO" || exit 4
 
