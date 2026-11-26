@@ -106,6 +106,10 @@ const REGISTRY: Record<string, Record<string, Tier>> = {
     rflCancelWithdrawAction: "aal2",
   },
   "senderActions.ts": { recordSenderAction: "aal2", verifySenderAction: "aal2", revokeSenderAction: "aal2" },
+  // TW-4F slice E: the emergency subaccount suspension and the DanceFlow traffic hold (placing a hold is the safe direction)
+  "suspensionActions.ts": {
+    suspendSubaccountAction: "fresh", reactivateSubaccountAction: "fresh", verifySubaccountAction: "fresh", placeTrafficHoldAction: "aal2", releaseTrafficHoldAction: "fresh",
+  },
   "usageReconcileActions.ts": { resolveUsageAttemptAction: "recent" },
 };
 
@@ -189,7 +193,8 @@ describe("completeness and source order", () => {
   it("every pricing ceremony runs the fresh-MFA tier (10 minutes); only the emergency stops, reject and the read stay plain aal2", () => {
     const fresh = Object.values(REGISTRY).flatMap((a) => Object.entries(a).filter(([, t]) => t === "fresh").map(([n]) => n));
     expect(fresh.sort()).toEqual(
-      ["pricePropose", "priceApprove", "priceRevise", "priceAuthzBegin", "priceAuthzFinish", "priceCredBegin", "priceCredEnroll", "priceCredRevoke", "priceThaw", "priceCredApply", "priceCredCancel", "priceRecoveryEnroll"].sort(),
+      ["pricePropose", "priceApprove", "priceRevise", "priceAuthzBegin", "priceAuthzFinish", "priceCredBegin", "priceCredEnroll", "priceCredRevoke", "priceThaw", "priceCredApply", "priceCredCancel", "priceRecoveryEnroll",
+        "suspendSubaccountAction", "reactivateSubaccountAction", "verifySubaccountAction", "releaseTrafficHoldAction"].sort(),
     );
     expect(REGISTRY["priceChangeActions.ts"].priceFreeze).toBe("aal2");
     expect(REGISTRY["priceChangeActions.ts"].priceReportCompromise).toBe("aal2");

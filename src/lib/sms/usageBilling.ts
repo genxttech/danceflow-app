@@ -39,6 +39,7 @@ const REFUSALS: Record<string, BilledSendRefusal> = {
   TW012: "monthly_limit",
   TW015: "no_billed_sender",
   TW016: "suspended",
+  TW080: "suspended", // TW-4F slice E: the location is on a DanceFlow traffic hold; nothing was reserved or sent
   TW018: "switched_off",
   TW024: "paused", // 20261218: the usage reconciler is not ready; nothing was reserved, so a later retry of the same source is safe
   TW008: "no_price",
