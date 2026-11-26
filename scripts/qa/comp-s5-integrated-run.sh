@@ -72,6 +72,49 @@ P_867=origin/claude/od31-land-jc1-u18-u18s
 for n in u18_heat_entry_status_guard u18s_heat_entry_scratch_audit jc1_inactive_judge_absent; do
   if git show "$P_867:$M/sql-tests/test_T_competition_$n.sql" 2>/dev/null | grep -q r15_clear_entries; then git show "$P_867:$M/sql-tests/test_T_competition_$n.sql" > "$CHAIN/sql-tests/test_T_competition_$n.sql"; echo "$n from PR867 $(git rev-parse "$P_867")" >> "$OUT/suite-sources.txt"; else echo "$n candidate copy (no clearance hook at PR867 $(git rev-parse "$P_867"))" >> "$OUT/suite-sources.txt"; fi
 done
+# --- S6 (PR 877, stacked on PR 867): separate phases only; never mixed into the four-PR composed results
+P_S6=origin/claude/od31-s6-entry-status-guard
+mkdir -p "$CHAIN/s6" "$CHAIN/s6-rollback"
+for f in $(git ls-tree -r --name-only "$P_S6" "$M/" | grep -E '/202703011(40|41)000_[^/]+\.sql$'); do case "$f" in */rollback/*) git show "$P_S6:$f" > "$CHAIN/s6-rollback/$(basename "$f")";; *) git show "$P_S6:$f" > "$CHAIN/s6/$(basename "$f")";; esac; done
+rm -rf "$CHAIN/sql-tests-s6base"; cp -r "$CHAIN/sql-tests-base" "$CHAIN/sql-tests-s6base"
+for n in test_T_competition_s6_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit_with_s6; do git show "$P_S6:$M/sql-tests/$n.sql" > "$CHAIN/sql-tests-s6base/$n.sql"; done
+echo "$P_S6 $(git rev-parse "$P_S6")" >> "$OUT/extra-heads.txt"
+# --- ADAPTED COPIES (coordinator decision 2026-11-26): released suites stay byte-identical; temporary copies get clearance seeding only, on chains with R-15
+ADIR="$CHAIN/adapted-work"; rm -rf "$ADIR"; mkdir -p "$ADIR/$M/sql-tests"
+git show "$P_S4:$M/sql-tests/adapted/r15-u18-u18s-jc1-clearance-hook.patch" > "$ADIR/hook.patch"
+git show "$P_S4:$M/sql-tests/adapted/README.md" > "$ADIR/README.md"
+ADAPTED="test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent"
+adapted_ok=1
+for n in $ADAPTED; do
+  git show "$CAND:$M/sql-tests/$n.sql" > "$ADIR/$M/sql-tests/$n.sql"
+  want_rel="$(grep -F "\`$n.sql\`" "$ADIR/README.md" | awk -F'`' '{print $4}')"
+  got_rel="$(git hash-object --no-filters "$ADIR/$M/sql-tests/$n.sql")"
+  [ -n "$want_rel" ] && [ "$want_rel" = "$got_rel" ] || { adapted_ok=0; log "ADAPTED: released blob mismatch for $n (want $want_rel got $got_rel)"; }
+done
+if [ "$adapted_ok" = 1 ] && ( cd "$ADIR" && git -c core.autocrlf=false apply -p1 hook.patch ); then
+  for n in $ADAPTED; do
+    want_ad="$(grep -F "\`$n.sql\`" "$ADIR/README.md" | awk -F'`' '{print $6}')"
+    got_ad="$(git hash-object --no-filters "$ADIR/$M/sql-tests/$n.sql")"
+    if [ "$want_ad" = "$got_ad" ]; then
+      diff -u "$CHAIN/sql-tests-base/$n.sql" "$ADIR/$M/sql-tests/$n.sql" > "$OUT/adapted-$n.diff"
+      cp "$ADIR/$M/sql-tests/$n.sql" "$CHAIN/sql-tests/$n.sql"; echo "$n released=$(git hash-object --no-filters "$CHAIN/sql-tests-base/$n.sql") adapted=$got_ad" >> "$OUT/adapted-copies.txt"
+    else log "ADAPTED: adapted blob mismatch for $n (want $want_ad got $got_ad); composed phase keeps the released copy"; fi
+  done
+else log "ADAPTED: patch not applied; composed phase keeps the released copies"; fi
+# S6 composed dir: composed suites + hooked temporary copies of the two S6 suites (same hook block, inserted only; ADAPTED COPY)
+rm -rf "$CHAIN/sql-tests-s6comp"; cp -r "$CHAIN/sql-tests" "$CHAIN/sql-tests-s6comp"
+HOOK="$(grep -m1 '^+.*r15_clear_entries' "$ADIR/hook.patch" | sed 's/^+//')"
+n=test_T_competition_s6_entry_status_guard; src="$CHAIN/sql-tests-s6base/$n.sql"
+if [ -n "$HOOK" ] && sed -n '49p' "$src" | grep -qi '^insert into public.event_competition_heat_entries' && sed -n '291p' "$src" | grep -qi '^insert into public.event_competition_heat_entries'; then
+  HOOK="$HOOK" awk 'NR==49 || NR==291 { print ENVIRON["HOOK"] } { print }' "$src" > "$CHAIN/sql-tests-s6comp/$n.sql"
+  diff -u "$src" "$CHAIN/sql-tests-s6comp/$n.sql" > "$OUT/adapted-$n.diff"; echo "$n released=$(git hash-object --no-filters "$src") adapted=$(git hash-object --no-filters "$CHAIN/sql-tests-s6comp/$n.sql")" >> "$OUT/adapted-copies.txt"
+else cp "$src" "$CHAIN/sql-tests-s6comp/$n.sql"; log "ADAPTED: S6 suite hook points not as described; running it unhooked"; fi
+n=test_T_competition_u18s_heat_entry_scratch_audit_with_s6; src="$CHAIN/sql-tests-s6base/$n.sql"
+W="$CHAIN/adapted-u18s-s6"; rm -rf "$W"; mkdir -p "$W/$M/sql-tests"; cp "$src" "$W/$M/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql"
+if ( cd "$W" && git -c core.autocrlf=false apply -p1 --include="$M/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql" "$ADIR/hook.patch" ) 2>>"$OUT/runner.log"; then
+  cp "$W/$M/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql" "$CHAIN/sql-tests-s6comp/$n.sql"
+  diff -u "$src" "$CHAIN/sql-tests-s6comp/$n.sql" > "$OUT/adapted-$n.diff"; echo "$n source=$(git hash-object --no-filters "$src") adapted=$(git hash-object --no-filters "$CHAIN/sql-tests-s6comp/$n.sql")" >> "$OUT/adapted-copies.txt"
+else cp "$src" "$CHAIN/sql-tests-s6comp/$n.sql"; log "ADAPTED: S4 hook did not apply to the S6 variant of U18-S; running it unhooked"; fi
 ( cd "$CHAIN/new" && sha256sum *.sql ) > "$OUT/migrations-new.sha256"
 ( cd "$CHAIN/rollback" && sha256sum *.sql ) > "$OUT/rollbacks.sha256"
 for r in "$P_R11" "$P_S3" "$P_S4" "$P_S5"; do printf '%s %s\n' "$r" "$(git rev-parse "$r")"; done > "$OUT/pr-heads.txt"
@@ -142,6 +185,8 @@ run_suites(){ # <tag>
     if [ "$before" != "$after" ] || grep -q 'S5QA_PREDICATE_REPLACED' "$OUT/suite-$1-$s.log" || { [ -n "${PRED_EXPECT:-}" ] && [ "$after" != "$PRED_EXPECT" ]; }; then
       res=FAIL-PREDICATE; echo "$1 $s" >> "$OUT/predicate-violations.txt"; log "[$1] $s: S5 PREDICATE REPLACED OR CHANGED"
     fi
+    # a result from a modified temporary copy is never reported as the released suite
+    if [ -f "$dir/$s.sql" ] && grep -qs "^$s " "$OUT/adapted-copies.txt" && [ "${SUITE_DIR:-sql-tests}" != "sql-tests-base" ] && [ "${SUITE_DIR:-sql-tests}" != "sql-tests-s5" ] && [ "${SUITE_DIR:-sql-tests}" != "sql-tests-s6base" ]; then res="$res [ADAPTED COPY]"; fi
     printf '%s\t%s\t%s\n' "$s" "$res" "$line" >> "$OUT/suites-$1.tsv"; log "[$1] $s: $res"
   done
 }
@@ -149,6 +194,12 @@ run_suites(){ # <tag>
 # 4b. BASELINE: the base chain alone (attributes failures: anything failing here is not caused by the new migrations)
 BASE_SUITES="test_T_competition_cf1_a3_results test_T_competition_pv1_recompute test_T_competition_e1_officials test_T_competition_ns1_no_show test_T_phase10d1_heat_entry_eligibility test_T_od31_guarded_baseline_negative test_T_competition_u18_heat_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit test_T_competition_jc1_inactive_judge_absent test_T_competition_r2_entry_refunds test_T_competition_o1_day_of test_T_competition_cf1_f3_publication test_T_phase10d_floor_schedule test_T_competition_r2_refund_write_gate test_T_phase10c_competitor_registration test_T_phase10c4_participant_roles"
 ALL_SUITES="$SUITES"; SUITES="$BASE_SUITES"; SUITE_DIR=sql-tests-base; run_suites baseline
+# 4d. S6 (PR 877) on the base chain, no R-15 gates: byte-exact suites from PR 877 (the U18-S "with_s6" file is PR 877's own labelled variant)
+s6_apply(){ local t="$1"; for f in $(ls "$CHAIN/s6" 2>/dev/null | sort); do apply "$CHAIN/s6" "$f" "$t" || return 1; done; }
+s6_rollback(){ local t="$1"; for f in $(ls "$CHAIN/s6" 2>/dev/null | sort -r); do r="${f%.sql}_rollback.sql"; if "${PSQL[@]}" -1 < "$CHAIN/s6-rollback/$r" > "$OUT/rb-$t-$r.log" 2>&1; then echo "OK   $t $r" >> "$OUT/s6-rollback-steps.txt"; else echo "FAIL $t $r" >> "$OUT/s6-rollback-steps.txt"; log "S6 rollback FAILED ($t) $r"; fi; done; }
+S6_SUITES="test_T_competition_s6_entry_status_guard test_T_competition_u18s_heat_entry_scratch_audit_with_s6 test_T_competition_u18_heat_entry_status_guard test_T_competition_jc1_inactive_judge_absent"
+if s6_apply s6base; then SUITES="$S6_SUITES"; SUITE_DIR=sql-tests-s6base; run_suites s6base; s6_rollback s6base; else log "S6 did not apply on the base chain"; fi
+
 # 4c. S5 ONLY on top of the base chain: the S5 suite and every suite that inserts participants (isolates the S5 effect)
 S5F=$(ls "$CHAIN/new" | grep -E '^20270301120000_')
 apply "$CHAIN/new" "$S5F" s5only
@@ -165,6 +216,9 @@ for f in $ORDER; do apply "$CHAIN/new" "$f" new; done
 log "new migrations: $(grep -c '^OK   new' "$OUT/steps.txt") ok, $(grep -c '^FAIL new' "$OUT/steps.txt") failed"
 
 guard_on forward; run_suites forward; guard_off
+# 5b. S6 on the full composed chain (after S4 131000); rolled back again before the four-PR rollback proof
+if s6_apply s6comp; then SUITES="$S6_SUITES"; SUITE_DIR=sql-tests-s6comp; guard_on s6comp; run_suites s6comp; guard_off; s6_rollback s6comp; else log "S6 did not apply on the composed chain"; fi
+SUITE_DIR=sql-tests
 
 # 7. rollback chain in reverse RELEASE order, then verify, then re-apply
 : > "$OUT/rollback-steps.txt"
