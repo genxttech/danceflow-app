@@ -172,14 +172,14 @@ A refund, cancellation or payment failure is not an ordinary Scratch and must no
 
 A judge deactivated or absent at decision time; restoring a scratched placement without a reversal; reversal after any later ballot, after a heat start or with a result; reversal allowed while the affected judge is unavailable and no later ballot exists; a scorer substituting for a judge; approver designated after the request; requester approving; each section 16 bar, across several ballot contributors and old versions; role change or deactivation after acting; ballots in unrelated rounds not disqualifying; cancel-and-replace not clearing history; one manager plus a separate scorer succeeding; unknown lineage refused; hook refusing a delete, move, un-scratch, another transaction or an unnamed placement; reversal of a refunded or ineligible entry; cancelled-heat placement; panel judge (with or without a ballot), transcriber, verifier, participant or undesignated second manager approving; approver without an authorized event-level role or designation; reversal under another transaction, for an unnamed placement or to a status other than the recorded one; one-heat exception allowed when an earlier completed round marks the entry; ballot submitted, replaced or paper-entered between request and decision and concurrently with it; heat started or locked between the two; locked round; calculated, approved or published result; emptied heat; callback pool at the target; Final below two; unaffected heats and divisions left alone; ordinary Scratch, direct writes, refund and registration sync still refused; every ballot and mark byte-identical afterwards; lock refused until each stale ballot is replaced; replay and reused request id; refused request changes nothing.
 
-### 6A.8 Proposed ship order (not yet agreed with the PR 856 design)
+### 6A.8 Proposed ship order (agreed by the PR 856 design's author on 2026-11-26 with step 6 made conditional; its own edits are pending)
 
 1. U18-S merged into the release line; then the PR 877 guard.
 2. Design the recovery (6A.4) and the refund and registration handling (6A.6).
 3. In one migration: the PR 856 predicate, ordinary guard (hook returning false), draft guard, that refund handling and the recovery's exit for cancelled-heat placements; named owners for the other hiding routes.
 4. The section 6 withdrawal table and no-silent-return guard (required here even if the one-heat writer is not built).
 5. OD-11 judge confirmation and OD-12 verification.
-6. B2 result lineage and actor history, and the exception-approval designation (6A.3).
+6. The exception-approval designation (6A.3). **Conditional:** B2 result lineage and actor history, a prerequisite only if the owner applies section 16, or the wider lineage-based bars of 6A.3, to this exception (open owner question 11).
 7. This exception: its tables, writer, reversal and hook redefinition, with the stranded-round recovery. The ordinary guard's rollback must refuse while the hook is redefined.
 
 Whether step 3 may ship before step 7 is an owner question. Slots are allocated by the coordinator; none is proposed here.
