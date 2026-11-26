@@ -122,6 +122,9 @@ describe("runSubaccountStatusChange", () => {
     const r = await runSubaccountStatusChange({ user: proceed("suspend"), admin, provider, parentSid: PARENT }, input());
     expect(r).toMatchObject({ outcome: "failed", stateBefore: "unreadable" });
     expect(provider.writes).toEqual([]);
+    // accurate wording: Twilio was never asked to change anything
+    expect(suspensionMessage(r).message).toMatch(/Twilio was NOT called.*could not be read/);
+    expect(suspensionMessage(r).message).not.toMatch(/refused/i);
   });
 
   it("provider error: a definite 4xx with the state unchanged is FAILED", async () => {
@@ -163,6 +166,8 @@ describe("runSubaccountStatusChange", () => {
       const r = await runSubaccountStatusChange({ user: proceed("suspend"), admin, provider, parentSid: PARENT }, input());
       expect(r).toMatchObject({ kind: "done", outcome: "failed", code: "precheck_unrecorded" });
       expect(provider.writes).toEqual([]);
+      expect(suspensionMessage(r).message).toMatch(/Twilio was NOT called.*checked and recorded/);
+      expect(suspensionMessage(r).message).not.toMatch(/refused/i);
     }
   });
 

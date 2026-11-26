@@ -551,6 +551,11 @@ commit;`);
       const b = await begin(claims(ADMIN), { studio: w.studios[0], name: w.names[0], tail: w.account.slice(-6) });
       const id = (b.data as { attempt_id: string }).attempt_id;
       expect((await release(w.studios[0])).data).toEqual({ decision: "refused", code: "attempt_open" });
+      // a YOUNG in_flight attempt may still be between its pre-check and its write on a live server: abandoning it is refused (fail closed)
+      expect(psqlError(`select public.tw4susp_attempt_abandon('${id}', '${ADMIN}', 'begin without provider calls', 'ticket QA-3 evidence')`)).toMatch(/55000|abandon it only after 10 minutes/);
+      expect(attempts(w)[0]).toMatchObject({ state: "in_flight" });
+      // test-only owner DDL (the same capability F5 documents): age the attempt past the window
+      psql(`begin; alter table public.studio_sms_suspension_attempts disable trigger studio_sms_suspension_attempts_guard; update public.studio_sms_suspension_attempts set created_at = created_at - interval '11 minutes' where id = '${id}'; alter table public.studio_sms_suspension_attempts enable always trigger studio_sms_suspension_attempts_guard; commit;`);
       expect(JSON.parse(psql(`select public.tw4susp_attempt_abandon('${id}', '${ADMIN}', 'begin without provider calls', 'ticket QA-3 evidence')::text`))).toEqual({ abandoned: true, needs_reconciliation: false });
       expect((await release(w.studios[0])).data).toMatchObject({ decision: "released" });
     });
@@ -610,6 +615,7 @@ commit;`);
       expect(held(w.studios[0])).toBe(true);
       expect(held(w.studios[1])).toBe(false); // per location
       expect(psql(asService(`select public.tw4_traffic_hold_for_account('${w.account}')::text;`))).toBe("true"); // the business's error replies stop
+      expect(psql(asService(`select public.tw4_traffic_hold_for_account('AC${w.account.slice(2).toUpperCase()}')::text;`))).toBe("true"); // SID case ignored
       // lifting is never possible through the service-role setter
       expect(psqlError(asService(`select public.tw4_traffic_hold_set('${w.studios[0]}', false, '${ADMIN}', 'released after review of the traffic')::text;`))).toMatch(/42501/);
       expect((await release(w.studios[0])).data).toEqual({ decision: "released", replayed: false });

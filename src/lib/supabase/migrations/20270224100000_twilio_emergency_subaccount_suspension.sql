@@ -276,7 +276,7 @@ returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
   select exists (select 1 from public.studio_sms_twilio_accounts t join public.studio_sms_entity_studios es on es.legal_entity_id = t.legal_entity_id
-                  where t.twilio_account_sid = p_account_sid and public._tw4susp_held(es.studio_id));
+                  where lower(t.twilio_account_sid) = lower(p_account_sid) and public._tw4susp_held(es.studio_id));
 $$;
 
 
@@ -290,18 +290,18 @@ $$;
 create or replace function public._tw4susp_needs_reconciliation(p_attempt uuid)
 returns boolean language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
   select exists (select 1 from public.studio_sms_suspension_attempts a where a.id = p_attempt and a.action = 'suspend'
                    and (a.state <> 'closed' or a.outcome in ('already_in_state', 'reconciled', 'unknown')
                         or exists (select 1 from public.studio_sms_suspension_audit x where x.attempt_id = a.id and x.event = 'precheck')));
-$;
+$$;
 
 -- why a hold of this business may NOT be lifted (null = it may): an open attempt, a subaccount DanceFlow records as suspended, or a suspend attempt that
 -- may have reached Twilio without a reconciliation attestation recorded after it closed
 create or replace function public._tw4susp_release_blocker(p_entity uuid)
 returns text language sql stable security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
   select case
     when p_entity is null then null
     when exists (select 1 from public.studio_sms_suspension_attempts a where a.legal_entity_id = p_entity and a.state in ('in_flight', 'unknown')) then 'attempt_open'
@@ -309,14 +309,14 @@ as $
     when exists (select 1 from public.studio_sms_suspension_attempts a where a.legal_entity_id = p_entity and public._tw4susp_needs_reconciliation(a.id)
                    and not exists (select 1 from public.studio_sms_optout_reconciliations r where r.attempt_id = a.id and r.created_at > a.closed_at)) then 'reconciliation_required'
   end;
-$;
+$$;
 
 -- the ADMINISTRATOR'S OWN TOKEN (authenticated): registered administrator in a fresh second-factor session, exactly as begin. Same lock order as begin
 -- (business, then location), so a release can never slip between begin's check and its hold.
 create or replace function public.tw4_traffic_hold_release(p_studio_id uuid, p_reason text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   v_actor uuid;
   v_entity uuid;
@@ -348,14 +348,14 @@ begin
   insert into public.studio_sms_traffic_hold_events (studio_id, legal_entity_id, hold, actor, reason) values (p_studio_id, v_entity, false, v_actor, btrim(p_reason));
   perform public._tw4susp_audit(null, 'hold_released', 'release', v_actor, p_studio_id, v_entity, null, null, p_reason, null, null, null, 'released', null, null);
   return jsonb_build_object('decision', 'released', 'replayed', false);
-end $;
+end $$;
 
 -- explicit, audited attestation that opt-outs were reconciled for one suspend attempt, AFTER it closed and while the subaccount is active again (the runbook
 -- reads the subaccount's inbound messages and Twilio's opt-out records for the window). The administrator's own token; registered administrator.
 create or replace function public.tw4susp_reconciliation_attest(p_studio_id uuid, p_attempt_id uuid, p_evidence_ref text, p_note text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   v_actor uuid;
   v_entity uuid;
@@ -392,7 +392,7 @@ begin
   perform public._tw4susp_audit(a.id, 'optout_reconciliation', 'reconcile', v_actor, p_studio_id, v_entity, a.account_sid, null, p_note, null, null, null, 'recorded', null,
                                 left('evidence=' || btrim(p_evidence_ref), 300));
   return jsonb_build_object('decision', 'recorded');
-end $;
+end $$;
 
 -- OWNER-LEVEL ONLY (no API role): closes an attempt the product can never close (verification keeps answering other / unreadable / not owned, or a begin
 -- made directly while the environment gate was off). It never lifts a hold, never changes the subaccount status, never calls Twilio, and the attempt still
@@ -400,7 +400,7 @@ end $;
 create or replace function public.tw4susp_attempt_abandon(p_attempt_id uuid, p_actor uuid, p_reason text, p_evidence_ref text)
 returns jsonb language plpgsql security definer
 set search_path = pg_catalog, public, pg_temp
-as $
+as $$
 declare
   a public.studio_sms_suspension_attempts;
 begin
@@ -415,13 +415,20 @@ begin
   if a.state = 'closed' then
     return jsonb_build_object('abandoned', false, 'state', 'closed');
   end if;
+  -- FAIL CLOSED against a live server: an in_flight attempt may be between its pre-check and its status write right now (each provider call times out after
+  -- 20 seconds; a whole run is three calls). Abandoning it then could leave Twilio suspended while DanceFlow records it as closed and active, and an
+  -- attestation and release would follow. So an in_flight attempt is abandoned only once it is older than 10 minutes (the verification window); by then
+  -- the server has either recorded its outcome (the attempt is no longer in_flight) or given up.
+  if a.state = 'in_flight' and a.created_at > clock_timestamp() - interval '10 minutes' then
+    raise exception 'an in-progress attempt may still be talking to Twilio: abandon it only after 10 minutes' using errcode = '55000';
+  end if;
   perform set_config('tw4.susp_write', 'on', true);
   update public.studio_sms_suspension_attempts set state = 'closed', outcome = 'abandoned', closed_at = clock_timestamp() where id = a.id;
   perform set_config('tw4.susp_write', 'off', true);
   perform public._tw4susp_audit(a.id, 'abandoned', 'abandon', p_actor, a.studio_id, a.legal_entity_id, a.account_sid, null, p_reason, null, a.provider_state_before, null,
                                 'abandoned', null, left('evidence=' || btrim(p_evidence_ref), 300));
   return jsonb_build_object('abandoned', true, 'needs_reconciliation', public._tw4susp_needs_reconciliation(a.id));
-end $;
+end $$;
 
 -- ---------------------------------------------------------------------------------------------------------------
 -- (b) emergency suspension: gate

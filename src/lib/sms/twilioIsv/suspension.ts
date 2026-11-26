@@ -251,6 +251,10 @@ export function suspensionMessage(result: ChangeResult | VerifyResult | HoldResu
     case "already_in_state":
       return { ok: true, message: `Twilio now shows the subaccount as ${result.stateAfter}. It serves ${result.locations} location(s); ${result.holdsPlaced} new traffic hold(s) were placed. This is not a spending ceiling: number fees continue while suspended. The DanceFlow traffic hold stays on until an administrator lifts it after the opt-out reconciliation.${note}` };
     case "failed":
+      // a pre-check failure means Twilio was never asked to change anything: say exactly that
+      if ((result.code ?? "").startsWith("precheck")) {
+        return { ok: false, message: `Twilio was NOT called to change anything: the account could not be ${result.code === "precheck_unrecorded" ? "checked and recorded" : "read"} before the change. Nothing changed. The DanceFlow traffic hold stays on.${note}` };
+      }
       return { ok: false, message: `Twilio refused the change and still shows ${result.stateAfter ?? "the previous state"}. Nothing changed. The DanceFlow traffic hold stays on.${note}` };
     case "refused":
       return { ok: false, message: (R[result.code ?? ""] ?? "Refused before any change.") + note };
