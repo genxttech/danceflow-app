@@ -1,9 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateEntryOperationalGate, participantsAdultVerified, type EntryGateReason } from "@/lib/competition/eligibilityGate";
+import { loadClearanceStates, type RpcClient } from "@/lib/competition/eligibilityRpc";
 
 /*
-  OD-03 / OD-02: server-side loader for the per-entry operational gate. Reads stored data only (entry status,
-  eligibility, organizer determination in entry metadata, division age label, participants' stored dates of birth).
+  OD-03 / OD-02 / R-15: server-side loader for the per-entry operational gate. Reads stored data only (entry status,
+  eligibility, the database's clearance state, participants' stored dates of birth).
   Dates of birth are consumed in memory by the pure gate and never returned or logged.
   Fails closed: any load error throws, so callers never fall back to "allowed".
 */
@@ -11,16 +12,14 @@ import { evaluateEntryOperationalGate, participantsAdultVerified, type EntryGate
 export type EntryGateResult = { entryId: string; ready: boolean; reasons: EntryGateReason[] };
 
 export async function loadEntryOperationalGates(supabase: SupabaseClient, eventId: string, now: Date = new Date()): Promise<Map<string, EntryGateResult>> {
-  const [entryResult, divisionResult, participantResult, competitorResult] = await Promise.all([
-    supabase.from("event_competition_entries").select("id, division_id, status, eligibility_status, metadata").eq("event_id", eventId),
-    supabase.from("event_competition_divisions").select("id, age_label").eq("event_id", eventId),
+  const [entryResult, participantResult, competitorResult] = await Promise.all([
+    supabase.from("event_competition_entries").select("id, status, eligibility_status").eq("event_id", eventId),
     supabase.from("event_competition_entry_participants").select("entry_id, competitor_id").eq("event_id", eventId),
     supabase.from("event_competition_competitors").select("id, date_of_birth").eq("event_id", eventId),
   ]);
-  const failed = [entryResult, divisionResult, participantResult, competitorResult].find((result) => result.error);
+  const failed = [entryResult, participantResult, competitorResult].find((result) => result.error);
   if (failed?.error) throw new Error("Could not verify entry eligibility.");
 
-  const ageLabelByDivision = new Map((divisionResult.data ?? []).map((row: { id: string; age_label: string | null }) => [row.id, row.age_label]));
   const dobByCompetitor = new Map((competitorResult.data ?? []).map((row: { id: string; date_of_birth: string | null }) => [row.id, row.date_of_birth]));
   const dobsByEntry = new Map<string, Array<string | null>>();
   for (const row of (participantResult.data ?? []) as Array<{ entry_id: string; competitor_id: string | null }>) {
@@ -29,13 +28,17 @@ export async function loadEntryOperationalGates(supabase: SupabaseClient, eventI
     dobsByEntry.set(row.entry_id, list);
   }
 
+  const entries = (entryResult.data ?? []) as Array<{ id: string; status: string; eligibility_status: string }>;
+  // Only a confirmed entry already marked eligible or waived can be cleared; the others need no round trip.
+  const candidates = entries.filter((entry) => entry.status === "confirmed" && ["eligible", "waived"].includes(entry.eligibility_status)).map((entry) => entry.id);
+  const clearance = await loadClearanceStates(supabase as unknown as RpcClient, candidates);
+
   const results = new Map<string, EntryGateResult>();
-  for (const entry of (entryResult.data ?? []) as Array<{ id: string; division_id: string; status: string; eligibility_status: string; metadata: unknown }>) {
+  for (const entry of entries) {
     const gate = evaluateEntryOperationalGate({
       status: entry.status,
       eligibilityStatus: entry.eligibility_status,
-      ageLabel: ageLabelByDivision.get(entry.division_id),
-      metadata: entry.metadata,
+      clearance: clearance.get(entry.id) ?? "provisional",
       participantDobs: dobsByEntry.get(entry.id) ?? [],
     }, now);
     results.set(entry.id, { entryId: entry.id, ...gate });

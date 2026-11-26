@@ -11,39 +11,35 @@
 
   1. OD-02 adult-only (absolute, DanceFlow launch policy): every participant must have a stored, valid date of birth
      showing 18 or older. No eligibility status, waiver or organizer determination can lift this.
-  2. Age-restricted division (the division has an age label): the entry needs an auditable organizer determination
-     (who, when, outcome, reason code) with outcome "eligible". "waived" never clears an age-restricted entry: a waiver
-     must not bypass a body's mandatory age requirement.
+  2. Eligibility clearance (R-15): the database must report the entry as cleared, which requires an audited organizer
+     determination recorded through set_competition_entry_eligibility (see eligibilityRpc.ts) that still matches the
+     entry. "waived" never clears an age-restricted entry: a waiver must not bypass a body's mandatory age requirement.
 
   Whose age decides in Pro-Am and Couples is UNRESOLVED (AE-16, NOT SPECIFIED IN PROVIDED SOURCE for these sources);
   the software therefore never infers it. The organizer's determination covers it, and the copy says so.
 
-  Privacy: nothing here returns or stores a birthdate or an age. Determinations hold a user id, a timestamp, an
-  outcome and a reason code.
+  Privacy: nothing here returns or stores a birthdate or an age.
 */
 
+import type { ClearanceState } from "@/lib/competition/eligibilityRpc";
 import { classifyDateOfBirth } from "@/lib/competition/minorsGate";
 
 export const ELIGIBILITY_STATUSES = ["unverified", "eligible", "needs_review", "ineligible", "waived"] as const;
 export type EligibilityStatus = (typeof ELIGIBILITY_STATUSES)[number];
 
-export const ELIGIBILITY_REASON_CODES = [
-  "age_division_verified_by_organizer",
+/** Exactly the reason codes the database accepts. */
+export const WAIVER_REASON_CODES = ["waiver_event_policy_documents", "waiver_event_policy_fee", "waiver_event_policy_scheduling"] as const;
+export const NEGATIVE_REASON_CODES = [
   "age_division_not_met",
   "age_not_established",
+  "status_not_established",
+  "level_not_met",
   "whose_age_rule_unresolved",
   "documents_pending",
   "other_organizer_review",
-  "waiver_non_age_matter",
 ] as const;
+export const ELIGIBILITY_REASON_CODES = ["criteria_verified_by_organizer", ...WAIVER_REASON_CODES, ...NEGATIVE_REASON_CODES] as const;
 export type EligibilityReasonCode = (typeof ELIGIBILITY_REASON_CODES)[number];
-
-export type EligibilityDetermination = {
-  by: string;
-  at: string;
-  outcome: EligibilityStatus;
-  reasonCode: EligibilityReasonCode;
-};
 
 export const AGE_VERIFICATION_DISCLOSURE =
   "DanceFlow does not yet automatically verify governing-body age divisions. The organizer verifies each entry's age-division eligibility and records the decision here.";
@@ -55,34 +51,19 @@ export function isAgeRestrictedDivision(ageLabel: string | null | undefined): bo
   return !OPEN_AGE_LABELS.has(String(ageLabel ?? "").trim().toLowerCase());
 }
 
-export function parseEligibilityDetermination(metadata: unknown): EligibilityDetermination | null {
-  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
-  const raw = (metadata as Record<string, unknown>).eligibility_determination;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const value = raw as Record<string, unknown>;
-  const by = typeof value.by === "string" ? value.by : "";
-  const at = typeof value.at === "string" && !Number.isNaN(Date.parse(value.at)) ? value.at : "";
-  const outcome = value.outcome as EligibilityStatus;
-  const reasonCode = value.reasonCode as EligibilityReasonCode;
-  if (!by || !at) return null;
-  if (!(ELIGIBILITY_STATUSES as readonly string[]).includes(outcome)) return null;
-  if (!(ELIGIBILITY_REASON_CODES as readonly string[]).includes(reasonCode)) return null;
-  return { by, at, outcome, reasonCode };
-}
-
 export type EntryGateReason =
   | "not_confirmed"
   | "ineligible"
   | "adult_not_verified"
   | "eligibility_not_decided"
-  | "age_determination_missing"
-  | "waiver_not_allowed_for_age_division";
+  | "clearance_not_recorded"
+  | "clearance_unavailable";
 
 export type EntryGateInput = {
   status: string;
   eligibilityStatus: string;
-  ageLabel: string | null | undefined;
-  metadata: unknown;
+  /** The database's own answer for this entry (competition_entry_clearance_state). */
+  clearance: ClearanceState;
   /** Stored dates of birth of every participant (null = none stored). An entry with no participants fails closed. */
   participantDobs: Array<string | null>;
 };
@@ -98,23 +79,16 @@ export function evaluateEntryOperationalGate(input: EntryGateInput, now: Date = 
   if (input.eligibilityStatus === "ineligible") reasons.push("ineligible");
   if (!participantsAdultVerified(input.participantDobs, now)) reasons.push("adult_not_verified");
 
-  if (isAgeRestrictedDivision(input.ageLabel)) {
-    if (input.eligibilityStatus === "waived") reasons.push("waiver_not_allowed_for_age_division");
-    else if (input.eligibilityStatus !== "eligible" && input.eligibilityStatus !== "ineligible") reasons.push("eligibility_not_decided");
-    else if (input.eligibilityStatus === "eligible") {
-      const determination = parseEligibilityDetermination(input.metadata);
-      if (!determination || determination.outcome !== "eligible" || determination.reasonCode !== "age_division_verified_by_organizer") {
-        reasons.push("age_determination_missing");
-      }
-    }
-  } else if (!["eligible", "waived"].includes(input.eligibilityStatus) && input.eligibilityStatus !== "ineligible") {
-    reasons.push("eligibility_not_decided");
+  if (input.eligibilityStatus !== "ineligible") {
+    if (input.eligibilityStatus !== "eligible" && input.eligibilityStatus !== "waived") reasons.push("eligibility_not_decided");
+    else if (input.clearance === "unavailable") reasons.push("clearance_unavailable");
+    else if (input.clearance !== "cleared") reasons.push("clearance_not_recorded");
   }
   return { ready: reasons.length === 0, reasons };
 }
 
 /**
- * Validate an organizer's eligibility decision before it is written. Returns an error message (no ages or dates) or null.
+ * Early, friendly validation of an organizer's decision. The database function enforces the same rules and is authoritative.
  * `participantsAdult` must come from stored data, never from the form.
  */
 export function validateEligibilityDecision(input: {
@@ -133,15 +107,12 @@ export function validateEligibilityDecision(input: {
   if (restricted && input.outcome === "waived") {
     return "A waiver cannot be used for an age-restricted division. Verify age eligibility, or mark the entry ineligible.";
   }
-  if (restricted && input.outcome === "eligible" && input.reasonCode !== "age_division_verified_by_organizer") {
-    return "Marking an age-restricted entry eligible requires the reason \"age division verified by organizer\".";
+  if (input.outcome === "eligible" && input.reasonCode !== "criteria_verified_by_organizer") {
+    return "Marking an entry eligible requires the reason \"criteria verified by organizer\".";
   }
-  if (input.outcome === "waived" && input.reasonCode !== "waiver_non_age_matter") {
-    return "A waiver is only for matters other than age; choose \"waiver for a non-age matter\".";
+  if (input.outcome === "waived" && !(WAIVER_REASON_CODES as readonly string[]).includes(input.reasonCode)) {
+    return "A waiver is only for an event-policy matter: documents, fee or scheduling.";
   }
+  if (!clears && !(NEGATIVE_REASON_CODES as readonly string[]).includes(input.reasonCode)) return "Choose a reason for this eligibility decision.";
   return null;
-}
-
-export function buildEligibilityDetermination(input: { by: string; outcome: EligibilityStatus; reasonCode: EligibilityReasonCode; now?: Date }): EligibilityDetermination {
-  return { by: input.by, at: (input.now ?? new Date()).toISOString(), outcome: input.outcome, reasonCode: input.reasonCode };
 }

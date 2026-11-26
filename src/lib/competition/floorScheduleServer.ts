@@ -4,6 +4,7 @@ import {
   analyzeFloorSchedule,
   isExclusiveMusic,
   musicKeyFor,
+  type PlannerEntry,
   type PlannerInput,
   type PlannerParticipant,
   type SavedFloorHeat,
@@ -32,7 +33,7 @@ export async function loadPlannerInput(supabase: SupabaseClient, eventId: string
   // OD-03 / OD-02: an entry is schedulable only when the operational gate clears it (adult-only from stored data;
   // age-restricted divisions need an organizer determination). Fails closed: a load error throws.
   const gates = await loadEntryOperationalGates(supabase, eventId);
-  const gatedEntries = (entries.data ?? []).map((entry: { id: string }) => ({ ...entry, age_gate_ok: gates.get(entry.id)?.ready === true }));
+  const gatedEntries = ((entries.data ?? []) as PlannerEntry[]).map((entry) => ({ ...entry, age_gate_ok: gates.get(entry.id)?.ready === true }));
   const roundRows = (rounds.data ?? []) as Array<{ id: string; name: string; division_id: string; sequence_number: number; round_type: string; configuration: Record<string, unknown> | null }>;
   return {
     contests: contests.data ?? [],

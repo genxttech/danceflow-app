@@ -1,9 +1,11 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
-import { buildEligibilityDetermination, validateEligibilityDecision, type EligibilityReasonCode, type EligibilityStatus } from "@/lib/competition/eligibilityGate";
+import { isAgeRestrictedDivision, validateEligibilityDecision } from "@/lib/competition/eligibilityGate";
+import { recordEligibilityDecision, type RpcClient } from "@/lib/competition/eligibilityRpc";
 import { entryParticipantsAdultVerified } from "@/lib/competition/eligibilityGateServer";
 
 const ELIGIBILITY = ["unverified", "eligible", "needs_review", "ineligible", "waived"];
@@ -40,17 +42,16 @@ export async function updateCompetitionEntryEligibilityAction(formData: FormData
   const reasonCode = text(formData, "reasonCode");
   if (!eventId || !entryId || !ELIGIBILITY.includes(eligibilityStatus)) throw new Error("A valid eligibility decision is required.");
   const { supabase, userId } = await requireEventManager(eventId);
-  // OD-03: an auditable organizer determination (who, when, outcome, reason code; no birthdates) is stored with the entry.
+  // OD-03 / R-15: the decision is recorded by the audited database function (actor, role, time, outcome, reason, criteria). No direct table write.
   // OD-02: eligible/waived is refused unless every competitor's STORED date of birth shows 18 or older (fails closed).
-  const { data: entry, error: entryError } = await (supabase as any).from("event_competition_entries").select("id, division_id, metadata").eq("id", entryId).eq("event_id", eventId).maybeSingle();
+  const { data: entry, error: entryError } = await (supabase as any).from("event_competition_entries").select("id, division_id").eq("id", entryId).eq("event_id", eventId).maybeSingle();
   if (entryError || !entry) throw new Error("Competition entry not found.");
   const { data: division } = await (supabase as any).from("event_competition_divisions").select("age_label").eq("id", entry.division_id).eq("event_id", eventId).maybeSingle();
   const participantsAdult = await entryParticipantsAdultVerified(supabase, eventId, entryId);
   const problem = validateEligibilityDecision({ outcome: eligibilityStatus, reasonCode, ageLabel: division?.age_label, participantsAdult });
   if (problem) throw new Error(problem);
-  const metadata = { ...(entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {}), eligibility_determination: buildEligibilityDetermination({ by: userId, outcome: eligibilityStatus as EligibilityStatus, reasonCode: reasonCode as EligibilityReasonCode }) };
-  const { error } = await (supabase as any).from("event_competition_entries").update({ eligibility_status: eligibilityStatus, metadata }).eq("id", entryId).eq("event_id", eventId);
-  if (error) throw new Error(`Could not update entry eligibility: ${error.message}`);
+  const criteria = isAgeRestrictedDivision(division?.age_label) && eligibilityStatus === "eligible" ? ["age_division"] : [];
+  await recordEligibilityDecision(supabase as unknown as RpcClient, { entryId, outcome: eligibilityStatus, reasonCode, criteria, requestId: randomUUID() });
   refresh(eventId);
 }
 
