@@ -76,6 +76,10 @@ const PROPERTY_CHUNK_TIMEOUT_MS = PROPERTY_CHUNK_SIZE * PROPERTY_ORDER_BUDGET_MS
 const PROPERTY_CHUNKS = Array.from({ length: PROPERTY_RUNS / PROPERTY_CHUNK_SIZE }, (_, c) => Array.from({ length: PROPERTY_CHUNK_SIZE }, (_, i) => c * PROPERTY_CHUNK_SIZE + i));
 /** The current property chunk (settled or rejected, never throws): awaited by the next chunk, the webhook tests and the cleanup. */
 let propertyInFlight: Promise<unknown> = Promise.resolve();
+/** Set by the cleanup once it stops waiting: no property order or event may start after it (even one whose test was not aborted). */
+let propertyStopped = false;
+/** How long the cleanup waits for a stopping chunk before cleaning up anyway (below the 90 s hook timeout). */
+const PROPERTY_DRAIN_MS = 60_000;
 
 // the route reads the signature through next/headers and the Stripe client through getStripe(): both are replaced; the signature check itself is the real one
 let signatureHeader: string | null = null;
@@ -186,7 +190,15 @@ describe.skipIf(!enabled)("prepaid credit integrity: hold enforcement, refund/di
     psqlFile(FIXTURES);
   });
   afterAll(async () => {
-    await propertyInFlight; // never delete the fixtures under an order that is still stopping
+    // Never delete the fixtures under an order that is still stopping, but never let a hung order skip the cleanup either: wait at most
+    // PROPERTY_DRAIN_MS (inside the 90 s hook timeout), then forbid any further property event and clean up regardless.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([propertyInFlight, new Promise<void>((resolve) => (timer = setTimeout(resolve, PROPERTY_DRAIN_MS)))]);
+    } finally {
+      clearTimeout(timer);
+      propertyStopped = true;
+    }
     try {
       psqlFile(CLEANUP);
     } catch {
@@ -437,7 +449,7 @@ describe.skipIf(!enabled)("prepaid credit integrity: hold enforcement, refund/di
     const rng = (seed: number) => () => ((seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296);
     const propertyOrder = async (run: number, signal: AbortSignal) => {
       const stopIfAborted = () => {
-        if (signal.aborted) throw new Error(`property aborted before finishing order ${run} (the test timed out): no further events are sent`);
+        if (signal.aborted || propertyStopped) throw new Error(`property aborted before finishing order ${run} (the test timed out or the suite is cleaning up): no further events are sent`);
       };
       stopIfAborted();
       {
