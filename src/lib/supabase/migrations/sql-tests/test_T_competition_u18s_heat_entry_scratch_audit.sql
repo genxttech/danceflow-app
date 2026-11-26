@@ -73,7 +73,7 @@ select pg_temp.chk('the refused writes changed nothing (rows 1,2 scheduled, no a
 -- a direct parent-entry status write is audited by the entry trigger but is not the workflow: still refused (no marker)
 create temp table t_dir (r text) on commit drop;
 grant all on t_dir to authenticated;
-insert into t_dir select pg_temp.try_as('authenticated', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800002'$q$);
+insert into t_dir select pg_temp.try_as('postgres', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800002'$q$);
 select pg_temp.chk('direct parent-entry status write does not unlock a direct heat-entry scratch',
   (select r from t_dir) = 'OK'
   and pg_temp.try_as('authenticated', $q$update public.event_competition_heat_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019900002'$q$) like '%COMP_U18S_SCRATCH_UNAUDITED%',
@@ -102,7 +102,7 @@ values ('00000000-0000-0000-0000-cf1019900007', '00000000-0000-0000-0000-cf1019e
 set local session_replication_role = origin;
 create temp table t_old (r text) on commit drop;
 grant all on t_old to authenticated;
-insert into t_old select pg_temp.try_as('authenticated', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800006'$q$);
+insert into t_old select pg_temp.try_as('postgres', $q$update public.event_competition_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1019800006'$q$);
 set local session_replication_role = replica;
 update public.event_competition_entry_changes set performed_at = now() - interval '2 days' where entry_id = '00000000-0000-0000-0000-cf1019800006';
 set local session_replication_role = origin;

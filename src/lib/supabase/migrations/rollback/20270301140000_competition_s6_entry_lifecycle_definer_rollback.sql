@@ -1,6 +1,17 @@
--- Rollback of 20270301140000: restore the June SECURITY INVOKER definition (text identical to 20260620_competition_generation_operations_v1.sql) and the
--- previous ACL (PUBLIC, postgres, anon, authenticated, service_role). Run AFTER rolling back 20270301141000 (otherwise the guard refuses the invoker RPC).
+-- Rollback of 20270301140000: restore the June SECURITY INVOKER definition (text identical to 20260620_competition_generation_operations_v1.sql) and the previous ACL in its recorded order
+-- (PUBLIC, postgres, anon, authenticated, service_role). Run AFTER rolling back 20270301141000. "Exact" is relative to the repository text: the hosted body carries CR characters from the
+-- original apply, which the repository text does not.
 begin;
+
+do $$
+declare v_oid oid := to_regprocedure('public.change_competition_entry_lifecycle(uuid, text, text, text)');
+begin
+  if exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_entries'::regclass and tgname = 'cf1_s6_guard_entry_status') then
+    raise exception 'S6 rollback refused: roll back 20270301141000 first.'; end if;
+  if v_oid is null or (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = v_oid) is distinct from 'ac27d4fe7d546804014fcbf55046f390' then
+    raise exception 'S6 rollback refused: change_competition_entry_lifecycle is not the 20270301140000 definition (another change would be overwritten).'; end if;
+end $$;
+
 create or replace function public.change_competition_entry_lifecycle(
   selected_entry_id uuid,
   selected_status text,
@@ -54,6 +65,10 @@ begin
 end;
 $$;
 
-revoke all on function public.change_competition_entry_lifecycle(uuid, text, text, text) from public, anon, authenticated, service_role;
-grant execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) to public, anon, authenticated, service_role;
+revoke all on function public.change_competition_entry_lifecycle(uuid, text, text, text) from public, postgres, anon, authenticated, service_role;
+grant execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) to public;
+grant execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) to postgres;
+grant execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) to anon;
+grant execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) to authenticated;
+grant execute on function public.change_competition_entry_lifecycle(uuid, text, text, text) to service_role;
 commit;

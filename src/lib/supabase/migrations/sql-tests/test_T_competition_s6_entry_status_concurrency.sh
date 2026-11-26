@@ -66,6 +66,8 @@ select public.change_competition_entry_lifecycle('$ENT', 'scratched', 'S6 race s
 SQL
 ) &
 PD=$!
+sleep 1
+WAITING=$(SU -c "select count(*) from pg_stat_activity where wait_event_type = 'Lock' and pid <> pg_backend_pid()")
 wait $PA; wait $PB; wait $PC; wait $PD
 
 STATUS=$(SU -c "select status from public.event_competition_entries where id = '$ENT'")
@@ -75,6 +77,7 @@ ok "A (lifecycle RPC) finished without error" "$([ -z "$(grep -i error "$OUT/s6c
 ok "B (direct manager write) was refused with COMP_S6_ENTRY_STATUS_WRITER (42501)" "$(grep -q 'COMP_S6_ENTRY_STATUS_WRITER' "$OUT/s6c_b.out" && echo 1 || echo 0)"
 ok "C (owner definer writer) raised no error" "$([ -z "$(grep -i error "$OUT/s6c_c.out")" ] && echo 1 || echo 0)"
 ok "D (second manager submit of the same scratch) waited, then was a no-op without error (needs 20270301142000)" "$([ -z "$(grep -i error "$OUT/s6c_d.out")" ] && echo 1 || echo 0)"
+ok "B, C and D were all waiting on a lock while A held its transaction ($WAITING lock waiters)" "$([ "${WAITING:-0}" -ge 3 ] && echo 1 || echo 0)"
 ok "final status is scratched (not withdrawn)" "$([ "$STATUS" = "scratched" ] && echo 1 || echo 0)"
 ok "exactly one audit row, the scratch with the reason" "$([ "$AUD" = "1" ] && [ "$AUDS" = "1" ] && echo 1 || echo 0)"
 if [ -z "$FAILS" ]; then echo "S6 CONCURRENCY PASS ($PASS checks)"; exit 0; else echo "S6 CONCURRENCY FAIL:$FAILS (status=$STATUS audit=$AUD)"; exit 1; fi

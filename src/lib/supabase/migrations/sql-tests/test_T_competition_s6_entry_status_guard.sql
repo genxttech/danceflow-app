@@ -96,7 +96,7 @@ end $m$;
 select pg_temp.chk('A1 ' || target || ' by ' || as_role || ': refused 42501 COMP_S6, status unchanged, no audit row, R2 class unchanged',
   outcome like '42501 COMP_S6_ENTRY_STATUS_WRITER%' and status_after = start_status and audits_after = audits_before and class_after is not distinct from class_before, outcome)
 from t_m where as_role in ('authenticated', 'service_role', 'cf1032_probe');
-select pg_temp.chk('A1 ' || target || ' by anon: no effect (no policy / refused), status unchanged, no audit row',
+select pg_temp.chk('A1 ' || target || ' by anon: no effect (row-level security gives anon no row; not a guard proof), status unchanged, no audit row',
   status_after = start_status and audits_after = audits_before, outcome)
 from t_m where as_role = 'anon';
 
@@ -141,7 +141,38 @@ select pg_temp.chk('D1 client INSERT of a confirmed or disqualified entry is ref
   (select r from t_d where k = 'ins_confirmed_auth') like '42501 COMP_S6%' and (select r from t_d where k = 'ins_disq_service') like '42501 COMP_S6%'
   and not exists (select 1 from public.event_competition_entries where id in ('00000000-0000-0000-0000-cf1032820001', '00000000-0000-0000-0000-cf1032820002')),
   (select string_agg(k || '=' || r, ' | ') from t_d));
-select pg_temp.chk('D2 a client INSERT as pending is not refused by THIS guard (outcome recorded)', (select r from t_d where k = 'ins_pending_auth') not like '%COMP_S6%', (select r from t_d where k = 'ins_pending_auth'));
+select pg_temp.chk('D2 a manager can still INSERT an unlinked pending entry', (select r from t_d where k = 'ins_pending_auth') = 'OK', (select r from t_d where k = 'ins_pending_auth'));
+
+-- D3. indirect paths: registration / order links (a re-pointed entry would be confirmed or withdrawn by the owner-run registration sync)
+set local session_replication_role = replica;
+update public.event_competition_entries set registration_id = gen_random_uuid(), order_id = gen_random_uuid(), order_item_id = gen_random_uuid(), registration_cart_id = gen_random_uuid()
+where id = '00000000-0000-0000-0000-cf1032810005';
+set local session_replication_role = origin;
+select pg_temp.chk('D3 a client cannot clear or change registration_id / order_id / order_item_id / registration_cart_id (authenticated and service_role; cleared to null so no foreign key can be the refusal)',
+  (select bool_and(pg_temp.try_as(r, format('update public.event_competition_entries set %I = null where id = %L', c, '00000000-0000-0000-0000-cf1032810005')) like '42501 COMP_S6_ENTRY_LINK_WRITER%')
+   from unnest(array['authenticated','service_role']) r, unnest(array['registration_id','order_id','order_item_id','registration_cart_id']) c));
+set local session_replication_role = replica;
+update public.event_competition_entries set registration_id = null, order_id = null, order_item_id = null, registration_cart_id = null where id = '00000000-0000-0000-0000-cf1032810005';
+set local session_replication_role = origin;
+-- D4. DELETE: an entry with a status, a link or history cannot be erased and re-created; an unused pending entry still can
+create temp table t_del (k text, r text);
+grant all on t_del to authenticated, anon, service_role;
+insert into t_del select 'confirmed_auth', pg_temp.try_as('authenticated', 'delete from public.event_competition_entries where id = ' || quote_literal('00000000-0000-0000-0000-cf1032810005'));
+insert into t_del select 'confirmed_service', pg_temp.try_as('service_role', 'delete from public.event_competition_entries where id = ' || quote_literal('00000000-0000-0000-0000-cf1032810005'));
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+values ('00000000-0000-0000-0000-cf1032820004', '00000000-0000-0000-0000-cf1032e00001', '00000000-0000-0000-0000-cf1032001001', '00000000-0000-0000-0000-cf1032003001', 'h', 'confirmed', 'eligible', '804');
+update public.event_competition_entries set status = 'pending' where id = '00000000-0000-0000-0000-cf1032820004';
+insert into t_del select 'pending_with_history', pg_temp.try_as('authenticated', 'delete from public.event_competition_entries where id = ' || quote_literal('00000000-0000-0000-0000-cf1032820004'));
+insert into t_del select 'unused_pending', pg_temp.try_as('authenticated', 'delete from public.event_competition_entries where id = ' || quote_literal('00000000-0000-0000-0000-cf1032820003'));
+select pg_temp.chk('D4a a confirmed entry cannot be deleted by a manager or service_role, and stays',
+  (select r from t_del where k = 'confirmed_auth') like '42501 COMP_S6_ENTRY_DELETE_WRITER%' and (select r from t_del where k = 'confirmed_service') like '42501 COMP_S6_ENTRY_DELETE_WRITER%'
+  and exists (select 1 from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810005'), (select string_agg(k || '=' || r, ' | ') from t_del));
+select pg_temp.chk('D4b a pending entry with change history cannot be deleted; an unused pending entry can',
+  (select r from t_del where k = 'pending_with_history') like '42501 COMP_S6_ENTRY_DELETE_WRITER%' and exists (select 1 from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032820004')
+  and (select r from t_del where k = 'unused_pending') = 'OK' and not exists (select 1 from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032820003'),
+  (select string_agg(k || '=' || r, ' | ') from t_del));
+delete from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032820004';
+select pg_temp.chk('D4c the owner can still delete', not exists (select 1 from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032820004'));
 
 -- E. bypass attempts --------------------------------------------------------------------------------------------------------------------------------
 select set_config('app.competition_entry_change_type', 'scratch', true), set_config('app.competition_entry_change_reason', 'forged marker', true);
@@ -158,14 +189,17 @@ select pg_temp.chk('E2 INSERT ... ON CONFLICT (id) DO UPDATE cannot change statu
 select pg_temp.chk('E3 a bulk UPDATE touching several entries is refused as a whole (nothing changed)',
   pg_temp.try_as('authenticated', $q$update public.event_competition_entries set status = 'withdrawn' where id in ('00000000-0000-0000-0000-cf1032810005', '00000000-0000-0000-0000-cf1032810006', '00000000-0000-0000-0000-cf1032810007')$q$) like '42501 COMP_S6%'
   and (select count(*) from public.event_competition_entries where id in ('00000000-0000-0000-0000-cf1032810005', '00000000-0000-0000-0000-cf1032810006', '00000000-0000-0000-0000-cf1032810007') and status = 'confirmed') = 3);
-select pg_temp.chk('E4 a client cannot SET ROLE to an owner role',
-  pg_temp.try_as('authenticated', 'set role postgres') like '42501%' and pg_temp.try_as('service_role', 'set role supabase_admin') like '42501%');
+select pg_temp.chk('E4 no client role is a member of an owner role, so a client session cannot SET ROLE to one (checked by membership: SET ROLE inside this suite is authorized against the superuser session)',
+  not exists (select 1 from unnest(array['anon','authenticated','service_role','cf1032_probe']) c, unnest(array['postgres','supabase_admin']) o where pg_has_role(c, o, 'member')));
 select pg_temp.chk('E5 TRIGGER privilege on the entries table is gone for anon, authenticated and service_role (finding F2)',
   not has_table_privilege('anon', 'public.event_competition_entries', 'TRIGGER') and not has_table_privilege('authenticated', 'public.event_competition_entries', 'TRIGGER') and not has_table_privilege('service_role', 'public.event_competition_entries', 'TRIGGER'));
-select pg_temp.chk('E6 a client cannot create its own trigger on the entries table (authenticated, service_role, member probe)',
-  pg_temp.try_as('authenticated', $q$create trigger zz_probe before update on public.event_competition_entries for each row execute function public.cf1_s6_guard_entry_status()$q$) like '42501%'
-  and pg_temp.try_as('service_role', $q$create trigger zz_probe2 before update on public.event_competition_entries for each row execute function public.cf1_s6_guard_entry_status()$q$) like '42501%'
-  and pg_temp.try_as('cf1032_probe', $q$create trigger zz_probe3 before update on public.event_competition_entries for each row execute function public.cf1_s6_guard_entry_status()$q$) like '42501%');
+create function pg_temp.zz_trg() returns trigger language plpgsql as 'begin return new; end';
+grant execute on function pg_temp.zz_trg() to public;
+select pg_temp.chk('E6 a client cannot create its own trigger on the entries table, even with an executable trigger function (authenticated, service_role, member probe)',
+  pg_temp.try_as('authenticated', 'create trigger zz_probe before update on public.event_competition_entries for each row execute function pg_temp.zz_trg()') like '42501 permission denied for table%'
+  and pg_temp.try_as('service_role', 'create trigger zz_probe2 before update on public.event_competition_entries for each row execute function pg_temp.zz_trg()') like '42501 permission denied for table%'
+  and pg_temp.try_as('cf1032_probe', 'create trigger zz_probe3 before update on public.event_competition_entries for each row execute function pg_temp.zz_trg()') like '42501 permission denied for table%',
+  pg_temp.try_as('authenticated', 'create trigger zz_probe4 before update on public.event_competition_entries for each row execute function pg_temp.zz_trg()'));
 select pg_temp.chk('E7 a client cannot disable, drop or replace the guard',
   pg_temp.try_as('authenticated', 'alter table public.event_competition_entries disable trigger cf1_s6_guard_entry_status') like '42501%'
   and pg_temp.try_as('service_role', 'drop trigger cf1_s6_guard_entry_status on public.event_competition_entries') like '42501%'
@@ -223,6 +257,9 @@ select pg_temp.chk('F8 a SECURITY DEFINER function owned by the owner role, call
 -- H. lifecycle RPC hardening (20270301142000): idempotent, serialized source states, placed entries refused -------------------------------------------------------
 create temp table t_h (k text, r text, v bigint);
 grant all on t_h to authenticated, anon, service_role;
+set local session_replication_role = replica;
+update public.event_competition_heats set lock_state = 'open' where id = '00000000-0000-0000-0000-cf1032d00001';
+set local session_replication_role = origin;
 -- H1 a repeat scratch of an already scratched entry (entry 1 was scratched in F1) is a no-op: no second audit row, no lifecycle_version bump
 create temp table t_h1 (ver bigint, aud bigint);
 insert into t_h1 select lifecycle_version, pg_temp.aud(id) from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032800001';
@@ -273,6 +310,16 @@ set local session_replication_role = origin;
 select pg_temp.chk('H5 an entry in an ACTIVE heat is refused with COMP_ENTRY_LIFECYCLE_PLACED and unchanged',
   pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032800004', 'scratched', 'x', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_PLACED%'
   and pg_temp.es('004') = 'confirmed');
+-- H7 the repeat-call branch passes the same checks: a scratched parent with a scheduled heat entry in an ACTIVE heat is not silently scratched
+set local session_replication_role = replica;
+update public.event_competition_heat_entries set status = 'scheduled' where id = '00000000-0000-0000-0000-cf1032900071';
+set local session_replication_role = origin;
+select pg_temp.chk('H7 repeat call on a scratched entry whose heat is active is refused (COMP_ENTRY_LIFECYCLE_PLACED) and the heat entry is unchanged',
+  pg_temp.try_as('authenticated', $q$select public.change_competition_entry_lifecycle('00000000-0000-0000-0000-cf1032810003', 'scratched', 'repair-active', 'retain')$q$) like '%COMP_ENTRY_LIFECYCLE_PLACED%'
+  and (select status from public.event_competition_heat_entries where id = '00000000-0000-0000-0000-cf1032900071') = 'scheduled');
+set local session_replication_role = replica;
+update public.event_competition_heat_entries set status = 'scratched' where id = '00000000-0000-0000-0000-cf1032900071';
+set local session_replication_role = origin;
 -- H6 legitimate source states still work: waitlisted -> scratched, pending -> withdrawn
 update public.event_competition_entries set status = 'waitlisted' where id = '00000000-0000-0000-0000-cf1032810006';
 update public.event_competition_entries set status = 'pending' where id = '00000000-0000-0000-0000-cf1032810007';
@@ -283,6 +330,11 @@ select pg_temp.chk('H6 waitlisted -> scratched and pending -> withdrawn through 
   and (select status from public.event_competition_entries where id = '00000000-0000-0000-0000-cf1032810007') = 'withdrawn'
   and (select count(*) from public.event_competition_entry_changes where entry_id in ('00000000-0000-0000-0000-cf1032810006', '00000000-0000-0000-0000-cf1032810007') and change_type in ('scratch', 'withdraw')) = 2);
 
+-- F9 the internal R2 withdrawal definers are not callable with the service key any more
+select pg_temp.chk('F9 service_role cannot execute _r2_withdraw_entry or _r2_apply_participation',
+  not has_function_privilege('service_role', 'public._r2_withdraw_entry(uuid,text,text)', 'EXECUTE') and not has_function_privilege('service_role', 'public._r2_apply_participation(uuid)', 'EXECUTE')
+  and pg_temp.try_as('service_role', $q$select public._r2_withdraw_entry('00000000-0000-0000-0000-cf1032810001', 'x', 'refund')$q$) like '42501 permission denied%');
+
 -- G. heat entry / entry consistency and downstream classes -----------------------------------------------------------------------------------------
 select pg_temp.chk('G1 no fixture entry is scratched/withdrawn while one of its heat entries is still scheduled/checked_in',
   not exists (select 1 from public.event_competition_entries e join public.event_competition_heat_entries h on h.entry_id = e.id
@@ -290,7 +342,7 @@ select pg_temp.chk('G1 no fixture entry is scratched/withdrawn while one of its 
 select pg_temp.chk('G2 refused direct writes left the R2 class and the ballot heat set exactly as before (matrix rows)',
   not exists (select 1 from t_m where as_role in ('authenticated', 'service_role', 'cf1032_probe') and class_after is distinct from class_before));
 select pg_temp.chk('G3 other triggers on the entries table are still present and enabled (audit, updated_at, registration links) alongside the guard',
-  (select count(*) from pg_trigger where tgrelid = 'public.event_competition_entries'::regclass and not tgisinternal and tgname in ('audit_competition_entry_change', 'set_event_competition_updated_at', 'validate_competition_entry_registration_links', 'cf1_s6_guard_entry_status') and tgenabled <> 'D') = 4);
+  (select count(*) from pg_trigger where tgrelid = 'public.event_competition_entries'::regclass and not tgisinternal and tgname in ('audit_competition_entry_change', 'set_event_competition_updated_at', 'validate_competition_entry_registration_links', 'cf1_s6_guard_entry_status', 'cf1_s6_guard_entry_delete') and tgenabled <> 'D') = 5);
 
 select * from t_m order by target, as_role;
 select name, ok, left(detail, 200) from t_results where not ok;
