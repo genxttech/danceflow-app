@@ -326,6 +326,16 @@ insert into public.event_competition_entries (id, event_id, program_id, division
 select pg_temp.eid(f.n, i), pg_temp.u('00e001'), pg_temp.pid(f.prog), pg_temp.dvid(f.n), 'E' || f.n || '-' || i, 'confirmed', 'eligible', (f.n * 10 + i)::text
 from t_fix f cross join lateral generate_series(1, f.k) i;
 
+-- S4/R-15 composed chains: seeded eligible couples get an organizer determination through set_competition_entry_eligibility before they are placed.
+-- Inert unless the runner prepends sql-tests/fixtures/r15_clear_entries.sql (PR 866), which defines the helper; that helper does nothing without S4.
+-- Note: on a chain with S4 but without S5 the helper plants a stand-in age predicate, so such a run is no evidence about the age gate.
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at)
 values (pg_temp.u('00c001'), pg_temp.u('00e001'), 1, 'v1', 'published', now());
