@@ -136,3 +136,98 @@ aria-actions.ts @genxttech
 
 # Release line additions: marketing consent and send compliance.
 /src/lib/marketing/compliance/ @genxttech
+
+# Release line additions from the coverage assessment. Dynamic segments such as [id] are written as * because
+# CODEOWNERS does not support square brackets.
+
+# SQL outside the migrations folder, and build-time configuration.
+*.sql @genxttech
+/supabase/ @genxttech
+/postcss.config.mjs @genxttech
+
+# Release line additions: sending messages, push and consent.
+/src/lib/notifications/dispatch.ts @genxttech
+/src/lib/notifications/outbound.ts @genxttech
+/src/lib/notifications/deliveryOutcome.ts @genxttech
+/src/lib/notifications/event-reminders.ts @genxttech
+/src/lib/notifications/eventPush.ts @genxttech
+/src/lib/notifications/expoPush.ts @genxttech
+/src/lib/notifications/schedulePush.ts @genxttech
+/src/lib/notifications/groupClassNotices.ts @genxttech
+/src/lib/notifications/groupClassSeriesCancellation.ts @genxttech
+/src/lib/notifications/studioStaffRecipients.ts @genxttech
+/src/lib/notifications/sync.ts @genxttech
+/src/app/api/notifications/ @genxttech
+/src/app/api/mobile-push/ @genxttech
+/src/app/api/email/ @genxttech
+/src/app/app/automations/actions.ts @genxttech
+/src/app/app/marketing/campaigns/actions.ts @genxttech
+/src/app/app/organizer-campaigns/*/actions.ts @genxttech
+/src/app/app/events/*/check-in/recap-actions.ts @genxttech
+/src/app/app/schedule/*/attendance/recap-actions.ts @genxttech
+
+# Release line additions: public, token and student-facing access to personal data or paid content.
+/src/app/recaps/ @genxttech
+/src/app/book/*/actions.ts @genxttech
+/src/app/lead/*/actions.ts @genxttech
+/src/app/studios/*/classes/*/register/actions.ts @genxttech
+/src/app/studios/*/classes/*/register/page.tsx @genxttech
+/src/app/portal/**/actions.ts @genxttech
+/src/lib/public/classRegistrationData.ts @genxttech
+/src/lib/schedule/appointmentConfirmation.ts @genxttech
+/src/lib/clients/clientPhotoAccess.ts @genxttech
+/src/lib/mux/ @genxttech
+/src/lib/legal/ @genxttech
+*ai-actions.ts @genxttech
+
+# Release line additions: accounts, roles and ownership.
+/src/app/reset-password/ @genxttech
+/src/app/get-started/actions.ts @genxttech
+/src/app/get-started/*/actions.ts @genxttech
+/src/app/app/onboarding-actions.ts @genxttech
+/src/app/app/organizers/actions.ts @genxttech
+/src/app/app/instructors/actions.ts @genxttech
+/src/app/app/settings/public-profile/actions.ts @genxttech
+/src/app/app/judging/**/actions.ts @genxttech
+/src/lib/instructors/audit.ts @genxttech
+/src/lib/schedule/independentInstructorSchedule.ts @genxttech
+/mobile/student/src/lib/auth.tsx @genxttech
+/mobile/student/src/lib/supabase.ts @genxttech
+
+# Release line additions: client records, documents, imports and exports.
+/src/app/app/clients/actions.ts @genxttech
+/src/app/app/clients/*/actions.ts @genxttech
+/src/app/app/clients/*/membership-actions.ts @genxttech
+/src/app/app/clients/*/page.tsx @genxttech
+/src/app/app/clients/**/route.ts @genxttech
+/src/app/app/documents/actions.ts @genxttech
+/src/app/app/documents/assign-actions.ts @genxttech
+/src/app/app/events/**/route.ts @genxttech
+/src/app/app/reports/**/route.ts @genxttech
+/src/app/app/settings/import/actions.ts @genxttech
+/src/app/app/settings/accountant/actions.ts @genxttech
+/src/lib/utils/csv.ts @genxttech
+
+# Release line additions: sales, refunds, credits, entitlements and pay.
+/src/app/app/events/actions.ts @genxttech
+/src/app/app/events/sell-tickets/actions.ts @genxttech
+/src/app/app/events/*/registrations/actions.ts @genxttech
+/src/app/app/events/*/settlement/actions.ts @genxttech
+/src/app/app/events/*/tickets/actions.ts @genxttech
+/src/app/app/memberships/actions.ts @genxttech
+/src/app/app/packages/actions.ts @genxttech
+/src/app/app/packages/*/actions.ts @genxttech
+/src/app/app/catalog/actions.ts @genxttech
+/src/app/app/catalog/*/digital/actions.ts @genxttech
+/src/app/app/sell/commerceActions.ts @genxttech
+/src/app/app/rewards/actions.ts @genxttech
+/src/app/app/settings/billing/page.tsx @genxttech
+/src/app/app/schedule/actions.ts @genxttech
+/src/app/app/schedule/requests/actions.ts @genxttech
+/src/app/app/schedule/self-service/actions.ts @genxttech
+/src/lib/booking/selfServiceExecution.ts @genxttech
+/src/lib/booking/entitlementResolution.ts @genxttech
+/src/lib/booking/selfServicePolicy.ts @genxttech
+/src/lib/booking/selfServiceActionRequests.ts @genxttech
+/src/lib/packages/ @genxttech
+/src/lib/compensation/ @genxttech
