@@ -1,6 +1,7 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 export type EventDescriptionAIState = {
   ok: boolean;
   error?: string;
@@ -69,6 +70,9 @@ export async function generateEventDescriptionAssistantAction(
   _previousState: EventDescriptionAIState,
   formData: FormData,
 ): Promise<EventDescriptionAIState> {
+  // Server actions can be called directly: require a signed-in studio member (redirects otherwise).
+  const { userId } = await getCurrentStudioContext();
+
   if (process.env.AI_FEATURES_ENABLED !== "true") {
     return {
       ok: false,
@@ -124,7 +128,7 @@ export async function generateEventDescriptionAssistantAction(
   };
 
   const rateLimit = checkRateLimit(
-    await getServerActionRateLimitKey("ai:event-description", [eventName, eventType, task]),
+    await getServerActionRateLimitKey("ai:event-description", [userId]),
     { limit: 10, windowMs: 10 * 60 * 1000 },
   );
 
