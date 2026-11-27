@@ -18,8 +18,9 @@ jest.mock("@/lib/supabase", () => ({
     },
   },
   clearPersistedSupabaseSessions: async () => undefined,
-  hasPendingSignInRequest: async () => false,
+  verifyEmailLink: jest.fn(),
 }));
+jest.mock("@/lib/pendingSignIn", () => ({ clearPendingSignIn: async () => undefined, markPendingSignIn: async () => undefined, normalizeSignInEmail: (email: string) => email, readPendingSignIn: async () => null }));
 jest.mock("expo-linking", () => ({ addEventListener: () => ({ remove: jest.fn() }), getInitialURL: async () => null }));
 
 import { act, renderHook } from "@testing-library/react-native";

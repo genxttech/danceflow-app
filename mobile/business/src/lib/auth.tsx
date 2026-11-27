@@ -1,9 +1,10 @@
 import type React from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import * as Linking from "expo-linking";
-import type { Session } from "@supabase/supabase-js";
-import { clearPersistedSupabaseSessions, supabase, hasPendingSignInRequest } from "@/lib/supabase";
-import { parseAuthLink, resolveEmailOtpType } from "@/lib/authLink";
+import type { EmailOtpType, Session } from "@supabase/supabase-js";
+import { clearPersistedSupabaseSessions, supabase, verifyEmailLink } from "@/lib/supabase";
+import { LinkNotRequestedError, parseAuthLink, resolveEmailOtpType } from "@/lib/authLink";
+import { clearPendingSignIn, markPendingSignIn, normalizeSignInEmail, readPendingSignIn } from "@/lib/pendingSignIn";
 
 /*
   Supabase email sign-in for staff, following the Student app's pattern (#438): the session
@@ -53,6 +54,24 @@ async function clearLocalSession() {
   await clearPersistedSupabaseSessions().catch(() => undefined);
 }
 
+/**
+ * Records the request before sending it, so a link still works if the answer is lost on the way back. When the server answered with a refusal (nothing was sent:
+ * an unknown address, a rate limit), the earlier request is restored so its link keeps working.
+ */
+async function requestEmailLink(email: string, send: () => Promise<{ error: unknown }>) {
+  const previous = await readPendingSignIn();
+  await markPendingSignIn(email);
+  const { error } = await send();
+  if (!error) return;
+
+  const { name, status } = error as { name?: string; status?: unknown };
+  if (name !== "AuthRetryableFetchError" && typeof status === "number" && status > 0 && status < 500) {
+    if (previous) await markPendingSignIn(previous.email, previous.requestedAt);
+    else await clearPendingSignIn();
+  }
+  throw error;
+}
+
 /** How long sign-out waits for the clean-up that needs the session (push unbind) before going on without it. */
 export const BEFORE_SIGN_OUT_TIMEOUT_MS = 5_000;
 
@@ -81,26 +100,65 @@ export function AuthProvider({
   const [loading, setLoading] = useState(true);
   const [linkStatus, setLinkStatus] = useState<LinkStatus>("idle");
 
-  const handleAuthUrl = useCallback(async (url: string) => {
-    const { code, tokenHash, type } = parseAuthLink(url);
+  // A link can reach the app twice (the initial URL and the url event on a cold start); a token is single use, so the second check would fail a sign-in that worked.
+  const handledUrls = useRef(new Map<string, Promise<boolean>>());
+  // Emailed links are checked one at a time, so one pending request can accept only one link.
+  const linkQueue = useRef<Promise<unknown>>(Promise.resolve());
 
-    if (tokenHash) {
-      if (!(await hasPendingSignInRequest())) throw new Error("This sign-in link was not requested from this device.");
-      const otpType = resolveEmailOtpType(type);
-      if (!otpType) throw new Error("This sign-in link type is not supported.");
-      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: otpType });
-      if (error) throw error;
-      return true;
-    }
+  const signInFromEmailLink = useCallback(async (tokenHash: string, otpType: EmailOtpType) => {
+    // Checked before the token is used: without a request from this phone the token is not even spent.
+    const pending = await readPendingSignIn();
+    if (!pending) throw new LinkNotRequestedError();
 
-    if (code) {
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
-      if (error) throw error;
-      return true;
-    }
+    const { data, error } = await verifyEmailLink({ token_hash: tokenHash, type: otpType });
+    if (error) throw error;
 
-    return false;
+    // A link for another address is dropped here: nothing was saved, and whoever was signed in stays signed in.
+    if (!data.session || normalizeSignInEmail(data.user?.email ?? "") !== pending.email) throw new LinkNotRequestedError();
+
+    const { error: sessionError } = await supabase.auth.setSession({ access_token: data.session.access_token, refresh_token: data.session.refresh_token });
+    if (sessionError) throw sessionError;
+
+    await clearPendingSignIn().catch(() => undefined);
   }, []);
+
+  const exchangeAuthUrl = useCallback(
+    async (url: string) => {
+      const { code, tokenHash, type } = parseAuthLink(url);
+
+      if (tokenHash) {
+        const otpType = resolveEmailOtpType(type);
+        if (!otpType) throw new Error("This sign-in link type is not supported.");
+        const run = linkQueue.current.then(() => signInFromEmailLink(tokenHash, otpType));
+        linkQueue.current = run.catch(() => undefined);
+        await run;
+        return true;
+      }
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) throw error;
+        await clearPendingSignIn().catch(() => undefined);
+        return true;
+      }
+
+      return false;
+    },
+    [signInFromEmailLink],
+  );
+
+  const handleAuthUrl = useCallback(
+    (url: string) => {
+      const known = handledUrls.current.get(url);
+      if (known) return known;
+      const attempt = exchangeAuthUrl(url);
+      handledUrls.current.set(url, attempt);
+      // a failed attempt may be tried again (offline, or the request had not been made yet)
+      attempt.catch(() => handledUrls.current.delete(url));
+      return attempt;
+    },
+    [exchangeAuthUrl],
+  );
 
   /** Exchanges a callback link and records the outcome; other links (the dev client's own) are left alone. */
   const processLink = useCallback(
@@ -180,17 +238,20 @@ export function AuthProvider({
   }, []);
 
   const sendSignInLink = useCallback(async (email: string) => {
-    const { error } = await supabase.auth.signInWithOtp({
-      email: normalizeEmail(email),
-      options: { emailRedirectTo: CALLBACK_URL, shouldCreateUser: false },
-    });
-    if (error) throw error;
+    await requestEmailLink(email, () =>
+      supabase.auth.signInWithOtp({
+        email: normalizeEmail(email),
+        options: { emailRedirectTo: CALLBACK_URL, shouldCreateUser: false },
+      }),
+    );
   }, []);
 
   const signOut = useCallback(async () => {
     await runBeforeSignOut(beforeSignOut);
+    handledUrls.current.clear();
     setSession(null);
     await clearLocalSession();
+    await clearPendingSignIn().catch(() => undefined);
   }, [beforeSignOut]);
 
   const signOutEverywhere = useCallback(async () => {
@@ -201,8 +262,10 @@ export function AuthProvider({
       void onSignOutRefused?.().catch(() => undefined);
       return false;
     }
+    handledUrls.current.clear();
     setSession(null);
     await clearPersistedSupabaseSessions().catch(() => undefined);
+    await clearPendingSignIn().catch(() => undefined);
     return true;
   }, [beforeSignOut, onSignOutRefused]);
 
