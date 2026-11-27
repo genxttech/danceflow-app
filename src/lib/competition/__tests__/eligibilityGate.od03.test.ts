@@ -14,7 +14,7 @@ import { isSchedulableEntry } from "../floorPlanner";
 const NOW = new Date("2026-11-23T12:00:00Z");
 const ADULT = "1990-01-01";
 const MINOR = "2012-01-01";
-const base = { status: "confirmed", eligibilityStatus: "eligible", clearance: "cleared" as const, participantDobs: [ADULT, ADULT] };
+const base: Parameters<typeof evaluateEntryOperationalGate>[0] = { status: "confirmed", eligibilityStatus: "eligible", ageLabel: "Senior I", skillLabel: null, participantRoles: ["dancer"], clearance: "cleared", participantDobs: [ADULT, ADULT] };
 
 describe("OD-03 age-restricted division detection", () => {
   it.each([["Senior I", true], ["Junior", true], ["Masters", true], ["mystery label", true], ["", false], [null, false], ["Open", false], ["All Ages", false]])(
@@ -26,14 +26,19 @@ describe("OD-03 age-restricted division detection", () => {
 describe("OD-03 entry operational gate", () => {
   it("clears an adult entry only when the database reports it cleared", () => {
     expect(evaluateEntryOperationalGate(base, NOW)).toEqual({ ready: true, reasons: [] });
-    expect(evaluateEntryOperationalGate({ ...base, eligibilityStatus: "waived" }, NOW).ready).toBe(true);
+    expect(evaluateEntryOperationalGate({ ...base, ageLabel: "Open", eligibilityStatus: "waived" }, NOW).ready).toBe(true);
     expect(evaluateEntryOperationalGate({ ...base, clearance: "provisional" }, NOW).reasons).toEqual(["clearance_not_recorded"]);
     expect(evaluateEntryOperationalGate({ ...base, clearance: "blocked" }, NOW).reasons).toEqual(["clearance_not_recorded"]);
     expect(evaluateEntryOperationalGate({ ...base, clearance: "unavailable" }, NOW).reasons).toEqual(["clearance_unavailable"]);
   });
+  it("a waiver never clears an age-restricted entry", () => {
+    const result = evaluateEntryOperationalGate({ ...base, eligibilityStatus: "waived" }, NOW);
+    expect(result.ready).toBe(false);
+    expect(result.reasons).toContain("waiver_not_allowed_for_classified_division");
+  });
   it("a status alone never clears an entry: eligible or waived without a database clearance is not ready", () => {
     for (const eligibilityStatus of ["eligible", "waived"]) {
-      expect(evaluateEntryOperationalGate({ ...base, eligibilityStatus, clearance: "provisional" }, NOW).ready).toBe(false);
+      expect(evaluateEntryOperationalGate({ ...base, ageLabel: null, eligibilityStatus, clearance: "provisional" }, NOW).ready).toBe(false);
     }
   });
   it("OD-02 stays absolute: a minor, a missing DOB or no participants blocks even when the database says cleared", () => {
@@ -51,23 +56,22 @@ describe("OD-03 entry operational gate", () => {
 });
 
 describe("OD-03 eligibility decision validation (organizer action)", () => {
-  const ok = { outcome: "eligible", reasonCode: "criteria_verified_by_organizer", ageLabel: "Masters", participantsAdult: true };
+  const ok = { outcome: "eligible", reasonCode: "criteria_verified_by_organizer", required: ["age_division" as const], verifiedCriteria: ["age_division"], participantsAdult: true };
   it("accepts the verified-by-organizer decision", () => expect(validateEligibilityDecision(ok)).toBeNull());
   it("refuses eligible or waived when stored data does not show every competitor is an adult (waiver cannot bypass OD-02)", () => {
     expect(validateEligibilityDecision({ ...ok, participantsAdult: false })).toMatch(/18 or older/);
-    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "waiver_event_policy_fee", ageLabel: null, participantsAdult: false })).toMatch(/18 or older/);
+    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "waiver_event_policy_fee", required: [], participantsAdult: false })).toMatch(/18 or older/);
   });
   it("refuses a waiver on an age-restricted division, a wrong reason, and a missing reason", () => {
-    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "waiver_event_policy_fee" })).toMatch(/age-restricted/);
-    expect(validateEligibilityDecision({ ...ok, reasonCode: "other_organizer_review" })).toMatch(/requires the reason/);
-    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "other_organizer_review", ageLabel: "Open" })).toMatch(/event-policy/);
-    expect(validateEligibilityDecision({ ...ok, outcome: "ineligible" })).toMatch(/reason/);
+    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "waiver_event_policy_fee" })).toMatch(/requirements/);
+    expect(validateEligibilityDecision({ ...ok, reasonCode: "other_organizer_review" })).toMatch(/requires the reason|verification reason/);
+    expect(validateEligibilityDecision({ ...ok, outcome: "waived", reasonCode: "other_organizer_review", required: [] })).toMatch(/event-policy/);
     expect(validateEligibilityDecision({ ...ok, reasonCode: "" })).toMatch(/reason/);
     expect(validateEligibilityDecision({ ...ok, outcome: "bogus" })).toMatch(/valid eligibility/);
   });
-  it("allows an event-policy waiver on an open division and marking an entry ineligible", () => {
-    expect(validateEligibilityDecision({ outcome: "waived", reasonCode: "waiver_event_policy_documents", ageLabel: "Open", participantsAdult: true })).toBeNull();
-    expect(validateEligibilityDecision({ outcome: "ineligible", reasonCode: "age_division_not_met", ageLabel: "Junior", participantsAdult: false })).toBeNull();
+  it("allows an event-policy waiver on an open division and marking an entry ineligible without extra conditions", () => {
+    expect(validateEligibilityDecision({ outcome: "waived", reasonCode: "waiver_event_policy_documents", required: [], verifiedCriteria: [], participantsAdult: true })).toBeNull();
+    expect(validateEligibilityDecision({ outcome: "ineligible", reasonCode: "age_division_not_met", required: ["age_division"], verifiedCriteria: [], participantsAdult: false })).toBeNull();
   });
   it("offers only reason codes the database function accepts", () => {
     const sql = [...ELIGIBILITY_REASON_CODES].sort();
@@ -89,10 +93,11 @@ describe("OD-03 scheduling and copy", () => {
     const table = (data: unknown[], error: unknown = null) => ({ select: () => ({ eq: async () => ({ data, error }) }) });
     const client = (tables: Record<string, ReturnType<typeof table>>, answer: { data: unknown; error: unknown } = { data: "cleared", error: null }) =>
       ({ from: (name: string) => tables[name], rpc: async () => answer }) as never;
-    const entries = [{ id: "e1", status: "confirmed", eligibility_status: "eligible" }];
+    const entries = [{ id: "e1", division_id: "d1", status: "confirmed", eligibility_status: "eligible" }];
     const tables = {
       event_competition_entries: table(entries),
-      event_competition_entry_participants: table([{ entry_id: "e1", competitor_id: "c1" }]),
+      event_competition_divisions: table([{ id: "d1", age_label: "Senior I", skill_label: null, role_label: null }]),
+      event_competition_entry_participants: table([{ entry_id: "e1", competitor_id: "c1", participant_role: "dancer" }]),
       event_competition_competitors: table([{ id: "c1", date_of_birth: ADULT }]),
     };
     const ready = async (c: never) => (await loadEntryOperationalGates(c, "ev", NOW)).get("e1")?.ready;

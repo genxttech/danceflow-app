@@ -1,0 +1,38 @@
+{
+  "id": "UCWDC-OD18-STATUS-DEFINITIONS-PROAM",
+  "governing_body": "UCWDC",
+  "format": "UCWDC ProPro / ProAm amateur and professional status",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_ProPro-ProAm_v1-26-2026.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "d6257b65915151ab8aa50a952b60166cf5abfe6ef70cf8be292f9044e704db84",
+    "section": "II.A.1 and II.A.17 (PDF p3-4)",
+    "quote_free_summary": "An amateur is a competitor who meets none of the Professional Status Specifics; a professional is anyone who meets any Professional Status Specific."
+  },
+  "rule_class": "mandatory",
+  "requirement": "NOT IMPLEMENTED. Competition OS does not read, store or verify this requirement. For initial activation the organizer determines Studio/Custom eligibility and records the decision (OD-18 Option A); DanceFlow does not verify body registration, membership, Points Registry data or proficiency points. Future design only: see the credential-capture design note in the OD-18 PR.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/eligibilityGate.ts",
+      "symbol_or_migration": "evaluateEntryOperationalGate"
+    }
+  ],
+  "enforcement_point": "None for the body rule itself. The organizer determination gate (evaluateEntryOperationalGate, updateCompetitionEntryEligibilityAction) records that the organizer verified applicable criteria; it does not evaluate this rule.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od18.test.ts",
+      "name": "says Studio/Custom eligibility is determined by the organizer and never claims body-credential verification"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "OD-18 (2026-11-23): organizer verification now; automated verified rule evaluation is a future, separately reviewed phase for NDCA/UCWDC/WSDC body profiles.   Re-read in the pinned PDF; SHA-256 matches the registry.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-18"
+  ],
+  "last_reviewed": "2026-11-23"
+}

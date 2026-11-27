@@ -1,10 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { evaluateEntryOperationalGate, participantsAdultVerified, type EntryGateReason } from "@/lib/competition/eligibilityGate";
 import { loadClearanceStates, type RpcClient } from "@/lib/competition/eligibilityRpc";
+import { evaluateEntryOperationalGate, participantsAdultVerified, requiredCriteria, type EligibilityCriterion, type EntryGateReason } from "@/lib/competition/eligibilityGate";
 
 /*
-  OD-03 / OD-02 / R-15: server-side loader for the per-entry operational gate. Reads stored data only (entry status,
-  eligibility, the database's clearance state, participants' stored dates of birth).
+  OD-03 / OD-02: server-side loader for the per-entry operational gate. Reads stored data only (entry status,
+  eligibility, the database's clearance state, division age label, participants' stored dates of birth).
   Dates of birth are consumed in memory by the pure gate and never returned or logged.
   Fails closed: any load error throws, so callers never fall back to "allowed".
 */
@@ -12,32 +12,42 @@ import { loadClearanceStates, type RpcClient } from "@/lib/competition/eligibili
 export type EntryGateResult = { entryId: string; ready: boolean; reasons: EntryGateReason[] };
 
 export async function loadEntryOperationalGates(supabase: SupabaseClient, eventId: string, now: Date = new Date()): Promise<Map<string, EntryGateResult>> {
-  const [entryResult, participantResult, competitorResult] = await Promise.all([
-    supabase.from("event_competition_entries").select("id, status, eligibility_status").eq("event_id", eventId),
-    supabase.from("event_competition_entry_participants").select("entry_id, competitor_id").eq("event_id", eventId),
+  const [entryResult, divisionResult, participantResult, competitorResult] = await Promise.all([
+    supabase.from("event_competition_entries").select("id, division_id, status, eligibility_status").eq("event_id", eventId),
+    supabase.from("event_competition_divisions").select("id, age_label, skill_label, role_label").eq("event_id", eventId),
+    supabase.from("event_competition_entry_participants").select("entry_id, competitor_id, participant_role").eq("event_id", eventId),
     supabase.from("event_competition_competitors").select("id, date_of_birth").eq("event_id", eventId),
   ]);
-  const failed = [entryResult, participantResult, competitorResult].find((result) => result.error);
+  const failed = [entryResult, divisionResult, participantResult, competitorResult].find((result) => result.error);
   if (failed?.error) throw new Error("Could not verify entry eligibility.");
 
+  const labelsByDivision = new Map((divisionResult.data ?? []).map((row: { id: string; age_label: string | null; skill_label: string | null; role_label: string | null }) => [row.id, row]));
+  const rolesByEntry = new Map<string, string[]>();
   const dobByCompetitor = new Map((competitorResult.data ?? []).map((row: { id: string; date_of_birth: string | null }) => [row.id, row.date_of_birth]));
   const dobsByEntry = new Map<string, Array<string | null>>();
-  for (const row of (participantResult.data ?? []) as Array<{ entry_id: string; competitor_id: string | null }>) {
+  for (const row of (participantResult.data ?? []) as Array<{ entry_id: string; competitor_id: string | null; participant_role: string }>) {
+    rolesByEntry.set(row.entry_id, [...(rolesByEntry.get(row.entry_id) ?? []), row.participant_role]);
     const list = dobsByEntry.get(row.entry_id) ?? [];
     list.push(row.competitor_id ? (dobByCompetitor.get(row.competitor_id) ?? null) : null);
     dobsByEntry.set(row.entry_id, list);
   }
 
-  const entries = (entryResult.data ?? []) as Array<{ id: string; status: string; eligibility_status: string }>;
+  const entries = (entryResult.data ?? []) as Array<{ id: string; division_id: string; status: string; eligibility_status: string }>;
   // Only a confirmed entry already marked eligible or waived can be cleared; the others need no round trip.
   const candidates = entries.filter((entry) => entry.status === "confirmed" && ["eligible", "waived"].includes(entry.eligibility_status)).map((entry) => entry.id);
   const clearance = await loadClearanceStates(supabase as unknown as RpcClient, candidates);
 
   const results = new Map<string, EntryGateResult>();
   for (const entry of entries) {
+    const division = labelsByDivision.get(entry.division_id);
     const gate = evaluateEntryOperationalGate({
+      divisionFound: division !== undefined,
+      roleLabel: division?.role_label,
       status: entry.status,
       eligibilityStatus: entry.eligibility_status,
+      ageLabel: division?.age_label,
+      skillLabel: division?.skill_label,
+      participantRoles: rolesByEntry.get(entry.id) ?? [],
       clearance: clearance.get(entry.id) ?? "provisional",
       participantDobs: dobsByEntry.get(entry.id) ?? [],
     }, now);
@@ -56,4 +66,23 @@ export async function entryParticipantsAdultVerified(supabase: SupabaseClient, e
   if (competitorError) throw new Error("Could not verify entry eligibility.");
   const dobById = new Map((competitors ?? []).map((row: { id: string; date_of_birth: string | null }) => [row.id, row.date_of_birth]));
   return participantsAdultVerified(ids.map((id) => dobById.get(id as string) ?? null), now);
+}
+
+/** Stored-data classification for one entry: which criteria an organizer must verify (per-division applicability). */
+export async function loadEntryRequiredCriteria(supabase: SupabaseClient, eventId: string, entryId: string): Promise<{ divisionFound: boolean; required: EligibilityCriterion[] }> {
+  const { data: entry, error } = await supabase.from("event_competition_entries").select("division_id").eq("id", entryId).eq("event_id", eventId).maybeSingle();
+  if (error) throw new Error("Could not verify entry eligibility.");
+  if (!entry) return { divisionFound: false, required: [] };
+  const [divisionResult, participantResult] = await Promise.all([
+    supabase.from("event_competition_divisions").select("age_label, skill_label, role_label").eq("id", entry.division_id).eq("event_id", eventId).maybeSingle(),
+    supabase.from("event_competition_entry_participants").select("participant_role").eq("event_id", eventId).eq("entry_id", entryId),
+  ]);
+  if (divisionResult.error || participantResult.error) throw new Error("Could not verify entry eligibility.");
+  const division = divisionResult.data as { age_label: string | null; skill_label: string | null; role_label: string | null } | null;
+  if (!division) return { divisionFound: false, required: [] };
+  const participants = (participantResult.data ?? []) as Array<{ participant_role: string }>;
+  return {
+    divisionFound: true,
+    required: requiredCriteria({ ageLabel: division.age_label, skillLabel: division.skill_label, roleLabel: division.role_label, participantRoles: participants.map((row) => row.participant_role) }),
+  };
 }

@@ -22,14 +22,44 @@ export function isMissingFunction(error: RpcError | null | undefined): boolean {
   return error?.code === "PGRST202" || error?.code === "42883";
 }
 
-/** A message safe to show an organizer. Never includes ids, dates of birth or raw database text beyond the function's own refusal sentence. */
-export function eligibilityErrorMessage(error: RpcError): string {
-  if (isMissingFunction(error)) return ELIGIBILITY_UNAVAILABLE_MESSAGE;
+/*
+  What an organizer may be told. A redirect carries only the CODE, so no database text, id or date ever reaches a URL or the page, and a crafted link can
+  only select one of these sentences.
+*/
+export const ELIGIBILITY_ERRORS = {
+  unavailable: ELIGIBILITY_UNAVAILABLE_MESSAGE,
+  permission: "This entry was not found, or you do not have permission to decide its eligibility.",
+  adult: "Not saved: every competitor needs a verified date of birth showing 18 or older. This cannot be waived.",
+  criteria: "Not saved: confirm every applicable criterion (age division, status, level) before marking this entry eligible.",
+  waiver: "Not saved: a waiver is not allowed here. The division has age, status or level requirements, or the event declares a sanction.",
+  entry_state: "Not saved: a withdrawn, scratched, disqualified or complete entry cannot be given an eligibility decision.",
+  invalid: "Not saved: choose a decision and a reason that go together.",
+  failed: "Could not record the eligibility decision. Nothing was changed.",
+} as const;
+export type EligibilityErrorCode = keyof typeof ELIGIBILITY_ERRORS;
+
+export function isEligibilityErrorCode(value: unknown): value is EligibilityErrorCode {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(ELIGIBILITY_ERRORS, value);
+}
+
+/** Classifies a refusal from the database function (or the application's own early validation sentence). */
+export function eligibilityErrorCode(error: RpcError): EligibilityErrorCode {
+  if (isMissingFunction(error)) return "unavailable";
   const message = String(error.message ?? "");
-  const refusal = /COMP_R15_DETERMINATION_INVALID:\s*(.+)$/m.exec(message);
-  if (refusal) return refusal[1].trim();
-  if (message.includes("COMP_R15_NOT_FOUND")) return "This entry was not found, or you do not have permission to decide its eligibility.";
-  return "Could not record the eligibility decision. Nothing was changed.";
+  if (message.includes("COMP_R15_NOT_FOUND")) return "permission";
+  if (/established adult age|18 or older/.test(message)) return "adult";
+  if (/requires verification of|every applicable criterion/.test(message)) return "criteria";
+  if (/waiver cannot be used/i.test(message)) return "waiver";
+  if (message.includes("cannot be given an eligibility decision")) return "entry_state";
+  if (message.includes("COMP_R15_DETERMINATION_INVALID")) return "invalid";
+  return "failed";
+}
+
+export class EligibilityDecisionError extends Error {
+  constructor(readonly code: EligibilityErrorCode) {
+    super(ELIGIBILITY_ERRORS[code]);
+    this.name = "EligibilityDecisionError";
+  }
 }
 
 export async function recordEligibilityDecision(
@@ -43,7 +73,14 @@ export async function recordEligibilityDecision(
     p_criteria: [...input.criteria],
     p_request_id: input.requestId,
   });
-  if (error) throw new Error(eligibilityErrorMessage(error));
+  if (error) throw new EligibilityDecisionError(eligibilityErrorCode(error));
+}
+
+/** Refusals raised by the executable gates (20270301130000) when a running order, round, floor call or check-in holds an uncleared entry. */
+export const NOT_CLEARED_MESSAGE =
+  "Some entries are not cleared by the organizer. Record their eligibility on Competition Registrations, or withdraw or scratch them, then try again.";
+export function isNotClearedRefusal(message: string): boolean {
+  return /COMP_R15_(PROVISIONAL_ASSIGNMENT|ENTRY_NOT_CLEARED)/.test(message);
 }
 
 const BATCH = 20;
