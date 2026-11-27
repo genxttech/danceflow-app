@@ -45,14 +45,14 @@ Head `60b4edd7e`, migration sha256 `1607747d…`, composed base (`release/websit
 
 D does not close the spare-round replacement routes, and this run does not change that.
 
-## Evaluation against pilot P1 (PR 795 section 21, `0d68b2f38`): by reading; run result pending
+## Evaluation against pilot P1 (PR 795 section 21, `0d68b2f38`): by reading; run result in the next section
 
 P1 disables running-order replacement and cancellation after a start, enforced at the database. D alone does **not** do that: it stops direct client writes; lifecycle functions (round cancel, publication, advancement) pass it, and are the P1 restriction work (slots `180000`-`189000`).
 
 | D part | Needed by P1? | Why |
 |---|---|---|
 | Heat guard (placement columns, insert, delete) | **Yes** | without it a manager moves, detaches, renumbers or cancels **never-run published heats** by direct write, also while other heats have started (the writes were executed in the PR 865 probe; the start guard freezes only started heats). This includes the replacement route that re-points a spare heat |
-| Planted-heat rule and publication check | **Yes** | a planted heat leaves a live numbered heat's entries and dances directly writable after start: a running-order change at the database, with publication's entry conflict checks bypassed and, by inference, S4's entry clearance. By reading it **cannot** receive ballots (ballot heats need a published version), so scoring is not affected. Not yet reproduced |
+| Planted-heat rule and publication check | **Yes** | a planted heat leaves a live numbered heat's entries and dances directly writable after start: a running-order change at the database, with publication's entry conflict checks bypassed and, by inference, S4's entry clearance. By reading it **cannot** receive ballots (ballot heats need a published version), so scoring is not affected. Reproduced and fixed by execution (next section) |
 | Version guard | **Yes, mainly before a start** | after a start the existing `compo1_guard_publish_during_run` already refuses status inserts and updates for every writer (not deletes or other columns). Before a start, without D a manager can reopen a published order, edit it and re-publish by direct write, skipping publication's checks, and the heat guard relies on draft status |
 | Publication as definer with row lock | **Yes, if the version guard is kept** | publication's own status writes must pass it |
 
@@ -60,11 +60,28 @@ P1 disables running-order replacement and cancellation after a start, enforced a
 
 **Overlap and conflict with the P1 restrictions:** complementary by design (D: direct writes; restrictions: lifecycle functions after a start). D exempts the owner role, so a restriction meant to bind definer functions needs its own check. Publication's text is pinned by D (post `0fbbbef9670082fbb3cb2484d966dfa3`, slot `170000`, before `180000`): a restriction that redefines publication must pin that text. D's triggers are named `zz_` and fire after others.
 
-**Restriction plan, as reported by its session (not written yet; unverified):** branch `claude/od31-p1-pilot-restrictions`, `20270301180000_competition_p1_pilot_restrictions.sql`. It redefines no function (not publication, round cancel or the publication guard), so D's pin chain is untouched. It adds only `zz_compp1_*` triggers (ENABLE ALWAYS, no role exemption) and unique indexes on heats, heat dances, schedule versions, rounds, divisions, programs, heat entries, entries, ballots and approvals, refusing heat and version replacement and cancellation after the event starts for every writer; direct writes before a start remain D's. Order D then restrictions; each applies without the other. By name order `zz_compd_*` fires before `zz_compp1_*`, so a direct write both refuse reports D's error code. A combined run of the two is **not done** and belongs in the P1 composed test.
+**Restriction plan, as reported by its session (later reported drafted and under review, not pushed; unverified here):** branch `claude/od31-p1-pilot-restrictions`, `20270301180000_competition_p1_pilot_restrictions.sql`. It redefines no function (not publication, round cancel or the publication guard), so D's pin chain is untouched. It adds only `zz_compp1_*` triggers (ENABLE ALWAYS, no role exemption) and unique indexes on heats, heat dances, schedule versions, rounds, divisions, programs, heat entries, entries, ballots and approvals, refusing heat and version replacement and cancellation after the event starts for every writer; direct writes before a start remain D's. Order D then restrictions; each applies without the other. By name order `zz_compd_*` fires before `zz_compp1_*`, so a direct write both refuse reports D's error code. A combined run of the two is **not done** and belongs in the P1 composed test.
 
 **Open re-review findings seen against P1:** finding 2 (publication does not serialize other draft writers) is a before-start race past publication's checks, and so relevant to P1 requirement 4; findings 3 to 5 (definer tests and grants, insertable publication rows, weak "keep" checks) are hardening and test gaps. None is fixed; fixing them would expand D and is not done.
 
-## Fix of blocker 1 (2026-11-26): written, execution PENDING
+## Fix of blocker 1: hole REPRODUCED, fix verified by a local run (2026-11-27)
+
+Run on head `5600ea301` (code `39ad748b9`, docs-only commits since), migration sha256 `ef9b868a…`, composed base fingerprint `d87e42858e6c…` (unchanged although `release/website-embeds` advanced to `57c331910`). Disposable local database; nothing hosted. Lock taken 04:09Z, finished 04:27Z. Verdict **D STANDALONE: PASS** (26 expectations met, 0 failed).
+
+| Step | Result |
+|---|---|
+| **Before the fix** (`02cf1c73d`), as authenticated manager | **REPRODUCED.** Planting the heat and publishing were accepted; after publication an entry and a dance were added to the planted heat and the dance changed. Read-back: order published, 1 planted heat, 1 entry, dance Foxtrot; deleting the entry was also accepted. Control: the same entry write on a properly versioned published heat was refused (`COMP10D_SCHEDULE_PUBLISHED`) |
+| Apply check | the fixed migration **refuses to apply** over an already planted published order |
+| **With the fix** | **not reproduced**: the plant step is refused by D (`COMPD_PUBLISHED_ORDER_WRITE_REFUSED`) |
+| D suite | **PASS (51 checks)**, also after rollback and re-apply |
+| Twelve existing suites | same passing verdicts as without D |
+| **Not covered** | callback-Final advancement suite fails with and without D (`COMP_U18S_SCRATCH_UNAUDITED`) |
+| Rollback, replay, re-apply | clean |
+| Publication races | without D the gap reproduces; with D **PASS (11 checks)** |
+
+Not in this run: S3 to S6, the P1 restrictions, PR 865 concurrency.
+
+### The fix
 
 Within D's own files: a client heat that references a numbered floor heat or a schedule block must carry a schedule version; publication refuses an order holding a heat that is not its own (`COMPD_ORDER_HEAT_VERSION_MISMATCH`); the migration refuses to apply while such a heat sits in a published or past order. Publication post md5 is now `0fbbbef9670082fbb3cb2484d966dfa3` (pre unchanged), computed offline; the sections above that quote `abccc653…` describe the earlier revision. Findings 2 to 6 of the re-review below stay open.
 
@@ -77,7 +94,7 @@ Within D's own files: a client heat that references a numbered floor heat or a s
 
 ## Independent re-review of the revision (`5a84cff9f`, by reading only): NOT READY
 
-**The statements above about what D refuses are subject to blocker 1.** Nothing below is fixed. Blocker 1 was checked against the code by the author; it and findings 2 to 6 are **not reproduced by execution**.
+Written before the fix. **Blocker 1 has since been reproduced and fixed (section above).** Findings 2 to 6 remain open and are not reproduced by execution.
 
 | # | Severity | Finding | Suggested correction |
 |---|---|---|---|
