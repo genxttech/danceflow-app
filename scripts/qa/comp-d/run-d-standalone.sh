@@ -116,7 +116,7 @@ check "baseline: races reproduce the gap (R1, R2 and R3 not refused)" "$(grep -m
 # manifest; only the D file is swapped. before = the previously reviewed D (db5c9b876): the new suite and races show what is reachable beside P1.
 P1R=/c/dfr/s5int-out/p1run4; P1M=20270301180000_competition_p1_pilot_restrictions.sql; OLD=db5c9b876
 if [ "$(cd "$P1R/chain" && sha256sum --quiet -c "$P1R/migrations-new.sha256" 2>&1 | grep -v "$MIG" | grep -c FAILED)" = 0 ] && [ -s "$P1R/chain/p1/$P1M" ]; then
-  FPA="$(cut -d" " -f1 "$OUT/base-fingerprint.txt" | tr -d '')"; FPB="$(cut -d" " -f1 "$P1R/base-fingerprint.txt" | tr -d '')"; FPS=differs; [ "$FPA" = "$FPB" ] && FPS=matches
+  FPA="$(cut -d" " -f1 "$OUT/base-fingerprint.txt" | tr -d '\r')"; FPB="$(cut -d" " -f1 "$P1R/base-fingerprint.txt" | tr -d '\r')"; FPS=differs; [ "$FPA" = "$FPB" ] && FPS=matches
   log "P1 chain: new/ and p1/ files are the composed run's (manifest checked); the base composed here $FPS its base fingerprint"
   git show "$OLD:$M/$MIG" > "$CHAIN/prefix/old-$MIG"
   p1_chain() { local f; start_db && base_chain || return 1; while read -r f; do f="$(echo "$f" | tr -d '\r')"; [ -n "$f" ] || continue; if [ "$f" = "$MIG" ]; then apply "$1" p1chain || return 1; else apply "$P1R/chain/new/$f" p1chain || return 1; fi; done < "$P1R/order-B.txt"; apply "$P1R/chain/p1/$P1M" p1chain; }
