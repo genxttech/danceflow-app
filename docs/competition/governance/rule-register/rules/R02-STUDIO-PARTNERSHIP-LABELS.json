@@ -1,0 +1,44 @@
+{
+  "id": "R02-STUDIO-PARTNERSHIP-LABELS",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom partnership formats and the 'Other / Studio-defined' style",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Studio/Custom partnership formats (couples, Pro-Am, Pro-Pro, professional couples, Jack & Jill, solo) and the Other / Studio-defined style carry no NDCA, UCWDC or WSDC compliance claim; their text is a neutral description of the DanceFlow format and says nothing about what a body defines. Studio age labels (Youth, Adult, Senior) carry no thresholds and map to no body class.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/setup/studioCustomDisplay.ts",
+      "symbol_or_migration": "STUDIO_PARTNERSHIP_DISPLAY"
+    },
+    {
+      "path": "src/lib/competition/setup/studioCustomDisplay.ts",
+      "symbol_or_migration": "STUDIO_DIVISION_DISPLAY"
+    }
+  ],
+  "enforcement_point": "TypeScript display layer in the setup wizard page and deriveDraft. Gaps: names saved for new setups come from the immutable SQL profile; registration, results and staff pages show saved names only and do not identify the rules profile.",
+  "tests": [
+    {
+      "path": "src/lib/competition/setup/__tests__/studioPartnership.r02.test.ts",
+      "name": "the wcs_couples claim about WSDC is replaced with a neutral description of the Studio format"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/studioPartnership.r02.test.ts",
+      "name": "no Studio partnership or 'Other / Studio-defined' format name or description names a governing body"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/studioPartnership.r02.test.ts",
+      "name": "identifiers, stored configuration, pricing and scoring selection are unchanged"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Unverified because of the persisted-name gap (see OD19-STUDIO-CUSTOM-FORMAT-LABELS). The prior wcs_couples text 'WSDC defines no Couples contest' was a body claim that a text search could not prove; it is removed, not replaced by another claim.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "R-02",
+    "OD-19",
+    "OD-02"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "id": "OD19-NDCA-STUDENT-STUDENT-ROLES",
+  "governing_body": "NDCA",
+  "format": "NDCA Student/Student (future NDCA body profile)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.A.6.a-b (Rule Book p5)",
+    "quote_free_summary": "A Student/Student event pairs one adult Pro/Am Student Competitor with another; it is not open to amateur dancers who compete at the Open Amateur proficiency level."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA body profile must enforce verified participant roles (two adult Pro/Am Student Competitors) and the eligibility rules before accepting a Student/Student entry. Today the Studio/Custom format 'Studio/Custom: Student pair' accepts any two participants and is labelled as a DanceFlow format, never as the NDCA division.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: an NDCA entry format with a role set and eligibility checks, enforced in TypeScript and SQL together (drift guard), once Competition OS offers an NDCA profile.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NDCA: no explicit effective date is printed in the supplied PDF (cover: June 2026 edition); effective_from 2026-06-01 is the first day of the edition month and must be confirmed before activation. NOT IMPLEMENTED and a BLOCKER for any future NDCA body profile that offers Student/Student. Studio/Custom keeps the flexible custom roles (allowedRolesForFormat default branch) by owner decision OD-19 option C; the profile roles stored for the format are never read by the quote path. Re-read in the pinned PDF on 2026-11-23.",
+  "applicable_event_versions": [
+    "June 2026"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-19",
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-18"
+  ]
+}

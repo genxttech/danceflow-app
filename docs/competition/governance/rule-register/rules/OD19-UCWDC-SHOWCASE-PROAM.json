@@ -1,0 +1,32 @@
+{
+  "id": "OD19-UCWDC-SHOWCASE-PROAM",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Showcase, ProAm/ProPro (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_ProPro-ProAm_v1-26-2026.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "d6257b65915151ab8aa50a952b60166cf5abfe6ef70cf8be292f9044e704db84",
+    "section": "II.G.2.a-b (p7); E.1.i / E.2.c (p4)",
+    "quote_free_summary": "Showcase is danced to music pre-selected for each dance, with choreographic interpretation one of the most important factors judged; it is listed among the ProAm/ProPro divisions."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future UCWDC body profile must model Showcase within the ProAm/ProPro pair structure, not as a free-form offering. Today 'Studio/Custom: Showcase' accepts any two participants.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: the UCWDC profile defines Showcase per dance type with the pair structure.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "NOT IMPLEMENTED and a BLOCKER for a future UCWDC body profile offering Showcase. Open question (audit FD-29): offering versus level inside ProAm/ProPro/Couples. Re-read in the pinned PDF on 2026-11-23.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-19",
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-18"
+  ]
+}

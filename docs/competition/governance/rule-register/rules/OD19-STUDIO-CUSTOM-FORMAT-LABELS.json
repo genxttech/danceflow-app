@@ -1,0 +1,50 @@
+{
+  "id": "OD19-STUDIO-CUSTOM-FORMAT-LABELS",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom custom-entry formats (Showcase, Spotlight, Routine, Student pair, Showdance, Cabaret, Theatre Arts, Choreographed routine)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Studio/Custom formats are DanceFlow formats: names, descriptions, wizard copy and review text read 'Studio/Custom: ...', carry no governing-body name, and never imply certification, approval or rule compliance. Persisted format ids are unchanged.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/setup/studioCustomDisplay.ts",
+      "symbol_or_migration": "withStudioCustomDisplayLabels"
+    },
+    {
+      "path": "src/lib/competition/setup/draft.ts",
+      "symbol_or_migration": "withStudioCustomDisplayLabels(profileInput)"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/new/page.tsx",
+      "symbol_or_migration": "withStudioCustomDisplayLabels"
+    }
+  ],
+  "enforcement_point": "TypeScript display layer applied in the setup wizard page and in deriveDraft (the seeded profile studio_simple@3 is immutable). Known gap: contest names persisted by public.create_competition_draft come from the immutable SQL profile and are not changed (see interpretation_notes).",
+  "tests": [
+    {
+      "path": "src/lib/competition/setup/__tests__/studioCustomDisplay.od19.test.ts",
+      "name": "custom formats read as DanceFlow Studio/Custom and imply no governing-body rule or certification"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/studioCustomDisplay.od19.test.ts",
+      "name": "persisted ids and every non-display field are unchanged (before/after snapshot)"
+    },
+    {
+      "path": "src/lib/competition/setup/__tests__/studioCustomDisplay.od19.test.ts",
+      "name": "keeps the flexible Studio/Custom participant-role behavior"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Wizard and review copy are relabelled. The category name written into event_competition_contests.name for NEW setups is built inside public.create_competition_draft from the profile row (v_cat_def->>'label'), so it still carries the legacy label (for example 'Student/Student — American Smooth'). Changing it needs a separately reviewed migration (for example profile studio_simple@4 and a function change) or render-time mapping at every read site via configuration.simple.category_type; neither is done here. Marked unverified, not verified_compliant, until the owner decides that gap.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-19",
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-18"
+  ]
+}

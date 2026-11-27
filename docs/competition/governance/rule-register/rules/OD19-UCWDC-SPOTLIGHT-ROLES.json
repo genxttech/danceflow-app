@@ -1,0 +1,32 @@
+{
+  "id": "OD19-UCWDC-SPOTLIGHT-ROLES",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Spotlight (future UCWDC body profile)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_ProPro-ProAm_v1-26-2026.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "d6257b65915151ab8aa50a952b60166cf5abfe6ef70cf8be292f9044e704db84",
+    "section": "II.A.20 (p3); II.K.4.d (p9); II.K.8 (p10)",
+    "quote_free_summary": "Spotlight is a multi-dance category offered for ProAm and ProPro, to competitor-selected music, 2½ to 4 minutes."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future UCWDC body profile must enforce ProAm or ProPro participant requirements for Spotlight entries. Today 'Studio/Custom: Spotlight' accepts any two participants and is labelled as a DanceFlow format, never as the UCWDC category.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future: a ProAm/ProPro pair entry format for Spotlight, enforced in TypeScript and SQL together.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED and a BLOCKER for any future UCWDC body profile that offers Spotlight. The Studio/Custom profile lists roles student/professional/instructor for the format but they are never read (the custom entry_format accepts any roles). Re-read in the pinned PDF on 2026-11-23.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "decision_refs": [
+    "OD-19",
+    "OD-01",
+    "OD-02",
+    "OD-03",
+    "OD-18"
+  ]
+}

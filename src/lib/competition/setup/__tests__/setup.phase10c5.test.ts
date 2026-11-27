@@ -390,19 +390,20 @@ describe("deriveDraft: the single derivation authority", () => {
     const country = deriveDraft(fullAnswers(), P, CONTEXT).programs[0];
     const byLabel = Object.fromEntries(country.categories.map((category) => [category.label, category]));
     expect(byLabel.ProAm.judging).toBe("Adjudicated · Judge input: Medal Marks · Final result: Placement");
-    expect(byLabel.Showcase.judging).toBe("Non-Adjudicated · Performance / exhibition · No official competitive result");
-    expect(byLabel.Showcase.rounds).toEqual(["Performance"]);
-    expect(byLabel.Showcase.runNote).toBe("Set music for each dance · runs after each age group's dances");
-    expect(byLabel.Spotlight.runNote).toBe("Music chosen by the dancers · 2.5–4 minutes · runs after each age group's dances");
+    // OD-19: the custom offerings read as DanceFlow Studio/Custom formats (persisted ids are unchanged).
+    expect(byLabel["Studio/Custom: Showcase"].judging).toBe("Non-Adjudicated · Performance / exhibition · No official competitive result");
+    expect(byLabel["Studio/Custom: Showcase"].rounds).toEqual(["Performance"]);
+    expect(byLabel["Studio/Custom: Showcase"].runNote).toBe("Set music for each dance · runs after each age group's dances");
+    expect(byLabel["Studio/Custom: Spotlight"].runNote).toBe("Music chosen by the dancers · 2.5–4 minutes · runs after each age group's dances");
     let ballroom = choosePurpose(chooseAdjudication(chooseStyle(choosePurpose(initialAnswers(undefined, TEST_EVENT), P, "competition"), P, "ballroom"), "ballroom", "adjudicated"), P, "competition_showcase");
     ballroom = withOfferings(ballroom, P, "ballroom", ["ndca_pro_am", "ndca_amateur", "ndca_showdance"], ["american_smooth"]);
     for (const format of ["ndca_pro_am", "ndca_amateur", "ndca_showdance"]) ballroom = updateFormat(ballroom, "ballroom", format, { amount: "20" });
     const derived = deriveDraft(withDivisions(ballroom, P), P, CONTEXT);
     expect(derived.errors).toEqual({});
     expect(derived.programs[0].categories.map((category) => category.label)).toEqual([
-      "Pro/Am Single-Dance — American Smooth", "Amateur Single-Dance — American Smooth", "Showdance — American Smooth",
+      "Pro/Am Single-Dance — American Smooth", "Amateur Single-Dance — American Smooth", "Studio/Custom: Showdance — American Smooth",
     ]);
-    expect(derived.programs[0].categories.find((category) => category.label === "Showdance — American Smooth")?.judging).toBe("Adjudicated · Placements");
+    expect(derived.programs[0].categories.find((category) => category.label === "Studio/Custom: Showdance — American Smooth")?.judging).toBe("Adjudicated · Placements");
   });
 
   it("Review counts, labels and pricing come from the same derivation as the payload", () => {
