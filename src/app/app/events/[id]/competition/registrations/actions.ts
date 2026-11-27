@@ -70,6 +70,8 @@ export async function updateCompetitionEntryEligibilityAction(formData: FormData
     throw error;
   }
   refresh(eventId);
+  // Land on the clean page so an earlier refusal message does not survive a successful save.
+  redirect(`/app/events/${eventId}/competition/registrations`);
 }
 
 export async function assignCompetitionEntryNumberAction(formData: FormData): Promise<void> {

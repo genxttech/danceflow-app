@@ -37,7 +37,8 @@ describe("R-15 organizer eligibility action (executed)", () => {
   beforeEach(() => { state.rpc = []; state.rpcError = null; state.dob = "1990-01-01"; state.tableWrites = 0; });
 
   it("sends exactly the criteria the organizer ticked, through the function, with no table write", async () => {
-    await updateCompetitionEntryEligibilityAction(form({}, ["age_division", "level"]));
+    // success lands on the clean page, so an earlier ?eligibilityError never survives it
+    await expect(updateCompetitionEntryEligibilityAction(form({}, ["age_division", "level"]))).rejects.toThrow(/^REDIRECT \/app\/events\/ev\/competition\/registrations$/);
     expect(state.rpc).toHaveLength(1);
     expect(state.rpc[0].fn).toBe("set_competition_entry_eligibility");
     expect(state.rpc[0].args.p_criteria).toEqual(["age_division", "level"]);

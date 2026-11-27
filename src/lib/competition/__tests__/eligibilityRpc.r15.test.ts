@@ -74,6 +74,10 @@ describe("R-15 eligibility writes go only through the database function", () => 
     expect((await loadClearanceStates(client({ error: { code: "PGRST202" } }), ["a"])).get("a")).toBe("unavailable");
     await expect(loadClearanceStates(client({ error: { code: "57014" } }), ["a"])).rejects.toThrow();
   });
+  it("check-in counts a finished entry by its status and every other entry only by the database answer", () => {
+    const actions = readFileSync(join(__dirname, "..", "..", "..", "app/app/events/[id]/competition/checkin/actions.ts"), "utf8");
+    expect(actions).toContain('entry.status === "complete" ? ["eligible", "waived"].includes(entry.eligibility_status) : clearance.get(entry.id) === "cleared"');
+  });
   it("no application source writes eligibility_status or an eligibility determination to a table", () => {
     const root = join(__dirname, "..", "..", "..");
     const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => {
