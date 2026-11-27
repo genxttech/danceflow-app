@@ -28,6 +28,8 @@ const MESSAGES: Record<string, string> = {
   COMP_BALLOT_JUDGE_TIE: "Two entries share the same rank. Give each entry a different rank.",
   COMP_BALLOT_MARK_NOT_IN_SCALE: "Choose Gold, Silver or Bronze for every entry.",
   COMP_ATTENDANCE_INVALID: "Choose absent or present, and give a reason for an absence.",
+  COMP_PANEL_BREAK_CONFIRM_REQUIRED:
+    "Nothing was saved. This change would leave a panel that cannot lock its ballots (at least 3 present judges and an odd number are needed). To record it anyway, tick the confirmation under that judge (re-enter the reason for an absence) and submit again.",
   COMP_ABSENCE_HAS_BALLOTS: "This judge already has ballots in the round, so they cannot be recorded absent.",
   COMP_BALLOTS_BAD_STATE: "The round is not in the right state for that.",
   COMP_BALLOTS_INCOMPLETE: "Not every judge has a ballot for every heat. Record the missing ballots or an absence first.",
