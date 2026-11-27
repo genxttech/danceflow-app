@@ -16,14 +16,18 @@ const COPIES = [
   ["test_T_competition_cf1_rb3r_reconciliation.sql", "6ee17b31901da4f5825426d520db61388ce42ab9", "test_T_competition_cf1_rb3r_reconciliation_with_r15.sql", true],
   ["test_T_competition_cf1_rb3r_concurrency.sh", "9e101e805d239f9a5b1dde9bce57e204ddaeef43", "test_T_competition_cf1_rb3r_concurrency_with_r15.sh", true],
   ["test_T_phase10a_competition_foundation.sql", "491b091b37dc540ffe01a7e5faa9019e3f1b8ed6", "test_T_phase10a_competition_foundation_with_r15.sql", true],
+  ["test_T_competition_cf1_a1_helpers.sql", "5f5dd42021366731925927698c22d47c9d5760d1", "test_T_competition_cf1_a1_helpers_with_r15.sql", false],
+  ["test_T_competition_cf1_rb3_refund_evidence.sql", "5035e0792c026c9bb3d42e4c88adece2f3325cd3", "test_T_competition_cf1_rb3_refund_evidence_with_r15.sql", true],
 ] as const;
 
 const VERDICT = /SUITE (PASS|FAIL)|CONCURRENCY (PASS|FAIL)|CONCURRENCY TALLY: \$pass/;
-// The only source lines a copy may replace, besides its verdict lines (Phase 10A's direct eligibility write).
+// The only source lines a copy may replace, besides its verdict lines: Phase 10A's direct eligibility write and RB3's needs-review expectation.
 const REPLACED = [
   "select pg_temp.expect_ok('manager direct entry update still audits',",
   "  $q$update public.event_competition_entries set eligibility_status = 'needs_review' where id = '00000000-0000-0000-0000-0a10a0007003'$q$);",
   "select pg_temp.chk('direct entry update produced eligibility history',",
+  "select pg_temp.chk('RB3 absent: the reason function is byte-for-byte the A1 behaviour for EVERY entry (fixtures with former ledger evidence included)',",
+  "  (select bool_and(public._cf1_entry_unavailable_reason(id) is not distinct from pg_temp.a1_reason(id)) from public.event_competition_entries)",
 ];
 
 describe("R-15 labelled suite copies", () => {
@@ -37,6 +41,12 @@ describe("R-15 labelled suite copies", () => {
     expect(text).not.toMatch(/disable trigger r15_/i);
     expect(text).not.toMatch(/insert into public\.event_competition_eligibility_determinations/i);
     expect(readme).toContain(`| \`${source}\` | \`${sourceBlob}\` | \`${copy}\` | \`${blob(text)}\` |`);
+  });
+
+  it.each(COPIES)("%s: a copy that records clearance also seeds someone who may record it", (_source, _sourceBlob, copy) => {
+    const text = sql(copy);
+    // fixtures/r15_clear_entries.sql acts as a studio manager of the event and refuses to run without one
+    if (text.includes("select pg_temp.r15_clear_entries(")) expect(text).toContain("insert into public.user_studio_roles");
   });
 
   it.each(COPIES.filter((entry) => entry[3]))("%s is unchanged and its lines are all still in the copy, in order", (source, sourceBlob, copy) => {
