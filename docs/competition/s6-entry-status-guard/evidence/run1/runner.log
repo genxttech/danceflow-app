@@ -1,0 +1,33 @@
+[10:05:55Z] composed 39 competition migrations; fingerprint 6783fe122d24851ff29b26df676f08c080391ef601d82c36bc991a9c6b53f95d; head 9236cc4fd4157f99c5de77dcdc07b088f875adf0
+[11:02:56Z] lock taken
+[11:03:50Z] chain applied: 23 ok, 0 failed
+[11:03:56Z] suites-pr867 test_T_competition_u18_heat_entry_status_guard: PASS
+[11:04:03Z] suites-pr867 test_T_competition_u18s_heat_entry_scratch_audit: PASS
+[11:04:16Z] suites-pr867 test_T_competition_jc1_inactive_judge_absent: PASS
+[11:04:50Z] suites-pr867 test_T_competition_cf1_callback_final_advancement: PASS
+[11:04:56Z] suites-pr867 test_T_competition_cf1_a5_exclusion: PASS
+[11:05:10Z] suites-pr867 test_T_competition_cf1_a6_withdrawal: PASS
+[11:05:17Z] suites-pr867 test_T_competition_hl1_heat_guards: PASS
+[11:05:41Z] suites-pr867 test_T_competition_f2_results: PASS
+[11:06:00Z] suites test_T_competition_s6_entry_status_guard: PASS
+[11:06:10Z] suites test_T_competition_u18_heat_entry_status_guard: PASS
+[11:06:16Z] suites test_T_competition_u18s_heat_entry_scratch_audit: PASS
+[11:06:24Z] suites test_T_competition_jc1_inactive_judge_absent: PASS
+[11:06:36Z] suites test_T_competition_cf1_a5_exclusion: PASS
+[11:07:15Z] suites test_T_competition_cf1_a6_withdrawal: PASS
+[11:07:24Z] suites test_T_competition_cf1_a2_lock: PASS
+[11:07:30Z] suites test_T_competition_hl1_heat_guards: PASS
+[11:07:52Z] suites test_T_competition_f2_results: PASS
+[11:08:02Z] suites test_T_competition_cf1_od17_enforcement: PASS
+[11:08:35Z] suites test_T_competition_cf1_a4_minimum_integration: PASS
+[11:09:12Z] suites test_T_competition_cf1_callback_final_advancement: PASS
+[11:09:21Z] suites test_T_competition_r2_refund_write_gate: PASS
+[11:09:44Z] suites test_T_competition_e2_ballots: PASS
+[11:09:58Z] suites test_T_competition_o1_day_of: FAIL
+[11:10:18Z] suites test_T_phase10a_competition_foundation: FAIL
+[11:10:31Z] suites test_T_phase10d1_heat_entry_eligibility: PASS
+[11:13:40Z] concurrency: S6 CONCURRENCY FAIL:; B, C and D were all waiting on a lock while A held its transaction (0 lock waiters) (status=scratched audit=1)
+[11:13:55Z] rollback proof: PASS (catalog state identical to pre-S6, 3 lines)
+[11:14:20Z] suite-s6-after-reapply test_T_competition_s6_entry_status_guard: PASS
+[11:14:23Z] suites.tsv: 2 suite(s) not PASS
+[11:14:27Z] done

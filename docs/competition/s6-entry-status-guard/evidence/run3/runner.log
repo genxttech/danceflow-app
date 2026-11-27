@@ -1,0 +1,62 @@
+[16:14:28Z] composed 39 competition migrations; fingerprint 2f423e95b9322bc2dcfa29a51f67e0eb48d92ad50da57a1e0a972f14aee6f54a; head 8c738c4d89386c27f55cfd0475188d600b1e7c72
+[20:44:03Z] lock taken
+[20:44:25Z] under lock: head 8c738c4d89386c27f55cfd0475188d600b1e7c72, fingerprint 2f423e95b9322bc2dcfa29a51f67e0eb48d92ad50da57a1e0a972f14aee6f54a, uncommitted files 0
+[20:48:25Z] chain applied: 23 ok, 0 failed
+[20:49:08Z] suites-pr867 test_T_competition_u18s_heat_entry_scratch_audit: PASS
+[20:49:48Z] suites-pr867 test_T_phase10a_competition_foundation: FAIL
+[20:50:04Z] suites-pr867 test_T_competition_o1_day_of: FAIL
+[20:50:31Z] suites-pr867 test_T_competition_cf1_a1_helpers: PASS
+[20:51:25Z] suites-pr867 test_T_competition_cf1_a3_results: PASS
+[20:51:36Z] suites-pr867 test_T_competition_cf1_a4a_target_guard: PASS
+[20:52:11Z] suites-pr867 test_T_competition_cf1_a7_od13: PASS
+[20:52:44Z] suites-pr867 test_T_competition_cf1_f3_publication: PASS
+[20:52:53Z] suites-pr867 test_T_competition_cf1_rb3_refund_evidence: PASS
+[20:53:04Z] suites-pr867 test_T_competition_cf1_rb3r_reconciliation: PASS
+[20:53:22Z] suites-pr867 test_T_competition_cf1_u66_recovery: PASS
+[20:53:30Z] suites-pr867 test_T_competition_pv1_recompute: PASS
+[20:53:40Z] suites-pr867 test_T_competition_r2_entry_refunds: FAIL
+[20:54:02Z] suites-pr867 test_T_competition_ns1_no_show: FAIL
+[20:54:45Z] suites test_T_competition_s6_entry_status_guard: PASS
+[20:54:51Z] suites test_T_competition_u18_heat_entry_status_guard: PASS
+[20:54:55Z] suites test_T_competition_u18s_heat_entry_scratch_audit_with_s6: PASS
+[20:55:05Z] suites test_T_competition_jc1_inactive_judge_absent: PASS
+[20:55:17Z] suites test_T_competition_cf1_a5_exclusion: PASS
+[20:55:40Z] suites test_T_competition_cf1_a6_withdrawal: PASS
+[20:56:01Z] suites test_T_competition_cf1_a2_lock: PASS
+[20:56:07Z] suites test_T_competition_hl1_heat_guards: PASS
+[20:56:37Z] suites test_T_competition_f2_results: PASS
+[20:56:45Z] suites test_T_competition_cf1_od17_enforcement: PASS
+[20:57:24Z] suites test_T_competition_cf1_a4_minimum_integration: PASS
+[20:58:04Z] suites test_T_competition_cf1_callback_final_advancement: PASS
+[20:58:16Z] suites test_T_competition_r2_refund_write_gate: PASS
+[20:58:34Z] suites test_T_competition_e2_ballots: PASS
+[20:58:41Z] suites test_T_phase10d1_heat_entry_eligibility: PASS
+[20:58:49Z] suites test_T_competition_o1_day_of: FAIL
+[20:58:56Z] suites test_T_phase10a_competition_foundation: FAIL
+[20:59:04Z] suites test_T_competition_cf1_a1_helpers: PASS
+[20:59:35Z] suites test_T_competition_cf1_a3_results: PASS
+[20:59:39Z] suites test_T_competition_cf1_a4a_target_guard: PASS
+[21:00:00Z] suites test_T_competition_cf1_a7_od13: PASS
+[21:00:28Z] suites test_T_competition_cf1_f3_publication: PASS
+[21:00:42Z] suites test_T_competition_cf1_rb3_refund_evidence: PASS
+[21:00:55Z] suites test_T_competition_cf1_rb3r_reconciliation: PASS
+[21:01:08Z] suites test_T_competition_cf1_u66_recovery: PASS
+[21:01:13Z] suites test_T_competition_pv1_recompute: PASS
+[21:01:19Z] suites test_T_competition_r2_entry_refunds: FAIL
+[21:01:32Z] suites test_T_competition_ns1_no_show: FAIL
+[21:02:11Z] concurrency: S6 CONCURRENCY PASS (11 checks; 3 lock waiters observed)
+[21:04:18Z] a5 adapted-with-S6: rc=0 COMPETITION CF1 A5 CONCURRENCY PASS
+[21:04:28Z] mutant insert-link-rule: DETECTED
+[21:04:39Z] mutant delete-status-rule: DETECTED
+[21:04:52Z] mutant delete-order-link: DETECTED
+[21:05:06Z] mutant evidence-rule: DETECTED
+[21:05:52Z] mutant entry-lock: DETECTED
+[21:06:01Z] mutant participation-guard: DETECTED
+[21:07:12Z] mutant heat-lock: DETECTED
+[21:07:25Z] rollback proof: PASS (catalog state identical to pre-S6, 32 lines)
+[21:07:36Z] suite-s6-after-reapply test_T_competition_s6_entry_status_guard: PASS
+[21:07:40Z] sc1 suite: ERROR:  SC1 SQL SUITE PASS (37 checks; s4=false s5=false s6=true)
+[21:08:38Z] sc1 concurrency: rc=0 SC1 CONCURRENCY PASS (s6=t)
+[21:08:42Z] suites.tsv: 4 new or unexplained failure(s)
+[21:08:43Z] failures also present without S6: 0
+[21:08:45Z] done
