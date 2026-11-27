@@ -90,3 +90,12 @@ Depends on: the Connected Apps health model (Slice 0 vault/audit/health foundati
 
 ## 11. Owner decisions
 1. Default autonomy for the `connected_apps` pack ("Notify me only" proposed). 2. Whether platform-admin-only rules (credential expiry) surface in the studio-facing ARIA or only in the platform console (proposal: platform console). 3. Which of the section 6 actions ship in the first governed-action release (proposal: retry/sync-now, pause/resume, dismiss). 4. Notification channels for these suggestions beyond in-app. 5. Whether dancer-facing LUMI gets any Connected Apps read tool (proposal: none in v1; only the person's own calendar link/wallet status, read-only).
+
+## 12. Source validation, 2026-11-26 (owner disposition I12; checked against origin/main source)
+These corrections **supersede** the statements above. Verdict: design direction accepted, **changes required before implementation approval**.
+1. There is **no `aria_suggestions` table**. Suggestions are `automation_actions` rows (rule key, status, priority); `aria_suggestions` is only a Pulse card id. New suggestions therefore also appear in the existing ARIA card.
+2. A new pack and rules are **not** catalog-only: database check constraints limit `pack_key` and `rule_key` values, so a migration must be applied **before** the code (catalog seeding inserts every rule). Operational-area types, the default packs and automation definitions also need entries, and the catalog UI lists all packs, so the pack needs explicit flag gating.
+3. The Pulse card needs type, role-matrix, contract and app changes (the card id is a closed set and equals the card type).
+4. Assistant link targets for integrations do not exist yet (current whitelist covers today, pulse, clients, client and appointment).
+5. Integration health tables, an integration audit table and notification quiet hours are **to be built**, not existing.
+6. Wave connection status values differ between code and the database constraint; resolve that before any rule reads connection state. "uncertain" is a posting-line status and "attention_required" a run status.
