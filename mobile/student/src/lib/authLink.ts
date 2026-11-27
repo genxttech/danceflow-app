@@ -40,6 +40,17 @@ export function resolveEmailOtpType(type: string | null): EmailOtpType | null {
 
 export type AuthLinkError = { code: string | null; message: string };
 
+export const LINK_NOT_REQUESTED_MESSAGE =
+  "To keep your account safe, a sign-in link only works on the phone where you asked for it. Request a new link here, then open it on this phone.";
+
+/** An emailed link this phone did not ask for, or one for a different address than the one it asked for. */
+export class LinkNotRequestedError extends Error {
+  constructor() {
+    super("This sign-in link was not requested on this device.");
+    this.name = "LinkNotRequestedError";
+  }
+}
+
 export const LINK_EXPIRED_MESSAGE =
   "That sign-in link has expired or was already used. Request a new link to continue.";
 export const LINK_OFFLINE_MESSAGE =
@@ -61,6 +72,7 @@ const UNUSABLE_LINK_CODES = new Set(["otp_expired", "flow_state_expired", "flow_
  */
 export function friendlyAuthLinkError(error: unknown): string {
   if (typeof error === "string") return UNUSABLE_LINK_CODES.has(error) ? LINK_EXPIRED_MESSAGE : LINK_FAILED_MESSAGE;
+  if (error instanceof LinkNotRequestedError) return LINK_NOT_REQUESTED_MESSAGE;
   const { code, network } = authErrorFacts(error);
   if (network) return LINK_OFFLINE_MESSAGE;
   if (code !== null && UNUSABLE_LINK_CODES.has(code)) return LINK_EXPIRED_MESSAGE;

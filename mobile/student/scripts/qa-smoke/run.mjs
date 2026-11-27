@@ -374,6 +374,36 @@ const SCREENS = [
   { id: "wallet", link: "danceflow://wallet", expect: /Wallet/i },
 ];
 
+/**
+ * The app accepts an emailed link only after it asked for one itself (pending sign-in marker), so the harness asks first, from the sign-in
+ * screen, and only then mints the link through the admin API (which replaces the token the app's request created). Whether the stack's mail
+ * server delivers that first message does not matter: the app records the request before sending it.
+ */
+async function requestLinkInApp(email) {
+  const center = (xml, pattern) => new RegExp(pattern + '[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"').exec(xml);
+  const tap = (m) => sh(["shell", "input", "tap", String(Math.round((+m[1] + +m[3]) / 2)), String(Math.round((+m[2] + +m[4]) / 2))]);
+  openLink("danceflow://sign-in");
+  await waitFor(() => /Send secure link/.test(hierarchy()), "the sign-in screen", 60_000, 3000);
+  const field = center(hierarchy(), 'class="android\\.widget\\.EditText"');
+  if (!field) throw new Error("sign-in screen: no email field");
+  tap(field);
+  await sleep(1500);
+  sh(["shell", "input", "keyevent", "123", ...Array(80).fill("67")]); // the screen may still hold an earlier attempt's address: empty it
+  sh(["shell", "input", "text", email]);
+  await sleep(1500);
+  let button = center(hierarchy(), '(?:text|content-desc)="Send secure link"');
+  if (!button) { sh(["shell", "input", "keyevent", "4"]); await sleep(1500); button = center(hierarchy(), '(?:text|content-desc)="Send secure link"'); }
+  if (!button) throw new Error("sign-in screen: no Send secure link button");
+  tap(button);
+  await sleep(4000);
+}
+
+/** Ask for the link in the app, then open an admin-made one for the same address. */
+async function openSignInLink(link, email = cfg.email) {
+  await requestLinkInApp(email);
+  openLink(await link(email));
+}
+
 async function screens(link) {
   const signedIn = () => /Today|Discover|Wallet|Settings/.test(hierarchy());
   sh(["shell", "monkey", "-p", cfg.pkg, "-c", "android.intent.category.LAUNCHER", "1"]); // cold start first, so the link is not lost
@@ -381,7 +411,7 @@ async function screens(link) {
   writeFileSync(join(cfg.out, "signin-screen.xml"), hierarchy()); shot(join(cfg.out, "signin-screen.png")); // the signed-out screen, for the a11y audit
   let ok = false;
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-    openLink(await link());
+    await openSignInLink(link);
     ok = await waitFor(signedIn, "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
   }
   if (!ok) {
@@ -466,7 +496,7 @@ async function freshSignIn(link, email, tag, allowSecure = false) {
   const signedIn = () => { const x = hierarchy(); return /Today|Wallet|Settings/.test(x) && !/Continue with email|Start exploring|Sign in needs another try|taking longer than usual/.test(x); };
   let ok = false;
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-    openLink(await link(email));
+    await openSignInLink(link, email);
     ok = await waitFor(signedIn, "sign-in", 90_000, 4000).then(() => true, () => false);
   }
   if (!ok && allowSecure && /Create your password/.test(hierarchy())) {
@@ -808,7 +838,7 @@ async function pastEventsScenario(link) {
   await sleep(15000);
   let ok = false;
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-    openLink(await link());
+    await openSignInLink(link);
     ok = await waitFor(() => /Today|Discover|Wallet|Settings/.test(hierarchy()), "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
   }
   record("past-events: sign-in via magic link", ok, ok ? "" : "see sign-in screen");
@@ -952,7 +982,7 @@ async function sessionDiagScenario(link) {
   await sleep(15000);
   let ok = false;
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-    openLink(await link());
+    await openSignInLink(link);
     ok = await waitFor(signedInNow, "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
   }
   record("session-diag 0: signed in with the magic link", ok, ok ? "" : "sign-in failed");
@@ -973,7 +1003,7 @@ async function sessionDiagScenario(link) {
     record("session-diag " + n + " (" + label + "): process " + (before ? "was alive" : "was NOT alive") + ", " + (dead ? "was killed" : "SURVIVED the kill") + "; after relaunch the dancer is " + (kept ? "still signed in" : "SIGNED OUT"),
       kept, "pid before " + before + ", after " + after + "; secure keys now " + (keys === null ? "UNVERIFIED" : JSON.stringify(keys)));
     if (!kept) { // continue the walk from a signed-in state
-      openLink(await link());
+      await openSignInLink(link);
       await waitFor(signedInNow, "re-sign-in", 60_000, 4000).catch(() => undefined);
     }
     return kept;
@@ -1005,7 +1035,7 @@ async function sessionDiagScenario(link) {
   const wifiAtLaunch = wifi();
   const keptReboot = await relaunch("k4");
   record("session-diag 4 (emulator reboot, app launched as soon as boot completed; wlan0 at launch: " + wifiAtLaunch + "): the dancer is " + (keptReboot ? "still signed in" : "SIGNED OUT"), keptReboot, "keys " + JSON.stringify(keyNames()));
-  if (!keptReboot) { openLink(await link()); await waitFor(signedInNow, "re-sign-in", 60_000, 4000).catch(() => undefined); }
+  if (!keptReboot) { await openSignInLink(link); await waitFor(signedInNow, "re-sign-in", 60_000, 4000).catch(() => undefined); }
 
   // 5. start with NO network, then with network again.
   sh(["shell", "cmd", "connectivity", "airplane-mode", "enable"]);
@@ -1040,7 +1070,7 @@ async function pastRegistrationsScenario(link) {
 
   let ok = false;
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
-    openLink(await link());
+    await openSignInLink(link);
     ok = await waitFor(() => /Today|Discover|Wallet|Settings/.test(hierarchy()), "sign-in to land in the app", 60_000, 4000).then(() => true, () => false);
   }
   record("past-registrations: sign-in via magic link", ok, ok ? "" : "see sign-in screen");
