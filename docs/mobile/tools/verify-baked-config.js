@@ -27,6 +27,11 @@ const zlib = require("zlib");
 const BUNDLE_ENTRIES = ["base/assets/index.android.bundle", "assets/index.android.bundle"];
 // Library strings that exist in every clean build (counted on the clean RC3-RC5 placeholder artifacts of both apps).
 const BASELINE = { localhost: 2, loopback: 1 };
+// App source that names "localhost" on purpose: the pattern of isAllowedBaseUrl (mobile/business/src/lib/staffApi.ts, #869),
+// exactly as Hermes stores it. Only this literal, only once, and only for that app is left out of the "localhost" count; the
+// baseline stays as it is. Change the source pattern and this line must change with it, or the check fails. (The string table
+// has no separators, so text appended after the pattern is not seen as a change, but any "localhost" in it is still counted.)
+const APP_LOCALHOST_LITERAL = { business: String.raw`^http:\/\/(10\.0\.2\.2|localhost|127\.0\.0\.1)(:\d+)?(\/|$)` };
 
 function readZipEntry(file, names) {
   const buf = fs.readFileSync(file);
@@ -79,7 +84,13 @@ function check(bundle, expected, now = Date.now() / 1000) {
   rule(!/:566\d\d/.test(s), "no iso-qa stack port (:566xx)", "found a :566xx port (a disposable stack URL is baked in)");
   rule(!/:8791/.test(s), "no mock-web port (:8791)", "found :8791 (the QA mock web server is baked in)");
   rule(!/192\.168\.\d+\.\d+/.test(s), "no LAN address", "found a 192.168.x.x address");
-  rule(count(s, "localhost") <= BASELINE.localhost, `"localhost" within the library baseline (<= ${BASELINE.localhost})`, `"localhost" appears ${count(s, "localhost")} times (baseline ${BASELINE.localhost}): a dev URL may be baked in`);
+  const literal = APP_LOCALHOST_LITERAL[expected.app];
+  const literals = literal ? count(s, literal) : 0;
+  if (literals > 1) fails.push(`FAIL the ${expected.app} URL-check pattern appears ${literals} times (expected at most 1)`);
+  const known = literals === 1 ? 1 : 0; // the pattern holds one "localhost"
+  const others = count(s, "localhost") - known;
+  const besides = known ? `, not counting the one in the ${expected.app} URL-check pattern` : "";
+  rule(others <= BASELINE.localhost, `"localhost" within the library baseline (<= ${BASELINE.localhost}${besides})`, `"localhost" appears ${others} times${besides} (baseline ${BASELINE.localhost}): a dev URL may be baked in`);
   rule(count(s, "127.0.0.1") <= BASELINE.loopback, `"127.0.0.1" within the library baseline (<= ${BASELINE.loopback})`, `"127.0.0.1" appears ${count(s, "127.0.0.1")} times (baseline ${BASELINE.loopback})`);
 
   // Secrets that must never reach a client
@@ -140,10 +151,32 @@ function selfTest() {
     ["publishable test when live", good + " pk_test_abcdefghijklmnop", { ...exp, stripe: "live" }, 1],
     ["extra localhost", good + " http://localhost:3000", exp, 1],
   ];
+  // The known app literal. A 5th element names text every failure must contain, so a case cannot pass for another reason.
+  const lit = APP_LOCALHOST_LITERAL.business;
+  const business = { ...exp, app: "business" };
+  const student = { ...exp, app: "student" };
+  const changed = lit.replace("|localhost|", "|localhost|dev\\.example|").replace("(\\/|$)", "(\\/|\\?|$)");
+  const hostChanged = lit.replace("|localhost|", "|localhost\\.example|");
+  const noLibrary = good.replace(" http://localhost:8081 http://localhost:9999", "");
+  cases.push(
+    ["business: library strings only", good, business, 0],
+    ["business: known literal", good + lit, business, 0],
+    ["business: extra localhost without the literal", good + " http://localhost:3000", business, 1, '"localhost" appears'],
+    ["business: known literal plus extra localhost", good + lit + " http://localhost:3000", business, 1, '"localhost" appears'],
+    ["business: changed literal", good + changed, business, 1, '"localhost" appears'],
+    ["business: changed host in literal", good + hostChanged, business, 1, '"localhost" appears'],
+    ["business: duplicated literal", good + lit + lit, business, 1, "appears"],
+    ["business: duplicated literal under the baseline", noLibrary + lit + lit, business, 1, "URL-check pattern appears 2 times"],
+    ["student: library strings only", good, student, 0],
+    ["student: the business literal is not discounted", good + lit, student, 1, '"localhost" appears'],
+    ["student: extra localhost", good + " http://localhost:3000", student, 1, '"localhost" appears'],
+    ["no app named: literal is not discounted", good + lit, exp, 1, '"localhost" appears'],
+  );
   let bad = 0;
-  for (const [name, text, e, want] of cases) {
-    const got = check(Buffer.from(text, "latin1"), e).fails.length ? 1 : 0;
-    const ok = got === want;
+  for (const [name, text, e, want, because] of cases) {
+    const { fails } = check(Buffer.from(text, "latin1"), e);
+    const got = fails.length ? 1 : 0;
+    const ok = got === want && (!because || fails.every((f) => f.includes(because)));
     if (!ok) bad++;
     console.log(`${ok ? "ok  " : "BAD "} self-test: ${name} -> ${got ? "FAIL" : "PASS"} (expected ${want ? "FAIL" : "PASS"})`);
   }
