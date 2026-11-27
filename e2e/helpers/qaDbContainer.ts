@@ -4,8 +4,10 @@
  * E2E_LOCAL_DB_CONTAINER point a purge (replication triggers off, deletes) at another session's database.
  */
 export const CF1_QA_DB_CONTAINER = "supabase_db_cf1c-qa";
+/** The disposable P1 walkthrough stack (scripts/qa/p1/browser/p1-stack.mjs), by exact name. */
+export const P1_QA_DB_CONTAINER = "df-p1walk-db";
 
 /** The pinned container name when E2E_LOCAL_DB_CONTAINER names exactly it; otherwise null. */
 export function pinnedQaDbContainer(env: Record<string, string | undefined> = process.env): string | null {
-  return env.E2E_LOCAL_DB_CONTAINER === CF1_QA_DB_CONTAINER ? CF1_QA_DB_CONTAINER : null;
+  return [CF1_QA_DB_CONTAINER, P1_QA_DB_CONTAINER].find((name) => name === env.E2E_LOCAL_DB_CONTAINER) ?? null;
 }

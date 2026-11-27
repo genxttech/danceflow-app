@@ -7,8 +7,8 @@ Status: **PREPARED, NOT EXECUTED.** Written 2026-11-27 against the release line 
 | # | Precondition | State on 2026-11-27 |
 | --- | --- | --- |
 | 1 | A composed database candidate passes (base + corrections + restriction) | **not met:** the run of record does not show release readiness |
-| 2 | One integration app branch holding the app parts of PRs 835, 837, 846, the eligibility wiring for 866, 925, 865 messages, 878 and restriction messages | **not built; no owner assigned** |
-| 3 | A full local stack (auth, REST, database) whose database container is named `supabase_db_cf1c-qa`, loaded with that composed chain, with a mail catcher | **not provisioned; no owner assigned**; the harness refuses any other container name |
+| 2 | One integration app branch holding the app parts of PRs 835, 837, 846, the eligibility wiring for 866, 925, 865 messages, 878 and restriction messages | branch `claude/p1-release` (SC1 owns it) holds these, except an app message for the 865 approver refusal (corrections are disabled in P1); type check and build passed at `d68b83001`; merge in any source head that moves |
+| 3 | A full local stack (auth, REST, database, mail catcher) loaded with that composed chain, in a database container the harness accepts by exact name | provided by `scripts/qa/p1/browser/p1-stack.mjs` (container `df-p1walk-db`; the helpers also accept `supabase_db_cf1c-qa`) |
 | 4 | The heavy lock (`C:\dfr\HEAVY_LOCK_RULES.md`): a local stack and `next build` are heavy | per run |
 
 Use a **disposable** stack and reset it afterwards: the composed chain refuses deleting events that hold scoring evidence, so fixture cleanup can fail by design.
@@ -21,9 +21,23 @@ Use a **disposable** stack and reset it afterwards: the composed chain refuses d
 
 Both specs skip unless their own variable is set, so the default Playwright run does not execute them.
 
+## Local full stack
+
+Disposable containers on this machine only (Postgres from the local image `cf1host:found`, PostgREST, Kong, GoTrue, Mailpit; one loopback port; images are never pulled). On top of the image it applies every release-line migration the image does not hold, then the corrections and restriction named by the composed run's pins file. `--pins` is required: name the pins of the composed run that passed.
+
+```powershell
+node scripts/qa/p1/browser/p1-stack.mjs plan --pins C:/dfr/s5int-out/<run>.pins
+node scripts/qa/p1/browser/p1-stack.mjs up --pins C:/dfr/s5int-out/<run>.pins
+node scripts/qa/p1/browser/p1-stack.mjs check --pins C:/dfr/s5int-out/<run>.pins
+. C:/dfr/p1-browser/stack/stack.ps1
+node scripts/qa/p1/browser/p1-stack.mjs down
+```
+
+Take the heavy lock (FIFO ticket) around `up` ... `down`; `run-stack-verify.sh` does that for an up / check / down pass. An up / check / down pass succeeded on 2026-11-27 (16 checks, pins `p1run6`, head `d68b83001`). Limits: the database holds what the pins compose, so a migration applied to a hosted project outside them (`20270223150000`) is absent; no storage or realtime service (image upload cannot be exercised); migrations are applied as `supabase_admin`, as in the composed database run, not as the hosted `postgres` role.
+
 ## Walkthrough run (flags on, its own build)
 
-PowerShell, from the integration checkout. Local keys only; never a hosted URL.
+PowerShell. Build and serve the app from a checkout of the release candidate (`claude/p1-release`); run Playwright from a checkout that holds these files. Local keys only; never a hosted URL.
 
 ```powershell
 $env:NEXT_PUBLIC_SUPABASE_URL="<local stack URL>"; $env:NEXT_PUBLIC_SUPABASE_ANON_KEY="<local anon key>"; $env:SUPABASE_SERVICE_ROLE_KEY="<local service key>"
@@ -37,13 +51,11 @@ In a second shell:
 ```powershell
 $env:E2E_BASE_URL="http://127.0.0.1:3100"; $env:E2E_RUN_DIR="C:\dfr\p1-browser\<timestamp>"
 $env:E2E_SUPABASE_URL="<local stack URL>"; $env:E2E_SUPABASE_SERVICE_ROLE_KEY="<local service key>"; $env:E2E_SUPABASE_ANON_KEY="<local anon key>"
-$env:E2E_LOCAL_DB_CONTAINER="supabase_db_cf1c-qa"; $env:E2E_P1_APP_CANDIDATE="<built commit>"; $env:E2E_P1_WALKTHROUGH="true"
+$env:E2E_LOCAL_DB_CONTAINER="df-p1walk-db"; $env:E2E_P1_APP_CANDIDATE="<built commit>"; $env:E2E_P1_WALKTHROUGH="true"
 npx playwright test -c e2e/playwright.p1.config.ts --project=walkthrough
 ```
 
 Set `E2E_LOCAL_MAILBOX_URL` if the mail catcher is not at the helper's default.
-
-`E2E_P1_ELIGIBILITY_SHORTCUT="true"` (optional): while no organizer eligibility screen exists, P1-04 records the determinations through the manager's own session so later steps can run. P1-04 is then reported **BLOCKED** with a setup-shortcut note, and the run is not an end-to-end pass.
 
 ## Flag-off smoke (separate build)
 

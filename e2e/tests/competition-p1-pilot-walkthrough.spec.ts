@@ -50,8 +50,10 @@ const ACCOUNT = "acct_p1walkthrough"; // fake id: every order in this run is $0,
 const COUPLES = 4;
 const SCRATCHED = 3; // index of the couple scratched before the start
 const ADULT_DOB = "1990-01-15";
-const ELIGIBILITY_SHORTCUT = process.env.E2E_P1_ELIGIBILITY_SHORTCUT === "true";
 const MINOR_DOB = `${new Date().getUTCFullYear() - 12}-01-15`;
+
+/** The app's own alerts. Next.js adds an empty route announcer with role="alert", which must not satisfy or break these checks. */
+const appAlerts = (page: Page) => page.locator('[role="alert"]:not(#__next-route-announcer__)');
 
 /** cf1Acceptance.createDraftEvent with Free pricing: the wizard refuses a "Per entry" price of 0. */
 async function createFreeDraftEvent(config: E2EConfig, page: Page, name: string, date: string): Promise<CreatedEvent> {
@@ -190,7 +192,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await expect(studio.getByLabel("Scoring setup").locator("option", { hasText: "Callbacks + Final" }), "if the option is gone, assert its absence instead").toHaveCount(1);
     await studio.getByLabel("Scoring setup").selectOption({ label: "Callbacks + Final" });
     await studio.getByRole("button", { name: "Apply to all divisions" }).click();
-    await expect(page.getByRole("alert").first(), "the refusal is shown").toBeVisible({ timeout: 60_000 });
+    await expect(appAlerts(page).first(), "the refusal is shown").toBeVisible({ timeout: 60_000 });
     await shot(page, "callbacks-refused");
     const callbackRounds = psqlJson<number>(`select to_json(count(*)::int) from public.event_competition_rounds where event_id = '${event.id}' and scoring_method = 'callback_tally'`);
     expect(callbackRounds, "no callback round can be configured").toBe(0);
@@ -260,36 +262,26 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await page.context().close();
   });
 
-  test("P1-04 eligibility: the organizer clears every adult entry through the app (a recorded determination, not a bare field write)", async ({ browser }, testInfo) => {
-    // The release line only has a bare eligibility select, which the PR 866 guard refuses: an eligible determination needs criteria and a
-    // reason code. Until the organizer screen exists this step is BLOCKED; rewrite its selectors against that screen.
+  test("P1-04 eligibility: the organizer clears every adult entry on the Registrations page (a recorded determination, not a bare field write)", async ({ browser }, testInfo) => {
+    const shot = stepShots(testInfo);
     const cleared = () =>
       psqlJson<number>(`select to_json(count(*)::int) from public.event_competition_entries e where e.event_id = '${scored.event.id}' and e.eligibility_status = 'eligible'
         and exists (select 1 from public.event_competition_eligibility_determinations d where d.entry_id = e.id)`);
-    if (ELIGIBILITY_SHORTCUT) {
-      // SETUP SHORTCUT (reported as BLOCKED for this step): the recorded determination is made by the manager's own session so later steps can run.
-      for (const entryId of entries) {
-        const criteria = psqlJson<string[]>(`select to_json(public._r15_required_criteria('${entryId}'))`);
-        expect(await rpcAs(fixture.owner as never, "set_competition_entry_eligibility", { p_entry_id: entryId, p_outcome: "eligible", p_reason_code: "criteria_verified_by_organizer", p_criteria: criteria, p_request_id: randomUUID() })).toBeNull();
-      }
-      expect(cleared()).toBe(COUPLES);
-      scenarioStatus(testInfo, "SETUP SHORTCUT", "eligibility recorded by direct request: the organizer screen (app part of PR 866) is not exercised");
-      test.skip(true, "BLOCKED: eligibility screen not exercised (setup shortcut used)");
-    }
     const page = await manager(browser);
     await page.goto(`${base()}/registrations`);
-    const selects = page.locator('select[name="eligibilityStatus"]');
-    if ((await selects.count()) < COUPLES) block(testInfo, "no organizer eligibility control on the Registrations page (app part of PR 866 / 837 / 846)");
+    if (!(await page.locator('input[name="criteria"]').count())) block(testInfo, "no organizer eligibility screen in this build (app part of PR 837 / 846)");
+    await expect(page.locator('select[name="eligibilityStatus"]')).toHaveCount(COUPLES);
     for (let i = 0; i < COUPLES; i += 1) {
       await page.goto(`${base()}/registrations`);
-      const select = page.locator('select[name="eligibilityStatus"]').nth(i);
-      await select.selectOption("eligible");
-      const saved = page.waitForResponse((response) => response.request().method() === "POST");
-      await select.locator("xpath=ancestor::form[1]").getByRole("button").click();
-      await saved;
+      const form = page.locator('select[name="eligibilityStatus"]').nth(i).locator("xpath=ancestor::form[1]");
+      await form.locator('select[name="eligibilityStatus"]').selectOption("eligible");
+      for (const box of await form.locator('input[name="criteria"]').all()) await box.check();
+      await form.locator('select[name="reasonCode"]').selectOption("criteria_verified_by_organizer");
+      await form.getByRole("button", { name: "Save" }).click();
+      await expect.poll(cleared, { timeout: 60_000 }).toBe(i + 1);
     }
-    await expect.poll(cleared, { timeout: 30_000 }).toBe(COUPLES).catch(() => undefined);
-    if (cleared() !== COUPLES) block(testInfo, `eligibility determinations recorded for ${cleared()} of ${COUPLES} entries: the app wiring for PR 866 is missing or incomplete`);
+    await expect(appAlerts(page)).toHaveCount(0);
+    await shot(page, "eligibility-recorded");
     await page.context().close();
   });
 
@@ -431,7 +423,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
     const substantive = "No other manager is available today, so I checked every result myself before approving";
     await page.locator('input[name="overrideReason"]').fill(substantive);
     await page.getByRole("button", { name: "Approve with override" }).click();
-    await expect(page.getByRole("alert").first()).toBeVisible({ timeout: 60_000 });
+    await expect(appAlerts(page).first()).toBeVisible({ timeout: 60_000 });
     await shot(page, "self-approval-refused");
     const versionId = readResultState(scored.finalRoundId).versions[0].id as string;
     expect(await rpcAs(fixture.owner as never, "approve_competition_round_result", { p_round_id: scored.finalRoundId, p_result_version_id: versionId, p_override_reason: substantive, p_request_id: randomUUID() })).toMatch(/COMP_P1_SECOND_APPROVER_REQUIRED/);
