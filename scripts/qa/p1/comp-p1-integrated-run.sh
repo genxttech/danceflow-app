@@ -332,6 +332,9 @@ sed 's/^/compose warning: /' "$OUT/compose-warnings.txt" | tee -a "$OUT/runner.l
 # A
 for f in $(ls "$CHAIN/base" | sort); do v="${f%%_*}"; case "$v" in 20270103090000|20270103091000) ;; *) [[ "$v" > "20270119090000" ]] || continue ;; esac; apply "$CHAIN/base/$f" A; done
 grep -q '^FAIL A' "$OUT/steps.txt" && blocked "the base chain did not apply"
+# base seed DATA the schema-only image lacks (competition starter templates), when a composed head carries it: part of the base for every phase
+seed="$CHAIN/tests-B/fixtures/seed_competition_starter_templates.sql"
+if [ -f "$seed" ]; then apply "$seed" seed || log "starter-template seed did not load: phase10a / phase10b still lack their base data"; fi
 catalog A; guards A; snapshot A; run_phase_suites A; probe A
 # B: corrections in timestamp order. A correction that does not apply is recorded and the chain continues without it.
 for f in $(cat "$OUT/order-B.txt"); do apply "$CHAIN/new/$f" B; done
