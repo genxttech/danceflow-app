@@ -1,0 +1,36 @@
+{
+  "id": "R13-DF-0004",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom: desk balance",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Balance due = max(0, order total - captured gross); refunds never create a debt; financial adjustments (refunds, disputes) are distinct from amounts owed.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/checkinBalance.ts",
+      "symbol_or_migration": "checkinBalanceDue, capturedAmount"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270211090000_competition_checkin_balance_refund.sql",
+      "symbol_or_migration": "record_competition_checkin_payment"
+    }
+  ],
+  "enforcement_point": "Database function and app helper.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_checkin_balance.sql",
+      "name": "desk balance"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "TS and SQL formulas agree by inspection. Disputes are a separate table and do not change the balance (a disputed captured payment still counts as captured). TS header cites the wrong SQL file date (R13-F11). DanceFlow policy, never a governing-body requirement. Read-only inspection; the SQL suites named were NOT executed by this session (PENDING).",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "R-13 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r13-finance-authorization-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule"
+  ],
+  "last_reviewed": "2026-11-24"
+}

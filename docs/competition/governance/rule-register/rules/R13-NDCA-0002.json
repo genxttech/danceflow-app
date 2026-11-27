@@ -1,0 +1,29 @@
+{
+  "id": "R13-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA events: Outstanding registrant debts at NDCA registered events.",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "VI.A item 11 (full text not read in this session)",
+    "quote_free_summary": "Registrants with unsatisfied debts incurred at NDCA registered events face consequences described in the rule; the remainder was not read."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Outstanding registrant debts at NDCA registered events.",
+  "implementation": [],
+  "enforcement_point": "None: NOT IMPLEMENTED.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED and NOT conflated with the DanceFlow desk balance. The rest of the rule must be read from the pinned PDF before any use.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-13 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r13-finance-authorization-verification.md"
+  ],
+  "last_reviewed": "2026-11-24"
+}

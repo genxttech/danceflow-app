@@ -1,0 +1,29 @@
+{
+  "id": "R13-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA events: Late entry fees for NDCA events.",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.C item 10 (page not re-read in this session)",
+    "quote_free_summary": "Organizers should publish and enforce a late entry fee for entries submitted after the program is created and heat lists are posted."
+  },
+  "rule_class": "recommended",
+  "requirement": "Late entry fees for NDCA events.",
+  "implementation": [],
+  "enforcement_point": "None: NOT IMPLEMENTED.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "ADVISORY, not mandatory. NOT IMPLEMENTED: DanceFlow adds no automatic late-entry fee; organizer-configured fees and early-bird are unchanged. Rule text taken from the coordinator brief; the source PDF is not in this worktree.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-13 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r13-finance-authorization-verification.md"
+  ],
+  "last_reviewed": "2026-11-24"
+}

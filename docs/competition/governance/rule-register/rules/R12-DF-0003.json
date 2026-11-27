@@ -1,0 +1,42 @@
+{
+  "id": "R12-DF-0003",
+  "governing_body": "dance_flow_policy",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-24",
+  "format": "Studio / Custom: refund-driven withdrawal only for entries that have not danced",
+  "requirement": "On a qualifying refund, cancellation or payment failure, an entry that has not danced is withdrawn and scratched automatically; an entry that has danced (or is held in a locked/certified heat or a heat on the floor) is never withdrawn automatically: participation and scoring evidence stay, an audited competition exception is raised for its round, and publication of that round is blocked pending authorized resolution. Financial-only exceptions (no entry scope) never block publication.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270103090000_competition_r2_entry_refunds.sql",
+      "symbol_or_migration": "_r2_apply_participation, _r2_withdraw_entry, _r2_entry_participation_class, _r2_record_refund_exception, sync_competition_entries_from_registration, resolve_competition_refund_scope"
+    }
+  ],
+  "enforcement_point": "Database functions and the registration trigger; exception scopes are append-only.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_r2_entry_refunds.sql",
+      "name": "A/Q1: an entry that has danced (unlocked heat) is NOT withdrawn"
+    },
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_f3_publication.sql",
+      "name": "financial-only and resolved exceptions of the round do not block; another round's exception does not either"
+    },
+    {
+      "path": "src/lib/competition/governance/__tests__/r12Operational.static.test.ts",
+      "name": "the participation class gates the automatic withdrawal; held entries raise an exception instead"
+    }
+  ],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "RELEASE FINDING R12-F1 (low): the registration trigger path skips an entry that has ANY placement in a locked/certified heat even if that placement is scratched, while _r2_entry_participation_class ignores scratched placements in a locked heat (R2 P2-3a pins that the refund path withdraws such an entry). An entry with a scratched placement in a locked heat plus a scheduled placement in an open heat is therefore neither withdrawn nor given an exception when its registration is cancelled or its payment fails. Found by inspection; not reproduced by execution (PENDING). R12-F2 (info): an unattributed or reversed refund opens a competitive scope for every held (locked, not necessarily danced) entry of the order, which is conservative and can block that round until attributed or resolved by an owner/admin. R-12 says \"has danced\"; the implementation treats \"held in a locked heat\" the same (conservative; owner to confirm wording). DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue). Independent review: R12-F5 (ballots do not mark an entry as danced) and R12-F6.",
+  "decision_refs": [
+    "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
+    "docs/competition/governance/r12-operational-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule",
+    "R12-F1",
+    "R12-F2"
+  ]
+}

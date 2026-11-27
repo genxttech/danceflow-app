@@ -1,0 +1,29 @@
+{
+  "id": "R12-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA events: organizer adherence to advertised categories, dances and levels",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.3",
+    "quote_free_summary": "The organizer must adhere to all categories, dances and levels specified in the promotional material."
+  },
+  "rule_class": "mandatory",
+  "requirement": "For NDCA-profile events, an advertised round or category must not be cancelled or altered without a control tied to that material.",
+  "implementation": [],
+  "enforcement_point": "None: NOT IMPLEMENTED.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED. Relevant to FUTURE NDCA round-cancellation controls only: cancel_competition_round (R12-DF-0006) is Studio/Custom policy with no link to promotional material. Public NDCA activation stays blocked on this. Not a Studio/Custom release gate.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-12 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r12-operational-verification.md"
+  ],
+  "last_reviewed": "2026-11-24"
+}

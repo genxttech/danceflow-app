@@ -1,0 +1,38 @@
+{
+  "id": "R12-DF-0005",
+  "governing_body": "dance_flow_policy",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-24",
+  "format": "Studio / Custom: publication holds",
+  "requirement": "Publishing is fail-closed for an unresolved competition-related refund exception of the round, a stale input hash, an unresolved over-capacity callback tie and an ineligible roster; holds are limited to the affected round; there is no ordinary manager override of these safeguards.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270122090000_competition_f3_publication.sql",
+      "symbol_or_migration": "publish_competition_round_result"
+    }
+  ],
+  "enforcement_point": "Database function (manager only); publication rows have no client write grants.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_f3_publication.sql",
+      "name": "COMP_PUBLICATION_BLOCKED_BY_EXCEPTION"
+    },
+    {
+      "path": "src/lib/competition/governance/__tests__/r12Operational.static.test.ts",
+      "name": "has no override/force/skip parameter"
+    }
+  ],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Inspected: signature has no override parameter; five refusals (stale hash, undecided tie, advancement mismatch, round-scoped refund exception, roster eligibility); wrong shape fails closed, deadlocks propagate. Separate, owner-approved D3 behavior: the calculator may approve their own result with a recorded reason (not one of the five holds; the stale-hash check runs first). OD-14 over-capacity tie policy: see the OD register. DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue). Independent review: R12-F7 (tie check only with a callback Final) and R12-F6 (reversal of a fee-only refund can block publication).",
+  "decision_refs": [
+    "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
+    "docs/competition/governance/r12-operational-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule",
+    "OD-14",
+    "OD-22 (PR 849)"
+  ]
+}

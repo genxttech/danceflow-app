@@ -1,0 +1,29 @@
+{
+  "id": "R12-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA events: no-show couples and future entries",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "V.B.6",
+    "quote_free_summary": "An organizer is not obligated to accept future entries from a couple that fails to appear without notice."
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "Any no-show consequence for NDCA events is limited to the organizer declining future entries; it never ties a refund to participation or results.",
+  "implementation": [],
+  "enforcement_point": "None: NOT IMPLEMENTED.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED as a body control. Recorded to keep the distinction explicit: the pinned rulebooks tie no refund to participation or results, so refund-driven withdrawal (R12-DF-0003) and publication holds (R12-DF-0005) are DanceFlow policy only.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-12 (owner ratification 2026-11-24)",
+    "docs/competition/governance/r12-operational-verification.md"
+  ],
+  "last_reviewed": "2026-11-24"
+}

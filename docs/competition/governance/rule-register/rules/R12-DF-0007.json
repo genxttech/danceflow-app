@@ -1,0 +1,46 @@
+{
+  "id": "R12-DF-0007",
+  "governing_body": "dance_flow_policy",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "last_reviewed": "2026-11-24",
+  "format": "Studio / Custom: Studio chair authority",
+  "requirement": "The Studio chair (distinct from the NDCA Chairman and the WSDC Chief Judge) may lock ballots, mark and void no-shows, record judge absence, and co-sign exclusion, withdrawal and correction; the chair may not calculate, approve, publish, reopen ballots, initiate an exclusion or change the running order.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql",
+      "symbol_or_migration": "_compe2_round_role, lock_competition_round_ballots, record_competition_judge_attendance"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270215091000_competition_oj1_official_team_member.sql",
+      "symbol_or_migration": "_compe2_round_role (chair requires active team member)"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270101090000_competition_e1_officials.sql",
+      "symbol_or_migration": "set_competition_chair, clear_competition_chair"
+    }
+  ],
+  "enforcement_point": "Database role function _compe2_round_role plus per-function role gates; running-order functions use can_manage_event_competition, which has no chair branch.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_e2_ballots.sql",
+      "name": "chair"
+    },
+    {
+      "path": "src/lib/competition/governance/__tests__/r12Operational.static.test.ts",
+      "name": "the chair is refused: initiate exclusion/reversal, recover correction, reopen, approve, complete, open correction"
+    }
+  ],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Inspected every reachable gate. The chair is a database role, never an NDCA Chairman or WSDC Chief Judge (body official designations: OD-06, PR 834; scheduling authority: OD-26, PR 854). A person who is also a manager keeps manager powers through the manager role, not the chair designation. Gap: chair negative SQL tests exist in A5/E2/U66/A6/A7/NS1 but none asserts a chair is refused calculate, approve, publish, complete, cancel or the running-order writers; the static pins cover them and a SQL negative matrix is a PENDING follow-up. service_role may call the 10D running-order writers (trusted server only). DanceFlow Studio/Custom policy, never a governing-body requirement. Verified here by SQL inspection and static pins only; the SQL suites named were NOT executed by this session (PENDING an isolated Postgres under the heavy-lock queue). Independent review: R12-F9 (chair who is also a manager keeps manager power).",
+  "decision_refs": [
+    "R-12 (owner ratification 2026-11-24: DanceFlow Studio/Custom policy; implementation verified only when the release candidate passes review and testing)",
+    "docs/competition/governance/r12-operational-verification.md",
+    "OD-01 (PR 832): never described as a governing-body rule",
+    "OD-06 (PR 834)",
+    "OD-26 (PR 854)"
+  ]
+}
