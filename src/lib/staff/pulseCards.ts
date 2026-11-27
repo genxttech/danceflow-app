@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveViewerInstructorId } from "@/lib/auth/instructorIdentity";
 import { loadStudioClientNames } from "@/lib/staff/instructorToday";
+import { loadMissingConfirmations, type ConfirmationsData } from "@/lib/staff/pulseConfirmations";
 import { canViewStudioWideSchedule } from "@/lib/staff/studioSchedule";
 
 /**
@@ -51,7 +52,7 @@ export function pulseCardAccess(role: string | null | undefined): PulseCardAcces
  * descriptor list that is always empty in this version (cards are read only; approvals stay in the web app behind their own gates and audit trail).
  */
 export type CardDescriptor = { cardId: PulseCardId; cardType: PulseCardId; actions: never[] };
-export type PulseCardId = "lesson_requests" | "new_leads" | "aria_suggestions" | "operational_exceptions" | "studio_health";
+export type PulseCardId = "lesson_requests" | "new_leads" | "aria_suggestions" | "operational_exceptions" | "studio_health" | "missing_confirmations";
 export type CardEnvelope = { asOf: string; truncated: boolean };
 export type Unavailable = { state: "unavailable" };
 
@@ -99,12 +100,16 @@ export type HealthCard = CardEnvelope & {
   sessionsAhead: number;
 };
 
+export type ConfirmationsCard = CardEnvelope & { state: "ok" } & ConfirmationsData;
+
 export type PulseCards = {
   requests: RequestsCard | Unavailable | null;
   leads: LeadsCard | Unavailable | null;
   aria: AriaCard | Unavailable | null;
   exceptions: ExceptionsCard | Unavailable | null;
   health: HealthCard | Unavailable | null;
+  /** Follows the "operational exceptions" row of the role matrix: broad roles studio-wide with names, an instructor their own appointments without names. */
+  confirmations: ConfirmationsCard | Unavailable | null;
 };
 
 type ClientName = { firstName: string; lastName: string };
@@ -406,7 +411,7 @@ export async function loadPulseCards(params: {
   const ctx: Ctx = { supabase, studioId, now, instructorId };
   const asOf = now.toISOString();
 
-  const [requests, leads, aria, exceptions] = await Promise.all([
+  const [requests, leads, aria, exceptions, confirmations] = await Promise.all([
     access.requests ? guarded("requests", () => loadRequests(ctx, access.requests as "all" | "own")) : Promise.resolve(null),
     access.leads ? guarded("leads", () => loadLeads(ctx)) : Promise.resolve(null),
     access.aria ? guarded("aria", () => loadAria(ctx)) : Promise.resolve(null),
@@ -429,6 +434,9 @@ export async function loadPulseCards(params: {
           };
         })
       : Promise.resolve(null),
+    access.exceptions
+      ? guarded("confirmations", async (): Promise<ConfirmationsCard> => ({ state: "ok", asOf, ...(await loadMissingConfirmations({ supabase, studioId, now, scope: access.exceptions as "all" | "own", instructorId })) }))
+      : Promise.resolve(null),
   ]);
 
   const health: HealthCard | null = access.health
@@ -444,5 +452,6 @@ export async function loadPulseCards(params: {
     aria: describe(aria, "aria_suggestions"),
     exceptions: describe(exceptions, "operational_exceptions"),
     health: describe(health, "studio_health"),
+    confirmations: describe(confirmations, "missing_confirmations"),
   } as PulseCards;
 }

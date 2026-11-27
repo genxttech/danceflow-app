@@ -34,12 +34,18 @@ export type AriaCard = { state: "ok"; open: number; recent: PulseAriaItem[]; tru
 export type ExceptionsCard = { state: "ok"; cancelledToday: number; lowPackages: number | null; truncated: boolean };
 export type HealthCard = { state: "ok"; scope: "studio" | "own"; sessionsToday: number; sessionsDone: number; sessionsAhead: number; truncated: boolean };
 
+export type PulseConfirmationItem = { id: string; startsAt: string; appointmentType: string; clientName: string | null };
+/** Appointments starting within the server's window (48 hours) that the dancer has not confirmed. */
+export type ConfirmationsCard = { state: "ok"; windowHours: number; total: number; upcoming: PulseConfirmationItem[]; truncated: boolean };
+
 export type PulseCards = {
   requests: RequestsCard | CardUnavailable | null;
   leads: LeadsCard | CardUnavailable | null;
   aria: AriaCard | CardUnavailable | null;
   exceptions: ExceptionsCard | CardUnavailable | null;
   health: HealthCard | CardUnavailable | null;
+  /** null also when the server predates the card. */
+  confirmations: ConfirmationsCard | CardUnavailable | null;
 };
 
 const str = (value: unknown) => (typeof value === "string" && value.length > 0 ? value : null);
@@ -114,6 +120,20 @@ export function toPulseCards(raw: unknown): PulseCards | null {
         return [{ id, title: str(i.title) ?? "Suggestion", priority: str(i.priority), createdAt }];
       }),
     })),
+    confirmations: card(r.confirmations, (c): ConfirmationsCard => ({
+      state: "ok",
+      windowHours: num(c.windowHours) || 48,
+      total: num(c.total),
+      truncated: c.truncated === true,
+      upcoming: list(c.upcoming).flatMap((item): PulseConfirmationItem[] => {
+        const i = obj(item);
+        const id = i ? str(i.id) : null;
+        const startsAt = i ? str(i.startsAt) : null;
+        // an unreadable time would break the date formatting, so the row is dropped (the total still counts it)
+        if (!i || !id || !startsAt || !Number.isFinite(Date.parse(startsAt))) return [];
+        return [{ id, startsAt, appointmentType: str(i.appointmentType) ?? "appointment", clientName: str(i.clientName) }];
+      }),
+    })),
     exceptions: card(r.exceptions, (c): ExceptionsCard => ({
       state: "ok",
       cancelledToday: num(c.cancelledToday),
@@ -131,14 +151,18 @@ export function toPulseCards(raw: unknown): PulseCards | null {
   };
 }
 
-export type NeedsYouItem = { key: "requests" | "leadsUncontacted" | "leadsOverdue" | "aria"; label: string; count: number };
+export type NeedsYouItem = { key: "requests" | "confirmations" | "leadsUncontacted" | "leadsOverdue" | "aria"; label: string; count: number };
 
-/** The "Needs you" lines: open requests, uncontacted leads, overdue lead follow-ups, open ARIA suggestions. Separate lines for leads so one lead is never counted twice. Pure, shared by the screen and the tests. */
+/** The "Needs you" lines: open requests, unconfirmed appointments, uncontacted leads, overdue lead follow-ups, open ARIA suggestions. Separate lines for leads so one lead is never counted twice. Pure, shared by the screen and the tests. */
 export function needsYouItems(cards: PulseCards): NeedsYouItem[] {
   const items: NeedsYouItem[] = [];
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
   if (cards.requests?.state === "ok" && cards.requests.total > 0) {
     items.push({ key: "requests", count: cards.requests.total, label: plural(cards.requests.total, "lesson request waiting", "lesson requests waiting") });
+  }
+  if (cards.confirmations?.state === "ok" && cards.confirmations.total > 0) {
+    const within = `in the next ${cards.confirmations.windowHours} hours`;
+    items.push({ key: "confirmations", count: cards.confirmations.total, label: plural(cards.confirmations.total, `appointment not confirmed ${within}`, `appointments not confirmed ${within}`) });
   }
   if (cards.leads?.state === "ok") {
     if (cards.leads.followUpsOverdue > 0) items.push({ key: "leadsOverdue", count: cards.leads.followUpsOverdue, label: plural(cards.leads.followUpsOverdue, "lead follow-up overdue", "lead follow-ups overdue") });

@@ -75,6 +75,14 @@ class Fake {
     );
     return this;
   }
+  gt(column: string, value: string) {
+    this.filters.push((row) => String(row[column]) > value);
+    return this;
+  }
+  neq(column: string, value: unknown) {
+    this.filters.push((row) => row[column] !== value);
+    return this;
+  }
   gte(column: string, value: string) {
     this.filters.push((row) => String(row[column]) >= value);
     return this;
@@ -285,7 +293,7 @@ describe("loadPulseCards: instructor", () => {
 describe("loadPulseCards: refused roles and isolated failure", () => {
   it.each(["independent_instructor", "platform_admin", "organizer_owner"])("%s gets only nulls and reads nothing", async (role) => {
     const { run, w } = call(role);
-    expect(await run()).toEqual({ requests: null, leads: null, aria: null, exceptions: null, health: null });
+    expect(await run()).toEqual({ requests: null, leads: null, aria: null, exceptions: null, health: null, confirmations: null });
     expect(w.log).toHaveLength(0);
   });
   it("one failing card becomes unavailable and the others still answer; the error body is not logged", async () => {

@@ -263,6 +263,14 @@ export class FakeQuery {
     );
     return this;
   }
+  gt(column: string, value: string) {
+    this.rows = this.rows.filter((row) => String(row[column]) > value);
+    return this;
+  }
+  neq(column: string, value: unknown) {
+    this.rows = this.rows.filter((row) => row[column] !== value);
+    return this;
+  }
   lt(column: string, value: string) {
     this.rows = this.rows.filter((row) => String(row[column]) < value);
     return this;

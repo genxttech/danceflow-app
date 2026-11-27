@@ -41,6 +41,14 @@ const extra: Record<string, Row[]> = {
     { id: "x-a2", studio_id: A, rule_key: "birthday", title: "Approved already", status: "approved", priority: "low", created_at: "2026-11-07T00:00:00Z" },
     { id: "x-b1", studio_id: B, rule_key: "lapsed_client", title: "Other studio suggestion", status: "suggested", priority: "high", created_at: "2026-11-08T00:00:00Z" },
   ],
+  // the confirmations card reads appointments: the clock is 2026-11-09T15:30Z, so the 48-hour window ends 2026-11-11T15:30Z
+  appointments: [
+    { id: "ap-own", studio_id: A, client_id: "cli-a1", instructor_id: "ins-a1", appointment_type: "private_lesson", title: null, status: "scheduled", starts_at: "2026-11-10T15:00:00Z", ends_at: "2026-11-10T15:45:00Z" },
+    { id: "ap-colleague", studio_id: A, client_id: "cli-a3", instructor_id: "ins-a2", appointment_type: "private_lesson", title: null, status: "rescheduled", starts_at: "2026-11-11T15:30:00.000Z", ends_at: "2026-11-11T16:15:00Z" },
+    { id: "ap-confirmed", studio_id: A, client_id: "cli-a1", instructor_id: "ins-a1", appointment_type: "private_lesson", title: null, status: "confirmed", starts_at: "2026-11-10T16:00:00Z", ends_at: "2026-11-10T16:45:00Z" },
+    { id: "ap-later", studio_id: A, client_id: "cli-a1", instructor_id: "ins-a1", appointment_type: "private_lesson", title: null, status: "scheduled", starts_at: "2026-11-12T15:00:00Z", ends_at: "2026-11-12T15:45:00Z" },
+    { id: "ap-b", studio_id: B, client_id: "cli-b1", instructor_id: null, appointment_type: "private_lesson", title: null, status: "scheduled", starts_at: "2026-11-10T15:00:00Z", ends_at: "2026-11-10T15:45:00Z" },
+  ],
   client_packages: [
     { id: "p-a1", studio_id: A, active: true, client_package_items: [{ quantity_remaining: 1, is_unlimited: false }] },
     { id: "p-b1", studio_id: B, active: true, client_package_items: [{ quantity_remaining: 0, is_unlimited: false }] },
@@ -151,6 +159,20 @@ describe("populated cards through the real route", () => {
   it("an unlinked instructor gets zero requests, never the studio's", async () => {
     const cards = await cardsFor(TOKENS.unlinkedInstructorA);
     expect(cards.requests).toMatchObject({ state: "ok", total: 0, recent: [] });
+  });
+
+  it("confirmations: the owner and front desk see the studio's 48-hour list with names; the instructor only their own, without names", async () => {
+    for (const token of [TOKENS.ownerA, TOKENS.frontDeskA]) {
+      const cards = await cardsFor(token);
+      expect(cards.confirmations).toMatchObject({ state: "ok", cardId: "missing_confirmations", windowHours: 48, total: 2, actions: [] });
+      expect((cards.confirmations as { upcoming: { id: string; clientName: string }[] }).upcoming.map((item) => [item.id, item.clientName])).toEqual([
+        ["ap-own", "Ana Own"],
+        ["ap-colleague", "Pat Partner"],
+      ]);
+    }
+    const own = await cardsFor(TOKENS.instructorA);
+    expect(own.confirmations).toMatchObject({ state: "ok", total: 1, upcoming: [{ id: "ap-own", clientName: null }] });
+    expect(await cardsFor(TOKENS.unlinkedInstructorA).then((cards) => cards.confirmations)).toMatchObject({ total: 0, upcoming: [] });
   });
 
   it("another studio's owner is refused before any card read", async () => {

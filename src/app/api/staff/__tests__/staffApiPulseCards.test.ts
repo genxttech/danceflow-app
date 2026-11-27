@@ -77,7 +77,7 @@ describe("?include=cards", () => {
     expect(response.status).toBe(200);
     const { cards, ...rest } = await response.json();
     expect(rest).toEqual(plain);
-    expect(Object.keys(cards).sort()).toEqual(["aria", "exceptions", "health", "leads", "requests"]);
+    expect(Object.keys(cards).sort()).toEqual(["aria", "confirmations", "exceptions", "health", "leads", "requests"]);
     // health comes from the same day summary as `today`, so the numbers cannot disagree
     expect(cards.health).toMatchObject({ state: "ok", scope: "studio", sessionsToday: plain.today.total, sessionsAhead: plain.today.upcoming });
     // table-backed cards fail on this fake world and stay isolated

@@ -41,6 +41,7 @@ describe("toPulseCards", () => {
       aria: null,
       exceptions: null,
       health: null,
+      confirmations: null, // a server that predates the card
     });
     expect(toPulseCards(null)).toBeNull();
     expect(toPulseCards("nope")).toBeNull();
@@ -85,7 +86,23 @@ describe("needsYouItems", () => {
   it("is empty when nothing waits, and ignores hidden or unavailable cards", () => {
     const cards = toPulseCards({ ...OK_CARDS, requests: { state: "ok", total: 0 }, leads: { state: "ok" }, aria: { state: "unavailable" } }) as PulseCards;
     expect(needsYouItems(cards)).toEqual([]);
-    expect(needsYouItems({ requests: null, leads: null, aria: null, exceptions: null, health: null })).toEqual([]);
+    expect(needsYouItems({ requests: null, leads: null, aria: null, exceptions: null, health: null, confirmations: null })).toEqual([]);
+  });
+
+  it("lists unconfirmed appointments after requests, in the singular for one, and never for zero", () => {
+    const one = toPulseCards({ ...OK_CARDS, confirmations: { state: "ok", windowHours: 48, total: 1, upcoming: [] } }) as PulseCards;
+    expect(needsYouItems(one).map((item) => item.key)).toEqual(["requests", "confirmations", "leadsOverdue", "leadsUncontacted", "aria"]);
+    expect(needsYouItems(one)[1].label).toBe("appointment not confirmed in the next 48 hours");
+    const none = toPulseCards({ ...OK_CARDS, confirmations: { state: "ok", windowHours: 48, total: 0, upcoming: [] } }) as PulseCards;
+    expect(needsYouItems(none).some((item) => item.key === "confirmations")).toBe(false);
+  });
+
+  it("drops a confirmation row without an id or a readable time, and keeps the server's total", () => {
+    const cards = toPulseCards({
+      ...OK_CARDS,
+      confirmations: { state: "ok", total: 3, upcoming: [{ id: "a", startsAt: "2026-11-23T15:00:00Z" }, { startsAt: "2026-11-23T15:00:00Z" }, { id: "b", startsAt: "soon" }] },
+    }) as PulseCards;
+    expect(cards.confirmations).toEqual({ state: "ok", windowHours: 48, total: 3, truncated: false, upcoming: [{ id: "a", startsAt: "2026-11-23T15:00:00Z", appointmentType: "appointment", clientName: null }] });
   });
 });
 

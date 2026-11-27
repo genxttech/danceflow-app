@@ -166,7 +166,16 @@ export function PulseScreen() {
             </View>
           ) : null}
 
-          {cards ? <PulseCardsView cards={cards} scope={pulse.scope} now={new Date(pulse.asOf || Date.now())} onOpenLead={(clientId) => studioId && router.push({ pathname: "/clients/[id]", params: { id: clientId, studioId } })} /> : null}
+          {cards ? (
+            <PulseCardsView
+              cards={cards}
+              scope={pulse.scope}
+              timeZone={pulse.timeZone}
+              now={new Date(pulse.asOf || Date.now())}
+              onOpenLead={(clientId) => studioId && router.push({ pathname: "/clients/[id]", params: { id: clientId, studioId } })}
+              onOpenAppointment={(appointmentId) => studioId && router.push({ pathname: "/appointments/[id]", params: { id: appointmentId, studioId, tz: pulse.timeZone } })}
+            />
+          ) : null}
 
           <View style={styles.card}>
             <AppText variant="label" tone="muted" accessibilityRole="header">

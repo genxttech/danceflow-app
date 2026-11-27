@@ -117,11 +117,16 @@ describe("reading order of the key screens", () => {
         "Pulse",
         "Needs you",
         "2 lesson requests waiting",
+        "2 appointments not confirmed in the next 48 hours",
         "1 lead follow-up overdue",
         "1 lead not contacted yet",
         "1 ARIA suggestion to review",
         "Lesson requests",
         "requests waiting: 2",
+        "Not confirmed yet",
+        "in the next 48 hours: 2",
+        /^\[Tue, Nov 10, 3:00 PM, Private lesson, Maya Chen, not confirmed/,
+        /^\[Wed, Nov 11, 10:00 AM, Intro lesson, Priya Nair, not confirmed/,
         "New leads",
         "new leads in 7 days: 2",
         /^\[Priya Nair, Website, not contacted/,
@@ -139,13 +144,13 @@ describe("reading order of the key screens", () => {
   it("Pulse cards (front desk): no ARIA anywhere, everything else in the same order", async () => {
     const fd = await show(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => ({ ...PULSE, cards: FRONT_DESK_CARDS })) }));
     expect(fd.some((line) => /ARIA/.test(line))).toBe(false);
-    expect(inOrder(fd, ["Needs you", "Lesson requests", "New leads", "Worth a look", "Studio health"])).toBe(true);
+    expect(inOrder(fd, ["Needs you", "Lesson requests", "Not confirmed yet", "New leads", "Worth a look", "Studio health"])).toBe(true);
   });
 
   it("Pulse cards (instructor): own sessions, no leads, ARIA or package line", async () => {
     const ins = await show(<PulseScreen />, fakeApi({ pulse: jest.fn(async () => ({ ...PULSE, scope: "own" as const, instructorId: "ins-1", newClientsLast7Days: null, cards: INSTRUCTOR_CARDS })) }));
     expect(ins.some((line) => /New leads|ARIA|running low|request from /.test(line))).toBe(false);
-    expect(inOrder(ins, ["Needs you", "Lesson requests", "Booking request", "Your sessions", "sessions today: 2"])).toBe(true);
+    expect(inOrder(ins, ["Needs you", "Lesson requests", "Booking request", "Not confirmed yet", /^\[Tue, Nov 10, 3:00 PM, Private lesson, not confirmed/, "Your sessions", "sessions today: 2"])).toBe(true);
   });
 
   it("class roster: the class, its details, the capacity, then each dancer followed by their own marks", async () => {
