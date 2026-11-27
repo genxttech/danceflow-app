@@ -44,8 +44,13 @@ export default function SignInScreen() {
     }
   }
 
+  // The keyboard's send key follows the button's rules: an address typed, no request in flight.
+  function handleSubmitEditing() {
+    if (email.trim() && !submitting) void handleContinue();
+  }
+
   return (
-    <Screen>
+    <Screen keepEndAboveKeyboard>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.wrap}
@@ -86,8 +91,10 @@ export default function SignInScreen() {
             autoComplete="email"
             keyboardType="email-address"
             onChangeText={setEmail}
+            onSubmitEditing={handleSubmitEditing}
             placeholder="Email"
             placeholderTextColor={colors.muted}
+            returnKeyType="send"
             style={styles.input}
             textContentType="emailAddress"
             value={email}
