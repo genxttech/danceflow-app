@@ -1,0 +1,38 @@
+{
+  "id": "NDCA-OD18-PROFESSIONAL-STATUS",
+  "governing_body": "NDCA",
+  "format": "NDCA professional status",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.A.1 (printed p4; PDF p11)",
+    "quote_free_summary": "A professional is anyone who meets any one of: registered as a professional with the NDCA, partners a Pro/Am student or registered amateur, or declares themselves professional by word or deed. Classification cannot change between amateur and professional at one event."
+  },
+  "rule_class": "mandatory",
+  "requirement": "NOT IMPLEMENTED. Competition OS does not read, store or verify this requirement. For initial activation the organizer determines Studio/Custom eligibility and records the decision (OD-18 Option A); DanceFlow does not verify body registration, membership, Points Registry data or proficiency points. Future design only: see the credential-capture design note in the OD-18 PR.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/eligibilityGate.ts",
+      "symbol_or_migration": "evaluateEntryOperationalGate"
+    }
+  ],
+  "enforcement_point": "None for the body rule itself. The organizer determination gate (evaluateEntryOperationalGate, updateCompetitionEntryEligibilityAction) records that the organizer verified applicable criteria; it does not evaluate this rule.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od18.test.ts",
+      "name": "says Studio/Custom eligibility is determined by the organizer and never claims body-credential verification"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "OD-18 (2026-11-23): organizer verification now; automated verified rule evaluation is a future, separately reviewed phase for NDCA/UCWDC/WSDC body profiles. The effective date is the edition month; an exact effective date is NOT SPECIFIED IN PROVIDED SOURCE.  Re-read in the pinned PDF; SHA-256 matches the registry.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-18"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,51 @@
+{
+  "id": "NDCA-OD03-AGE-CLASSIFICATIONS",
+  "governing_body": "NDCA",
+  "format": "NDCA amateur age categories (Pre-Teen, Junior, Youth, Under 21, Adult, Senior I-IV)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "X.A.1 (printed p42; PDF p49)",
+    "quote_free_summary": "Age classifications take effect on the competitor's birthday, with a 60-day window (30 days either side) to move up, extended for multi-day events; Under 21 has no grace period. Youth runs from the 16th to the 18th birthday and Adult starts at the 19th. Senior I-IV each need one partner at the higher and the other at the lower threshold (35/30, 45/40, 55/50, 65/60)."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not calculate or verify this age rule. For initial activation the organizer verifies age-division eligibility and the decision is recorded (who, when, outcome, reason code). Age-restricted divisions cannot be confirmed for scheduling without that determination; a waiver never clears them.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/eligibilityGate.ts",
+      "symbol_or_migration": "evaluateEntryOperationalGate"
+    },
+    {
+      "path": "src/lib/competition/eligibilityGateServer.ts",
+      "symbol_or_migration": "loadEntryOperationalGates"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/registrations/actions.ts",
+      "symbol_or_migration": "validateEligibilityDecision"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od03.test.ts",
+      "name": "a waiver never clears an age-restricted entry"
+    },
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od03.test.ts",
+      "name": "refuses a waiver on an age-restricted division, a wrong reason, and a missing reason"
+    }
+  ],
+  "decision_refs": [
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23",
+  "enforcement_point": "Organizer action updateCompetitionEntryEligibilityAction; operational gate in heat generation, floor planning and readiness counts. No automated age calculation exists.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "OD-03 Option C (2026-11-23): organizer verification now, automated per-body calculation in a later separately reviewed phase. NDCA's Adult starts at the 19th birthday, so an 18-year-old is NDCA Youth, not Adult; the OD-02 restriction (18 or older) is a DanceFlow policy and does not map onto NDCA categories. Whose age counts for a couple is a separate NDCA rule (X.A.6, p43, in the audit inventory) and was not re-read for this entry.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ]
+}

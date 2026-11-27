@@ -13,6 +13,7 @@ import {
   refuseIfOrganizerSuiteLapsed,
   startCompetitionRegistration,
 } from "@/lib/competition/registrationCheckout";
+import { evaluateCompetitionAdultGate, minorsGateMessage } from "@/lib/competition/minorsGate";
 import { competitionRegistrationUrls } from "@/lib/competition/registrationUrls";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
@@ -55,6 +56,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!isUuid(body.clientRequestId)) return NextResponse.json({ error: "A registration request id is required.", code: "invalid" }, { status: 400 });
   if (!body.draft || typeof body.draft !== "object" || Array.isArray(body.draft)) {
     return NextResponse.json({ error: "Registration details are required.", code: "invalid" }, { status: 400 });
+  }
+
+  // OD-02 (DanceFlow launch policy, not a governing-body rule): no under-18 competitor in ANY competition entry.
+  // Runs before every database call (quote and start), evaluates each competitor (never the buyer), fails closed
+  // on a missing or invalid date of birth, and never logs or returns a birthdate or an age.
+  const ageGate = evaluateCompetitionAdultGate(body.draft);
+  if (!ageGate.ok) {
+    return NextResponse.json(
+      { error: minorsGateMessage(ageGate), code: ageGate.code, errors: [minorsGateMessage(ageGate)], blocked: ageGate.blocked },
+      { status: 422 },
+    );
   }
 
   try {

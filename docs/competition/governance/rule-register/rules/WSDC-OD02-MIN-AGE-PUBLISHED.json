@@ -1,0 +1,38 @@
+{
+  "id": "WSDC-OD02-MIN-AGE-PUBLISHED",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events (all contests)",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.1.2.e (PDF p10); 1.1.9 (PDF p4); Definitions, Age-based Contests (PDF p3)",
+    "quote_free_summary": "Registry Events must be open to everyone but may set a minimum contestant age, which must be published in the event's rules; the owner must post event rules including any minimum age 90 days before the event. Juniors are defined as under 18 by the close of the event."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "A Registry Event that applies the DanceFlow under-18 launch restriction as a minimum age must publish it in its own event rules. Competition OS shows the restriction on the registration page but does not manage or publish the event's official rules or the 90-day posting.",
+  "implementation": [
+    {
+      "path": "src/app/events/[slug]/competition/register/CompetitionRegistrationBuilder.tsx",
+      "symbol_or_migration": "evaluateCompetitionAdultGate"
+    }
+  ],
+  "enforcement_point": "Server age gate in the checkout route; publication of the minimum age in the event's official rules is the organizer's responsibility and is not enforced by Competition OS.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/minorsGate.od02.test.ts",
+      "name": "refuses an under-18 competitor, including in Studio/Custom style drafts (no event-type exemption)"
+    }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "WSDC uncertainty preserved: a text search of the pinned PDF for parent, guardian, minor, under 18 and legal age found only the cited provisions. No WSDC rule on minors accompaniment, guardian consent or waiver for minors was located, but the whole document was not re-read for this entry, so the absence of such a rule is NOT VERIFIED. Whether an 18-or-older restriction on ALL contests of a Registry Event (including a WSDC Junior Jack and Jill contest) is consistent with the open-to-everyone requirement is for the owner/organizer and is not decided here. The WSDC 2027 draft is not current and was not used.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}
