@@ -145,15 +145,34 @@ describe("LAUNCH-SEC-1C-A application boundaries", () => {
 
   it("mobile records proof only after its own email-link verifyOtp, never after PKCE, and never reads raw tokens from a link", () => {
     const auth = read(join(ROOT, "mobile/student/src/lib/auth.tsx"));
+    // Owner decision G6 (2026-11-26): the link's token is checked on a client that saves nothing, and only a session for the address this
+    // phone asked for is adopted. So setSession is allowed exactly once, with that check's own result, after the address comparison.
+    const linkSignIn = auth.slice(auth.indexOf("async function signInFromEmailLink"), auth.indexOf("async function processAuthUrl"));
     const tokenBranch = auth.slice(auth.indexOf("if (tokenHash) {"), auth.indexOf("if (code) {"));
     const rest = auth.slice(auth.indexOf("if (code) {"), auth.indexOf("return false;", auth.indexOf("if (code) {")));
-    expect(tokenBranch).toContain("supabase.auth.verifyOtp(");
-    expect(tokenBranch).toContain("recordMobileEmailProof()");
-    expect(tokenBranch.indexOf("verifyOtp(")).toBeLessThan(tokenBranch.indexOf("recordMobileEmailProof()"));
+    expect(tokenBranch).toContain("signInFromEmailLink(tokenHash, otpType)");
+    const order = [
+      "readPendingSignIn()",
+      "verifyEmailLink({ token_hash: tokenHash, type: otpType })",
+      "!== pending.email",
+      "supabase.auth.setSession(",
+      "recordMobileEmailProof()",
+    ].map((step) => linkSignIn.indexOf(step));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+    expect(auth.split("auth.setSession(")).toHaveLength(2);
+    expect(linkSignIn).toContain("access_token: data.session.access_token");
+    expect(linkSignIn).toContain("refresh_token: data.session.refresh_token");
+    const client = read(join(ROOT, "mobile/student/src/lib/supabase.ts"));
+    const check = client.slice(client.indexOf("export function verifyEmailLink"), client.indexOf("export function clearPersistedSupabaseSessions"));
+    expect(check).toContain("persistSession: false");
+    expect(check).toContain("verifier.auth.verifyOtp(params)");
     expect(rest).toContain("exchangeCodeForSession");
-    expect(auth).not.toContain("auth.setSession(");
     expect(auth).not.toContain('"access_token"');
     expect(auth).not.toContain('"refresh_token"');
+    const linkParser = read(join(ROOT, "mobile/student/src/lib/authLink.ts"));
+    expect(linkParser).not.toContain('read("access_token")');
+    expect(linkParser).not.toContain('read("refresh_token")');
     expect(rest).not.toContain("recordMobileEmailProof");
     expect((auth.match(/recordMobileEmailProof\(\)/g) ?? []).length).toBe(1);
   });

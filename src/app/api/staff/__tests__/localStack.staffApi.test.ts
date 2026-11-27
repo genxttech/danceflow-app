@@ -3,13 +3,14 @@
  * that the select strings and embeds parse, that the RPC resolves auth.uid(), and what RLS actually lets each role read.
  *
  * LOCAL / DISPOSABLE STACK ONLY. Skipped unless the isolated QA harness provides a loopback stack:
- *   node scripts/qa/iso-qa.mjs run baseline -- src/app/api/staff/__tests__/localStack.staffApi.test.ts
+ *   node scripts/qa/iso-qa.mjs run baseline --migration origin/main:20270214120000 -- src/app/api/staff/__tests__/localStack.staffApi.test.ts
  *
  * The stack has no GoTrue, so auth.getUser is the one stand-in: it checks the HS256 signature and expiry and returns the subject, with banned_until read from auth.users.
  */
 import { createHmac, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { requireRosterNamesRpc } from "./staffLocalStackPreflight";
 
 const URL_ = process.env.TW4A_LOCAL_URL ?? "";
 const SECRET = process.env.TW4A_LOCAL_JWT_SECRET ?? "";
@@ -153,6 +154,7 @@ describe.skipIf(!enabled)("staff API against real RLS", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = URL_;
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = sign({ role: "anon", exp: exp() });
     process.env.SUPABASE_SERVICE_ROLE_KEY = sign({ role: "service_role", exp: exp() });
+    requireRosterNamesRpc(psql);
 
     const userRows = Object.values(USERS);
     const studio = (studioId: string, label: string, status: string) =>

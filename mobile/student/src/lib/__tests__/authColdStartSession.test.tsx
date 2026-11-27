@@ -9,6 +9,14 @@ import { AuthProvider, serverRefusedSession, useAuth } from "@/lib/auth";
 import { clearPersistedSupabaseSessions, supabase } from "@/lib/supabase";
 import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
 
+const mockStore = new Map<string, string>();
+jest.mock("@/lib/secureSessionStorage", () => ({
+  secureSessionStorage: {
+    getItem: jest.fn(async (key: string) => mockStore.get(key) ?? null),
+    setItem: jest.fn(async (key: string, value: string) => void mockStore.set(key, value)),
+    removeItem: jest.fn(async (key: string) => void mockStore.delete(key)),
+  },
+}));
 jest.mock("expo-router", () => ({ router: { replace: jest.fn() } }));
 jest.mock("expo-linking", () => ({ addEventListener: jest.fn(() => ({ remove: jest.fn() })), getInitialURL: jest.fn(async () => null) }));
 jest.mock("@/lib/accountControls", () => ({ reactivateDanceFlowAccount: jest.fn(async () => undefined) }));

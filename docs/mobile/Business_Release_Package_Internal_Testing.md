@@ -166,3 +166,22 @@ A real-key Business AAB exists: `C:\dfr-out\release\business-42e31612.aab`, SHA-
 ## 2026-11-23 status: version code 1 is on the internal track
 
 Read-only Play Console check (2026-11-22 evening local, `C:dfr-outplay-verify	rack-4972605853824601480.txt`; recorded 2026-11-23): Business internal testing shows **release 1 (0.1.0), Active, Available to internal testers, released Nov 20 4:47 PM, Not reviewed**, one version code, under the temporary app name `com.idanceflow.business (unreviewed)`. No second release was built or uploaded. That this release is the AAB recorded above is **inferred** (same version code, built the same afternoon); the uploaded bundle's hash and the Console's upload-key fingerprint were not compared by engineering. `main` is at versionCode 2 (#830); no versionCode 2 release exists in Play.
+
+## 2026-11-26: version code 2 QA dry build (QA key, placeholders, never for upload)
+
+`C:\dfr-out\business-vc2-aab\business-vc2-qa-6941125d.aab`, SHA-256 `4fa62aa9315ead80b5bbd287cb792a2347b69aa0e4fcdf1a88b2fbffc623e16b`, built from main `6941125d6412` on this PC (`expo prebuild --clean`, `gradlew bundleRelease --no-daemon`), signed with the throwaway QA key, placeholder Supabase URL and anon key, web URL `https://www.idanceflow.com`, `EXPO_PUBLIC_STAFF_FEATURES=pulse,studioSchedule`.
+
+| Check | Result |
+|---|---|
+| Manifest | PASS: `com.idanceflow.business`, versionCode 2, versionName 0.1.0, targetSdk 36 |
+| 16 KB: ELF alignment, 64-bit libraries (arm64-v8a, x86_64) | PASS: 36 libraries, none below 16 KB |
+| 16 KB: `zipalign -c -P 16 4` on a universal APK (18 libraries in each of 4 ABIs) | PASS |
+| Secrets scan (1430 entries) | One expected hit: the QA key's name in `META-INF/QA-ONLY.RSA`. All other rules PASS (the tool's overall word is FAIL because of the QA signature) |
+| Baked config against `expected-production.business.json` | FAIL, 5 rules. Four are expected from the placeholders. **The fifth is not: see below** |
+| Upload signer pin, device smoke, push | Not applicable or not run |
+
+**Release blocker for version code 2: the baked-config gate will reject a correct build.** The rule `"localhost" within the library baseline (<= 2)` counts 3. The two library strings are also in the version code 1 AAB (which passes this rule); the third is the app's own regular expression in `mobile/business/src/lib/staffApi.ts` (`isAllowedBaseUrl`, added by #869), compiled into the bundle whatever the environment holds. So `Build-ReleaseAab.ps1` is expected to fail a production-valued Business build from current main (inferred from the bundle; no production-valued build was made). No localhost literal was found in the Student app source. Evidence: `localhost-context.txt` in the build folder. Proposed fix (not made): let `verify-baked-config.js` discount that one exact literal for the Business app, with a self-test showing that any other extra `localhost` still fails. Do not raise the baseline for both apps.
+
+Build and check evidence (logs, JS source maps, merger report, universal APK) is in `C:\dfr-out\business-vc2-aab\`.
+
+Staging cleanup (H14, 2026-11-26), after the AAB hash and retained files were confirmed and no links were found: deleted the build worktree `C:\dfr\ar-bus` and its worktree record, the private TEMP `C:\dfr\tmp-ar-bus`, the unzipped copy of the AAB and the duplicate `universal-qa.apks` in the evidence folder. The three release AAB hashes were unchanged afterwards (25.4 GB free).

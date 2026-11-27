@@ -7,6 +7,7 @@ import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native
 import Animated from "react-native-reanimated";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
+import { AppUpdateNotice } from "@/components/AppUpdateNotice";
 import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
 import { Screen } from "@/components/Screen";
@@ -278,6 +279,7 @@ export default function HomeScreen() {
           styles={styles}
           title="Find your next place to dance"
         />
+        <AppUpdateNotice />
         <Link href="/(tabs)/discover" asChild>
           <AppButton label="Start exploring" />
         </Link>
@@ -291,6 +293,7 @@ export default function HomeScreen() {
   return (
     <Screen>
       <TodayHeader initials={initials} styles={styles} />
+      <AppUpdateNotice />
 
       {loadingAccess || loadingSchedule ? (
         <LoadingState label="Loading your day" rows={1} />
