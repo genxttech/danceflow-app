@@ -119,7 +119,7 @@ describe("HL1 visibility", () => {
 
   it("confirm texts", () => {
     expect(lockHeatConfirm(3)).toBe("Lock heat 3? Floor changes to this heat will be refused once locked.");
-    expect(lockHeatConfirm(3, "early")).toBe("Lock heat 3? It has not been danced. The floor can't start or change it until it is reopened. Officials can still scratch entries with a reason.");
+    expect(lockHeatConfirm(3, "early")).toBe("Lock heat 3? It has not been danced. The floor can't start or change it until it is reopened. Entries in it cannot be scratched while it is locked.");
     expect(reopenHeatConfirm(3)).toContain("Reopen heat 3?");
   });
 });
