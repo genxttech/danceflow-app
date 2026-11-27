@@ -30,6 +30,12 @@
 -- pins search_path), so its status writes are the only way to publish, and it locks the version row FOR UPDATE before validating. The change is a
 -- pinned exact-text replacement (pre md5 9a61cd9bcdbe8557d76cd6ec9e72c82c, post md5 0fbbbef9670082fbb3cb2484d966dfa3); grants are unchanged (anon keeps EXECUTE as before and is refused by the
 -- function's own manager check).
+-- Concurrency: every write of a heat, heat entry, heat dance or numbered floor heat first share-locks the DRAFT/REVIEW version(s) it touches
+-- (trigger aa_compd_lock_*, sorting before the other guards, no role exemption). Publication holds that row FOR UPDATE, so a writer waits for it
+-- and the later guards then see a published order. Rows of published versions are not locked (day-of writes are unaffected). A writer that already
+-- holds a row publication needs can deadlock: PostgreSQL then aborts one of the two, which is a refusal, not a partial write.
+-- Publication snapshot rows: the client INSERT policy is dropped (publication, now definer, is the only writer).
+--
 -- Legitimate writers are unaffected: SECURITY DEFINER lifecycle functions (floor planner on drafts, publication, publication copy, cancel round,
 -- day-of heat calls, heat lock, CF1 advancement into the live order, and the future OD-26 audited running-order change, which writes floor heats
 -- only) run as the owner role; the remaining SECURITY INVOKER writers (create_competition_schedule_version, apply_competition_heat_plan,
@@ -39,7 +45,8 @@
 -- directly insertable; round name / sequence changes can relabel what a published heat shows; heat configuration is not decided; TRUNCATE is not
 -- covered by row triggers (versions are granted to API roles; not reachable through PostgREST); advanced-mode schedule items have their own rules.
 --
--- Changes: two new functions, two new triggers, one redefined function (publish_competition_schedule_version). No table, policy or grant change.
+-- Changes: three new functions, six new triggers, one redefined function (publish_competition_schedule_version), one dropped policy (client insert
+-- of publication snapshots). No table or grant change.
 -- Rollback: rollback/20270301170000_competition_d_published_order_write_guard_rollback.sql (restores the pinned publication text, drops the rest).
 
 begin;
@@ -49,6 +56,10 @@ begin
   if to_regclass('public.event_competition_floor_heats') is null or to_regclass('public.event_competition_schedule_versions') is null
      or to_regprocedure('public.publish_competition_schedule_version(uuid)') is null then
     raise exception 'D preflight: the 10D floor schedule (20261111090000) is missing.';
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_competition_schedule_publications'
+                 and policyname = 'competition_publications_insert' and cmd = 'INSERT' and roles = '{authenticated}') then
+    raise exception 'D preflight: the client insert policy on publication snapshots is not the expected one; coordinate before changing it.';
   end if;
   -- Rows already planted before this guard: never repaired silently.
   if exists (select 1 from public.event_competition_heats h
@@ -175,6 +186,57 @@ create trigger zz_compd_guard_published_version
 alter table public.event_competition_heats enable always trigger zz_compd_guard_published_heat;
 alter table public.event_competition_schedule_versions enable always trigger zz_compd_guard_published_version;
 
+-- Serializes order writers with publication. SECURITY DEFINER: a row lock needs UPDATE privilege and must not depend on the caller's RLS.
+create function public.compd_lock_draft_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rows jsonb[] := '{}';
+  v_row jsonb;
+  v_versions uuid[] := '{}';
+begin
+  if tg_op <> 'INSERT' then v_rows := v_rows || to_jsonb(old); end if;
+  if tg_op <> 'DELETE' then v_rows := v_rows || to_jsonb(new); end if;
+  foreach v_row in array v_rows loop
+    if tg_table_name in ('event_competition_heat_entries', 'event_competition_heat_dances') then
+      v_versions := v_versions || array(select h.schedule_version_id from public.event_competition_heats h where h.id = (v_row ->> 'heat_id')::uuid);
+    else
+      v_versions := v_versions || (v_row ->> 'schedule_version_id')::uuid;
+      if tg_table_name = 'event_competition_heats' then
+        v_versions := v_versions || array(select f.schedule_version_id from public.event_competition_floor_heats f where f.id = (v_row ->> 'floor_heat_id')::uuid);
+      end if;
+    end if;
+  end loop;
+  perform 1 from public.event_competition_schedule_versions v
+    where v.id = any (v_versions) and v.status in ('draft', 'review') order by v.id for share;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+revoke all on function public.compd_lock_draft_order() from public, anon, authenticated, service_role;
+
+create trigger aa_compd_lock_heat
+  before insert or update or delete on public.event_competition_heats
+  for each row execute function public.compd_lock_draft_order();
+alter table public.event_competition_heats enable always trigger aa_compd_lock_heat;
+create trigger aa_compd_lock_heat_entry
+  before insert or update or delete on public.event_competition_heat_entries
+  for each row execute function public.compd_lock_draft_order();
+alter table public.event_competition_heat_entries enable always trigger aa_compd_lock_heat_entry;
+create trigger aa_compd_lock_heat_dance
+  before insert or update or delete on public.event_competition_heat_dances
+  for each row execute function public.compd_lock_draft_order();
+alter table public.event_competition_heat_dances enable always trigger aa_compd_lock_heat_dance;
+create trigger aa_compd_lock_floor_heat
+  before insert or update or delete on public.event_competition_floor_heats
+  for each row execute function public.compd_lock_draft_order();
+alter table public.event_competition_floor_heats enable always trigger aa_compd_lock_floor_heat;
+
+drop policy competition_publications_insert on public.event_competition_schedule_publications;
+
 -- Publication: SECURITY DEFINER and a row lock before validation (pinned exact-text replacement).
 do $$
 declare
@@ -237,7 +299,10 @@ begin
   if not (select p.prosecdef from pg_proc p where p.oid = 'public.publish_competition_schedule_version(uuid)'::regprocedure)
      or (select count(*) from pg_trigger where tgname in ('zz_compd_guard_published_heat', 'zz_compd_guard_published_version') and not tgisinternal and tgenabled = 'A') <> 2
      or has_function_privilege('authenticated', 'public.compd_guard_published_heat()', 'execute')
-     or (select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('compd_guard_published_heat', 'compd_guard_published_version') and not p.prosecdef) <> 2 then
+     or (select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('compd_guard_published_heat', 'compd_guard_published_version') and not p.prosecdef) <> 2
+     or (select count(*) from pg_trigger where tgname like 'aa\_compd\_lock\_%' and not tgisinternal and tgenabled = 'A') <> 4
+     or has_function_privilege('authenticated', 'public.compd_lock_draft_order()', 'execute')
+     or exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_competition_schedule_publications' and cmd in ('INSERT', 'ALL')) then
     raise exception 'D postflight failed.';
   end if;
 end $$;

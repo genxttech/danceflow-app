@@ -72,7 +72,7 @@ races() { local r res; tr -d '\r' < "$CHAIN/races.sh" > "$CHAIN/races.run.sh"; r
   [ -n "$r" ] || r="NO VERDICT"; case "$r" in *"RACES PASS"*) res=PASS;; *) res=FAIL;; esac
   printf '%s\t%s\t%s\t%s\n' "$1" races "$res" "$r" >> "$OUT/suites.tsv"; log "[$1] races: $res  $r"; }
 res_of() { awk -F'\t' -v t="$1" -v s="$2" '$1==t && $2==s {print $3}' "$OUT/suites.tsv" | head -1; }
-objs() { "${PSQL[@]}" -Atc "select (select count(*) from pg_trigger where tgname like 'zz_compd_%' and not tgisinternal) || '/' || (select count(*) from pg_proc where proname like 'compd\_guard\_%')" | tr -d '\r'; }
+objs() { "${PSQL[@]}" -Atc "select (select count(*) from pg_trigger where tgname like '%\_compd\_%' and not tgisinternal) || '/' || (select count(*) from pg_proc where proname like 'compd\_%') || '/' || (select count(*) from pg_policies where tablename = 'event_competition_schedule_publications' and cmd = 'INSERT')" | tr -d '\r'; }
 
 probe() { local l; tr -d '\r' < "$CHAIN/sql-tests/probe_D_planted_heat.sql" | timeout 300 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/probe-$1.log" 2>&1
   l="$(grep -m1 -E "ERROR:  D PROBE:" "$OUT/probe-$1.log" | sed 's/^.*ERROR:  //')"; [ -n "$l" ] || l="NO VERDICT: $(grep -m1 ERROR "$OUT/probe-$1.log" | cut -c1-300)"
@@ -93,7 +93,7 @@ for s in $D_SUITE $SUITES; do run_suite baseline "$s"; done
 races baseline          # commits fixtures: the database is rebuilt afterwards
 start_db && base_chain || { log "BLOCKED: could not rebuild"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
 apply "$CHAIN/new/$MIG" forward || { echo FAIL > "$OUT/result.txt"; exit 1; }
-check "forward: objects installed (triggers/functions)" "$(objs)" "2/2"
+check "forward: objects installed (triggers/functions)" "$(objs)" "6/3/0"
 probe after-fix
 check "planted heat does not reproduce with the fix" "$(verdict after-fix)" "NOT REPRODUCED"
 check "with the fix the plant step itself is refused by D" "$(grep -c -E '1\. plant a heat[^|]*-> refused: COMPD_PUBLISHED_ORDER_WRITE_REFUSED' "$OUT/probe-after-fix.txt")" 1
@@ -102,14 +102,36 @@ check "baseline: the D suite ran and fails on the gap checks" "$(awk -F'\t' -v s
 check "every suite produced a verdict" "$(awk -F'\t' '$2!="races" && $4 !~ /SUITE (PASS|FAIL)/' "$OUT/suites.tsv" | wc -l | tr -d ' ')" 0
 check "forward: the D suite passes" "$(res_of forward $D_SUITE)" PASS
 for s in $SUITES; do if [ "$(res_of baseline "$s")" = PASS ]; then check "no regression: ${s#test_T_}" "$(res_of forward "$s")" PASS; else log "NOT COVERED (already failing on the base chain): ${s#test_T_}"; fi; done
-apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" rollback || BAD=$((BAD+1)); check "rollback: no D object left" "$(objs)" "0/0"
-apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" rollback2 || BAD=$((BAD+1)); check "rollback replay" "$(objs)" "0/0"
-apply "$CHAIN/new/$MIG" reapply || BAD=$((BAD+1)); check "re-apply" "$(objs)" "2/2"
+apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" rollback || BAD=$((BAD+1)); check "rollback: no D object left" "$(objs)" "0/0/1"
+apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" rollback2 || BAD=$((BAD+1)); check "rollback replay" "$(objs)" "0/0/1"
+apply "$CHAIN/new/$MIG" reapply || BAD=$((BAD+1)); check "re-apply" "$(objs)" "6/3/0"
 run_suite reapply "$D_SUITE"; check "re-apply: the D suite passes" "$(res_of reapply $D_SUITE)" PASS
 races forward
 check "forward: races pass" "$(res_of forward races)" PASS
 check "baseline: races reproduce the gap (R1, R2 and R3 not refused)" "$(grep -m1 'D RACES FAIL' "$OUT/races-baseline.log" | grep -o 'R[123][^;]*: refused' | wc -l | tr -d ' ')" 3
 
 # The informational PR 865 lifecycle races of earlier revisions are not part of this job (they hit their time limit; PR 865 is outside D).
+
+# P1 chain: the OD-31 composed run's own files (base, then the S/R packages, D in slot order, then the pilot restrictions), checked against its
+# manifest; only the D file is swapped. before = the previously reviewed D (db5c9b876): the new suite and races show what is reachable beside P1.
+P1R=/c/dfr/s5int-out/p1run4; P1M=20270301180000_competition_p1_pilot_restrictions.sql; OLD=db5c9b876
+if [ "$(cd "$P1R/chain" && sha256sum --quiet -c "$P1R/migrations-new.sha256" 2>&1 | grep -v "$MIG" | grep -c FAILED)" = 0 ] && [ -s "$P1R/chain/p1/$P1M" ]; then
+  git show "$OLD:$M/$MIG" > "$CHAIN/prefix/old-$MIG"
+  p1_chain() { local f; start_db && base_chain || return 1; while read -r f; do f="$(echo "$f" | tr -d '\r')"; [ -n "$f" ] || continue; if [ "$f" = "$MIG" ]; then apply "$1" p1chain || return 1; else apply "$P1R/chain/new/$f" p1chain || return 1; fi; done < "$P1R/order-B.txt"; apply "$P1R/chain/p1/$P1M" p1chain; }
+  cp "$CHAIN/prefix/old-$MIG" "$CHAIN/prefix/p1old.sql"
+  if p1_chain "$CHAIN/prefix/p1old.sql"; then
+    run_suite p1-before "$D_SUITE"; races p1-before
+    check "P1 before: a manager can insert a snapshot row (suite refuses to pass)" "$(grep -c 'D: a manager inserts a publication snapshot row \[ACCEPTED' "$OUT/suite-p1-before-$D_SUITE.log")" 1
+    check "P1 before: an entry enters an order during its publication (R5)" "$(grep -c '^R5 .*writer=ACCEPTED.*readback=1' "$OUT/races-p1-before.log")" 1
+    log "P1 before R6: $(grep -m1 '^R6 ' "$OUT/races-p1-before.log" | cut -c1-300)"
+  else log "BLOCKED: the P1 chain with the previous D did not build"; BAD=$((BAD+1)); fi
+  if p1_chain "$CHAIN/new/$MIG"; then
+    check "P1 forward: objects installed" "$(objs)" "6/3/0"
+    run_suite p1-forward "$D_SUITE"; check "P1 forward: the D suite passes beside the pilot restrictions" "$(res_of p1-forward $D_SUITE)" PASS
+    races p1-forward; check "P1 forward: races pass beside the pilot restrictions" "$(res_of p1-forward races)" PASS
+    start_db && p1_chain "$CHAIN/new/$MIG" && apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" p1rollback || BAD=$((BAD+1))
+    check "P1 rollback of D beside the restrictions" "$(objs)" "0/0/1"; apply "$CHAIN/new/$MIG" p1reapply || BAD=$((BAD+1)); check "P1 re-apply of D after the restrictions" "$(objs)" "6/3/0"
+  else log "BLOCKED: the P1 chain with this D did not build"; BAD=$((BAD+1)); fi
+else log "BLOCKED: the composed P1 run files are missing or changed"; BAD=$((BAD+1)); fi
 if [ "$BAD" = 0 ]; then log "D STANDALONE: PASS"; echo PASS > "$OUT/result.txt"; exit 0; fi
 log "D STANDALONE: FAIL ($BAD expectation(s) not met)"; echo FAIL > "$OUT/result.txt"; exit 1

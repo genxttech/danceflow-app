@@ -19,16 +19,20 @@ begin
   perform set_config('request.jwt.claims', json_build_object('sub', p_user, 'role', 'authenticated')::text, true);
   perform set_config('role', 'authenticated', true);
 end $$;
--- Runs p_sql as A1 and rolls it back. Returns 'rows N' when it was accepted, otherwise the error text.
-create or replace function pg_temp.attempt(p_sql text) returns text
+-- Runs p_sql as A1 and rolls it back. Returns 'ACCEPTED rows N' when it was accepted (with ' effect=true|false' when p_verify, evaluated as the
+-- owner inside the same subtransaction, is given), otherwise the error text.
+create or replace function pg_temp.attempt(p_sql text, p_verify text default null) returns text
 language plpgsql as $$
-declare v text; v_n bigint;
+declare v text; v_n bigint; v_effect boolean;
 begin
   begin
     perform pg_temp.as_user(pg_temp.u('000001'));
     execute p_sql;
     get diagnostics v_n = row_count;
-    raise exception 'ACCEPTED rows %', v_n;
+    if p_verify is null then raise exception 'ACCEPTED rows %', v_n; end if;
+    execute 'reset role';
+    execute 'select (' || p_verify || ')' into v_effect;
+    raise exception 'ACCEPTED rows % effect=%', v_n, coalesce(v_effect, false);
   exception when others then
     v := sqlerrm;
   end;
@@ -42,12 +46,18 @@ declare v text := pg_temp.attempt(p_sql);
 begin
   perform pg_temp.chk(p_name, v not like 'ACCEPTED %' and (position(lower(p_f1) in lower(v)) > 0 or (p_f2 is not null and position(lower(p_f2) in lower(v)) > 0)), v);
 end $$;
--- Allowed: accepted AND touched at least one row.
-create or replace function pg_temp.allowed(p_name text, p_sql text) returns void
+-- Allowed: accepted AND the stated effect is there (a returned row alone proves nothing).
+create or replace function pg_temp.allowed(p_name text, p_sql text, p_verify text) returns void
 language plpgsql as $$
-declare v text := pg_temp.attempt(p_sql);
+declare v text := pg_temp.attempt(p_sql, p_verify);
 begin
-  perform pg_temp.chk(p_name, v like 'ACCEPTED rows %' and v <> 'ACCEPTED rows 0', v);
+  perform pg_temp.chk(p_name, v like 'ACCEPTED rows % effect=t%' and v not like 'ACCEPTED rows 0 %', v);
+end $$;
+create or replace function pg_temp.forge_then_publish(p_event uuid, p_version uuid) returns void language plpgsql as $$
+begin
+  insert into public.event_competition_schedule_publications (event_id, schedule_version_id, publication_number, snapshot, snapshot_checksum)
+  values (p_event, p_version, 900, '{}'::jsonb, 'forged');
+  perform public.publish_competition_schedule_version(p_version);
 end $$;
 
 grant execute on all functions in schema pg_temp to authenticated, anon, service_role;
@@ -70,11 +80,31 @@ insert into public.event_competition_contests (id, event_id, program_id, name, c
 select pg_temp.u('00200' || n), pg_temp.u('00e00' || n), pg_temp.u('00100' || n), 'ProAm', 'single_dance', 'pro_am', 'open' from generate_series(1, 3) n;
 insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
 select pg_temp.u('00300' || n), pg_temp.u('00e00' || n), pg_temp.u('00100' || n), pg_temp.u('00200' || n), 'D' || n, 'open' from generate_series(1, 3) n;
+-- event 1: one division per round (rounds 2, 3, 4)
+insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
+select pg_temp.u('0030' || x), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D1-' || x, 'open' from unnest(array['12', '13', '14']) x;
 insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
-select pg_temp.u('0060' || lpad(x.r::text, 2, '0')), pg_temp.u('00e00' || x.e), pg_temp.u('00100' || x.e), pg_temp.u('00300' || x.e), 'R' || x.r, 'final', x.s, 'draft', 'ordinal_majority'
-from (values (1, 1, 1), (2, 1, 2), (3, 1, 3), (5, 3, 1)) x(r, e, s);
+select pg_temp.u('0060' || lpad(x.r::text, 2, '0')), pg_temp.u('00e00' || x.e), pg_temp.u('00100' || x.e), pg_temp.u(x.d), 'R' || x.r, 'final', x.s, 'draft', 'ordinal_majority'
+from (values (1, 1, 1, '003001'), (2, 1, 1, '003012'), (3, 1, 1, '003013'), (4, 1, 1, '003014'), (5, 3, 1, '003003')) x(r, e, s, d);
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
 select pg_temp.u('0080' || lpad(i::text, 2, '0')), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003003'), 'E' || i, 'confirmed', 'eligible', i::text from generate_series(1, 2) i;
+-- S4 / R-15, when installed: publication needs cleared entries. Established only the authorized way (adult participants, then the lifecycle
+-- function as manager A1, before any placement); without S4 nothing here runs. With S4 but without the S5 age predicate the suite stops.
+do $s4$
+begin
+  if to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is null then return; end if;
+  if to_regprocedure('public._comp_participant_age_clearance(uuid)') is null then
+    raise exception 'D suite: S4 is installed without the S5 age predicate; the suite never stubs or bypasses it.';
+  end if;
+  execute $i$ insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, date_of_birth)
+    select pg_temp.u('00ce0' || i), pg_temp.u('00e003'), 'Dancer', 'D' || i, 'staff', date '1985-06-15' from generate_series(1, 2) i $i$;
+  execute $i$ insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name)
+    select pg_temp.u('00e003'), pg_temp.u('0080' || lpad(i::text, 2, '0')), pg_temp.u('00ce0' || i), 'dancer', 'leader', 'D ' || i from generate_series(1, 2) i $i$;
+  perform pg_temp.as_user(pg_temp.u('000001'));
+  execute $i$ select public.set_competition_entry_eligibility(pg_temp.u('0080' || lpad(i::text, 2, '0')), 'eligible', 'criteria_verified_by_organizer', '{}'::text[], gen_random_uuid())
+    from generate_series(1, 2) i $i$;
+  perform set_config('role', 'none', true);
+end $s4$;
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
   (pg_temp.u('00c001'), pg_temp.u('00e001'), 1, 'v1', 'published', now()),
@@ -89,12 +119,12 @@ insert into public.event_competition_floor_heats (id, event_id, schedule_version
   (pg_temp.u('00f051'), pg_temp.u('00e003'), pg_temp.u('00c005'), 1), (pg_temp.u('00f071'), pg_temp.u('00e003'), pg_temp.u('00c007'), 1);
 insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, floor_heat_id, status, name) values
   (pg_temp.u('00d001'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 1, pg_temp.u('002001'), pg_temp.u('00c001'), pg_temp.u('00f001'), 'scheduled', 'h1'),
-  (pg_temp.u('00d002'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006002'), 2, pg_temp.u('002001'), pg_temp.u('00c001'), pg_temp.u('00f002'), 'scheduled', 'h2'),
+  (pg_temp.u('00d002'), pg_temp.u('00e001'), pg_temp.u('003012'), pg_temp.u('006002'), 2, pg_temp.u('002001'), pg_temp.u('00c001'), pg_temp.u('00f002'), 'scheduled', 'h2'),
   (pg_temp.u('00d021'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006001'), 21, pg_temp.u('002001'), pg_temp.u('00c002'), pg_temp.u('00f021'), 'scheduled', 'h21'),
-  (pg_temp.u('00d031'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006003'), 31, pg_temp.u('002001'), null, null, 'scheduled', 'h31'),
+  (pg_temp.u('00d031'), pg_temp.u('00e001'), pg_temp.u('003013'), pg_temp.u('006003'), 31, pg_temp.u('002001'), null, null, 'scheduled', 'h31'),
   (pg_temp.u('00d051'), pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 1, pg_temp.u('002003'), pg_temp.u('00c005'), pg_temp.u('00f051'), 'scheduled', 'h51'),
   (pg_temp.u('00d071'), pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 2, pg_temp.u('002003'), pg_temp.u('00c007'), pg_temp.u('00f071'), 'scheduled', 'h71'),
-  (pg_temp.u('00d032'), pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006003'), 33, pg_temp.u('002001'), null, pg_temp.u('00f001'), 'scheduled', 'h32');
+  (pg_temp.u('00d032'), pg_temp.u('00e001'), pg_temp.u('003014'), pg_temp.u('006004'), 33, pg_temp.u('002001'), null, pg_temp.u('00f001'), 'scheduled', 'h32');
 insert into public.event_competition_heat_entries (event_id, division_id, heat_id, entry_id, floor_order)
 select pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('00d051'), pg_temp.u('0080' || lpad(i::text, 2, '0')), i from generate_series(1, 2) i;
 insert into public.event_competition_heat_dances (event_id, heat_id, dance_key, dance_label, sequence_number)
@@ -111,6 +141,9 @@ insert into public.event_competition_schedule_blocks (id, event_id, schedule_ver
 values (pg_temp.u('00b002'), pg_temp.u('00e001'), pg_temp.u('00c002'), pg_temp.u('005e02'), 'B', 'competition', now() + interval '30 days', now() + interval '30 days 1 hour');
 set session_replication_role = origin;
 
+select pg_temp.chk('S: the four order lock triggers are installed ENABLE ALWAYS and their definer function is not callable',
+  (select count(*) = 4 from pg_trigger where tgname like 'aa\_compd\_lock\_%' and tgenabled = 'A' and not tgisinternal)
+  and (select count(*) = 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'compd_lock_draft_order' and p.prosecdef and not has_function_privilege('authenticated', p.oid, 'execute')));
 select pg_temp.chk('S: both guards installed, ENABLE ALWAYS, security invoker; publication is security definer',
   (select count(*) = 2 from pg_trigger where tgname in ('zz_compd_guard_published_heat', 'zz_compd_guard_published_version') and tgenabled = 'A' and not tgisinternal)
   and (select count(*) = 2 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('compd_guard_published_heat', 'compd_guard_published_version') and not p.prosecdef)
@@ -119,7 +152,7 @@ select pg_temp.chk('S: both guards installed, ENABLE ALWAYS, security invoker; p
 -- ============================================================================
 -- Published heats: every direct re-pointing write is refused
 -- ============================================================================
-select pg_temp.refused('D: move a never-run published heat to another round', $q$update public.event_competition_heats set round_id = pg_temp.u('006003') where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('D: move a never-run published heat to another round', $q$update public.event_competition_heats set round_id = pg_temp.u('006003'), division_id = pg_temp.u('003013') where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: renumber a published heat', $q$update public.event_competition_heats set heat_number = 99 where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: detach a published heat from its version and floor heat', $q$update public.event_competition_heats set schedule_version_id = null, floor_heat_id = null where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: detach only the version (floor heat kept)', $q$update public.event_competition_heats set schedule_version_id = null where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
@@ -131,8 +164,8 @@ select pg_temp.refused('base: re-time a published heat', $q$update public.event_
 select pg_temp.refused('D: change the floor label of a published heat', $q$update public.event_competition_heats set floor_label = 'B' where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: change the duration of a published heat', $q$update public.event_competition_heats set duration_seconds = 999 where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('base: delete a published heat', $q$delete from public.event_competition_heats where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED', 'COMP10D_SCHEDULE_PUBLISHED');
-select pg_temp.refused('base: insert a heat into a published version', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, floor_heat_id, status) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006003'), 61, pg_temp.u('002001'), pg_temp.u('00c001'), pg_temp.u('00f002'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED', 'editable draft schedule');
-select pg_temp.refused('D: insert an unversioned heat under a published floor heat', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, floor_heat_id, status) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006003'), 62, pg_temp.u('002001'), pg_temp.u('00f002'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('base: insert a heat into a published version', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, floor_heat_id, status) values (pg_temp.u('00e001'), pg_temp.u('003013'), pg_temp.u('006003'), 61, pg_temp.u('002001'), pg_temp.u('00c001'), pg_temp.u('00f002'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED', 'editable draft schedule');
+select pg_temp.refused('D: insert an unversioned heat under a published floor heat', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, floor_heat_id, status) values (pg_temp.u('00e001'), pg_temp.u('003013'), pg_temp.u('006003'), 62, pg_temp.u('002001'), pg_temp.u('00f002'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: attach an unversioned heat to a published floor heat', $q$update public.event_competition_heats set floor_heat_id = pg_temp.u('00f002') where id = pg_temp.u('00d031')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: renumber an unversioned heat that already sits under a published floor heat', $q$update public.event_competition_heats set heat_number = 34 where id = pg_temp.u('00d032')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('base: attach an unversioned heat to the published version', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c001'), floor_heat_id = pg_temp.u('00f002') where id = pg_temp.u('00d031')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED', 'editable draft schedule');
@@ -145,9 +178,15 @@ select pg_temp.refused('base: move a draft heat into the published version', $q$
 select pg_temp.refused('D: insert an unversioned heat under a DRAFT floor heat', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, floor_heat_id, status) values (pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 63, pg_temp.u('002003'), pg_temp.u('00f051'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: detach a draft heat from its version, keeping the floor heat', $q$update public.event_competition_heats set schedule_version_id = null where id = pg_temp.u('00d051')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: attach an unversioned heat to a DRAFT floor heat', $q$update public.event_competition_heats set floor_heat_id = pg_temp.u('00f021') where id = pg_temp.u('00d031')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
-select pg_temp.refused('D: insert an unversioned heat under a draft schedule block', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, schedule_block_id, status) values (pg_temp.u('00e001'), pg_temp.u('003001'), pg_temp.u('006003'), 64, pg_temp.u('002001'), pg_temp.u('00b002'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('D: insert an unversioned heat under a draft schedule block', $q$insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, schedule_block_id, status) values (pg_temp.u('00e001'), pg_temp.u('003013'), pg_temp.u('006003'), 64, pg_temp.u('002001'), pg_temp.u('00b002'), 'scheduled')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: publication refuses an order holding a planted heat', $q$select public.publish_competition_schedule_version(pg_temp.u('00c008'))$q$, 'COMPD_ORDER_HEAT_VERSION_MISMATCH');
-select pg_temp.allowed('keep: a manager repairs the planted draft heat by giving it the version', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c008') where id = pg_temp.u('00d082')$q$);
+select pg_temp.allowed('keep: a manager repairs the planted draft heat by giving it the version', $q$update public.event_competition_heats set schedule_version_id = pg_temp.u('00c008') where id = pg_temp.u('00d082')$q$, $v$(select schedule_version_id from public.event_competition_heats where id = pg_temp.u('00d082')) = pg_temp.u('00c008')$v$);
+
+-- ============================================================================
+-- Publication snapshot rows: only publication writes them
+-- ============================================================================
+select pg_temp.refused('D: a manager inserts a publication snapshot row', $q$insert into public.event_competition_schedule_publications (event_id, schedule_version_id, publication_number, snapshot, snapshot_checksum) values (pg_temp.u('00e001'), pg_temp.u('00c001'), 900, '{}'::jsonb, 'forged')$q$, 'row-level security');
+select pg_temp.refused('D: a manager blocks a draft''s publication with an inserted snapshot row', $q$select pg_temp.forge_then_publish(pg_temp.u('00e003'), pg_temp.u('00c005'))$q$, 'row-level security');
 
 -- ============================================================================
 -- Published versions
@@ -167,18 +206,18 @@ select pg_temp.refused('D: insert a version that is already published', $q$inser
 -- ============================================================================
 -- Legitimate work keeps working
 -- ============================================================================
-select pg_temp.allowed('keep: edit a draft heat (round)', $q$update public.event_competition_heats set round_id = pg_temp.u('006002') where id = pg_temp.u('00d021')$q$);
-select pg_temp.allowed('keep: renumber a draft heat', $q$update public.event_competition_heats set heat_number = 22 where id = pg_temp.u('00d021')$q$);
-select pg_temp.allowed('keep: delete a draft heat', $q$delete from public.event_competition_heats where id = pg_temp.u('00d021')$q$);
-select pg_temp.allowed('keep: edit an unversioned heat', $q$update public.event_competition_heats set heat_number = 32 where id = pg_temp.u('00d031')$q$);
-select pg_temp.allowed('keep: rename a published heat (not a placement column)', $q$update public.event_competition_heats set name = 'renamed' where id = pg_temp.u('00d001')$q$);
-select pg_temp.allowed('keep: insert a draft version', $q$insert into public.event_competition_schedule_versions (event_id, version_number, name, status) values (pg_temp.u('00e001'), 8, 'v8', 'draft')$q$);
-select pg_temp.allowed('keep: rename a published version', $q$update public.event_competition_schedule_versions set name = 'renamed' where id = pg_temp.u('00c001')$q$);
-select pg_temp.allowed('keep: publication of a fresh draft through publish_competition_schedule_version', $q$select public.publish_competition_schedule_version(pg_temp.u('00c005'))$q$);
-select pg_temp.allowed('keep: a second publication supersedes the first (both through the function)', $q$select public.publish_competition_schedule_version(x.v) from unnest(array[pg_temp.u('00c005'), pg_temp.u('00c007')]) with ordinality x(v, o) order by x.o$q$);
-select pg_temp.allowed('keep: create_competition_schedule_version (security invoker)', $q$select public.create_competition_schedule_version(pg_temp.u('00e001'), 'copy')$q$);
-select pg_temp.allowed('keep: cancel_competition_round (security definer) still removes a never-run published heat', $q$select public.cancel_competition_round(pg_temp.u('006001'), 'cancelled by the organizer', gen_random_uuid())$q$);
-select pg_temp.allowed('keep: set_competition_heat_lock_state (security definer) on a published heat', $q$select public.set_competition_heat_lock_state(pg_temp.u('00d001'), 'locked', 'fixture lock')$q$);
+select pg_temp.allowed('keep: edit a draft heat (round)', $q$update public.event_competition_heats set round_id = pg_temp.u('006002'), division_id = pg_temp.u('003012') where id = pg_temp.u('00d021')$q$, $v$(select round_id from public.event_competition_heats where id = pg_temp.u('00d021')) = pg_temp.u('006002')$v$);
+select pg_temp.allowed('keep: renumber a draft heat', $q$update public.event_competition_heats set heat_number = 22 where id = pg_temp.u('00d021')$q$, $v$(select heat_number from public.event_competition_heats where id = pg_temp.u('00d021')) = 22$v$);
+select pg_temp.allowed('keep: delete a draft heat', $q$delete from public.event_competition_heats where id = pg_temp.u('00d021')$q$, $v$not exists (select 1 from public.event_competition_heats where id = pg_temp.u('00d021'))$v$);
+select pg_temp.allowed('keep: edit an unversioned heat', $q$update public.event_competition_heats set heat_number = 32 where id = pg_temp.u('00d031')$q$, $v$(select heat_number from public.event_competition_heats where id = pg_temp.u('00d031')) = 32$v$);
+select pg_temp.allowed('keep: rename a published heat (not a placement column)', $q$update public.event_competition_heats set name = 'renamed' where id = pg_temp.u('00d001')$q$, $v$(select name from public.event_competition_heats where id = pg_temp.u('00d001')) = 'renamed'$v$);
+select pg_temp.allowed('keep: insert a draft version', $q$insert into public.event_competition_schedule_versions (event_id, version_number, name, status) values (pg_temp.u('00e001'), 8, 'v8', 'draft')$q$, $v$exists (select 1 from public.event_competition_schedule_versions where event_id = pg_temp.u('00e001') and version_number = 8 and status = 'draft')$v$);
+select pg_temp.allowed('keep: rename a published version', $q$update public.event_competition_schedule_versions set name = 'renamed' where id = pg_temp.u('00c001')$q$, $v$(select name from public.event_competition_schedule_versions where id = pg_temp.u('00c001')) = 'renamed'$v$);
+select pg_temp.allowed('keep: publication of a fresh draft through publish_competition_schedule_version', $q$select public.publish_competition_schedule_version(pg_temp.u('00c005'))$q$, $v$(select status from public.event_competition_schedule_versions where id = pg_temp.u('00c005')) = 'published' and (select count(*) from public.event_competition_schedule_publications where schedule_version_id = pg_temp.u('00c005')) = 1$v$);
+select pg_temp.allowed('keep: a second publication supersedes the first (both through the function)', $q$select public.publish_competition_schedule_version(x.v) from unnest(array[pg_temp.u('00c005'), pg_temp.u('00c007')]) with ordinality x(v, o) order by x.o$q$, $v$(select status from public.event_competition_schedule_versions where id = pg_temp.u('00c007')) = 'published' and (select status from public.event_competition_schedule_versions where id = pg_temp.u('00c005')) = 'superseded' and (select count(*) from public.event_competition_schedule_publications where event_id = pg_temp.u('00e003')) = 2$v$);
+select pg_temp.allowed('keep: create_competition_schedule_version (security invoker)', $q$select public.create_competition_schedule_version(pg_temp.u('00e001'), 'copy')$q$, $v$exists (select 1 from public.event_competition_schedule_versions where event_id = pg_temp.u('00e001') and name = 'copy' and status = 'draft')$v$);
+select pg_temp.allowed('keep: cancel_competition_round (security definer) still removes a never-run published heat', $q$select public.cancel_competition_round(pg_temp.u('006001'), 'cancelled by the organizer', gen_random_uuid())$q$, $v$(select status from public.event_competition_rounds where id = pg_temp.u('006001')) = 'cancelled' and (select status from public.event_competition_heats where id = pg_temp.u('00d001')) = 'cancelled'$v$);
+select pg_temp.allowed('keep: set_competition_heat_lock_state (security definer) on a published heat', $q$select public.set_competition_heat_lock_state(pg_temp.u('00d001'), 'locked', 'fixture lock')$q$, $v$(select lock_state from public.event_competition_heats where id = pg_temp.u('00d001')) = 'locked'$v$);
 -- owner-role writes (migrations, definer functions, fixtures) are not restricted
 update public.event_competition_heats set heat_number = 3 where id = pg_temp.u('00d001');
 select pg_temp.chk('keep: the owner role can still write a published heat', (select heat_number = 3 from public.event_competition_heats where id = pg_temp.u('00d001')));

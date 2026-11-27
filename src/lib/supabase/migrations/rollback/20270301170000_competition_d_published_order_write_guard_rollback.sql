@@ -1,7 +1,7 @@
 -- Rollback for 20270301170000_competition_d_published_order_write_guard.sql (Option D). NOT APPLIED ANYWHERE.
--- Drops the two triggers and two functions the migration created and restores publish_competition_schedule_version to its exact pinned previous text
--- (md5 9a61cd9bcdbe8557d76cd6ec9e72c82c: security invoker, no row lock). No table, policy or grant was changed. No data is touched. Restoring RE-OPENS direct writes to
--- published running orders.
+-- Drops the six triggers and three functions the migration created, recreates the dropped client insert policy of publication snapshots and restores publish_competition_schedule_version to its exact pinned previous text
+-- (md5 9a61cd9bcdbe8557d76cd6ec9e72c82c: security invoker, no row lock). No table or grant was changed. No data is touched. Restoring RE-OPENS direct writes to
+-- published running orders, the publication race and client-inserted publication snapshot rows.
 
 begin;
 
@@ -66,10 +66,25 @@ begin
   end if;
 end $$;
 
+drop trigger if exists aa_compd_lock_heat on public.event_competition_heats;
+drop trigger if exists aa_compd_lock_heat_entry on public.event_competition_heat_entries;
+drop trigger if exists aa_compd_lock_heat_dance on public.event_competition_heat_dances;
+drop trigger if exists aa_compd_lock_floor_heat on public.event_competition_floor_heats;
+drop function if exists public.compd_lock_draft_order();
 do $$
 begin
-  if exists (select 1 from pg_trigger where tgname like 'zz_compd_%' and not tgisinternal)
-     or exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'compd\_guard\_%')
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_competition_schedule_publications' and policyname = 'competition_publications_insert') then
+    execute $p$create policy competition_publications_insert on public.event_competition_schedule_publications
+  for insert to authenticated with check (public.can_manage_event_competition(event_id));
+$p$;
+  end if;
+end $$;
+
+do $$
+begin
+  if exists (select 1 from pg_trigger where tgname like '%\_compd\_%' and not tgisinternal)
+     or exists (select 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'compd\_%')
+     or not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_competition_schedule_publications' and policyname = 'competition_publications_insert')
      or (select p.prosecdef from pg_proc p where p.oid = 'public.publish_competition_schedule_version(uuid)'::regprocedure) then
     raise exception 'D rollback incomplete.';
   end if;
