@@ -35,17 +35,18 @@ The runner did not add the `[ADAPTED COPY]` label in this run (fixed afterwards)
 - Option D planted-heat probe: not reproduced on B (refused with `COMPD_PUBLISHED_ORDER_WRITE_REFUSED`); on C its fixture is refused by the restriction.
 - OD-04 ordinary-event baseline output: identical A vs B and A vs C.
 
-## Route replay rerun (2026-11-27 10:04-10:16Z, `scripts/qa/p1/comp-p1-replay-only.sh`)
+## Route replay rerun (2026-11-27, `scripts/qa/p1/comp-p1-replay-only.sh`: B and C 10:04-10:16Z, A 11:07-11:08Z, same probe)
 
-Same composed migrations as the run above. Competition state built through application paths only (the superuser seeds identities and reads). Base chain A: **not yet obtained** (its replay in this job used a faulty registration step; a base-only job is queued).
+Same composed migrations as the run above. Competition state built through application paths only (the superuser seeds identities and reads). 
 
-| Route | B: corrections | C: corrections + restriction |
-|---|---|---|
-| NC (spare round, no cancel) | **REACHED** | closed at setup (`compp1_one_round_per_division`) |
-| CS (cancel, then spare) | **REACHED** | closed at setup (same) |
-| CA (cancel approved, then spare) | **REACHED** | closed at setup (same) |
-| R (move the unrun published heat) | not reached: the move is refused, `COMPD_PUBLISHED_ORDER_WRITE_REFUSED` (899) | closed at setup (same) |
+| Route | A: base (control) | B: corrections | C: corrections + restriction |
+|---|---|---|---|
+| NC (spare round, no cancel) | **REACHED** | **REACHED** | closed at setup (`compp1_one_round_per_division`) |
+| CS (cancel, then spare) | **REACHED** | **REACHED** | closed at setup (same) |
+| CA (cancel approved, then spare) | **REACHED** | **REACHED** | closed at setup (same) |
+| R (move the unrun published heat) | **REACHED** | not reached: the move is refused, `COMPD_PUBLISHED_ORDER_WRITE_REFUSED` (899) | closed at setup (same) |
 
+- **A:** all four routes are reachable, and the manager could also approve their own corrected result directly. On B that direct approval is refused (`COMP_CORRECTION_APPROVER_REQUIRED`, 865) and so is the heat move (899), but NC, CS and CA remain.
 - **B is a confirmed bypass with all corrections applied:** one manager entered the judges' paper ballots for the spare round, calculated, approved their own result with a reason and published it over the same couples, after (or without) a corrected round that a second manager had to approve. The spare rounds were added before judging.
 - On C the routes stop when the spare round is added, so their later steps were not exercised there. Other ways round the restriction, including the second-contest residual, were not tested.
 - On C the setup ran registration (12 adult couples), eligibility, panels, running-order publication, heats, judges' own ballots, calculation and second-manager approval; corrections were refused (`COMP_P1_CORRECTIONS_OFF`). Publication of those four results was not exercised.
@@ -142,7 +143,6 @@ A failures: `e1_officials` (`COMPO1_ROUND_EDGE`), `r2_entry_refunds` (`COMPO1_HE
 
 ## Pending
 
-- Route replay on the base chain (A).
 - Every guard whose suite or race stops at a restriction refusal or an 866 gate is **untested** on this composition until fixtures are adapted.
 - The 919 suite (it failed in its own setup).
 - The second-contest residual; application end-to-end workflow, production-build browser run and flag-off smoke (`p1-integrated-test-plan.md`).
