@@ -1,0 +1,153 @@
+ place | place | place | place | place | place | place | place | place | place | place | place | place | place | place | place | place 
+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------+-------
+       |       |       |       |       |       |       |       |       |       |       |       |       |       |       |       | 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(7 rows)
+
+ chk 
+-----
+ 
+ 
+(2 rows)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+(6 rows)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+(5 rows)
+
+ chk 
+-----
+ 
+ 
+(2 rows)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+ 
+ 
+(3 rows)
+
+ chk 
+-----
+ 
+(1 row)
+
+NOTICE:  ok   | every ENABLE ALWAYS guard is restored after seeding (56) | 
+NOTICE:  ok   | U18-S guard is installed | 
+NOTICE:  ok   | refused: studio instructor | P0001 Entry was not found or cannot be managed.
+NOTICE:  ok   | refused: studio front desk | P0001 Entry was not found or cannot be managed.
+NOTICE:  ok   | refused: judge official | P0001 Entry was not found or cannot be managed.
+NOTICE:  ok   | refused: chair official | P0001 Entry was not found or cannot be managed.
+NOTICE:  ok   | refused: scorer official | P0001 Entry was not found or cannot be managed.
+NOTICE:  ok   | refused: owner of another studio | P0001 Entry was not found or cannot be managed.
+NOTICE:  ok   | refused: signed-in user with no role | P0001 Entry was not found or cannot be managed.
+NOTICE:  ok   | refused: anon without a user | 42501 permission denied for function change_competition_entry_lifecycle
+NOTICE:  ok   | refused: service_role without a user | 42501 permission denied for function change_competition_entry_lifecycle
+NOTICE:  ok   | entry, heat entry and history unchanged after all refused calls | 
+NOTICE:  ok   | non-manager page reads see no entry, heat entry or history | 
+NOTICE:  ok   | allowed: studio owner | OK
+NOTICE:  ok   | allowed: studio admin | OK
+NOTICE:  ok   | allowed: organizer owner | OK
+NOTICE:  ok   | allowed: organizer admin | OK
+NOTICE:  ok   | allowed: organizer staff | OK
+NOTICE:  ok   | allowed: platform admin | OK
+NOTICE:  ok   | multi-heat scratch: parent scratched and BOTH heat entries (scheduled + checked_in) scratched, one audit row | OK
+NOTICE:  ok   | registration, order and entry dances are untouched | 
+NOTICE:  ok   | other entries in the same heats are untouched | 
+NOTICE:  ok   | manager page reads: heat entries with their heats, and the history row | 
+NOTICE:  ok   | scratch works: pending unplaced entry | OK
+NOTICE:  ok   | scratch works: waitlisted entry | OK
+NOTICE:  ok   | scratch works: eligible / cleared entry | OK
+NOTICE:  ok   | scratch works: unverified / uncleared entry | OK
+NOTICE:  ok   | scratch works: legacy under-18 competitor entry | OK
+NOTICE:  ok   | locked heat refused with the message the app maps; unchanged | P0001 This entry is in a locked or certified heat and requires the correction workflow.
+NOTICE:  ok   | certified heat refused with the message the app maps; unchanged | P0001 This entry is in a locked or certified heat and requires the correction workflow.
+NOTICE:  ok   | S6: repeat call is a no-op (reason and version preserved, one audit row) | OK / first reason v2
+NOTICE:  ok   | direct un-scratch of a heat entry is refused | 42501 COMP_U18S_UNSCRATCH_WRITER: a scratched heat entry cannot be restored by a direct table write.
+NOTICE:  ok   | direct heat-entry scratch without the workflow is refused | 42501 COMP_U18S_SCRATCH_UNAUDITED: a heat entry is scratched only through the audited scratch workflow (change_competition_entry_lifecycle).
+NOTICE:  ok   | S6 refuses (COMP_ENTRY_LIFECYCLE_PLACED): active heat, unlocked | P0001 COMP_ENTRY_LIFECYCLE_PLACED: this entry has danced, been placed or is in an active or completed heat; use the correction or refund workflow.
+NOTICE:  ok   | S6 refuses (COMP_ENTRY_LIFECYCLE_PLACED): danced placement, unlocked | P0001 COMP_ENTRY_LIFECYCLE_PLACED: this entry has danced, been placed or is in an active or completed heat; use the correction or refund workflow.
+NOTICE:  ok   | S6 refuses (COMP_ENTRY_LIFECYCLE_STATE): disqualified entry status | P0001 COMP_ENTRY_LIFECYCLE_STATE: an entry that is disqualified cannot be scratched.
+NOTICE:  ok   | a danced heat entry is never rewritten to scratched | 
+ERROR:  SC1 SQL SUITE PASS (37 checks; s4=false s5=false s6=true)
+CONTEXT:  PL/pgSQL function inline_code_block line 7 at RAISE

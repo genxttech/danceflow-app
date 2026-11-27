@@ -62,7 +62,7 @@ done
 log "chain applied: $(grep -c '^OK' "$OUT/migrations-applied.txt") ok, $(grep -c '^FAIL' "$OUT/migrations-applied.txt") failed"
 
 cat > "$OUT/state.sql" <<'SQL'
-select 'fn|' || p.proname || '|' || pg_get_function_identity_arguments(p.oid) || '|' || p.prosecdef || '|' || pg_get_userbyid(p.proowner) || '|' || coalesce(p.proacl::text, 'NULL') || '|' || coalesce(p.proconfig::text, 'NULL') || '|' || md5(replace(p.prosrc, chr(13), ''))
+select 'fn|' || p.proname || '|' || md5(p.prosrc) || '|' || md5(coalesce(obj_description(p.oid, 'pg_proc'), '')) || '|' || pg_get_function_identity_arguments(p.oid) || '|' || p.prosecdef || '|' || pg_get_userbyid(p.proowner) || '|' || coalesce(p.proacl::text, 'NULL') || '|' || coalesce(p.proconfig::text, 'NULL') || '|' || md5(replace(p.prosrc, chr(13), ''))
   from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('change_competition_entry_lifecycle', 'cf1_s6_guard_entry_status', '_r2_withdraw_entry', '_r2_apply_participation', 'cf1_s6_guard_started_participation') order by 1;
 select 'trg|' || g.tgname || '|' || g.tgenabled::text || '|' || pg_get_triggerdef(g.oid) from pg_trigger g where g.tgrelid = 'public.event_competition_entries'::regclass and not g.tgisinternal order by 1;
 select 'acl|' || coalesce(c.relacl::text, 'NULL') from pg_class c where c.oid = 'public.event_competition_entries'::regclass;

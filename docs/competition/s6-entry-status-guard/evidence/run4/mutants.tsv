@@ -1,0 +1,7 @@
+insert-link-rule	DETECTED
+delete-status-rule	DETECTED
+delete-order-link	DETECTED
+evidence-rule	DETECTED
+entry-lock	DETECTED
+participation-guard	DETECTED
+heat-lock	DETECTED

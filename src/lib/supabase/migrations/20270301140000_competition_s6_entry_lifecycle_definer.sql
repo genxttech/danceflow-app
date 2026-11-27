@@ -12,7 +12,7 @@
 --      existing refusal for locked or certified heats.
 --   3. Repeating the call for the state the entry is already in writes no second audit row and no version bump; after the same checks it completes the heat-entry cascade.
 --   4. Concurrency: the entry's heats are locked FOR SHARE (id order) and then the entry FOR NO KEY UPDATE, and the decision uses the values read under those locks.
--- Rollback: rollback/20270301140000_competition_s6_entry_lifecycle_definer_rollback.sql (run after 20270301141000's rollback).
+-- Rollback: rollback/20270301140000_competition_s6_entry_lifecycle_definer_rollback.sql (run after 20270301141000's rollback). It restores the previous definition saved in the function comment.
 
 begin;
 set local lock_timeout = '5s';
@@ -37,6 +37,10 @@ begin
     raise exception 'S6 preflight failed: a required helper function is missing.'; end if;
   if not has_function_privilege((select proowner from pg_proc where oid = v_oid), 'public._r2_entry_participation_class(uuid)', 'execute') then
     raise exception 'S6 preflight failed: the lifecycle function owner cannot execute _r2_entry_participation_class.'; end if;
+  -- the rollback restores exactly what is installed now (byte for byte: some databases carry CR characters the repository text does not)
+  perform set_config('s6.prior_def', pg_get_functiondef(v_oid), true);
+  perform set_config('s6.prior_md5', (select md5(prosrc) from pg_proc where oid = v_oid), true);
+  perform set_config('s6.prior_comment', coalesce(obj_description(v_oid, 'pg_proc'), ''), true);
 end $$;
 
 create or replace function public.change_competition_entry_lifecycle(
@@ -149,6 +153,14 @@ begin
      or not has_function_privilege('authenticated', v_oid, 'execute') then
     raise exception 'S6 postflight failed (lifecycle definer).';
   end if;
+end $$;
+
+-- saved for the rollback: previous definition, its body md5 and its comment (base64, '|' separated)
+do $$
+begin
+  execute format('comment on function public.change_competition_entry_lifecycle(uuid, text, text, text) is %L',
+    'S6-PRIOR|' || encode(convert_to(current_setting('s6.prior_def'), 'UTF8'), 'base64') || '|' || current_setting('s6.prior_md5')
+      || '|' || encode(convert_to(current_setting('s6.prior_comment'), 'UTF8'), 'base64'));
 end $$;
 
 commit;
