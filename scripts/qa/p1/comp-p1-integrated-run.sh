@@ -309,7 +309,9 @@ race(){ # <phase> <snapshot phase> <script>
 race_autoseed(){ # <phase> <script> <log label of the failed run>
   local ph="$1" sc="$2" tag; tag="$(basename "$sc" .sh)"
   case "$tag" in *_r15_*|*_s5_*) return 0;; esac
-  [ -f "$CHAIN/tests-$ph/fixtures/r15_clearance_autoseed.sql" ] && grep -qE "$R15_RE" "$OUT/race-$3-$tag.log" 2>/dev/null && race "$ph-autoseed" "$ph" "$sc" autoseed
+  [ -f "$CHAIN/tests-$ph/fixtures/r15_clearance_autoseed.sql" ] || return 0
+  # AUTOSEED_RACES (on B): scripts whose stale fixture meets an R-15 refusal without printing its code (R-10 triage of cf1_a4_concurrency)
+  { grep -qE "$R15_RE" "$OUT/race-$3-$tag.log" 2>/dev/null || { [ "$ph" = B ] && echo "$tag" | grep -qE "${AUTOSEED_RACES:-cf1_a4_concurrency}"; }; } && race "$ph-autoseed" "$ph" "$sc" autoseed
   return 0; }
 # every selected script on B in its own right (with the clearance rerun and base attribution), when RACES_BOTH=1
 run_races_b(){ local sc; for sc in $(cat "$OUT/list-races-B.txt"); do
