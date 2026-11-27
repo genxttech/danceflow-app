@@ -6,6 +6,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getOnboardingDraft, getStudioSmsStatus, type OnboardingDraft, type StudioSmsStatus } from "@/lib/sms/onboarding/client";
 import { emptyDraft, prefillDraft, type DraftFields } from "@/lib/sms/onboarding/fields";
+import { wizardKey } from "@/lib/sms/onboarding/wizardState";
 import { buildCampaignPackage } from "@/lib/sms/onboarding/campaignTemplate";
 import { getSmsCreditView } from "@/lib/billing/smsCreditView";
 import { smsCreditPurchasesEnabled } from "@/lib/billing/smsCreditPurchases";
@@ -128,8 +129,9 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
 
   const wizard = (
     <SmsSetupWizard
-      // keyed by state only: a successful save must not remount the form (it would drop the "Saved." confirmation)
-      key={status.state}
+      // keyed by state, with not_started and draft as one: a save (including the first) must not remount the form and drop "Saved."
+      key={wizardKey(status.state)}
+      hasSavedDraft={draft !== null}
       initial={initial}
       einOnFile={draft?.einOnFile ?? false}
       einLast4={draft?.einLast4 ?? null}
