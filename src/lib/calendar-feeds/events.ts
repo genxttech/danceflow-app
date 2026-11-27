@@ -182,6 +182,8 @@ export async function loadFeedEvents(admin: SupabaseLike, subject: FeedSubject, 
   const fetchBoth = async (apply: (q: any) => any): Promise<AppointmentRow[]> => {
     const live = await must<AppointmentRow[]>("appointments", apply(baseQuery(LIVE_STATUSES, liveFrom)).order("starts_at", { ascending: true }).limit(MAX_EVENTS));
     const cancelled = await must<AppointmentRow[]>("appointments", apply(baseQuery(["cancelled"], cancelledFrom)).order("starts_at", { ascending: true }).limit(MAX_EVENTS));
+    // A truncated cancellation list would leave subscribers showing cancelled lessons as confirmed: fail instead.
+    if (cancelled.length >= MAX_EVENTS) throw new Error("cancelled window exceeds cap");
     return [...live, ...cancelled];
   };
 

@@ -89,7 +89,8 @@ function matchesEtag(header: string | null, etag: string): boolean {
 
 /**
  * Fall-through mode is for legacy routes that must keep serving existing subscribers while the new feeds are dark:
- * any condition that would be a 404 or a server fault returns null so the caller continues with its legacy path, and
+ * before a token is resolved, any condition that would be a 404 or a server fault returns null so the caller continues with its
+ * legacy path (once resolved, denials and faults are final), and
  * misses are NOT counted against the IP bucket (legacy tokens are misses by definition). A token this feature owns is
  * still rate limited per token. In normal mode nothing is ever null.
  */
@@ -129,8 +130,11 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
     return notFound();
   }
 
+  // From here the token is OWNED by this feature: a fault is a 503 in both modes. Falling back to a legacy response would
+  // serve a link this feature has not been able to check (account, workspace, limits).
+  const owned = () => unavailable(503, 60);
   const tok = await rateCheck(deps.admin, `tok:${tokenHash.slice(0, 24)}`, TOKEN_LIMIT.limit, TOKEN_LIMIT.windowSeconds);
-  if (!tok) return fault();
+  if (!tok) return owned();
   if (!tok.allowed) return unavailable(429, tok.retryAfter);
 
   // A link must not outlive the account or workspace behind it. A denial is final even in fall-through mode: the legacy
@@ -138,7 +142,7 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
   try {
     if (!(await isSubjectEligible(deps.admin, subject, deps.now()))) return notFound();
   } catch {
-    return fault();
+    return owned();
   }
 
   let body: string;
@@ -146,7 +150,7 @@ async function run(request: Request, rawToken: string, deps: FeedHandlerDeps, fa
     const { calendarName, events } = await loadFeedEvents(deps.admin, subject, deps.now());
     body = renderCalendar({ calendarName, events });
   } catch {
-    return fault();
+    return owned();
   }
 
   const etag = etagFor(body);
