@@ -1,4 +1,5 @@
--- Competition P1 restricted pilot (20270301180000) -- refusal and happy-path suite. DRAFT, never executed when written.
+-- Competition P1 restricted pilot (20270301180000) -- refusal and happy-path suite. DRAFT: first run stopped in setup; repaired by review, not re-run.
+-- Needs fixtures/r15_clear_entries.sql prepended on a chain with R-15 (S4).
 -- Run as a SUPERUSER (supabase_admin) on a LOCAL QA database. One transaction, synthetic fixtures (UUID block ...-b1c0deXXXXXX), nothing persists.
 -- The final block ALWAYS raises: "COMPETITION P1 PILOT RESTRICTIONS SQL SUITE PASS (<n> checks)" or "... FAIL: <failures>".
 --
@@ -14,7 +15,9 @@
 -- NOT covered (no real client caller reaches them, or they need concurrency): COMP_P1_BUSY; COMP_P1_ADVANCEMENT_OFF (callback rounds cannot exist);
 -- the publication-insert sanction guard (sanctioning is fixed once a program is published, so approval refuses first); the P1 PLACEMENT-removal backstop
 -- (S6 refuses direct writes first and the lifecycle / registration-sync paths refuse or skip a started heat first: section X proves the couple stays); the refund
--- path (_r2_apply_participation needs service-role Stripe refund fixtures). The entry guard's COMP_P1_STARTED_HEAT is expected from X5, the add branch from X8.
+-- path (_r2_apply_participation needs service-role Stripe refund fixtures). The entry guard's COMP_P1_STARTED_HEAT is expected from X5. The placement
+-- guard's add branch is not reached on the composed chain: earlier triggers refuse X6 and X7 (10D) and X8 (U18-S). U5 is likewise refused by Option D
+-- before the one-published-order index. No case was removed.
 begin;
 do $tx$
 begin
@@ -211,7 +214,7 @@ insert into public.verified_email_identities (user_id, email, first_verified_at,
 select id, lower(email), now(), now(), 'otp', 'web_callback', 'bound', now() from auth.users where id::text like '00000000-0000-0000-0000-b1c0de%';
 insert into public.studios (id, name, slug) values (pg_temp.u('00a001'), 'P1 Studio', 't-p1-studio');
 insert into public.user_studio_roles (user_id, studio_id, role, active)
-select pg_temp.u(s), pg_temp.u('00a001'), case when s in ('000001', '000002') then 'studio_owner' else 'instructor' end, true
+select pg_temp.u(s), pg_temp.u('00a001'), (case when s in ('000001', '000002') then 'studio_owner' else 'instructor' end)::public.app_role, true
 from unnest(array['000001', '000002', '000011', '000012', '000013']) s;
 -- E1 main (none), E2 declares a governing body, E3 never starts (planner edits and deletion)
 insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required, competition_sanctioning)
@@ -245,6 +248,15 @@ select pg_temp.eid(d.id_n, i), d.event_id, d.program_id, d.id, 'Couple ' || d.id
 from (select dv.*, x.n as id_n, x.c from (values (1, 4), (2, 3), (3, 1), (4, 4), (5, 2), (21, 3), (31, 2), (32, 2)) x(n, c)
       join public.event_competition_divisions dv on dv.id = pg_temp.did(x.n)) d
 cross join lateral generate_series(1, d.c) i;
+-- S4/R-15: running orders are published and rounds started, so the seeded couples need clearance before that. Clearance is recorded through
+-- set_competition_entry_eligibility (fixtures/r15_clear_entries.sql, prepended by the runner; it also gives each couple an adult participant, S5). This
+-- suite's three events only. Inert without R-15.
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries(pg_temp.ev(n)) from generate_series(1, 3) n;
+  end if;
+end $r15$;
 
 -- ============================================================================
 -- E3: pre-start planner edits stay possible; recreate routes closed even before the start
@@ -457,13 +469,15 @@ select pg_temp.advance(4, 'V1', 'active');
 select pg_temp.neg('X8 un-scratch a couple into a started heat', 1, pg_temp.a1(),
   format('update public.event_competition_heat_entries set status = %L where id = %L', 'scheduled', pg_temp.he(pg_temp.heat(4, 'V1'), pg_temp.eid(4, 3))),
   array['P0001 COMP_P1_STARTED_HEAT%', '42501 COMP_U18S_UNSCRATCH_WRITER%']);
--- invariant only: the existing registration sync leaves a couple in a started heat alone; whether the write itself succeeds is reported in the detail
+-- invariant only: the existing registration sync leaves a couple in a started heat alone; the write may succeed or be refused by P1 (reported in the detail).
+-- Zero rows or any other refusal fails: the sync would never have run and the invariant would prove nothing.
 do $x9$
 declare v text;
 begin
   v := pg_temp.try(pg_temp.a1(), format('update public.event_registrations set status = %L where id = %L', 'cancelled', pg_temp.u('00f001')));
   perform pg_temp.chk('X9 registration cancellation leaves the couple in the started heat',
-    (select status from public.event_competition_entries where id = pg_temp.eid(4, 1)) = 'confirmed'
+    ((v like 'OK %' and v <> 'OK 0') or v like 'P0001 COMP_P1_STARTED_HEAT%')
+    and (select status from public.event_competition_entries where id = pg_temp.eid(4, 1)) = 'confirmed'
     and (select status from public.event_competition_heat_entries where id = pg_temp.he(pg_temp.heat(4, 'V1'), pg_temp.eid(4, 1))) = 'scheduled', v);
 end $x9$;
 select pg_temp.ballot('flow: round 4 ballot ' || s, s, 4, 'V1', array[1, 2, 3]) from unnest(array['000011', '000012', '000013']) s;
