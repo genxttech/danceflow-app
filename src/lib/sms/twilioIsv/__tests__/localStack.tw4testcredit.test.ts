@@ -339,6 +339,65 @@ commit;`);
       expect(hasCode(grantErr(EP, 100, br), "TW019")).toBe(true);
       expect(ledgerOf(EP)).toBe(n);
     });
+
+    it("one retained document authorizes ONE decision: a budget's document is refused for a grant and a grant's document for a budget (TW019), recording nothing", () => {
+      const changesOf = () => count(`select count(*) from public.studio_sms_test_credit_budget_changes where legal_entity_id = '${EP}'`);
+      // budget first: the same retained text (sha256) cannot then authorize a grant, even under a new approval reference and document id
+      const bd: Ev = { doc: docId(), sha: sha() };
+      setBudget(EP, status(EP).granted_cents + 100, ref("doc-budget"), bd);
+      const before = [ledgerOf(EP), grantsOf(EP)];
+      const gr = ref("doc-budget-then-grant");
+      for (const o of [bd, { sha: bd.sha }]) {
+        const err = grantErr(EP, 10, gr, o);
+        expect(hasCode(err, "TW019"), err).toBe(true);
+        expect(err).toContain("already authorized a test budget");
+      }
+      expect(refRegistered(gr)).toBe(false);
+      expect([ledgerOf(EP), grantsOf(EP)]).toEqual(before);
+      // the refused reference was not burned: with its own document the grant records
+      const gd: Ev = { doc: docId(), sha: sha() };
+      expect(grant(EP, 10, gr, gd).replayed).toBe(false);
+      // grant first: its document cannot then authorize a budget change
+      const budget = status(EP).budget_cents;
+      const changes = changesOf();
+      const br = ref("doc-grant-then-budget");
+      for (const o of [gd, { sha: gd.sha }]) {
+        const err = budgetErr(EP, budget + 1, br, o);
+        expect(hasCode(err, "TW019"), err).toBe(true);
+        expect(err).toContain("already authorized a test grant");
+      }
+      expect(refRegistered(br)).toBe(false);
+      expect([status(EP).budget_cents, changesOf()]).toEqual([budget, changes]);
+      expect(setBudget(EP, budget + 1, br).replayed).toBe(false);
+      expect(status(EP).ok).toBe(true);
+    });
+
+    it("the one-document rule is global: a document recorded for ANOTHER business is refused in both directions (TW019)", () => {
+      // only one pilot business can exist, so the other business's row is written under the write flag inside a transaction that is never committed
+      setBudget(EP, status(EP).granted_cents + 100);
+      const foreign = (insert: string) => `select set_config('tw4.testcredit_write', 'on', true); ${insert} select set_config('tw4.testcredit_write', 'off', true);`;
+      const budgetSha = sha();
+      const foreignBudget = foreign(`insert into public.studio_sms_test_credit_budget_changes (legal_entity_id, previous_cents, budget_cents, approval_ref, ref_norm, authorized_on, authorized_by_role, scope, amount_cents,
+          period_key, document_ref, document_sha256, changed_by)
+        values ('${EN}', 0, 100, 'fixture: other business budget ${RUN}', 'fixture-budget-${hex(6)}', current_date, 'owner_written', 'test_credit_budget', 100, '${period(EN)}', '${docId()}', '${budgetSha}', '${P}');`);
+      const grantCall = callSql("tw4_credit_test_grant", ...grantArgs(EP, 10, ref("foreign-budget-doc"), { sha: budgetSha }));
+      expect(psqlError(`begin; ${grantCall} rollback;`), "control: without the other business's row the grant passes").toBe("");
+      const g = psqlError(`begin; ${foreignBudget} ${grantCall} rollback;`);
+      expect(hasCode(g, "TW019"), g).toBe(true);
+      expect(g).toContain("already authorized a test budget");
+
+      const grantSha = sha();
+      const foreignGrant = foreign(`insert into public.studio_sms_test_credit_grants (legal_entity_id, amount_cents, approval_ref, ref_norm, authorized_on, authorized_by_role, scope, evidence_amount_cents, period_key,
+          document_ref, document_sha256, ledger_entry_id, granted_by)
+        values ('${EN}', 10, 'fixture: other business grant ${RUN}', 'fixture-grant-${hex(6)}', current_date, 'owner_written', 'test_credit_grant', 10, '${period(EN)}', '${docId()}', '${grantSha}', gen_random_uuid(), '${P}');`);
+      const budgetCall = callSql("tw4_credit_test_budget_set", ...budgetArgs(EP, status(EP).budget_cents + 1, ref("foreign-grant-doc"), { sha: grantSha }));
+      expect(psqlError(`begin; ${budgetCall} rollback;`), "control: without the other business's row the budget change passes").toBe("");
+      const b = psqlError(`begin; ${foreignGrant} ${budgetCall} rollback;`);
+      expect(hasCode(b, "TW019"), b).toBe(true);
+      expect(b).toContain("already authorized a test grant");
+      expect(count(`select count(*) from public.studio_sms_test_credit_budget_changes where legal_entity_id = '${EN}'`)
+        + count(`select count(*) from public.studio_sms_test_credit_grants where legal_entity_id = '${EN}'`)).toBe(0);
+    });
   });
 
   describe("6. texting only", () => {

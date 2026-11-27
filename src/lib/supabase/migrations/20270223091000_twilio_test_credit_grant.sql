@@ -13,7 +13,7 @@
 --                                         scope test_credit_budget, amount = the new budget, period, document reference, sha256; never the text).
 --   studio_sms_test_credit_grants         append-only, one row per grant WITH its U-4 evidence (scope test_credit_grant, amount = the grant, period = the business's
 --                                         current billing month). One approval reference = one grant (shared permanent registry studio_sms_approval_refs, TW019);
---                                         one retained document (sha256) = one grant.
+--                                         one retained document (sha256) = ONE decision: a budget change or a grant, never both, for any business (TW019).
 --   studio_sms_test_credit_movements      append-only per-ledger-entry record of how test credit moved (grant / consume / restore / reverse / forfeit).
 --
 -- Rules
@@ -561,8 +561,14 @@ begin
   if p_budget_cents < b.granted_cents then
     raise exception 'the test budget cannot be set below the % cents already granted', b.granted_cents using errcode = 'TW071';
   end if;
+  -- one retained document authorizes ONE decision across budgets AND grants, for every business. The account lock above serialises both functions for one business only,
+  -- so the document's own lock serialises a concurrent use of the same document elsewhere; the checks after it see what that transaction committed
+  perform pg_advisory_xact_lock(hashtextextended('tw4tc_doc:' || p_evidence_sha256, 0));
   if exists (select 1 from public.studio_sms_test_credit_budget_changes x where x.document_sha256 = p_evidence_sha256) then
     raise exception 'this retained document already authorized another test budget: one document, one decision' using errcode = 'TW019';
+  end if;
+  if exists (select 1 from public.studio_sms_test_credit_grants x where x.document_sha256 = p_evidence_sha256) then
+    raise exception 'this retained document already authorized a test grant: one document, one decision' using errcode = 'TW019';
   end if;
   perform public._tw4fi_register(p_approval_ref, 'test_credit_budget', p_entity_id, null, null, null, p_budget_cents, null, p_actor);
   perform set_config('tw4.testcredit_write', 'on', true);
@@ -627,8 +633,13 @@ begin
   if b.granted_cents + p_cents > b.budget_cents then
     raise exception 'this grant exceeds the remaining test budget (% of % cents left)', b.budget_cents - b.granted_cents, b.budget_cents using errcode = 'TW071';
   end if;
+  -- one retained document authorizes ONE decision across budgets AND grants, for every business (the same document lock as the budget function)
+  perform pg_advisory_xact_lock(hashtextextended('tw4tc_doc:' || p_evidence_sha256, 0));
   if exists (select 1 from public.studio_sms_test_credit_grants x where x.document_sha256 = p_evidence_sha256) then
     raise exception 'this retained document already authorized another test grant: one document, one grant' using errcode = 'TW019';
+  end if;
+  if exists (select 1 from public.studio_sms_test_credit_budget_changes x where x.document_sha256 = p_evidence_sha256) then
+    raise exception 'this retained document already authorized a test budget: one document, one decision' using errcode = 'TW019';
   end if;
   perform public._tw4fi_register(p_approval_ref, 'test_credit_grant', p_entity_id, null, null, null, p_cents, null, p_actor);
   perform set_config('tw4.testcredit_write', 'on', true);
