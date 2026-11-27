@@ -1,0 +1,51 @@
+# gitleaks configuration. Every default rule stays on; the allowlists below cover only known test fixtures.
+# Each allowlist names the rules it applies to, so a fixture path never hides a finding from any other rule.
+# Changing this file weakens or strengthens secret scanning, so it is owned in .github/CODEOWNERS.
+# Behaviour is pinned by scripts/security/gitleaks-selftest.mjs: add a case there with every change here.
+title = "DanceFlow secret scanning"
+
+[extend]
+useDefault = true
+
+# The Supabase CLI's published demo keys (issuer "supabase-demo") are not credentials for any hosted project.
+# A real project key has a different issuer and is still reported.
+[[allowlists]]
+description = "Supabase CLI demo JWTs (iss=supabase-demo)"
+targetRules = ["jwt", "generic-api-key"]
+regexTarget = "secret"
+regexes = [
+  '''^eyJ[A-Za-z0-9_-]+\.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIi[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*$''',
+]
+
+# Stripe-shaped test strings, in test code only. Both the path and the shape must match.
+# Real Stripe secrets are purely alphanumeric after the prefix and at least 24 characters (whsec_: at least 32),
+# so only shorter strings, or test-mode strings containing a separator, are allowed.
+[[allowlists]]
+description = "Short or visibly synthetic Stripe-shaped fixtures in test code"
+targetRules = ["stripe-access-token", "generic-api-key"]
+condition = "AND"
+paths = [
+  '''(^|/)__tests__/''',
+  '''(^|/)scripts/qa/''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^(sk|rk)_(test|live)_[A-Za-z0-9_]{1,23}$''',
+  '''^sk_test_[A-Za-z0-9]{0,40}_[A-Za-z0-9_]{0,40}$''',
+  '''^whsec_[A-Za-z0-9_-]{1,31}$''',
+  '''^whsec_[A-Za-z0-9]{0,40}[_-][A-Za-z0-9_-]{0,40}$''',
+]
+
+# The Twilio documented-shape fixture holds synthetic identifiers copied in shape from Twilio's public reference.
+# Only 34-character identifiers are allowed there; an auth token in the same file is still reported.
+[[allowlists]]
+description = "Synthetic Twilio identifiers in the documented-shape fixture"
+targetRules = ["twilio-api-key", "generic-api-key"]
+condition = "AND"
+paths = [
+  '''(^|/)src/lib/sms/__tests__/fixtures/twilio/documentedShapes\.json$''',
+]
+regexTarget = "secret"
+regexes = [
+  '''^(AC|SK|SM|MM|MG)[0-9a-fA-F]{32}$''',
+]
