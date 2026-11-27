@@ -43,7 +43,7 @@ function fakeClient(options: { markerPresent: boolean }) {
   const chain = (table: string, op: string, result: unknown, payload?: unknown) => {
     calls.push({ table, op, payload });
     const c: Record<string, unknown> = {};
-    for (const method of ["eq", "in", "limit", "like", "order", "select", "delete"]) c[method] = () => c;
+    for (const method of ["eq", "neq", "in", "limit", "like", "order", "select", "delete"]) c[method] = () => c;
     c.then = (resolve: (value: unknown) => unknown) => resolve(result);
     return c;
   };
