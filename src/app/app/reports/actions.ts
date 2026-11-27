@@ -1,6 +1,7 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 export type ReportInsightsMetrics = {
   range: string;
   plan: string;
@@ -119,6 +120,9 @@ function getOutputText(data: OpenAiResponse) {
 }
 
 export async function generateReportInsights(metrics: ReportInsightsMetrics) {
+  // Server actions can be called directly: require a signed-in studio member (redirects otherwise).
+  const { userId } = await getCurrentStudioContext();
+
   if (process.env.AI_FEATURES_ENABLED !== "true") {
     return {
       ok: false,
@@ -138,7 +142,7 @@ export async function generateReportInsights(metrics: ReportInsightsMetrics) {
   const model = process.env.OPENAI_MODEL_REPORT_INSIGHTS ?? "gpt-4.1-mini";
 
   const rateLimit = checkRateLimit(
-    await getServerActionRateLimitKey("ai:report-insights", [metrics.range, metrics.plan]),
+    await getServerActionRateLimitKey("ai:report-insights", [userId]),
     { limit: 8, windowMs: 10 * 60 * 1000 },
   );
 
