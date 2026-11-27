@@ -1,0 +1,43 @@
+{
+  "id": "OD14-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: callback tie at the cut that exceeds Final capacity",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not any governing body's rule): when tied couples at the callback cut-off exceed the Final's capacity (or capacity is unknown), the calculation completes with every row advanced = null (blocked_tie_over_capacity) and approval is refused with COMP_ADVANCEMENT_BLOCKED. No arbitrary manager selection, no runoff and no automatic advance of all tied competitors. Preserved unchanged by OD-14 Option A.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/engines/studioCallbackTally.ts",
+      "symbol_or_migration": "cut step outcome blocked_tie_over_capacity"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270120090000_competition_cf1_callback_final_advancement.sql",
+      "symbol_or_migration": "public.cf1_guard_advancement_approval"
+    }
+  ],
+  "enforcement_point": "Callback tally engine (unresolved result) and the cf1_guard_advancement_approval trigger on event_competition_result_versions.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/engines/__tests__/studioCallbackTally.f1.test.ts",
+      "name": "F-CT-02 cap < 5: unresolved result"
+    },
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_callback_final_advancement.sql",
+      "name": "apply: an undecided (null advanced) row is COMP_ADVANCEMENT_BLOCKED"
+    }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Approved and tested as written (D-CT-4 2026-10-24; OD-1 option D 2026-10-30), but the policy label and disclosure required by OD-13/OD-14 do not exist on any surface yet, and the SQL test was not run for this docs-only entry. Never to be described as UCWDC, NDCA or WSDC behavior. A runoff (CF2) remains a separate, unapproved candidate. OD-01 (PR 832) restrictions stand.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-14 (owner decision 2026-11-23, Option A: preserve the Studio over-capacity tie block; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "D-CT-4 and OD-1 option D (2026-10-24 / 2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-09 (PR 839)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}

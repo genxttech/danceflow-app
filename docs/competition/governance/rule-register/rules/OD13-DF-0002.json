@@ -1,0 +1,33 @@
+{
+  "id": "OD13-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: server-side recompute of ordinal results",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: the database recompute path for ordinal_majority@1 must produce the same placements and tie groups as the TypeScript engine. Preserved unchanged by OD-13.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270215090000_competition_pv1_result_recompute.sql",
+      "symbol_or_migration": "public._comppv1_ordinal"
+    }
+  ],
+  "enforcement_point": "PV1 result recompute (database function _comppv1_ordinal).",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_pv1_recompute.sql",
+      "name": "case O (ordinal_majority@1) in the file header"
+    }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "SQL test is not run by the TypeScript integrity test and not re-run for this docs-only entry. Same labelling gap as OD13-DF-0001. Not applied or changed by this PR.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-13 (owner decision 2026-11-23, Option A: preserve DanceFlow Studio scoring; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "OD-01 (PR 832)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}

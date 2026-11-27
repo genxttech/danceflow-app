@@ -1,0 +1,33 @@
+{
+  "id": "OD14-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Event Jack and Jill preliminaries, callback ties",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "Section 5: Callback System, tie sentence (printed p.23; heading at foot of p.22)",
+    "quote_free_summary": "Callbacks are decided by the sum of callback values; only after those calculations are complete do the Chief Judge's scores break a tie. The Chief Judge may request extra alternates in larger contests to reduce ties."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A WSDC profile must break callback ties with the Chief Judge's scores after the original calculation, kept separate from Studio and other bodies' tie handling.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. No WSDC callback support exists.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "CONFIRMED in the pinned text: Section 5, Chief Judge scores break the tie (audit's p.23 is correct). In the provided text no rule was found that advances all tied competitors; absence in the provided text is not proof, and the WSDC website callback detail (Definitions/Section 3.4.9.d) was not provided. Whether a tie can exceed finals capacity is not addressed in the provided text: NOT CONFIRMED. Only the Section 5 passage and 3.4.9.c-d were re-read for this entry.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-14 (owner decision 2026-11-23, Option A: preserve the Studio over-capacity tie block; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "D-CT-4 and OD-1 option D (2026-10-24 / 2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-09 (PR 839)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}

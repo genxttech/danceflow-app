@@ -1,0 +1,33 @@
+{
+  "id": "OD14-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, ties and Final size",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.1.f and IV.C.2 (p.27)",
+    "quote_free_summary": "One section says only the selected number of couples dances in a final except in the case of a tie; another says no more than eight couples dance in any Final Round."
+  },
+  "rule_class": "mandatory",
+  "requirement": "No Final-cap or tie behavior may be enforced or claimed for NDCA until the owner resolves the conflict.",
+  "implementation": [],
+  "enforcement_point": "Nothing enforced. Fails closed.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "SOURCE CONFLICT (registry rule 3) kept UNRESOLVED by OD-14: IV.C.1.f ('except in the case of a tie') versus IV.C.2 ('No more than eight (8) couples'). No exception is invented and no Final-cap interpretation is enforced. Same conflict as OD09-NDCA-0004 (PR 839), which also covers IV.C.1.b, IV.C.1.g and III.D.34. Studio's tie block is not an NDCA rule.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-14 (owner decision 2026-11-23, Option A: preserve the Studio over-capacity tie block; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "D-CT-4 and OD-1 option D (2026-10-24 / 2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-09 (PR 839)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,31 @@
+{
+  "id": "OD13-UCWDC-0006",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Prelims/Semi-Finals/Finals, heats",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Rule #1 item 1 and Rule #2 item 1 (pp.1-2)",
+    "quote_free_summary": "Round sizing is framed around two heats of contestants; the Contest Coordinator decides when earlier rounds are needed."
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "A UCWDC engine and round model must handle Finals danced as two heats.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A blocker to activating any future UCWDC scoring profile (OD-13). A future UCWDC engine must be independently verified, separately versioned (never by editing ordinal_rank@1 or studio_ordinal_majority@1) and evaluated under OD-24. Docs-only record: no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Studio engine fails closed for a multi-heat round (check V11): combination across heats is NOT SPECIFIED. Heat language was re-read only in the passages cited; Rule #1.1 / #2.3 numbering follows the owner list.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-13 (owner decision 2026-11-23, Option A: preserve DanceFlow Studio scoring; retrospective audit PR #795)",
+    "docs/competition/governance/scoring/OD-13-studio-scoring-differences-and-disclosure.md",
+    "OD-01 (PR 832)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}
