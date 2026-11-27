@@ -1,0 +1,150 @@
+--- a/NSI_I1_Schema_Plan.md (rev 4.1)
++++ b/NSI_I1_Schema_Plan.md (rev 4.2)
+@@ -1,9 +1,10 @@
+-# NSI V1 — I1 Foundation Schema Plan (revision 4.1)
++# NSI V1 — I1 Foundation Schema Plan (revision 4.2)
+ 
+ | | |
+ |---|---|
+ | Status | **Planning only.** No SQL written or applied; no code changed. Untracked, uncommitted. Roadmap v2.23, Phase 17-I. |
+ | Baseline | `origin/main` = `13c4d547f5494a8bf75fc472b5d4b48a1f1440f9` |
++| Revision 4.2 | Post-rehearsal corrections: the restricted-role architecture is **kept** (no fallback). Role-owned implementations are created **as** `intake_destructive` after an explicit SET-membership grant; `ALTER FUNCTION … OWNER` is not used. Local rehearsal evidence and hosted preflight results in §17. |
+ | Revision 4.1 | Bounded corrections from the final Opus review of Rev 4 (no P0/P1): N1, N3, N6, P3-a, P3-c applied; N2, N4, N5, P3-b documented for later slices. Changes are inline and summarized in §16. Design only; not verified. |
+ | Revision | Rev 4 supersedes Rev 3 in full. It applies A1–A18 from the targeted Opus review of Rev 3 (one P1, seven P2, ten P3). F1–F15 corrections carry forward, amended where A-findings changed them. **Every correction is a design correction, not verified implementation.** Verification requires SQL, the §10 tests on DEV under real roles, closure of the §12 gates, and a final targeted Opus review. |
+ | Companions | `NSI_V1_Engineering_Spec.md` (§14–§18), `NSI_I0_Verification_Report.md` (§5, §7–§9) |
+@@ -89,7 +90,7 @@
+ | M2 governance | tables 6–7; `intake_is_held()`; `intake_audit_write()`; append-only/TRUNCATE guards; revokes/grants | M1 |
+ | M3 live personal | tables 8–16; R5/R20 triggers; collection-gate insert triggers; allowlist/immutability/delete guards (call `intake_is_held`); TRUNCATE guards; `intake_fulfillment_state()`; revokes/grants | M1, M2 |
+ | M4 retained evidence | tables 17–18; insert validation; collection-gate insert triggers; append-only/TRUNCATE guards; revokes | M1–M3 |
+-| M5 functions | staff RPCs, service RPCs, public wrappers `intake_erase_client` and `intake_release_erasure_barrier` (owner `postgres`) over implementations in `intake_private` (owner `intake_destructive`), hold create/release, `intake_extend_draft_retention`, drift report, catalog self-check; revokes/grants | M1–M4 |
++| M5 functions | staff RPCs, service RPCs, public wrappers `intake_erase_client` and `intake_release_erasure_barrier` (owner `postgres`) over implementations in `intake_private` (created while acting as `intake_destructive` under `SET LOCAL ROLE`, so it owns them; no `ALTER FUNCTION … OWNER`; §6.1), hold create/release, `intake_extend_draft_retention`, drift report, catalog self-check; revokes/grants | M1–M4 |
+ 
+ Revokes and grants are always in the same migration as the `CREATE`. Each file header lists its dependencies.
+ 
+@@ -223,13 +224,18 @@
+ ## 6. Destructive mechanism, immutability, minimization
+ 
+ ### 6.1 Restricted role (A5)
+-- `CREATE ROLE intake_destructive NOLOGIN NOINHERIT NOBYPASSRLS` (M1).
++- `CREATE ROLE intake_destructive NOLOGIN NOINHERIT NOBYPASSRLS` (M1), guarded by `IF NOT EXISTS` so re-application is a no-op.
++- **(4.2) Explicit SET membership (M1).** On PostgreSQL 16+ (DEV 17.6), the creating role receives `ADMIN` but **not** `SET` or `INHERIT` on the new role (`createrole_self_grant` is empty) [V local rehearsal RH00]. M1 therefore runs `GRANT intake_destructive TO postgres WITH SET TRUE, INHERIT FALSE`. `INHERIT FALSE` keeps the role's privileges out of `postgres` sessions; `SET TRUE` lets migrations act as the role. Re-running the grant is a no-op.
++- **(4.2) Creation pattern — no ownership transfer.** Every `intake_private` implementation and its grants are created inside the migration as:
++  `SET LOCAL ROLE intake_destructive; CREATE OR REPLACE FUNCTION intake_private.<impl>(…) … SECURITY DEFINER SET search_path = pg_catalog, pg_temp …; REVOKE ALL ON FUNCTION intake_private.<impl>(…) FROM PUBLIC, anon, authenticated, service_role; GRANT EXECUTE ON FUNCTION intake_private.<impl>(…) TO postgres; RESET ROLE;`
++  Rationale [V local rehearsal RH01]: after `ALTER FUNCTION … OWNER TO intake_destructive`, `postgres` (SET but not INHERIT) can neither `CREATE OR REPLACE` the function nor `GRANT` on it, so a re-run fails; and the ownership change dropped the explicit `EXECUTE` grant to `postgres`, which would break the wrappers. Creating as the role keeps ownership, the `postgres` grant and the revokes stable across repeated runs (three re-applies produced an identical catalog fingerprint).
++- `intake_destructive` holds `USAGE, CREATE` on `intake_private` (needed to create there while acting as the role) and nothing on `public` beyond the default `USAGE`.
+ - Destructive definer implementations (`intake_private.erase_client_impl`; later redaction, draft purge, evidence/identity expiry, retained-reference minimization) are **owned by `intake_destructive` and live in `intake_private`** (P3-a). The role needs `USAGE, CREATE` on `intake_private` only — never `CREATE` on `public`. Public entry points are thin `postgres`-owned wrappers that authenticate and authorize (`intake_is_platform_admin()`, `auth.uid()`, reason) before calling the implementation; the implementations are executable only by `postgres`. The actor is passed from the wrapper (already resolved from `auth.uid()` by `postgres`), so the role needs no access to the `auth` schema (G10 risk reduced). While they run, `current_user = 'intake_destructive'`; when they return, it reverts — nothing persists into later statements, so no session flag or nonce is needed.
+ - The role receives only: `SELECT` and `DELETE` on tables 8–16; column-limited `UPDATE` for redaction/minimization (I6); `EXECUTE` on `intake_is_held`, `intake_audit_write`, `intake_is_platform_admin`, `intake_fulfillment_state`. RLS policies `TO intake_destructive USING (true)` on exactly those tables (no `BYPASSRLS`).
+ - Protected-change triggers (delete on 8–16; redaction columns; evidence identity delete; retained-ref minimization) accept a change only when `current_user = 'intake_destructive'`. All other changes to protected data are refused for every role, including the table owner.
+ - Owner break-glass: `postgres` disabling a named trigger in a reviewed, logged session; documented procedure only.
+-- **Not verified:** role creation by the migration user, function ownership transfer, and preservation of the role and ownership through Supabase backup/restore on DEV and PROD (gates G7–G10, plan in §16.8). If any fails, Appendix A becomes a candidate, subject to a separate decision (not automatic).
+-- **Recovery (P3-b, documented; runbook before PROD apply):** if the role or its ownership is missing after a restore or incident, erasure fails closed. Runbook: (1) recreate `intake_destructive` with the M1 definition; (2) re-grant its schema and table privileges and RLS policies from the migrations; (3) `ALTER FUNCTION … OWNER TO intake_destructive` for every `intake_private` implementation; (4) run the catalog self-check (owners, ACLs, policies); (5) run the post-restore erasure smoke test on a synthetic client in a non-production branch and, in PROD, the read-only ownership/ACL check. Until (4) passes, legal-deletion requests are queued manually and the incident is recorded.
++- **Verification status (4.2):** role creation, SET membership, creation-as-role, RLS, privilege isolation and `auth.uid()` actor propagation **passed on a disposable local Supabase stack** (PostgreSQL 17.6.1.106; §17.1). **Still pending on hosted Supabase:** role creation and SET membership on a hosted project (G7-hosted), and preservation through backup/restore and branching (G9). The fallback (Appendix A) is **not** adopted.
++- **Recovery (P3-b, documented; runbook before PROD apply):** if the role or its ownership is missing after a restore or incident, erasure fails closed. Runbook: (1) recreate `intake_destructive` with the M1 definition; (2) re-grant `intake_destructive TO postgres WITH SET TRUE, INHERIT FALSE`, its schema and table privileges and RLS policies from the migrations; (3) re-create every `intake_private` implementation **while acting as the role** (`SET LOCAL ROLE intake_destructive` … `RESET ROLE`), exactly as in the migrations — never `ALTER FUNCTION … OWNER`; (4) run the catalog self-check (owners, ACLs, policies); (5) run the post-restore erasure smoke test on a synthetic client in a non-production branch and, in PROD, the read-only ownership/ACL check. Until (4) passes, legal-deletion requests are queued manually and the incident is recorded.
+ 
+ ### 6.2 Other immutability
+ Row triggers per §4; `BEFORE TRUNCATE` statement guards on tables 4 (published rows protected by row trigger; TRUNCATE refused outright), 6–18. All trigger functions pin `search_path` (A13).
+@@ -262,7 +268,7 @@
+ | Instructor summary (I5) | postgres | `authenticated` | §7.3 row "instructor summary" |
+ | Service RPCs (ensure request, attach appointment, draft save, submit) | postgres | `service_role` | arguments validated against rows; collection gate |
+ | `public.intake_erase_client`, `public.intake_release_erasure_barrier` (wrappers) | postgres | `authenticated` | platform admin via `intake_is_platform_admin()`; actor `auth.uid()` (A3); reason required |
+-| `intake_private.erase_client_impl` (and later destructive impls) | **intake_destructive** | `postgres` only | called by wrappers only (P3-a) |
++| `intake_private.erase_client_impl` (and later destructive impls) | **intake_destructive** (created as the role; §6.1) | `postgres` only (granted by the role at creation) | called by wrappers only (P3-a) |
+ | `intake_erasure_barrier_active` | postgres | nobody (internal; EXECUTE for `intake_destructive`) | — |
+ | `intake_create_hold`, `intake_release_hold` | postgres | `authenticated` | platform admin (interim); actor `auth.uid()` |
+ | Catalog self-check | postgres | nobody (run by tests/owner) | — |
+@@ -377,7 +383,7 @@
+ **Rollback eligibility (one transaction):** `SET LOCAL lock_timeout = '5s'`; lock every existing intake table `ACCESS EXCLUSIVE` in table-number order; then:
+ - **Refuse permanently** if any row exists in tables 6–18 **other than** audit events with `retention_class` in (`operational`) and all `*_ref` null (config-only activity), **or** if the environment marker exists. Because the marker is environment-scoped (no studio FK), written at the first personal-data insert in the database, excluded from every purge and offboarding step, and protected against delete/update/TRUNCATE for every role, personal-data use permanently blocks destructive rollback even after erasure or studio offboarding empties the personal tables. Restoring a backup taken before first use is the only way to an environment without the marker, and such a restore also contains no personal data.
+ - **Allow** when only config tables (1–5) and config-only audit rows exist, **and** the operator has exported the config and supplies the export SHA-256 via `SET LOCAL nsi.rollback_config_export = '<sha256>'` (checked non-empty and recorded in the release record).
+-- Drop in reverse dependency order, including role `intake_destructive` last (after reassigning or dropping its functions).
++- Drop in reverse dependency order. **(4.2) Role context during rollback:** objects owned by `intake_destructive` are dropped while acting as it — `SET LOCAL ROLE intake_destructive; DROP FUNCTION intake_private.<impl>(…); RESET ROLE;` — because `postgres` holds `SET` but not `INHERIT` and is therefore not treated as their owner. Then drop the `intake_private` schema, its policies and grants as `postgres`, `REVOKE intake_destructive FROM postgres`, and `DROP ROLE intake_destructive` last (it must own nothing and hold no privileges in any database; verify with the catalog before dropping). The eligibility checks above are unchanged.
+ After personal-data use: forward-fix only; application rollback (feature off) precedes any SQL change.
+ 
+ ## 12. Technical gates not yet verified
+@@ -391,9 +397,9 @@
+ | G5 | Live `document_templates` scope constraint and `is_active`/version columns |
+ | G6 | Live counts: `profiles.platform_role` vs `platform_admins` (informational for the separate platform reconciliation; Intake uses `platform_role`) |
+ | G7 | Migration user can `CREATE ROLE` on DEV and PROD (Supabase managed) |
+-| G8 | Function ownership transfer to `intake_destructive`, and RLS policies `TO intake_destructive`, behave as designed (DEV rehearsal in a disposable branch) |
++| G8 | Role-owned functions created as `intake_destructive`, RLS policies `TO intake_destructive`, privilege isolation — **local PASS (§17.1); hosted rehearsal pending** |
+ | G9 | Supabase backup/restore (and branching) preserves the role, its grants, the `intake_private` schema and function ownership — verification plan in §16.9 |
+-| G10 | `auth.uid()` resolves inside a definer function owned by `intake_destructive` when called through PostgREST with a user JWT |
++| G10 | Caller identity through PostgREST: wrapper resolves `auth.uid()` and passes it to the role-owned implementation; role has no `auth` access — **local PASS (§17.1); hosted rehearsal pending** |
+ 
+ ## 13. Outstanding owner/legal decisions
+ 1. All platform periods: evidence core and identity, audit operational and security, hold-record after release, post-relationship platform maximum. **Launch blockers** (gate stays closed until set).
+@@ -500,8 +506,8 @@
+ 
+ | Gate | Rehearsal steps | Pass criteria |
+ |---|---|---|
+-| **G7** role creation | In a disposable branch, apply M1 as the migration user; `CREATE ROLE intake_destructive NOLOGIN NOINHERIT NOBYPASSRLS`; on PG ≥ 16 grant the migration user `SET` on the role if required for ownership transfer | Role exists with the stated attributes; no superuser needed; migration is idempotent on re-run |
+-| **G8** ownership and RLS | Create `intake_private`; grant the role `USAGE, CREATE` there only; create an implementation and `ALTER FUNCTION … OWNER TO intake_destructive`; add `TO intake_destructive` RLS policies on tables 8–16; run tests 90–92, 103–107, 113–114 | Ownership transfer succeeds; role can delete only the intended rows through the implementation; nothing else can; catalog self-check passes |
++| **G7** role creation | Apply M1 as the migration user; `CREATE ROLE intake_destructive NOLOGIN NOINHERIT NOBYPASSRLS`; `GRANT intake_destructive TO postgres WITH SET TRUE, INHERIT FALSE` | Role exists with the stated attributes; no superuser needed; re-run is a no-op. **(4.2) Local PASS; hosted pending** |
++| **G8** ownership and RLS | Create `intake_private`; grant the role `USAGE, CREATE` there only; create implementations **as the role** (`SET LOCAL ROLE`), revoke/grant as the role; add `TO intake_destructive` RLS policies on tables 8–16; run tests 90–92, 103–107, 113–114 | Role owns the implementations; `postgres` keeps `EXECUTE` across re-runs; role can delete only the intended rows; nothing else can; catalog self-check passes. **(4.2) Local PASS; hosted pending** |
+ | **G10** `auth.uid()` path | Call `public.intake_erase_client` through PostgREST with (a) a platform-admin JWT, (b) a non-admin JWT, (c) the service key | (a) succeeds and the audit actor equals the admin's user id; (b) and (c) refused; the role never needs `auth` schema access (actor passed from the wrapper) |
+ 
+ G1 is satisfied by prior observation (17.6 on DEV and PROD; §12) with a mandatory fresh check before PROD migration. G2 (PROD parity) is required before PROD apply.
+@@ -525,3 +531,40 @@
+ | **6. Legal/privacy/operational before launch** | Minors' jurisdictional requirements and threshold; network/device evidence; export approvers and verification; relationship-closure definition; offboarding disposition; final legal-hold roles and cadence; evidence names vs initials; audit retention operations; email/UI testing (not I1 schema dependencies); separate platform-wide `platform_admins` reconciliation |
+ 
+ **Recommendation:** the five required corrections are applied in design and the four documented items are recorded with their deadlines. Proceed to request **(a)** a disposable DEV rehearsal for G7, G8 and G10 and **(b)** owner confirmation of category 2. If both pass, I1 SQL authorization can be requested. Nothing here is verified implementation.
++
++## 17. Restricted-role evidence (revision 4.2)
++
++### 17.1 Local rehearsal — PASS (disposable local Supabase stack; not hosted)
++Environment: new local stack `nsi-g7-rehearsal` (own containers, own volume, ports 56321/56322), image `supabase/postgres:17.6.1.106`, `PostgreSQL 17.6`; empty `public`, no `auth.users`, no external connections; destroyed afterwards with `supabase stop --no-backup` (0 containers, 0 volumes left). Shared DEV, PROD and the existing local stacks were not touched. Synthetic objects only; M1–M5 were not run.
++
++| Gate | Evidence (local) | Result |
++|---|---|---|
++| G7 | Role created by `postgres` (no superuser); creator membership is `ADMIN` only (`set=false, inherit=false`); `ALTER FUNCTION … OWNER` fails with `must be able to SET ROLE "intake_destructive"` until `GRANT … WITH SET TRUE, INHERIT FALSE`; ownership-transfer pattern was not re-runnable and dropped `postgres` EXECUTE; creation-as-role pattern re-applied 3× with identical fingerprint; role cannot log in; no `auth` USAGE, no `public` CREATE, no default ACLs | **PASS (local)** with the §6.1 pattern |
++| G8 | 31/31 SQL tests + 2 follow-ups: EXECUTE matrix (impl `postgres` only; wrapper `authenticated` only; helpers no API role); API roles have no table privileges and no `intake_private` USAGE; role SELECT/DELETE allowed only via policy, INSERT/UPDATE/audit DELETE/profile SELECT denied; RLS without policy → 0 rows; owner DELETE/UPDATE/TRUNCATE refused by trigger; audit UPDATE/DELETE refused with rows present; hostile `search_path` + temp shadow table ineffective; no authority after the implementation returns or after a trapped error; erasure barrier and environment marker behave as designed | **PASS (local)** |
++| G10 | 14/14 API tests through Kong → PostgREST/GoTrue with synthetic users: platform admin 200 (rows erased); ordinary user 403 `42501`; service key 403; anon 401; spoofed `p_actor` 404 `PGRST202`; forged claims 401 `PGRST301`; unsigned token 401; private schema 406 `PGRST106`; reason required 400; audit actor = admin `auth.uid()`, exec role `intake_destructive`, other client untouched; barrier release user 403 / admin 204 appended; role has no `auth` USAGE | **PASS (local)** |
++
++### 17.2 Hosted DEV preflight — read-only catalog inspection (`epdrtzcydvnoidwrepqz`, 2026-10-14)
++Method: two `SELECT`-only batches through `supabase db query --linked`, each beginning `SET TRANSACTION READ ONLY` (confirmed `transaction_read_only = on`). No `CREATE ROLE`, `GRANT`, `SET ROLE` or ownership change was attempted. Note: the Supabase CLI itself refreshes a short-lived credential for its platform-managed login role `cli_login_postgres` on each invocation ("Initialising login role…"; `valid_until` a few minutes ahead; membership in `postgres` granted by `supabase_admin`); that is CLI/platform behavior, not part of this preflight's SQL, and the same mechanism was used by earlier read-only checks.
++
++| Observation | Value | What it shows |
++|---|---|---|
++| Server version | `17.6` (`server_version_num` 170006) | PG16+ membership semantics apply (G1 consistent) |
++| `postgres` attributes | `super=f createrole=t createdb=t bypassrls=t inherit=t` | Migration identity holds `CREATEROLE`; not superuser (matches local) |
++| `createrole_self_grant` | empty | Creator would receive `ADMIN` only — same as local; the explicit `WITH SET TRUE` grant is required on hosted too |
++| `supautils` | loaded via `session_preload_libraries`; `superuser = supabase_admin`; `privileged_role = supabase_privileged_role` | Supabase's role-guard extension is active and can intercept role DDL |
++| `supautils.reserved_roles` / `reserved_memberships` | Supabase system roles only; **`intake_destructive` not listed** | The intended name is not reserved and the intended membership is not a reserved membership |
++| `intake_destructive` | does not exist | Clean starting state |
++| `postgres` CREATE on database | true | `CREATE SCHEMA intake_private` is permitted by privilege |
++| Existing `postgres` memberships | `ADMIN, INHERIT, SET` on `anon`, `authenticated`, `service_role`, `authenticator` (grantor `supabase_admin`) | SET-membership mechanism is in use on hosted |
++| Platform use of the same pattern | `cli_login_postgres` is a member of `postgres` with `set=true, inherit=false` (grantor `supabase_admin`) | Supabase itself uses `SET TRUE, INHERIT FALSE` membership on this PG17 project |
++
++**What catalog inspection proves:** the hosted migration identity has `CREATEROLE`, the PG17 self-grant behavior is the same as local (explicit SET grant needed), the role name and membership are not on supautils' reserved lists, and SET-only membership is a working mechanism on this project.
++
++**What it cannot prove (requires an isolated hosted branch):** that supautils actually permits `CREATE ROLE intake_destructive NOLOGIN NOINHERIT NOBYPASSRLS` by `postgres`; that `GRANT intake_destructive TO postgres WITH SET TRUE, INHERIT FALSE` is accepted; that `SET LOCAL ROLE` + `CREATE FUNCTION` in `intake_private` succeeds under supautils hooks; that hosted PostgREST behaves as locally for G10; and everything in G9 (backup/restore, branching).
++
++**Preflight verdict:** no catalog evidence of a blocker; hosted feasibility is **likely but unproven**.
++
++### 17.3 Remaining G2 and G9 requirements (unchanged authority; separate authorizations)
++- **G2 — PROD parity (read-only, before PROD apply):** PROD `server_version`; `postgres` attributes incl. `createrole`; `createrole_self_grant`; supautils reserved roles/memberships; default ACLs in `public`; `appointments` trigger/constraint/index/inbound-FK fingerprints against the I0 baseline; absence of any `intake_*` object and of `intake_destructive`; `supabase_realtime` publication membership; parameter-logging settings.
++- **G9 — backup/restore and branching (before PROD apply):** on a hosted branch with the rehearsal objects: (1) fingerprint role attributes, `postgres` SET membership, `intake_private` ACL, implementation owner/ACL, policies; (2) create a new branch from it and restore from the project's available backup path into a new project/branch (never into live DEV/PROD); (3) compare fingerprints, run the erasure smoke test through PostgREST, confirm the environment marker; (4) if the role, the SET membership or ownership is missing, apply the P3-b runbook (§6.1) and record whether every restore needs it; (5) file the result as a release artifact.
++- **G7/G8/G10 hosted:** repeat RH01–RH04 on an isolated hosted branch (synthetic objects only), plus the read-only fingerprint before and after.
+--- a/NSI_V1_Engineering_Spec.md (rev 4.1)
++++ b/NSI_V1_Engineering_Spec.md (rev 4.2)
+@@ -423,3 +423,10 @@
+ - **Least privilege (P3-c):** no direct `service_role` access to any intake table.
+ - Documented for later: database-side entitlement before collection (N2); relationship-based instructor access covering Hybrid Instructors, not a role name (N4, I5); guardian assurance pinned to each consent (N5); role recovery and post-restore erasure checks (P3-b, before PROD).
+ - Postgres 17.6 previously observed on DEV (2026-10-13) and PROD (2026-10-12); fresh check before the PROD migration.
++
++## 20. I1 revision 4.2 (amendment, planning only)
++
++- The restricted `intake_destructive` role architecture is kept; the fallback is not used.
++- PostgreSQL 17.6 gives the creating role only `ADMIN` on a new role, so M1 grants `intake_destructive TO postgres WITH SET TRUE, INHERIT FALSE`.
++- Role-owned implementations in `intake_private` are created, granted and (on rollback) dropped while acting as the role (`SET LOCAL ROLE`); `ALTER FUNCTION … OWNER` is not used because it breaks re-runs and drops the wrappers' EXECUTE grant.
++- Local disposable rehearsal: G7, G8 and G10 PASS (33 SQL + 14 API tests). Hosted read-only preflight on DEV found no blocker (`postgres` has `CREATEROLE`; same PG17 self-grant behavior; role name not reserved by supautils; SET-only membership already used by the platform) but cannot prove hosted role DDL works. Hosted-branch rehearsal, G2 and G9 remain.
+--- a/NSI_I0_Verification_Report.md (rev 4.1)
++++ b/NSI_I0_Verification_Report.md (rev 4.2)
+@@ -177,3 +177,7 @@
+ - G8: function ownership transfer and `TO <role>` RLS policies for a restricted role (DEV rehearsal in a disposable branch only).
+ - G9: whether Supabase backup/restore and branching preserve a custom role, its grants and function ownership.
+ - G10: `auth.uid()` inside a definer function owned by the restricted role, called through PostgREST with a user JWT.
++
++## 10. Addendum: hosted restricted-role preflight (2026-10-14, read-only)
++
++See `NSI_I1_Schema_Plan.md` §17.2. Two `SELECT`-only batches in read-only transactions on DEV `epdrtzcydvnoidwrepqz`: PostgreSQL 17.6; `postgres` has `CREATEROLE` (not superuser); `createrole_self_grant` empty; supautils active with Supabase-only reserved roles/memberships; `intake_destructive` absent and not reserved. No role, grant or ownership change was attempted. The Supabase CLI refreshes a short-lived credential for its own `cli_login_postgres` login role on each `db query --linked` call; that is platform behavior, not part of the inspected SQL.

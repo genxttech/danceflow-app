@@ -1,0 +1,24 @@
+== forward M1-M9, then M10
+   fingerprint M9: 534c5e93300ef25b5fa8496fb472d48f|670
+   M8 suite on M9 (documents the OPEN P1 behaviour): ERROR:  NSI I2 M8 SUITE PASS (43 checks)
+   M9 test_T_nsi_i1_foundation: ERROR:  NSI I1 DEV-SAFE SUITE PASS (97 checks)
+   M9 test_T_nsi_i1_local: ERROR:  NSI I1 SUITE PASS (303 checks)
+   M9 test_T_nsi_i2_local: ERROR:  NSI I2 SUITE PASS (92 checks)
+   fingerprint M10: c6b3d46bfbe354c9b67864ad9bd58bc2|670
+   M10 boundary suite on M10: ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+   M7 suite on M10: ERROR:  NSI I2 M7 SUITE PASS (36 checks)
+   M9 suite on M10: ERROR:  NSI I2 M9 SUITE PASS (17 checks)
+   M10 test_T_nsi_i1_foundation: ERROR:  NSI I1 DEV-SAFE SUITE PASS (97 checks)
+   M10 test_T_nsi_i2_local: ERROR:  NSI I2 SUITE PASS (92 checks)
+== rollback restores M9 exactly
+   rollback M10 -> M9 fingerprint identical
+   M8 suite after rollback (back on M9): ERROR:  NSI I2 M8 SUITE PASS (43 checks)
+   second rollback refused on an M9 database: ERROR:  nsi rollback M10 refused: intake_ensure_request is not at the M10 level
+== forward again reproduces M10
+   re-applied M10 fingerprint identical
+== replays on an M10 database
+   replay M10 ok
+   fingerprint unchanged by the M10 replay
+   replay M8 fails closed: ERROR:  nsi catalog self-check failed: unexpected function public.intake_archive_template; unexpected function public.in
+   replay M9 fails closed: ERROR:  nsi catalog self-check failed: function public.intake_ensure_request does not carry the nsi-body:m8 marker (an o
+SUMMARY m10 lifecycle: failures=0

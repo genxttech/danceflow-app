@@ -1,0 +1,12 @@
+5c5
+< \restrict fplDxs2ftTTmPNuhMvbhgZRElSCE7EvUH5WQ4pexbk7CrN5atd59J26qwDGMEmf
+---
+> \restrict kGqTpYvYxrTw3WAZtUxQqUeWXj5Q0MtZ1nsUJ3bu7P5xlqBeGYs6yZ1zzuJ0vWR
+13171c13171
+< COMMENT ON FUNCTION public._tw4psh_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents integer, p_approval_ref text, p_actor uuid, p_funding text, p_studio_id uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_period_key text, p_evidence_document_ref text, p_evidence_sha256 text) IS 'tw4psh applied_at=2026-11-23T12:34:39.326230Z';
+---
+> COMMENT ON FUNCTION public._tw4psh_spend_authorize(p_entity_id uuid, p_kind text, p_amount_cents integer, p_approval_ref text, p_actor uuid, p_funding text, p_studio_id uuid, p_evidence_authorized_on date, p_evidence_role text, p_evidence_scope text, p_evidence_amount_cents integer, p_evidence_period_key text, p_evidence_document_ref text, p_evidence_sha256 text) IS 'tw4psh applied_at=2026-11-23T12:42:08.262778Z';
+108862c108862
+< \unrestrict fplDxs2ftTTmPNuhMvbhgZRElSCE7EvUH5WQ4pexbk7CrN5atd59J26qwDGMEmf
+---
+> \unrestrict kGqTpYvYxrTw3WAZtUxQqUeWXj5Q0MtZ1nsUJ3bu7P5xlqBeGYs6yZ1zzuJ0vWR

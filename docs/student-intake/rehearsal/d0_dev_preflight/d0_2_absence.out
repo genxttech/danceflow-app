@@ -1,0 +1,11 @@
+k,v
+intake_relations_any_schema,0
+intake_relations_list,<none>
+intake_functions_any_schema,0
+intake_private_schema,0
+intake_destructive_role,0
+intake_types,0
+intake_policies,0
+intake_triggers_anywhere,0
+environment_first_use_marker,n/a (table absent)
+leftover_probe_tables,0

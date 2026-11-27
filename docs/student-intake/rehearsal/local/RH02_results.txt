@@ -1,0 +1,60 @@
+BEGIN
+CREATE TABLE
+GRANT
+INSERT 0 2
+INSERT 0 3
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+DO
+          id          | pass |                             test                             |                                   expected                                    |                                             actual                                              
+----------------------+------+--------------------------------------------------------------+-------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------
+ G10-S1               | t    | non-admin authenticated (SQL simulation) refused             | 42501                                                                         | 42501 not authorized
+ G10-S2               | t    | admin authenticated (SQL simulation): erased, actor recorded | deleted=1 actor=a000…0a                                                       | deleted=1 actor=a0000000-0000-0000-0000-00000000000a
+ G7-01                | t    | role attributes                                              | nologin noinherit nobypassrls nosuper nocreaterole                            | login=f inherit=f bypassrls=f super=f createrole=f
+ G7-02                | t    | role auth/public privileges                                  | no auth USAGE, no public CREATE                                               | auth_usage=f public_create=f
+ G8-01                | t    | intake_private USAGE for API roles                           | all false                                                                     | anon=f auth=f service=f
+ G8-02                | t    | EXECUTE matrix                                               | impl: postgres only; wrapper: authenticated only; helpers: none for API roles | impl[anon=f auth=f svc=f pg=t] wrap[anon=f auth=t svc=f] helpers_any_api=f
+ G8-03                | t    | API-role table privileges on nsi_rh tables                   | none                                                                          | none
+ G8-04                | t    | role SELECT via policy                                       | 3 rows visible                                                                | 3
+ G8-05a               | t    | role INSERT denied                                           | 42501                                                                         | 42501 permission denied for table nsi_rh_requests
+ G8-05b               | t    | role UPDATE denied                                           | 42501                                                                         | 42501 permission denied for table nsi_rh_requests
+ G8-05c               | t    | role DELETE on audit denied                                  | 42501                                                                         | 42501 permission denied for table nsi_rh_audit
+ G8-05d               | t    | role SELECT on profiles denied                               | 42501                                                                         | 42501 permission denied for table nsi_rh_profiles
+ G8-06                | t    | RLS without policy                                           | 0 rows                                                                        | 0
+ G8-07a               | t    | owner (postgres) DELETE refused by trigger                   | 42501                                                                         | 42501 nsi_rh: protected change refused for postgres
+ G8-07b               | t    | owner (postgres) UPDATE refused by trigger                   | 42501                                                                         | 42501 nsi_rh: protected change refused for postgres
+ G8-07c-anon          | t    | anon DELETE denied                                           | 42501                                                                         | 42501 permission denied for table nsi_rh_requests
+ G8-07c-authenticated | t    | authenticated DELETE denied                                  | 42501                                                                         | 42501 permission denied for table nsi_rh_requests
+ G8-07c-service_role  | t    | service_role DELETE denied                                   | 42501                                                                         | 42501 permission denied for table nsi_rh_requests
+ G8-07d               | t    | owner TRUNCATE refused                                       | 42501                                                                         | 42501 nsi_rh: truncate refused
+ G8-07e               | t    | audit UPDATE refused (append-only)                           | 42501 or no rows                                                              | audit update ok
+ G8-08                | t    | wrapper with no auth.uid()                                   | 42501 not authorized                                                          | 42501 not authorized
+ G8-09                | t    | impl deletes only target; runs as restricted role            | deleted=2 c1=0 c2=1 exec_role=intake_destructive                              | deleted=2 c1=0 c2=1 exec_role=intake_destructive
+ G8-10                | t    | no privilege leak after impl returns (same transaction)      | 42501                                                                         | 42501 nsi_rh: protected change refused for postgres current_user=postgres
+ G8-11                | t    | hostile search_path + temp shadow table                      | temp row untouched (1)                                                        | 1
+ G8-12a               | t    | insert for erased client refused (barrier)                   | 42501                                                                         | 42501 nsi_rh: erasure barrier active
+ G8-12b               | t    | insert for unrelated client allowed                          | ok                                                                            | ok
+ G8-12c               | t    | insert allowed after audited release                         | ok                                                                            | ok
+ G8-12d               | t    | original erasure_record unchanged and release appended       | 1 record + 1 release                                                          | records=1 releases=1
+ G8-13a               | t    | marker written twice -> one row, studio_id null              | 1                                                                             | 1
+ G8-13b               | t    | marker delete refused (owner)                                | 42501                                                                         | 42501 nsi_rh: audit is append-only
+ G8-13c               | t    | studio-scoped marker rejected                                | 23514                                                                         | 23514 new row for relation "nsi_rh_audit" violates check constraint "nsi_rh_audit_marker_scope"
+(31 rows)
+
+   summary    
+--------------
+ 31/31 passed
+(1 row)
+
+ROLLBACK

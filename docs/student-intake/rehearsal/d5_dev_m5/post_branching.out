@@ -1,0 +1,5 @@
+k,v
+supabase_migrations_schema,present owner=postgres acl=<default>
+supabase_migrations_relations,schema_migrations:r schema_migrations_pkey:i
+schema_migrations_rows,1
+schema_migrations_versions,20261014090519:remote_schema

@@ -1,0 +1,22 @@
+backed up current df-isoqa/base:20261205090000 (sha256:00748f0063e6)
+== A: up full-nsi-end (baseline from origin/main)
+   up exit code 0
+   NSI catalog fingerprint A: 5c8ef043e71dd17b9a4a6d95b2c1bed4|670   appointments fp A: ff651a6c438d40a001e52ef1625c9043
+   M11 suite on A: ERROR:  NSI I2 M11 SUITE PASS (9 checks)
+   M10 suite on A: ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+   M7 suite on A: ERROR:  NSI I2 M7 SUITE PASS (36 checks)
+   M9 suite on A: ERROR:  NSI I2 M9 SUITE PASS (17 checks)
+   test_T_nsi_i1_foundation on A: ERROR:  NSI I1 DEV-SAFE SUITE PASS (97 checks)
+   test_T_nsi_i2_local on A: ERROR:  NSI I2 SUITE PASS (92 checks)
+== rollbacks on A: M11 -> M10 -> M9
+   M11 rollback -> M10 fingerprint identical
+   M10 rollback -> M9 fingerprint identical
+== B: baseline from nsi/n0-preserve (NSI inside the history by filename order)
+   baseline exit code 0
+   up exit code 0
+   NSI catalog fingerprint B: 5c8ef043e71dd17b9a4a6d95b2c1bed4|670   appointments fp B: ff651a6c438d40a001e52ef1625c9043
+   pg_dump diff A vs B (public + intake_private, schema only): 6 differing lines
+FAIL: schema dumps differ (6 lines), see schema_diff_head.txt
+   NSI fingerprints identical
+restored df-isoqa/base:20261205090000
+SUMMARY full-chain replay: failures=1

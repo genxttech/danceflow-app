@@ -7,6 +7,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { studioHasFeature } from "@/lib/billing/access";
 import { getStudioSmsStatus } from "@/lib/sms/onboarding/client";
+import { canConfigureStudentIntake, isStudentIntakeConfigAvailable } from "@/lib/intake/access";
 
 type StudioRow = {
   id: string;
@@ -379,6 +380,22 @@ export default async function SettingsPage() {
                 <span className="block font-semibold text-slate-950">Texting</span>
                 <span className="mt-1 block text-sm text-slate-600">
                   Set up appointment texts for your clients and follow the approval progress.
+                </span>
+              </span>
+              <span aria-hidden="true" className="text-xl font-semibold text-violet-600">
+                →
+              </span>
+            </Link>
+          ) : null}
+          {canConfigureStudentIntake(context.studioRole) && isStudentIntakeConfigAvailable(context.studioId) ? (
+            <Link
+              href="/app/settings/student-intake"
+              className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-violet-50/60 md:px-5"
+            >
+              <span>
+                <span className="block font-semibold text-slate-950">Student Intake</span>
+                <span className="mt-1 block text-sm text-slate-600">
+                  Choose the intake form new students complete and see which lessons would ask for it.
                 </span>
               </span>
               <span aria-hidden="true" className="text-xl font-semibold text-violet-600">

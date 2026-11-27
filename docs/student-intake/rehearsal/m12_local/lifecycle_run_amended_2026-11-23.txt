@@ -1,0 +1,45 @@
+== forward M1-M11, then M12
+   fingerprint M11: 9c575d50b7ef98d73b2583e73818e8d1|670
+   fingerprint M12: ad44f6423aa34dcbe70ca1f1481d3f55|767
+   M12 boundary suite: ERROR:  NSI I3-1 SUITE PASS (26 checks)
+   M11 suite on M12: ERROR:  NSI I2 M11 SUITE PASS (18 checks)
+   M10 suite on M12: ERROR:  NSI I2 M10 SUITE PASS (17 checks)
+   M7 suite on M12: ERROR:  NSI I2 M7 SUITE PASS (36 checks)
+   M9 suite on M12: ERROR:  NSI I2 M9 SUITE PASS (17 checks)
+   M12 test_T_nsi_i1_foundation: ERROR:  NSI I1 DEV-SAFE SUITE PASS (109 checks)
+   M12 test_T_nsi_i2_local: ERROR:  NSI I2 SUITE PASS (92 checks)
+   level-10 DEV-safe suite (no fixtures, safe for shared DEV): ERROR:  NSI I3-1 DEV-SAFE SUITE PASS (9 checks)
+== mutation probes (each mutated M12 must make the suite FAIL; the good file is re-applied afterwards)
+   probe context skips link_valid: detected (S05)
+   probe issue skips assert_staff: detected (S01)
+   probe exchange skips the rate limit: detected (S08b)
+   probe link_valid ignores the generation: detected (S03b)
+   probe link_valid ignores the erasure barrier: detected (S05)
+   probe link_valid ignores a dead appointment: detected (S05)
+   probe erase leaves the sessions: detected (S10)
+   probe purge ignores legal holds: detected (S11)
+   probe issue ignores the expected generation: detected (S13a)
+   probe issue skips the live-appointment pre-check: detected (S13b)
+   probe exchange counts unknown tokens: detected (S13c)
+   catalog identical after the probes (good file re-applied)
+   M12 boundary suite after the probes: ERROR:  NSI I3-1 SUITE PASS (26 checks)
+== rollback restores M11 exactly; refused once an M12 audit event exists
+   rollback M12 -> M11 fingerprint identical
+   M11 suite after rollback (back on M11): ERROR:  NSI I2 M11 SUITE PASS (18 checks)
+   re-applied M12 fingerprint identical
+   rollback refused once an M12 audit event exists
+   refused rollback left the catalog unchanged
+== replays on an M12 database
+   replay M12 ok
+   fingerprint unchanged by the M12 replay
+   replay M11 fails closed
+== concurrency harness C1-C4 on the M12 container (commits fixtures; runs last)
+   C1 parallel staff issues for one request (all expect generation 1): attempts=8 succeeded=1 refused_mismatch=7 live_invitations=1 max_generation=1 status=invited deadlocks=0
+   C2 parallel exchanges of one token: attempts=12 served=10 live_sessions=10 (cap 10) errors=0
+   C3 resend racing an exchange: rounds=8 failures=0
+   C4 parallel rate-limit hits: attempts=32 allowed=10 (limit 10)
+   C5a exchange waited for the client lock (8 s) without holding the invitation lock, then succeeded
+   C5b bulk key revoke waited for the client lock (8 s) without holding the invitation lock, then revoked 1
+   after restore: gate_open=f catalog=[ok]
+   SUMMARY concurrency M12: failures=0 deadlocks=0
+SUMMARY m12 lifecycle: failures=0

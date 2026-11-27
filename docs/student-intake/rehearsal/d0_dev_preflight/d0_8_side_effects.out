@@ -1,0 +1,38 @@
+k,v
+trigger appointments.appointments_00_guard_floor_rental_financial_fields,BEFORE fn=_guard_appointments_floor_rental_financial_fields() enabled=O flags=none
+trigger appointments.appointments_01_guard_group_class_series,BEFORE fn=_guard_appointments_group_class_series_fields() enabled=O flags=none
+trigger appointments.appointments_02_guard_cancel_terminal_attendance,BEFORE fn=enforce_group_class_cancel_no_terminal_attendance() enabled=O flags=secdef
+trigger appointments.appointments_03_guard_group_class_cancel_authority,BEFORE fn=_gcsc3_guard_group_class_cancel_authority() enabled=O flags=none
+trigger appointments.appointments_04_guard_group_class_capacity_floor,BEFORE fn=enforce_group_class_capacity_floor() enabled=O flags=secdef
+trigger appointments.appointments_05_guard_group_class_reactivation,BEFORE fn=_gcsc4_guard_group_class_reactivation() enabled=O flags=none
+trigger appointments.appointments_deduct_package_credit_attended,AFTER fn=deduct_package_credit_when_appointment_attended() enabled=O flags=secdef
+trigger appointments.appointments_enforce_attendance_lifecycle,BEFORE fn=enforce_private_lesson_attendance_lifecycle() enabled=O flags=secdef
+trigger appointments.appointments_enforce_group_class_shape,BEFORE fn=enforce_group_class_canonical_shape() enabled=O flags=secdef
+trigger appointments.appointments_enforce_private_lesson_membership_capacity,BEFORE fn=enforce_private_lesson_membership_capacity() enabled=O flags=secdef
+trigger appointments.appointments_gcsc3_cancel_pending_reminders,AFTER fn=_gcsc3_cancel_pending_class_reminders() enabled=O flags=secdef
+trigger appointments.appointments_gcse3_direct_class_schedule_insert,AFTER fn=_gcse3_guard_direct_class_schedule() enabled=O flags=secdef
+trigger appointments.appointments_gcse3_direct_class_schedule_update,AFTER fn=_gcse3_guard_direct_class_schedule() enabled=O flags=secdef
+trigger appointments.appointments_gcse3_lock_direct_class_insert,BEFORE fn=_gcse3_lock_direct_class_row() enabled=O flags=secdef
+trigger appointments.appointments_gcse3_lock_direct_class_update,BEFORE fn=_gcse3_lock_direct_class_row() enabled=O flags=secdef
+trigger appointments.appointments_guard_series_occurrence_delete,BEFORE fn=_gcsc3_guard_series_occurrence_delete() enabled=O flags=none
+trigger appointments.appointments_sync_membership_usage_for_private_lesson,AFTER fn=sync_membership_usage_for_private_lesson_appointment() enabled=O flags=secdef
+trigger appointments.landmark1a_enforce_appointment_instructor_assignability,BEFORE fn=_landmark1a_enforce_appointment_instructor_assignability() enabled=O flags=secdef
+trigger appointments.set_appointments_updated_at,BEFORE fn=set_updated_at() enabled=O flags=none
+trigger appointments.trg_reward_appointment_attended,AFTER fn=reward_on_appointment_attended() enabled=O flags=secdef
+trigger clients.clients_sync_portal_user_to_account_link,AFTER fn=sync_client_portal_user_to_account_link() enabled=O flags=secdef
+trigger clients.landmark1a_clients_linked_instructor_same_studio,BEFORE fn=_landmark1a_assert_client_linked_instructor_same_studio() enabled=O flags=secdef
+trigger clients.set_clients_updated_at,BEFORE fn=set_updated_at() enabled=O flags=none
+trigger studios.guard_studios_connected_account,BEFORE fn=_guard_studios_connected_account() enabled=O flags=none
+trigger studios.guard_studios_entitlement_columns,BEFORE fn=_guard_studios_entitlement_columns() enabled=O flags=none
+trigger studios.guard_studios_saas_billing_identity,BEFORE fn=_guard_studios_saas_billing_identity() enabled=O flags=none
+trigger studios.set_studios_updated_at,BEFORE fn=set_updated_at() enabled=O flags=none
+rules_on_fixture_tables,<none>
+publications_with_fixture_tables,<none>
+event_trigger issue_pg_graphql_access,ddl_command_end enabled=O fn=grant_pg_graphql_access() flags=none
+event_trigger issue_graphql_placeholder,sql_drop enabled=O fn=set_graphql_placeholder() flags=none
+event_trigger pgrst_ddl_watch,ddl_command_end enabled=O fn=pgrst_ddl_watch() flags=notify
+event_trigger pgrst_drop_watch,sql_drop enabled=O fn=pgrst_drop_watch() flags=notify
+event_trigger issue_pg_cron_access,ddl_command_end enabled=O fn=grant_pg_cron_access() flags=none
+event_trigger issue_pg_net_access,ddl_command_end enabled=O fn=grant_pg_net_access() flags=http
+extensions_installed,"pg_stat_statements 1.11, pgcrypto 1.3, plpgsql 1.0, supabase_vault 0.3.1, uuid-ossp 1.1"
+sequences_owned_by_fixture_tables,<none>

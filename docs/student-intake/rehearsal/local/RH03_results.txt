@@ -1,0 +1,16 @@
+synthetic users created: admin=1dd0bbac-e683-4589-813a-06f51b482cc8 user=dcfef737-a50f-4013-8e35-46e9472abf83
+G10-A1|ordinary authenticated user denied|403 {"code":"42501","details":null,"hint":null,"message":"not authorized"}|PASS
+G10-A2|service-role-only caller denied|403 {"code":"42501","details":null,"hint":null,"message":"permission denied for function intake_erase_client"}|PASS
+G10-A3|anon caller denied|401 {"code":"42501","details":null,"hint":null,"message":"permission denied for function intake_erase_client"}|PASS
+G10-A4|spoofed p_actor parameter denied (no such signature)|404 {"code":"PGRST202","details":"Searched for the function public.intake_erase_client with parameters p_actor, p_client, p_reason, p_studio or with a single unnamed json/jsonb parameter, but no matches were found in the sch|PASS
+G10-A5|forged claims (re-written sub, stale signature) rejected|401 {"code":"PGRST301","details":"None of the keys was able to decode the JWT","hint":null,"message":"No suitable key or wrong key type"}|PASS
+G10-A6|unsigned alg=none token rejected|401 {"code":"PGRST301","details":"JWT is unsecured but expected 'alg' was not 'none'","hint":null,"message":"Wrong or unsupported encoding algorithm"}|PASS
+G10-A7|private implementation not exposed (Content-Profile intake_private)|406 {"code":"PGRST106","details":null,"hint":"Only the following schemas are exposed: public, graphql_public","message":"Invalid schema: intake_private"}|PASS
+G10-A7b|private implementation not resolvable in public|404 {"code":"PGRST202","details":"Searched for the function public.erase_client_impl with parameters p_actor, p_client, p_reason, p_studio or with a single unnamed json/jsonb parameter, but no matches were found in the schem|PASS
+G10-A8|platform admin without reason refused|400 {"code":"22023","details":null,"hint":null,"message":"reason required"}|PASS
+G10-A9|platform admin authorized (rows erased)|200 2|PASS
+G10-A10|audit actor = admin auth.uid(); exec_role = intake_destructive; C2 intact|1dd0bbac-e683-4589-813a-06f51b482cc8|intake_destructive c2=1|PASS
+G10-A11a|barrier release by ordinary user denied|403 {"code":"42501","details":null,"hint":null,"message":"not authorized"}|PASS
+G10-A11b|barrier release by admin appended with admin actor|204 rel=1|1dd0bbac-e683-4589-813a-06f51b482cc8|PASS
+G10-A12|restricted role has no auth schema USAGE (actor passed from wrapper)|auth_usage=f|PASS
+SUMMARY: 14/14 passed

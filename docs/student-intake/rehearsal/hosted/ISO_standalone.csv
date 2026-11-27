@@ -1,0 +1,17 @@
+Initialising login role...
+k,v
+ctx,db=postgres user=postgres session_user=postgres ver=17.11 ro=on
+public_relations,0
+public_functions,0
+danceflow_tables_present,0
+auth_users,0
+vault_secrets,0
+extensions,"pg_stat_statements,pgcrypto,plpgsql,supabase_vault,uuid-ossp"
+pg_net_or_hook_triggers,0
+supabase_migrations_schema,0
+role_intake_destructive,0
+postgres_role,super=f createrole=t bypassrls=t inherit=t
+createrole_self_grant,
+supautils_reserved_roles,"supabase_admin, supabase_auth_admin, supabase_storage_admin, supabase_read_only_user, supabase_realtime_admin, supabase_replication_admin, supabase_etl_admin, dashboard_user, pgbouncer, service_role*, authenticator*, authenticated*, anon*, supabase_privileged_role"
+client_connections,"authenticator/PostgREST 14.18, pgbouncer/, pgbouncer/Supavisor (auth_query), supabase_admin/postgres_exporter"
+pgrst_db_schemas,<unset>

@@ -1,0 +1,13 @@
+fp: 97e13781e9f0498d8e452c64d6d43e18|768
+R1 held client rows left=0 (hold: db418acb-c1b1-4f1f-bcc9-5a4b3beefd72)
+R1 erase vs just-committed hold: defect reproduced on this database (expected for EXPECT=bug)
+R2 purge output: {"sessions": 1, "invitations": 0, "rate_limits": 0, "clients_locked": 1, "clients_candidate": 1}; sessions left=0
+R2 purge DELETE vs a hold committed during the statement: defect reproduced on this database (expected for EXPECT=bug)
+R3 isolation level: STUB (needs the M14 guard)
+R4 starvation by held clients: STUB (needs the M14 candidate pre-filter)
+R5 strengthened C7 (call succeeded, clients_locked < clients_candidate): STUB
+R6 P04 discriminating pair (different non-null actors): STUB
+SUMMARY m14 races (bug): failures=0
+ls: cannot access '/c/dfr/heavy.lock': No such file or directory
+
+[exited with code 0]

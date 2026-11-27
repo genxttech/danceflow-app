@@ -1,0 +1,31 @@
+k,v
+default_acl postgres in public on r,anon=arwdDxtm/postgres authenticated=arwdDxtm/postgres postgres=arwdDxtm/postgres service_role=arwdDxtm/postgres
+default_acl postgres in public on f,anon=X/postgres authenticated=X/postgres postgres=X/postgres service_role=X/postgres
+default_acl postgres in public on S,anon=rwU/postgres authenticated=rwU/postgres postgres=rwU/postgres service_role=rwU/postgres
+default_acl supabase_admin in public on S,anon=rwU/supabase_admin authenticated=rwU/supabase_admin postgres=rwU/supabase_admin service_role=rwU/supabase_admin
+default_acl supabase_admin in public on r,anon=arwdDxtm/supabase_admin authenticated=arwdDxtm/supabase_admin postgres=arwdDxtm/supabase_admin service_role=arwdDxtm/supabase_admin
+default_acl supabase_admin in public on f,anon=X/supabase_admin authenticated=X/supabase_admin postgres=X/supabase_admin service_role=X/supabase_admin
+default_acl postgres in storage on r,anon=arwdDxtm/postgres authenticated=arwdDxtm/postgres postgres=arwdDxtm/postgres service_role=arwdDxtm/postgres
+default_acl postgres in storage on f,anon=X/postgres authenticated=X/postgres postgres=X/postgres service_role=X/postgres
+default_acl postgres in storage on S,anon=rwU/postgres authenticated=rwU/postgres postgres=rwU/postgres service_role=rwU/postgres
+default_acl supabase_auth_admin in auth on r,dashboard_user=arwdDxtm/supabase_auth_admin postgres=arwdDxtm/supabase_auth_admin
+default_acl supabase_auth_admin in auth on S,dashboard_user=rwU/supabase_auth_admin postgres=rwU/supabase_auth_admin
+default_acl supabase_auth_admin in auth on f,dashboard_user=X/supabase_auth_admin postgres=X/supabase_auth_admin
+default_acl supabase_admin in realtime on S,dashboard_user=rwU/supabase_admin postgres=rwU/supabase_admin
+default_acl supabase_admin in realtime on f,dashboard_user=X/supabase_admin postgres=X/supabase_admin
+default_acl supabase_admin in graphql_public on S,anon=rwU/supabase_admin authenticated=rwU/supabase_admin postgres=rwU/supabase_admin service_role=rwU/supabase_admin
+default_acl supabase_admin in graphql_public on r,anon=arwdDxtm/supabase_admin authenticated=arwdDxtm/supabase_admin postgres=arwdDxtm/supabase_admin service_role=arwdDxtm/supabase_admin
+default_acl supabase_admin in graphql_public on f,anon=X/supabase_admin authenticated=X/supabase_admin postgres=X/supabase_admin service_role=X/supabase_admin
+default_acl supabase_admin in extensions on r,postgres=a*r*w*d*D*x*t*m*/supabase_admin
+default_acl supabase_admin in extensions on f,postgres=X*/supabase_admin
+default_acl supabase_admin in extensions on S,postgres=r*w*U*/supabase_admin
+default_acl supabase_admin in graphql on r,anon=arwdDxtm/supabase_admin authenticated=arwdDxtm/supabase_admin postgres=arwdDxtm/supabase_admin service_role=arwdDxtm/supabase_admin
+default_acl supabase_admin in graphql on f,anon=X/supabase_admin authenticated=X/supabase_admin postgres=X/supabase_admin service_role=X/supabase_admin
+default_acl supabase_admin in graphql on S,anon=rwU/supabase_admin authenticated=rwU/supabase_admin postgres=rwU/supabase_admin service_role=rwU/supabase_admin
+default_acl supabase_admin in realtime on r,dashboard_user=arwdDxtm/supabase_admin postgres=a*r*wdDxtm/supabase_admin
+default_acl_unexpected_grantees_in_public,<none>
+schema_public_acl,"{pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,postgres=U/pg_database_owner,anon=U/pg_database_owner,authenticated=U/pg_database_owner,service_role=U/pg_database_owner}"
+schema_extensions_acl,"{postgres=UC/postgres,anon=U/postgres,authenticated=U/postgres,service_role=U/postgres,dashboard_user=UC/postgres}"
+api_role_privs_on_intake_objects,0
+public_tables_without_rls,1
+public_tables_count,334
