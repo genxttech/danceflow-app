@@ -1,0 +1,32 @@
+{
+  "id": "OD27-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA Pro/Am, age or gender categories",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "II.B.7.c (p.7)",
+    "quote_free_summary": "Pro/Am competitions may offer divisions including 'separate or merged categories by age or gender, etc.'"
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "A future NDCA Pro/Am profile may let organizers offer separate or merged age or gender categories; it is discretionary.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Discretionary rule: the blocker applies ONLY if an NDCA profile offers gender categories (then correct handling and gender data, OD27-DF-0002, are required). Docs-only record; no compliance claimed.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Permissive ('may'). If an organizer offers gender categories, gender data would be needed (OD27-DF-0002). How the gender categories sit with the sex-or-gender-neutral couple definition in II.A.7.a is not explained in the text read; do not choose an interpretation. NDCA effective_from 2026-06-01 is a placeholder convention shared with sibling entries; the rule book states only 'June 2026 EDITION' (OD-30), so the effective date is not verified.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-27 (owner decision 2026-11-23: Option B retain Studio/Custom role flexibility; document body limitations; retrospective audit PR #795)",
+    "docs/competition/governance/roles/OD-27-role-flexibility-and-body-role-rules.md",
+    "OD-02/OD-03/OD-18/OD-19 (sibling PRs)",
+    "OD-28 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded: OD-27
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-27 | **Option B:** retain Studio/Custom leader/follower flexibility and organizer-managed eligibility; no gender collection, columns, migrations or role-lock for initial activation; dance role is never gender; body limitations documented; disclosure specified (text only). | 2026-11-23 | Docs only: [OD-27 record](../roles/OD-27-role-flexibility-and-body-role-rules.md); register OD27-*. | **UCWDC traditional Couples (II.C.1), Mixed-Role (II.A.7, II.A.12, II.C.2), ProAm/ProPro, Line Dance gender divisions and Teams: NOT IMPLEMENTED, profile-activation blockers. NDCA II.A.7.a(1) no-role-switching NOT IMPLEMENTED (scope is "single-dance or multi-dance"; audit correction; remaining questions listed); II.A.7.a couple definition and II.B.7.c gender categories requires_interpretation.** Future gender data = separate privacy decision (checklist). OD-28 placeholder. OD-01 (PR 832) preserved. |

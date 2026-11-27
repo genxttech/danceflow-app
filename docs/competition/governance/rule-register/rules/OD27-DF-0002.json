@@ -1,0 +1,24 @@
+{
+  "id": "OD27-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: dance role is not gender; future gender-data evaluation",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: dance role (leader/follower) and gender are separate concepts. Gender is never inferred from dance role, name, or unrelated profile data. No universal gender collection. Any future gender-data collection is a SEPARATE privacy and data-minimization decision evaluated against the checklist in the OD-27 record (purpose, necessity, access controls, retention, verification, participant disclosures).",
+  "implementation": [],
+  "enforcement_point": "None. No implementation authorized.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Policy statement for product and engineering; carries no compliance claim. Related: OD-02/OD-03 age handling and OD-18/OD-19 relabelling in sibling PRs were not re-read here.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-27 (owner decision 2026-11-23: Option B retain Studio/Custom role flexibility; document body limitations; retrospective audit PR #795)",
+    "docs/competition/governance/roles/OD-27-role-flexibility-and-body-role-rules.md",
+    "OD-02/OD-03/OD-18/OD-19 (sibling PRs)",
+    "OD-28 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
