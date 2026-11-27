@@ -106,7 +106,18 @@ layer(){ # <label> <ref> <target tests dir> <migration dir>
       "$M"/sql-tests/*)
         rel="${f#"$M"/sql-tests/}"; if [[ "$rel" == */* ]]; then mkdir -p "$tdir/${rel%/*}"; fi
         if [ ! -f "$tdir/$rel" ]; then echo "$rel from $label (new)" >> "$OUT/suite-sources.txt"
-        elif ! cmp -s "$tdir/$rel" "$X/$f"; then echo "$rel from $label (replaces an earlier version; lines removed or changed: $(diff "$tdir/$rel" "$X/$f" | grep -c '^<'))" >> "$OUT/suite-sources.txt"; fi
+        elif ! cmp -s "$tdir/$rel" "$X/$f"; then
+          gone="$(diff "$tdir/$rel" "$X/$f" | grep -c '^<')"
+          # lines of the version already composed would be lost: merge this head's change onto it (base = the file where the head left the release line)
+          if [ "$gone" -gt 0 ] && git show "$(git merge-base "$ref" "$LIVE"):$f" > "$CHAIN/merge-base.tmp" 2>/dev/null && ! cmp -s "$CHAIN/merge-base.tmp" "$tdir/$rel"; then
+            cp "$tdir/$rel" "$CHAIN/merge-ours.tmp"
+            if git merge-file -q "$CHAIN/merge-ours.tmp" "$CHAIN/merge-base.tmp" "$X/$f"; then
+              cp "$CHAIN/merge-ours.tmp" "$tdir/$rel"; echo "$rel from $label MERGED onto the earlier version (both changes kept)" >> "$OUT/suite-sources.txt"; continue
+            fi
+            echo "$rel: $label does not merge cleanly onto the earlier version; the $label file was taken whole" >> "$OUT/compose-warnings.txt"
+          fi
+          echo "$rel from $label (replaces an earlier version; lines removed or changed: $gone)" >> "$OUT/suite-sources.txt"
+        fi
         cp "$X/$f" "$tdir/$rel";;
       "$M"/rollback/*) cp "$X/$f" "$CHAIN/rollback/";;
       "$M"/*.sql)
