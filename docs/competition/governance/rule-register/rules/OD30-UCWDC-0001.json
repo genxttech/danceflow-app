@@ -1,0 +1,30 @@
+{
+  "id": "OD30-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples age for the Dance Season",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "II.D.1 (p3); Dance Season definition II.A.4 (p1)",
+    "quote_free_summary": "A competitor's age for the entire Dance Season is the age they will be on the last day of that Dance Season; the Dance Season runs from January 16 to January 15."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not compute UCWDC age. The age_basis for UCWDC Couples would record dance_season_end with the stated season boundaries; mapping an event to a season is a DanceFlow derivation and unresolved for multi-day events spanning January 15-16.",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). Season membership of a multi-day event spanning Jan 15-16 is unresolved (OD30-SILENT-0002). Coordinates with UCWDC-OD03-AGE-DIVISIONS-COUPLES (PR #837).",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

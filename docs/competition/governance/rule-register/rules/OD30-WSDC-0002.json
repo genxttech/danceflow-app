@@ -1,0 +1,30 @@
+{
+  "id": "OD30-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Event minimum age",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "3.1.2.e (printed p10)",
+    "quote_free_summary": "Events may set a minimum age requirement for contestants; it must be published in the Event's rules."
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "A WSDC-bound event's organizer minimum age is organizer policy with mandatory publication; it is not a WSDC age number and never overrides the OD-02 adult-only restriction.",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). No WSDC-stated minimum age.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

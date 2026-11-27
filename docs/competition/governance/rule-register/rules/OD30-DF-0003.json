@@ -1,0 +1,20 @@
+{
+  "id": "OD30-DF-0003",
+  "governing_body": "dance_flow_policy",
+  "format": "Effective-date and applicability integrity (all bodies)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: publication date, effective date, event date and organizer declaration are separate fields; an effective date is verified only from a publisher statement and is never inferred from a file name, cover month, revision year, footer version or HTTP metadata; unverifiable applicability is the explicit status UNKNOWN and blocks activation or compliance claims for a body-declared event.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/editions/OD-30-rulebook-editions-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-30 items 6-8. Today every pinned edition's effective date is UNKNOWN. Design only: nothing implemented.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

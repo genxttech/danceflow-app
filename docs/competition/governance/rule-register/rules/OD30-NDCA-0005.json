@@ -1,0 +1,30 @@
+{
+  "id": "OD30-NDCA-0005",
+  "governing_body": "NDCA",
+  "format": "NDCA Pro/Am Student Competitor Multi-Dance age divisions (June edition)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "II.B.7.f (printed pp7-8)",
+    "quote_free_summary": "In the June edition the age divisions A (19+), B (36+), C (51+), S1 (61+), S2 (71+), S3 (76+), S4 (81+) 'shall be as listed below'."
+  },
+  "rule_class": "mandatory",
+  "requirement": "For an event bound to the June 2026 edition, the divisions are the listed set. A later edition may change this rule; no register entry cites an edition that is not admitted to the registry.",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). Edition comparison (candidate editions) is documented only in governance/editions/age-basis-source-notes.md section 4, not in the register. Pro/Am Student Pre-Teen/Junior/Youth events use the X.A classes instead (II.B.8.a).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

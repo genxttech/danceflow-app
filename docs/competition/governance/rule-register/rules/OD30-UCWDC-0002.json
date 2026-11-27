@@ -1,0 +1,30 @@
+{
+  "id": "OD30-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC ProPro/ProAm age for the Dance Season",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_ProPro-ProAm_v1-26-2026.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "sha256": "d6257b65915151ab8aa50a952b60166cf5abfe6ef70cf8be292f9044e704db84",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "II.D.1 (p3); Dance Season definition II.A.4 (p2)",
+    "quote_free_summary": "Same Dance Season rule as the Couples document: age on the last day of the Dance Season. Whose age counts for a ProAm or ProPro pair is not stated."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not compute UCWDC ProAm/ProPro age. The ProAm age_basis subject_rule is UNRESOLVED (AE-16) and blocks automatic determination.",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). ProAm whose-age rule: NOT SPECIFIED IN PROVIDED SOURCE; AE-16 stays unresolved (OD-03 decision). Coordinates with UCWDC-OD03-AGE-DIVISIONS-PROAM (PR #837).",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

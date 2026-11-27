@@ -1,0 +1,21 @@
+{
+  "id": "OD30-SILENT-0002",
+  "governing_body": "silent",
+  "format": "Age reference gaps and unresolved interpretations (NDCA, UCWDC, WSDC)",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: UCWDC ProAm/ProPro whose age counts (AE-16, ProPro/ProAm II.D); UCWDC non-Junior Couples Age-Restricted whose age; NDCA whether the X.A.1 60-day window is a recorded per-event election and what 'competitive events have begun' and 'the day of the competition' mean for multi-day events; NDCA whether X.A.6 applies to Pro/Am Student partnerships; UCWDC which Dance Season a multi-day event spanning Jan 15-16 belongs to; WSDC what instant 'close of the event' is.",
+  "implementation": [],
+  "enforcement_point": "Not built. Each gap blocks automatic determination (docs/competition/governance/editions/OD-30-rulebook-editions-design.md).",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Each is fail-closed: no automatic age-division determination. Detail: age-basis-source-notes.md.",
+  "applicable_event_versions": [
+    "Editions pinned in the source registry (2026)"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03"
+  ],
+  "last_reviewed": "2026-11-23"
+}

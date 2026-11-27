@@ -1,0 +1,30 @@
+{
+  "id": "OD30-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA couple age classification",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "effective_from": "2026-11-22",
+    "effective_to": null,
+    "section": "X.A.6 (printed p43); Senior thresholds X.A.1.g(1)-(4) (printed p42)",
+    "quote_free_summary": "A couple's classification uses the older partner's age for Pre-Teen I through Youth and Adult, and the younger partner's age for the Senior classes; Senior I-IV also need two partner thresholds (35/30, 45/40, 55/50, 65/60)."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not compute couple age. The NDCA amateur age_basis would carry subject_rule older_partner for the lower classes and both_partners_thresholds for Senior.",
+  "implementation": [],
+  "enforcement_point": "Not built. Design only (docs/competition/governance/editions/OD-30-rulebook-editions-design.md). The OD-03/OD-18 organizer determination is the only age-division control at first activation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "EFFECTIVE DATE UNKNOWN: effective_from is a schema-required PLACEHOLDER (the date the governance registry was introduced), NOT a verified effective date; no pinned source states one (OD-30 finding F-1). Stated for amateur classifications; applicability to Pro/Am Student partnerships is not stated (OD30-SILENT-0002).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-30 (owner decision 2026-11-23, Option A)",
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -62,6 +62,15 @@ An event is evaluated against the rulebook edition applicable to it, not the new
 5. A new edition adds new entries (or new `applicable_event_versions`); superseded entries are kept with an
    `effective_to`, never edited in place to change meaning.
 
+## Known limitation: unknown effective dates (OD-30)
+
+`source.effective_from` is required, but no pinned edition states an effective date (see the
+[source registry](../../governing-body-source-registry.md#edition-lifecycle-and-effective-dates-od-30-design-only)).
+Entries whose notes begin "EFFECTIVE DATE UNKNOWN" carry a schema placeholder (`2026-11-22`) that is **not** an
+effective date and must not be used for event-date window evaluation. A schema change (nullable date plus an explicit
+`unknown` status) is proposed in
+[OD-30 design finding F-1](../editions/OD-30-rulebook-editions-design.md#11-age-rules-coordination-findings-and-boundaries).
+
 ## Adding a body or edition
 
 Follow the extensibility steps in [RULEBOOK_GOVERNANCE.md](../../RULEBOOK_GOVERNANCE.md#governing-bodies-and-extensibility):
