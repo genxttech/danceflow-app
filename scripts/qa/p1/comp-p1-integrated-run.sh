@@ -60,9 +60,16 @@ if [ -z "${P_P1:-}" ]; then
     git ls-tree --name-only "$r" "$M/" 2>/dev/null | grep -qE '/2027030118[0-9]{4}_[^/]+\.sql$' && { P_P1="$r"; break; }
   done
 fi
-LAYERS="844:origin/claude/od04-event-delete-guard-c68a8f 865:origin/claude/r11-correction-migration 864:origin/claude/r10-s3-panel-readiness
-863:${P_S5:-origin/od02-s5-db-guard} 866:origin/claude/r15-s4-eligibility-clearance 877:${P_S6:-origin/claude/od31-s6-entry-status-guard} 899:origin/claude/comp-d-published-order-guard"
+R844="${P_844:-origin/claude/od04-event-delete-guard-c68a8f}"; R866="${P_866:-origin/claude/r15-s4-eligibility-clearance}"
+LAYERS="844:$R844 865:${P_865:-origin/claude/r11-correction-migration} 864:${P_864:-origin/claude/r10-s3-panel-readiness}
+863:${P_S5:-origin/od02-s5-db-guard} 866:$R866 877:${P_S6:-origin/claude/od31-s6-entry-status-guard} 899:${P_899:-origin/claude/comp-d-published-order-guard}"
 [ -n "${P_P1:-}" ] && LAYERS="$LAYERS P1:$P_P1"
+# a pinned head that its branch has since left is reported; the pin is what runs
+for pin in "${P_844:-}:od04-event-delete-guard-c68a8f" "${P_865:-}:r11-correction-migration" "${P_864:-}:r10-s3-panel-readiness" "${P_866:-}:r15-s4-eligibility-clearance" "${P_S6:-}:od31-s6-entry-status-guard" "${P_899:-}:comp-d-published-order-guard" "${P_P1:-}:od31-p1-pilot-restrictions" "${P_S5:-}:od02-s5-db-guard"; do
+  want="${pin%%:*}"; br="origin/claude/${pin#*:}"; [ "${pin#*:}" = od02-s5-db-guard ] && br=origin/od02-s5-db-guard
+  [ -n "$want" ] || continue
+  tip="$(git rev-parse -q --verify "$br")"; [ "$tip" = "$(git rev-parse -q --verify "$want^{commit}")" ] || log "WARNING: $br is at $tip, not at the pinned $want"
+done
 : > "$OUT/heads.txt"; : > "$OUT/suite-sources.txt"; : > "$OUT/adapted-copies.txt"
 git rev-parse --verify -q "$LIVE" >/dev/null || blocked "missing $LIVE"; git rev-parse --verify -q "$CAND" >/dev/null || blocked "missing $CAND"
 printf 'live (pinned base) %s\ncandidate %s\n' "$(git rev-parse "$LIVE")" "$(git rev-parse "$CAND")" >> "$OUT/heads.txt"
@@ -111,10 +118,10 @@ layer(){ # <label> <ref> <target tests dir> <migration dir>
 : > "$OUT/compose-warnings.txt"; SEEN=""
 if git rev-parse --verify -q "$MERGED_867^{commit}" >/dev/null; then SEEN="^$MERGED_867"; echo "867 $MERGED_867 merged: part of the base chain" >> "$OUT/heads.txt"; fi
 for l in $LAYERS; do [ "${l%%:*}" = P1 ] && continue; layer "${l%%:*}" "${l#*:}" "$CHAIN/tests-B" "$CHAIN/new"; done
-S4=origin/claude/r15-s4-eligibility-clearance
+S4="$R866"
 mkdir -p "$CHAIN/tests-A/fixtures"; git show "$S4:$M/sql-tests/fixtures/r15_clear_entries.sql" > "$CHAIN/tests-A/fixtures/r15_clear_entries.sql"   # inert without R-15
-git show origin/claude/od04-event-delete-guard-c68a8f:$M/sql-tests/test_T_competition_od04_ordinary_event_baseline.sql > "$CHAIN/tests-A/test_T_competition_od04_ordinary_event_baseline.sql"
-git show origin/claude/od04-event-delete-guard-c68a8f:$M/sql-tests/fixtures/od04_seed.sql > "$CHAIN/tests-A/fixtures/od04_seed.sql"
+git show "$R844:$M/sql-tests/test_T_competition_od04_ordinary_event_baseline.sql" > "$CHAIN/tests-A/test_T_competition_od04_ordinary_event_baseline.sql"
+git show "$R844:$M/sql-tests/fixtures/od04_seed.sql" > "$CHAIN/tests-A/fixtures/od04_seed.sql"
 
 # ---------------------------------------------------------------- 2. ADAPTED COPIES (composed phases only): blob-checked S4 patches and the S4 hook for S6 suites
 ADIR="$CHAIN/adapted-work"; mkdir -p "$ADIR/$M/sql-tests"
