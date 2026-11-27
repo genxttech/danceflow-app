@@ -165,12 +165,16 @@ describe("fall-through mode (legacy routes)", () => {
     expect(await tryHandleFeedRequest(req(), secret, deps(unowned))).toBeNull();
     expect(unowned.rpcCalls.map((c) => c.fn)).toEqual(["calendar_feed_resolve"]);
     expect(await tryHandleFeedRequest(req(), secret, deps(setup({ resolve: "error" })))).toBeNull();
-    expect(await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "error" })))).toBeNull();
+  });
+
+  it("is final once the token is owned: limiter and render faults are 503, never a legacy fallback", async () => {
+    const { secret } = generateFeedSecret();
+    expect((await tryHandleFeedRequest(req(), secret, deps(setup({ rate: "error" }))))?.status).toBe(503);
     const broken = setup({ hash: hashFeedSecret(secret) });
     broken.from = () => {
       throw new Error("boom");
     };
-    expect(await tryHandleFeedRequest(req(), secret, deps(broken))).toBeNull();
+    expect((await tryHandleFeedRequest(req(), secret, deps(broken)))?.status).toBe(503);
   });
 
   it("serves migrated tokens through the new renderer and rate limits only the tokens it owns", async () => {
@@ -205,6 +209,6 @@ describe("account and workspace gate", () => {
     const res = await handleFeedRequest(req(), secret, deps(down));
     expect(res.status).toBe(503);
     expect(await res.text()).not.toContain("secret detail");
-    expect(await tryHandleFeedRequest(req(), secret, deps(down))).toBeNull();
+    expect((await tryHandleFeedRequest(req(), secret, deps(down)))?.status).toBe(503); // no legacy fallback once the token is owned
   });
 });
