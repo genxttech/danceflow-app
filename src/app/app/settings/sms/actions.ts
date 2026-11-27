@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUserStudioContext } from "@/lib/auth/serverRoleGuard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  ALREADY_SUBMITTED,
   cancelOnboarding,
   friendlyOnboardingError,
   OnboardingRpcError,
@@ -23,6 +24,8 @@ import { DRAFT_FIELD_KEYS, normalizeEin, validateDraftFields, type DraftFieldKey
 
 export type SmsSetupState = {
   ok?: boolean;
+  /** Which button produced this result. */
+  intent?: "save" | "submit";
   error?: string;
   notice?: string;
   fieldErrors?: Partial<Record<WizardFieldKey, string>>;
@@ -60,13 +63,17 @@ function formText(formData: FormData, key: string) {
   return typeof value === "string" ? value : "";
 }
 
-export async function saveSmsSetupAction(_previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+type OwnerContext = Awaited<ReturnType<typeof ownerContext>>;
+
+const typedValues = (formData: FormData) =>
+  Object.fromEntries(DRAFT_FIELD_KEYS.filter((key) => formData.has(key)).map((key) => [key, formText(formData, key)])) as Partial<Record<DraftFieldKey, string>>;
+
+/** Validates the posted fields and writes them (and a typed EIN) to the draft. Used by both buttons, so what is submitted is what was on screen. */
+async function persistDraft(ctx: OwnerContext, formData: FormData): Promise<SmsSetupState> {
   const input: Record<string, string> = {};
   for (const key of DRAFT_FIELD_KEYS) input[key] = formText(formData, key);
   const values = { ...input } as Partial<Record<DraftFieldKey, string>>;
   try {
-    const ctx = await ownerContext();
-
     const { fields, errors, warnings } = validateDraftFields(input);
     const fieldErrors: SmsSetupState["fieldErrors"] = { ...errors };
 
@@ -99,12 +106,13 @@ export async function saveSmsSetupAction(_previous: SmsSetupState, formData: For
           last4: encrypted.last4,
         });
       } catch (error) {
-        failure(error); // logs the safe code for an encryption problem
+        const refused = failure(error); // also logs the safe code for an encryption problem
         revalidatePath(PATH);
+        if (refused.error === ALREADY_SUBMITTED) return { ...refused, values };
         return {
           ok: false,
           error: "Your other details were saved, but the EIN was not. If it fails again, contact DanceFlow support and do not send your EIN.",
-          fieldErrors: { ein: "Not saved. Type the EIN again and click Save draft." },
+          fieldErrors: { ein: "Not saved. Type the EIN again and try again." },
           values,
         };
       }
@@ -117,9 +125,37 @@ export async function saveSmsSetupAction(_previous: SmsSetupState, formData: For
   }
 }
 
+/** Optional: keep the answers and finish later. */
+export async function saveSmsSetupAction(_previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+  try {
+    return { ...(await persistDraft(await ownerContext(), formData)), intent: "save" };
+  } catch (error) {
+    return { ...failure(error), intent: "save", values: typedValues(formData) };
+  }
+}
+
+const alreadySubmitted = (): SmsSetupState => ({ ok: false, intent: "submit", error: "This setup was already submitted. Nothing in this window was changed." });
+
+/**
+ * Saves what is on screen, then submits it. Nothing is submitted unless the save succeeded, every statement is ticked and the database finds
+ * no required field empty. The database allows one submission per setup, so a repeated request changes nothing.
+ */
 export async function submitSmsSetupAction(_previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+  let values = typedValues(formData);
   try {
     const ctx = await ownerContext();
+    const posted = DRAFT_FIELD_KEYS.some((key) => formData.has(key)) || formText(formData, "ein").trim() !== "";
+    let warnings: SmsSetupState["warnings"];
+    if (posted) {
+      const saved = await persistDraft(ctx, formData);
+      if (saved.error === ALREADY_SUBMITTED) {
+        revalidatePath(PATH);
+        return alreadySubmitted();
+      }
+      if (!saved.ok) return { ...saved, intent: "submit", error: `Nothing was submitted. ${saved.error}` };
+      values = saved.values ?? values;
+      warnings = saved.warnings;
+    }
     const attestation = {
       authorized: formData.get("attest_authorized") === "on",
       accurate: formData.get("attest_accurate") === "on",
@@ -127,17 +163,26 @@ export async function submitSmsSetupAction(_previous: SmsSetupState, formData: F
       fees_terms: formData.get("attest_fees_terms") === "on",
     };
     if (!Object.values(attestation).every(Boolean)) {
-      return { ok: false, error: "Please confirm every statement before submitting." };
+      return { ok: false, intent: "submit", error: `${posted ? "Your details are saved, but nothing was submitted. " : ""}Please confirm every statement before submitting.`, values, warnings };
     }
     const result = await submitOnboarding(ctx.supabase, ctx.studioId, attestation);
     if (!result.submitted) {
-      return { ok: false, error: `Nothing was submitted. Still needed: ${describeProblems(result.missing)}`, missing: result.missing };
+      return { ok: false, intent: "submit", error: `Nothing was submitted. Still needed: ${describeProblems(result.missing)}`, missing: result.missing, values, warnings };
     }
     revalidatePath(PATH);
-    return { ok: true, notice: "Submitted. We have your information and will take it from here." };
+    return { ok: true, intent: "submit", notice: "Submitted. We have your information and will take it from here." };
   } catch (error) {
-    return failure(error);
+    if (error instanceof OnboardingRpcError && error.friendly === ALREADY_SUBMITTED) {
+      revalidatePath(PATH);
+      return alreadySubmitted();
+    }
+    return { ...failure(error), intent: "submit", values };
   }
+}
+
+/** The wizard is one form with two buttons; the pressed button names the intent. Anything but "submit" only saves. */
+export async function smsSetupAction(previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+  return formData.get("intent") === "submit" ? submitSmsSetupAction(previous, formData) : saveSmsSetupAction(previous, formData);
 }
 
 export async function cancelSmsSetupAction(): Promise<SmsSetupState> {

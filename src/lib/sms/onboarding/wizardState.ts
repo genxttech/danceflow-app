@@ -1,6 +1,6 @@
 import { FIELD_LABELS, FIELD_STEP, type WizardFieldKey } from "./fields";
 
-/** Pure view logic for the texting setup wizard: which screen a problem is on, and when the saved draft may be submitted. */
+/** Pure view logic for the texting setup wizard: which screen a problem is on, and when the wizard keeps its state. */
 
 export const STEP_LABELS = ["Business", "Representative", "Texting number"] as const;
 
@@ -22,16 +22,6 @@ export function problemsByStep(keys: readonly string[]): StepProblems[] {
 /** "Business: Legal business name, EIN. Representative: Business email." */
 export function describeProblems(keys: readonly string[]): string {
   return problemsByStep(keys).map((group) => `${group.label}: ${group.fields.map((field) => field.label).join(", ")}.`).join(" ");
-}
-
-/**
- * Submitting sends the SAVED draft, never what is on screen, and the setup cannot be edited afterwards. So submitting is blocked until
- * a draft exists and nothing typed since is unsaved.
- */
-export function submitBlockReason(input: { hasSavedDraft: boolean; unsaved: boolean }): string | null {
-  if (input.unsaved) return "You have changes that are not saved. Click Save draft before you submit.";
-  if (!input.hasSavedDraft) return "Nothing is saved yet. Next does not save: click Save draft before you submit.";
-  return null;
 }
 
 /** The first save moves a setup from not_started to draft; the wizard must stay mounted so the screen and "Saved." survive it. */

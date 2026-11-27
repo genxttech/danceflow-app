@@ -103,8 +103,10 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
   const campaign = buildCampaignPackage({ displayName, origin: appOrigin(), slug: String(studio?.slug ?? "") });
   const canEdit = isOwner && !paused && status.canEdit && EDIT_STATES.has(status.state);
   // TW-4F: an owner of a location not yet linked to a legal business can attest it belongs to an existing one (the location page and the database
-  // re-check the owner role and refuse a linked location or a second pending request)
-  const offerLocationLink = isOwner && !paused && creditView?.overview.legalBusiness !== true;
+  // re-check the owner role and refuse a linked location or a second pending request). A first-time studio needs none of this: its own submitted
+  // setup is what DanceFlow creates the business record from, so after submission only a quiet link remains (for when DanceFlow asks for it).
+  const unlinked = isOwner && !paused && creditView?.overview.legalBusiness !== true;
+  const offerLocationLink = unlinked && (status.state === "not_started" || status.state === "draft" || status.state === "needs_info");
 
   // R2c-I2: campaign / Messaging Service status; J2: number, sender, compliance, activation checklist and service coverage. Both are bound to this user's
   // session and the database allows only this studio's owner (null = unreadable or not installed: the journey then says "not available yet")
@@ -137,6 +139,7 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
       einOnFile={draft?.einOnFile ?? false}
       einLast4={draft?.einLast4 ?? null}
       canEdit={canEdit}
+      isOwner={isOwner}
       highlightFields={status.needsInfoFields}
       campaign={{
         description: campaign.description,
@@ -186,9 +189,9 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
       {offerLocationLink ? (
         <section aria-labelledby="sms-location-link-heading" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between" data-testid="sms-location-link">
           <div>
-            <h2 id="sms-location-link-heading" className="text-sm font-semibold text-slate-900">Another location of a business already texting with DanceFlow?</h2>
+            <h2 id="sms-location-link-heading" className="text-sm font-semibold text-slate-900">Already texting with DanceFlow at another location?</h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Link this studio to that legal business instead of starting a new setup. Locations share one texting registration, setup budget and prepaid balance. DanceFlow verifies it first.
+              If this is your first location with texting, skip this and complete the setup below. Otherwise first save this location&rsquo;s legal business name and EIN below with Save draft, then link it: DanceFlow compares them, and linked locations share one texting registration, setup budget and prepaid balance.
             </p>
           </div>
           <Link href="/app/settings/sms/location" className="inline-flex shrink-0 items-center justify-center gap-1 rounded-xl border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50">
@@ -196,6 +199,13 @@ export default async function SmsSettingsPage({ searchParams }: { searchParams?:
             <ChevronRight aria-hidden="true" className="h-4 w-4" />
           </Link>
         </section>
+      ) : null}
+
+      {unlinked && !offerLocationLink && status.state !== "cancelled" ? (
+        <p className="text-xs text-slate-500" data-testid="sms-location-link-quiet">
+          Did DanceFlow ask you to link this location to a business already texting at another location?{" "}
+          <Link href="/app/settings/sms/location" className="font-semibold text-violet-700 underline">Link this location</Link>
+        </p>
       ) : null}
 
       {creditView ? <div id="sms-credit"><SmsCreditPanel view={creditView} purchasesEnabled={smsCreditPurchasesEnabled()} returned={returned} /></div> : null}
