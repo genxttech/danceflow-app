@@ -174,6 +174,21 @@ Before S6 on the same chain, 14 suites: 10 PASS and the same 4 FAIL. Each of the
 
 Not run: hosted databases, application tests, the other concurrency scripts in `sql-tests/` (only the S6 race and the adapted A5 script ran here), the S4 and S5 composed chain (see PR 863 run 6, other session).
 
+### Run 4: focused re-run (executed 2026-11-27 03:40-03:46Z, local only; head `6c80b98a7`; evidence in `evidence/run4/`)
+
+Same migrations as run 3 (same fingerprint), with the corrected runner. `result.txt`: **PASS** for what was selected.
+
+| Executed | Result |
+|---|---|
+| `o1_day_of`, before S6 and with S6 | PASS (95 checks) both |
+| `ns1_no_show`, before S6 and with S6 | PASS (152 checks) both |
+| S6 guard suite, and again after rollback and re-apply | PASS (127 checks) |
+| S6 race script; A5 adapted copy | PASS (11 checks, 3 lock waiters); PASS |
+| Mutation checks; rollback proof | 7 of 7 detected; PASS |
+| Joint stage (SC1's suite and race script, heads in `sc1-heads.txt`) | PASS (37 checks); race PASS |
+
+This closes the two suites run 3 left unverified. Still not covered: the refund suite past its existing failure, the two Phase 10A template checks, the other concurrency scripts, application tests and hosted databases. The other 24 suites ran in run 3 only.
+
 ## 11. Independent review
 
 Two reviewers that had not seen these conclusions reviewed the work. The first found: service_role reach through the internal R2 definers; indirect transitions through registration links; delete and re-create; an unsafe re-grant against SC1; the optional lifecycle rules being necessary; the repeat-call branch skipping checks; missing heat locks; test defects; rollback ACL order, TRIGGER re-grant and missing rollback preflights. The second reviewed the fixes and found: the delete rule breaking two behaviours the 10A and callback-final suites assert; the link rule refusing referential SET NULL actions (AFTER trigger); locks taken before refusals (CF1 U55); assertions made in the same statement as the action (vacuous or failing) and other suite defects; an incomplete rollback proof; unrecorded prior privileges; client-changeable `id`/`event_id`; stale references. All were addressed in the current version except the items in section 8 and the narrow concurrency window in section 5. 
