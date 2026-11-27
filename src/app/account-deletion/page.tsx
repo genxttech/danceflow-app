@@ -72,8 +72,8 @@ export default function AccountDeletionPage() {
               preferences, and other data that belongs to your account.
             </p>
             <p>
-              Photos you uploaded for Partner Search are stored separately and are not removed automatically. Email
-              support@idanceflow.com and we will remove them.
+              Photos you uploaded for Partner Search are removed when your account is deleted. If one is still visible
+              afterwards, email support@idanceflow.com and we will remove it.
             </p>
           </Section>
 

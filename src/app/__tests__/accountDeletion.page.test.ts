@@ -26,8 +26,9 @@ describe("public account-deletion page", () => {
     // managing logins are refused by the app and by the web account page alike
     expect(page).toContain("cannot be deleted in the app or on the web");
     expect(page).toContain("cannot be undone");
-    // uploaded photos are not removed by the deletion code, so the page must not imply they are
-    expect(page).toContain("not removed automatically");
+    // the deletion code removes uploaded photos, and the page keeps a way to report one that is left
+    expect(page).toContain("are removed when your account is deleted");
+    expect(page).toContain("If one is still visible");
   });
 
   it("matches the in-app deletion copy (settings screen and its confirmation)", () => {
