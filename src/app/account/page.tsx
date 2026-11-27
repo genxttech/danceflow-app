@@ -692,6 +692,9 @@ function RegisteredEventCards({ events }: { events: RegisteredEventItem[] }) {
   );
 }
 
+// This page's actions include account deletion, which also removes the account's files (two bounded passes).
+export const maxDuration = 60;
+
 export default async function AccountPage({
   searchParams,
 }: {
@@ -1081,7 +1084,9 @@ export default async function AccountPage({
                           ? "Type DEACTIVATE to confirm account deactivation."
                           : search.error === "account_deactivate_failed"
                             ? "Your account could not be deactivated."
-                            : "Your DanceFlow account could not be deleted."}
+                            : search.error === "account_delete_managed_access"
+                              ? "This login also manages a studio, an organizer account or the platform, so it can't be deleted here. Hand over or remove those roles first, or contact DanceFlow support."
+                              : "Your DanceFlow account could not be deleted."}
           </div>
         ) : null}
         <section className="overflow-hidden rounded-[36px] border border-orange-100 bg-white shadow-sm">

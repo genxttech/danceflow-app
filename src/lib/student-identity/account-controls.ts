@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { AccountFilesDeletionError, purgeOwnPartnerPhotos } from "@/lib/student-identity/account-files";
 
 function hash(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -88,7 +89,103 @@ async function deleteUserRows(
   }
 }
 
+/**
+ * Self-service deletion removes the login itself (auth user + profiles row), and
+ * user_studio_roles / profiles cascade on that delete. A login that also runs a
+ * studio, an organizer account or the platform would silently lose that access
+ * and could leave a studio without its owner, so self-service deletion refuses it.
+ */
+export class AccountDeletionBlockedError extends Error {
+  constructor(readonly reasons: Array<"studio_role" | "organizer_role" | "platform_admin">) {
+    super(
+      "This login also manages a studio, an organizer account or the platform, so it can't be deleted here. Hand over or remove those roles first, or contact DanceFlow support.",
+    );
+    this.name = "AccountDeletionBlockedError";
+  }
+}
+
+export async function managedAccessBlockingDeletion(userId: string) {
+  const admin = createAdminClient();
+  const [studioRoles, organizerRoles, profile] = await Promise.all([
+    admin.from("user_studio_roles").select("id").eq("user_id", userId).eq("active", true).limit(1),
+    admin.from("organizer_users").select("id").eq("user_id", userId).eq("active", true).limit(1),
+    admin.from("profiles").select("platform_role").eq("id", userId).limit(1),
+  ]);
+
+  for (const result of [studioRoles, organizerRoles, profile]) {
+    if (result.error) {
+      throw new Error(`Account role check failed: ${result.error.message}`);
+    }
+  }
+
+  const reasons: AccountDeletionBlockedError["reasons"] = [];
+  if ((studioRoles.data ?? []).length > 0) reasons.push("studio_role");
+  if ((organizerRoles.data ?? []).length > 0) reasons.push("organizer_role");
+  const platformRole = (profile.data as Array<{ platform_role?: string | null }> | null)?.[0]?.platform_role;
+  if (platformRole === "platform_admin") reasons.push("platform_admin");
+  return reasons;
+}
+
+/** The listing leaves public view first, so a deletion that stops at the files never leaves it showing a half-removed photo. */
+async function archivePartnerListing(userId: string, now: string) {
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("dancer_partner_profiles")
+    .update({ visibility: "archived", updated_at: now })
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Partner listing cleanup failed: ${error.message}`);
+  }
+}
+
+const SECOND_PASS_BUDGET_MS = 8_000;
+
+/** True only when the auth server says this login no longer exists. */
+async function loginIsGone(userId: string) {
+  const { data, error } = await createAdminClient().auth.admin.getUserById(userId);
+  if (error) return error.status === 404 || error.code === "user_not_found";
+  return !data?.user;
+}
+
+/**
+ * Deletes the account. Safe to call again after an interruption, and safe when two requests run at once: if a step fails because another
+ * request has already removed the login, the deletion is reported as done.
+ */
 export async function deleteDanceFlowAccount(user: User) {
+  try {
+    return await runAccountDeletion(user);
+  } catch (error) {
+    if (error instanceof AccountDeletionBlockedError || !(await loginIsGone(user.id))) throw error;
+    await secondFilePass(user.id, hash(user.id));
+    return { deleted: true as const, preservedStudioRelationshipCount: 0 };
+  }
+}
+
+/** A second pass catches a file added while the deletion ran. The account is already gone, so a failure is recorded for follow-up
+ *  (account reference hash and counts only) and does not report the deletion as failed. */
+async function secondFilePass(userId: string, userReferenceHash: string) {
+  try {
+    // Shorter than the first pass: the request should not hit its time limit before a failure is recorded.
+    const late = await purgeOwnPartnerPhotos(userId, { budgetMs: SECOND_PASS_BUDGET_MS });
+    if (late > 0) {
+      console.warn("Account deletion: files added during deletion were removed", { userReferenceHash, removed: late });
+    }
+  } catch (error) {
+    console.error("Account deletion: second file pass failed, follow up needed", {
+      userReferenceHash,
+      code: error instanceof AccountFilesDeletionError ? error.code : "unexpected",
+      removed: error instanceof AccountFilesDeletionError ? error.removed : 0,
+    });
+  }
+}
+
+async function runAccountDeletion(user: User) {
+  const blockingRoles = await managedAccessBlockingDeletion(user.id);
+  if (blockingRoles.length > 0) {
+    throw new AccountDeletionBlockedError(blockingRoles);
+  }
+
   const admin = createAdminClient();
   const now = new Date().toISOString();
   const userReferenceHash = hash(user.id);
@@ -104,6 +201,10 @@ export async function deleteDanceFlowAccount(user: User) {
   }
 
   const linkedRows = links ?? [];
+
+  // Before the account is marked for deletion: if the files cannot be removed, the account stays usable and the owner can try again.
+  await archivePartnerListing(user.id, now);
+  await purgeOwnPartnerPhotos(user.id);
 
   const { error: pendingDeletionError } = await admin
     .from("user_account_status")
@@ -143,20 +244,17 @@ export async function deleteDanceFlowAccount(user: User) {
       );
     }
 
-    // H2-B3: clear the legacy clients.portal_user_id mirror for exactly
-    // the clients this account had a relationship with, and only where
-    // the mirror still points at this exact user being deleted -- never a
-    // different user's mirror.
-    const relatedClientIds = Array.from(new Set(linkedRows.map((link) => link.client_id)));
-    const { error: mirrorError } = await admin
-      .from("clients")
-      .update({ portal_user_id: null, updated_at: now })
-      .in("id", relatedClientIds)
-      .eq("portal_user_id", user.id);
+  }
 
-    if (mirrorError) {
-      throw new Error(`Legacy portal mirror cleanup failed: ${mirrorError.message}`);
-    }
+  // H2-B3: clear the legacy clients.portal_user_id mirror only where it still points at the user being deleted, never a different user's
+  // mirror. Matched on the mirror itself, not on the relationship rows: an interrupted earlier attempt has already detached those.
+  const { error: mirrorError } = await admin
+    .from("clients")
+    .update({ portal_user_id: null, updated_at: now })
+    .eq("portal_user_id", user.id);
+
+  if (mirrorError) {
+    throw new Error(`Legacy portal mirror cleanup failed: ${mirrorError.message}`);
   }
 
   const { error: registrationError } = await admin
@@ -217,6 +315,8 @@ export async function deleteDanceFlowAccount(user: User) {
   if (authDeleteError) {
     throw new Error(`DanceFlow account deletion failed: ${authDeleteError.message}`);
   }
+
+  await secondFilePass(user.id, userReferenceHash);
 
   return {
     deleted: true as const,
