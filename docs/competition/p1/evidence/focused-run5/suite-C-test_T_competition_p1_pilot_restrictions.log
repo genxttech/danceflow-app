@@ -1,0 +1,651 @@
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ mkorder 
+---------
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ mkorder 
+---------
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ mkorder 
+---------
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+ 
+ 
+ 
+ 
+(5 rows)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+ 
+ 
+(3 rows)
+
+ panel 
+-------
+ 
+(1 row)
+
+ panel 
+-------
+ 
+(1 row)
+
+ panel 
+-------
+ 
+(1 row)
+
+ mkorder 
+---------
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ mkorder 
+---------
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ sched_start 
+-------------
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ lock_and_calc 
+---------------
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ calculate 
+-----------
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ sched_start 
+-------------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+ 
+ 
+(3 rows)
+
+ advance 
+---------
+ 
+(1 row)
+
+ lock_and_calc 
+---------------
+ 
+(1 row)
+
+ calculate 
+-----------
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ sched_start 
+-------------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+ 
+ 
+(3 rows)
+
+ act 
+-----
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ act 
+-----
+ 
+ 
+ 
+(3 rows)
+
+ panel 
+-------
+ 
+(1 row)
+
+ mkorder 
+---------
+ 
+(1 row)
+
+ act 
+-----
+ 
+(1 row)
+
+ sched_start 
+-------------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ advance 
+---------
+ 
+(1 row)
+
+ ballot 
+--------
+ 
+ 
+ 
+(3 rows)
+
+ advance 
+---------
+ 
+(1 row)
+
+ lock_and_calc 
+---------------
+ 
+(1 row)
+
+ calculate 
+-----------
+ 
+(1 row)
+
+ neg 
+-----
+ 
+(1 row)
+
+ERROR:  COMPETITION P1 PILOT RESTRICTIONS SQL SUITE PASS (159 checks)
+CONTEXT:  PL/pgSQL function inline_code_block line 6 at RAISE

@@ -1,5 +1,7 @@
 /** Human copy for the F2 result lifecycle error codes. The RPCs are the authority; the UI only explains their refusals. */
 
+import { pilotErrorMessage } from "@/lib/competition/pilotMessages";
+
 const MESSAGES: Record<string, string> = {
   COMP_FORBIDDEN: "You do not have access to do that.",
   COMP_REQUEST_ID_REQUIRED: "Something went wrong with this form. Reload the page and try again.",
@@ -160,12 +162,15 @@ export const RETRYABLE_MESSAGE = "Another change was happening at the same momen
 
 /** True when the text names a CF1 code this module explains (used to choose this map over another module's for a shared action). */
 export function hasResultMessage(raw: string | null | undefined): boolean {
+  if (pilotErrorMessage(raw)) return true;
   const code = /COMP_[A-Z0-9_]+/.exec(raw ?? "")?.[0];
   return !!code && code in MESSAGES;
 }
 
 export function resultErrorMessage(raw: string | null | undefined): string {
   const text = raw ?? "";
+  const pilot = pilotErrorMessage(text);
+  if (pilot) return pilot;
   const first = /COMP_[A-Z0-9_]+/.exec(text)?.[0];
   if ((!first || first === "COMP_ADVANCEMENT_CONCURRENT_CHANGE") && isRetryableText(text)) return RETRYABLE_MESSAGE;
   const code = /COMP_[A-Z0-9_]+/.exec(text)?.[0];

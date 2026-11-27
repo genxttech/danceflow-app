@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { pilotErrorMessage } from "@/lib/competition/pilotMessages";
 
 const ELIGIBILITY = ["unverified", "eligible", "needs_review", "ineligible", "waived"];
 
@@ -49,6 +50,6 @@ export async function assignCompetitionEntryNumberAction(formData: FormData): Pr
   if (!eventId || !entryId) throw new Error("Competition entry is required.");
   const supabase = await requireEventManager(eventId);
   const { error } = await (supabase as any).from("event_competition_entries").update({ entry_number: entryNumber || null }).eq("id", entryId).eq("event_id", eventId);
-  if (error) throw new Error(`Could not assign entry number: ${error.message}`);
+  if (error) throw new Error(`Could not assign entry number: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId);
 }

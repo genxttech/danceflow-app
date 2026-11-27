@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { isCallbackRound, parseCallbackTarget } from "@/lib/competition/callbackTarget";
 import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
+import { pilotErrorMessage } from "@/lib/competition/pilotMessages";
 
 const DISCIPLINES = ["showcase", "ballroom", "country", "west_coast_swing", "collegiate_amateur", "custom"];
 const MODES = ["relative", "proficiency", "feedback_only", "exhibition"];
@@ -104,7 +105,7 @@ export async function restartCompetitionSetupAction(formData: FormData): Promise
     confirmation_text: confirmation,
   });
 
-  if (error) throw new Error(`Could not restart competition setup: ${error.message}`);
+  if (error) throw new Error(`Could not restart competition setup: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId);
 }
 
@@ -119,7 +120,7 @@ export async function applyCompetitionTemplateAction(formData: FormData): Promis
     selected_template_key: templateKey,
   });
 
-  if (error) throw new Error(`Could not apply competition template: ${error.message}`);
+  if (error) throw new Error(`Could not apply competition template: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId);
 }
 
@@ -143,7 +144,7 @@ export async function createCompetitionProgramAction(formData: FormData): Promis
     created_by: context.userId,
   });
 
-  if (error) throw new Error(`Could not create program: ${error.message}`);
+  if (error) throw new Error(`Could not create program: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId);
 }
 
@@ -254,7 +255,7 @@ export async function createCompetitionDivisionAction(formData: FormData): Promi
     role_label: text(formData, "roleLabel") || null,
   });
 
-  if (error) throw new Error(`Could not create division: ${error.message}`);
+  if (error) throw new Error(`Could not create division: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId);
 }
 
@@ -320,7 +321,7 @@ export async function createCompetitionRoundAction(formData: FormData): Promise<
     target_advancement_count: optionalPositiveInteger(text(formData, "targetAdvancementCount")),
   });
 
-  if (error) throw new Error(`Could not create round: ${error.message}`);
+  if (error) throw new Error(`Could not create round: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId);
 }
 

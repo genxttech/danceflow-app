@@ -1,0 +1,11 @@
+A	test_T_phase10d1_heat_entry_eligibility	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)
+B	test_T_competition_s6_entry_status_guard	PASS [ADAPTED COPY]	ERROR:  COMPETITION S6 ENTRY STATUS GUARD SQL SUITE PASS (127 checks)
+B	test_T_phase10d1_heat_entry_eligibility	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)
+C	test_T_competition_p1_pilot_restrictions	PASS	ERROR:  COMPETITION P1 PILOT RESTRICTIONS SQL SUITE PASS (159 checks)
+C	test_T_competition_s6_entry_status_guard	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_phase10d1_heat_entry_eligibility	FAIL	ERROR:  PHASE 10D.1 SQL SUITE FAIL: the rule lives in the existing 10D integrity function (no second validator) []
+C	test_T_phase10d1_heat_entry_eligibility_with_p1	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)
+E	test_T_competition_p1_pilot_restrictions	PASS	ERROR:  COMPETITION P1 PILOT RESTRICTIONS SQL SUITE PASS (159 checks)
+E	test_T_competition_s6_entry_status_guard	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_phase10d1_heat_entry_eligibility	FAIL	ERROR:  PHASE 10D.1 SQL SUITE FAIL: the rule lives in the existing 10D integrity function (no second validator) []
+E	test_T_phase10d1_heat_entry_eligibility_with_p1	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)

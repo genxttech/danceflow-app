@@ -1,0 +1,13 @@
+OK   20270219090000_competition_od04_event_delete_guard.sql
+OK   20270301090000_competition_r11_approval_override_scope.sql
+OK   20270301100000_competition_r10_s3_panel_readiness.sql
+OK   20270301101000_competition_r10_s3_round_panel_config_guard.sql
+OK   20270301102000_competition_r10_s3_attendance_panel_break.sql
+OK   20270301110000_competition_r15_eligibility_clearance_core.sql
+OK   20270301120000_competition_s5_participant_age_guard.sql
+OK   20270301130000_competition_r15_executable_gates.sql
+OK   20270301131000_competition_r15_eligibility_write_guard.sql
+OK   20270301140000_competition_s6_entry_lifecycle_definer.sql
+OK   20270301141000_competition_s6_entry_status_write_guard.sql
+OK   20270301170000_competition_d_published_order_write_guard.sql
+OK   20270301180000_competition_p1_pilot_restrictions.sql
