@@ -1,0 +1,117 @@
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ERROR:  PHASE 10D.1 SQL SUITE FAIL: the rule lives in the existing 10D integrity function (no second validator) []
+CONTEXT:  PL/pgSQL function inline_code_block line 11 at RAISE

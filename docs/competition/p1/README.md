@@ -2,7 +2,7 @@
 
 DanceFlow Studio/Custom pilot policy (OWNER-DECISIONS section 21, `0d68b2f38`; MVP-RELEASE-ASSESSMENT sections 2-3). Not a governing-body rule; no rulebook was consulted for this document.
 
-**State: written and reviewed by reading. Nothing has been executed.** No apply, merge, deployment or activation is authorized.
+**State: draft. The SQL suite passed in a focused local run on 2026-11-27 (see "Focused run" below); concurrency and application behaviour are unexecuted.** No apply, merge, deployment or activation is authorized.
 
 ## Files
 
@@ -49,6 +49,23 @@ Unverified: everything at runtime; races and deadlocks; composition with Option 
 
 Application messages (`src/lib/competition/pilotMessages.ts`) are not type-checked or tested. Actions that throw (competition, advanced schedule, generation, registrations) still show a generic message in production, because Next.js hides thrown server-action errors; they need to return the error instead.
 
-## Recovery after the 2026-11-27 composed run (not yet executed)
+## Focused run (executed 2026-11-27 18:51-18:58Z, local only; this PR at `58e279459`, 877 at `98ae57a29`; evidence in `evidence/focused-run5/`)
+
+The composed runner of the PR 863 session, restricted by `run-p1-focused.sh` to selected suites, on the release line at `57c33191` (the line has since moved to `6d45633ef`; no migration file changed). Heads of the other pull requests are in `heads.txt`.
+
+| Executed | Result |
+|---|---|
+| Migrations: base, 12 corrections and this one | all applied |
+| This suite, with every correction, and again after rollback and re-apply | PASS, 159 checks, both times |
+| Rollback of all 13 new migrations | catalog identical to the base |
+| Re-apply of all 13 | catalog identical to before the rollback |
+| Phase 10D.1: released suite without this migration; adapted `_with_p1` copy with it | PASS (22) both |
+| Phase 10D.1 released suite with this migration | FAIL on its trigger allow-list, as expected |
+| Status guard suite (877), chain without this migration, adapted copy | PASS (127) |
+| Status guard suite, chain with this migration | FAIL at setup, as expected; the `_with_p1` copy was added after this run and is **unexecuted** |
+
+Not covered: concurrency scripts, the route probe, application tests, hosted databases, the busy refusals, advancement, the publication sanction guard, the removal backstop, the refund path, the started-heat addition branch and the one-published-order index.
+
+## Recovery after the 2026-11-27 composed run
 
 The composed run by another session showed that this suite stopped in its setup (a role value not cast to the enum), so none of its checks had run, and that the phase 10D.1 suite's allow-list of heat-entry triggers did not include this migration's trigger. The suite was repaired by reading only. `test_T_phase10d1_heat_entry_eligibility_with_p1.sql` is a labelled adapted copy of the PR 866 version that allows exactly `zz_compp1_placements`; the released suite is unchanged and is expected to fail that one check wherever this migration is installed. Known gaps in the suite after repair: the started-heat addition branch and the one-published-order index are not exercised (earlier guards refuse first). Agreed with the PR 863 session: a guard's own behaviour is proven on the chain without this migration; guards with no P1-legal copy are listed as untested with it. `run-p1-focused.sh` runs that session's composed runner, pinned, for selected suites only.
