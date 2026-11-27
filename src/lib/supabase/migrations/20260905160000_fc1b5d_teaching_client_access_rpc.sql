@@ -17,6 +17,14 @@
 -- parameter, so there is no parameter surface to request another
 -- instructor's roster through.
 --
+-- Caller conditions (all required, otherwise no rows):
+--   - an active instructors row in the target studio linked to the caller,
+--     with can_instruct = true;
+--   - an active user_studio_roles row for the caller in the target studio
+--     with role studio_owner, studio_admin, front_desk or instructor.
+-- independent_instructor does not qualify, a role in another studio does not
+-- count, and no subscription or plan rule is applied here.
+--
 -- Qualifying relationship (per the approved FC-1B5D lifecycle rule):
 --   A. Current/future -- status in (scheduled, confirmed, rescheduled) AND
 --      the appointment's effective end time (ends_at, falling back to
@@ -72,6 +80,15 @@ as $$
   where i.user_id = auth.uid()
     and i.studio_id = target_studio_id
     and i.active = true
+    and i.can_instruct = true
+    and exists (
+      select 1
+      from public.user_studio_roles usr
+      where usr.user_id = auth.uid()
+        and usr.studio_id = target_studio_id
+        and usr.active = true
+        and usr.role in ('studio_owner', 'studio_admin', 'front_desk', 'instructor')
+    )
     and a.studio_id = target_studio_id
     and c.studio_id = target_studio_id
     and (target_client_id is null or c.id = target_client_id)
