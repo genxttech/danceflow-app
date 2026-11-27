@@ -254,3 +254,29 @@ describe("platform admin credit section", () => {
     expect(renderToStaticMarkup(createElement(SmsCreditAdmin, { overview: null }))).toBe("");
   });
 });
+
+describe("DanceFlow test credit in the studio view (20270223091000)", () => {
+  it("parses test credit and fee-usable credit; an older database without the fields means everything available can pay fees", () => {
+    const o = parseOverview(rawOverview({ balance_cents: 1500, reserved_cents: 0, available_cents: 1500, test_credit_cents: 1000, fee_available_cents: 500 }));
+    expect([o.availableCents, o.testCreditCents, o.feeAvailableCents]).toEqual([1500, 1000, 500]);
+    const old = parseOverview(rawOverview());
+    expect([old.testCreditCents, old.feeAvailableCents]).toEqual([0, 4500]);
+  });
+  it("test credit never blocks a purchase: the $500 ceiling counts the business's own balance only", () => {
+    const o = parseOverview(rawOverview({ balance_cents: 48_000, available_cents: 48_000, test_credit_cents: 1_000, fee_available_cents: 47_000 }));
+    expect(packFits(o, 2500)).toBe(true); // own 47,000 + 2,500 = 49,500
+    expect(packFits(o, 5000)).toBe(false); // own 47,000 + 5,000 = 52,000
+    const noTest = parseOverview(rawOverview({ balance_cents: 48_000, available_cents: 48_000 }));
+    expect(packFits(noTest, 2500)).toBe(false);
+  });
+  it("keeps test_grant and test_grant_reversed in the history with their own labels", () => {
+    const rows = parseActivity([
+      { seq: 2, created_at: "2027-02-23T10:00:00Z", kind: "test_grant", balance_delta_cents: 1000, location_id: null, this_location: false },
+      { seq: 3, created_at: "2027-02-24T10:00:00Z", kind: "test_grant_reversed", balance_delta_cents: -400, location_id: null, this_location: false },
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(["test_grant", "test_grant_reversed"]);
+    const page = html(view({ balance_cents: 1000, reserved_cents: 0, available_cents: 1000, test_credit_cents: 600, fee_available_cents: 400 }, { activity: rows }));
+    expect(page).toContain("Includes $6.00 test credit from DanceFlow (texting only). $4.00 can pay setup and monthly fees.");
+    expect(html(view())).not.toContain("test credit");
+  });
+});
