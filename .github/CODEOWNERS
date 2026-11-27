@@ -231,3 +231,26 @@ aria-actions.ts @genxttech
 /src/lib/booking/selfServiceActionRequests.ts @genxttech
 /src/lib/packages/ @genxttech
 /src/lib/compensation/ @genxttech
+
+# Independent review additions: files that can change what the required check runs.
+/next.config.* @genxttech
+/vitest.config.* @genxttech
+/vite.config.* @genxttech
+/eslint.config.* @genxttech
+/playwright.config.* @genxttech
+/postcss.config.* @genxttech
+/.postcssrc* @genxttech
+/babel.config.* @genxttech
+/.babelrc* @genxttech
+/src/middleware.ts @genxttech
+/src/instrumentation*.ts @genxttech
+
+# Independent review additions: unauthenticated spend, public service-role reads, financial writes, credit policy.
+/src/app/app/reports/actions.ts @genxttech
+/src/app/marketplace/ @genxttech
+/src/app/app/events/*/registrations/paymentExceptionActions.ts @genxttech
+/src/app/app/events/*/labor/actions.ts @genxttech
+/src/app/app/expenses/actions.ts @genxttech
+/src/app/app/settings/actions.ts @genxttech
+/src/app/app/events/ai-actions.ts @genxttech
+/src/app/knowledgebase/ai-actions.ts @genxttech
