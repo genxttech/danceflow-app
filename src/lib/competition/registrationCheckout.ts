@@ -48,6 +48,8 @@ export type CompetitionErrorCode =
   | "not_payable"
   | "payment_not_ready"
   | "organizer_suite_required"
+  | "minors_not_permitted"
+  | "age_not_established"
   | "checkout_failed";
 
 export class CompetitionRegistrationError extends Error {
@@ -59,6 +61,13 @@ export class CompetitionRegistrationError extends Error {
 /** Maps a database COMP10C_* refusal to an HTTP-safe error. Unknown errors never leak SQL text. */
 export function classifyCompetitionRegistrationError(message: string | null | undefined, details?: string | null): CompetitionRegistrationError {
   const text = message ?? "";
+  // S5 (OD-02): the database participant age guard. Reason code only; the message never carries a date or an age.
+  const ageGuard = /COMP_S5_AGE_BLOCKED:.*((blocked_under_18|unknown_age))/.exec(text);
+  if (ageGuard) {
+    return ageGuard[1] === "blocked_under_18"
+      ? new CompetitionRegistrationError("minors_not_permitted", "Competitors must be 18 or older to register for this event. Registration for dancers under 18 is not available at this time.", 422)
+      : new CompetitionRegistrationError("age_not_established", "A valid date of birth is required for every competitor so we can confirm the 18-or-older requirement.", 422);
+  }
   const code = /COMP10C_([A-Z_]+)/.exec(text)?.[1] ?? "";
   const human = text.replace(/^.*?COMP10C_[A-Z_]+:\s*/, "").trim();
   let detailList: string[] = [];
