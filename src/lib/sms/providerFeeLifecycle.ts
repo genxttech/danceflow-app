@@ -22,6 +22,14 @@ export class ProviderFeeError extends Error {
   }
 }
 
+/** The inbound alert step failed (or was partial) AFTER raising `alerts` new alerts: the run counts them and still records the error. */
+export class InboundCheckError extends ProviderFeeError {
+  constructor(code: string, readonly alerts: number) {
+    super(code);
+    this.name = "InboundCheckError";
+  }
+}
+
 type Client = Pick<SupabaseClient, "rpc">;
 type Resource = "messaging_service" | "campaign" | "number";
 
@@ -152,8 +160,43 @@ export class ProviderFeeLifecycleStore {
    * Returns how many NEW alerts were raised (counts only).
    */
   async inboundAllowanceCheck(): Promise<number> {
-    const row = await this.call<{ allowance_warnings?: number; allowance_critical?: number; volume?: number } | null>("tw4_rfl_inbound_allowance_check", {});
-    return Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
+    // the two checks are independent: a failure of either never stops the other; the alerts raised are counted and the step still fails visibly
+    let alerts = 0;
+    let failure: string | null = null;
+    const codeOf = (error: unknown) => (error instanceof ProviderFeeError ? error.code : "unknown");
+    try {
+      const row = await this.call<{ allowance_warnings?: number; allowance_critical?: number; volume?: number } | null>("tw4_rfl_inbound_allowance_check", {});
+      alerts += Number(row?.allowance_warnings ?? 0) + Number(row?.allowance_critical ?? 0) + Number(row?.volume ?? 0);
+    } catch (error) {
+      failure = codeOf(error);
+    }
+    try {
+      alerts += await this.inboundCostControlsCheck();
+    } catch (error) {
+      if (error instanceof InboundCheckError) alerts += error.alerts;
+      failure = failure ?? codeOf(error);
+    }
+    if (failure !== null) throw new InboundCheckError(failure, alerts);
+    return alerts;
+  }
+
+  /**
+   * Absorbed inbound cost controls for EVERY business (migration 20270222190000): volume, absorbed-cost, anomaly and daily-cap alerts, and (only with its database
+   * switch on) the suppression of non-compliance automatic replies at the cap. Never refuses a text and never touches STOP/START/HELP. Returns NEW alerts raised.
+   * A database without the migration (function not installed) counts as 0, so the app can ship before the SQL; any other error is raised (visible in the run).
+   */
+  async inboundCostControlsCheck(): Promise<number> {
+    const { data, error } = (await this.admin.rpc("tw4_inbound_cost_controls_check", {})) as { data: unknown; error: { code?: string } | null };
+    if (error) {
+      if (error.code === "PGRST202" || error.code === "42883") return 0;
+      throw new ProviderFeeError(String(error.code ?? "unknown"));
+    }
+    const row = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
+    const n = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0);
+    const alerts = n(row.volume_alerts) + n(row.absorbed_alerts) + n(row.anomaly_alerts) + n(row.cap_alerts);
+    // a business the database could not check (its work rolled back, retried next scan) makes the step an error, keeping the alerts that were raised
+    if (n(row.errors) > 0) throw new InboundCheckError("inbound_cost_partial", alerts);
+    return alerts;
   }
 
   async inventoryGaps(): Promise<number> {
@@ -311,7 +354,8 @@ async function scanAndDeliver(store: ProviderFeeLifecycleStore, sink: ProviderFe
   }
   try {
     summary.inboundAlerts = await store.inboundAllowanceCheck();   // before escalation and delivery, so a new alert can be delivered in this same pass
-  } catch {
+  } catch (error) {
+    if (error instanceof InboundCheckError) summary.inboundAlerts = error.alerts;   // alerts raised before the failure still count
     summary.errors += 1;
   }
   try {

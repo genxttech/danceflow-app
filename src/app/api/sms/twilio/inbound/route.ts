@@ -8,7 +8,7 @@ import {
   normalizeSmsPhone,
 } from "@/lib/sms/compliance";
 import { resolveInboundKeyword } from "@/lib/sms/inboundKeywords";
-import { inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
+import { inboundAutoReplyAllowed, inboundReplyAllowed, parseInboundCounts, recordInboundUsage, type InboundReplyKind } from "@/lib/sms/inboundUsage";
 import { resolveStudioFromInboundSender } from "@/lib/sms/studioSender";
 import { recordInboundStartSignal } from "@/lib/sms/inboundStartSignals";
 import { recordPendingOptOut, supersedePendingOptOuts } from "@/lib/sms/pendingOptOuts";
@@ -130,6 +130,9 @@ export async function POST(request: Request) {
     if (twilioHandled) return emptyTwiml();
     if (keyword === "stop") return twiml(message);
     const asKind: InboundReplyKind = keyword === "help" || keyword === "start" ? keyword : kind;
+    // TW-4F absorbed inbound cost controls: a business at its daily cap (database switch on) gets no NON-compliance automatic reply until its next local day or an
+    // administrator's clearance. Asked only for error kinds (never for a fallback STOP / START / HELP), before the counter so a suppressed reply is not counted.
+    if (asKind !== "help" && asKind !== "start" && !(await inboundAutoReplyAllowed(supabase, { accountSid: signerAccountSid, kind: asKind }))) return emptyTwiml();
     return (await inboundReplyAllowed(supabase, { accountSid: signerAccountSid, sender: rawFrom, kind: asKind })) ? twiml(message) : emptyTwiml();
   };
 
