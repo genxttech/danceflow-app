@@ -412,7 +412,25 @@ select pg_temp.chk('internal validation helpers are not callable by API roles',
   and not has_function_privilege('anon', 'public.apply_competition_floor_plan(uuid,jsonb)', 'EXECUTE'));
 
 -- (14) publish freezes the running order; (19) snapshot carries numbers, entries, competitor roles
+reset role;
+-- S4/R-15: publishing needs every placed couple cleared. Clearance is recorded through set_competition_entry_eligibility (fixtures/r15_clear_entries.sql); inert without R-15.
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
 select pg_temp.as_user(pg_temp.u('000001'));
+-- Couple 008002 was planned while 'unverified' (provisional planning stays allowed above). With R-15 the order cannot be published until the organizer decides it.
+select pg_temp.expect_msg('14 R-15: an order holding an unverified couple cannot be published',
+  $q$select public.publish_competition_schedule_version(pg_temp.id('v1'))$q$, 'COMP_R15_PROVISIONAL_ASSIGNMENT')
+where to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is not null;
+do $r15d$
+begin
+  if to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is not null then
+    perform public.set_competition_entry_eligibility(pg_temp.u('008002'), 'eligible', 'criteria_verified_by_organizer', array['age_division', 'level', 'status'], gen_random_uuid());
+  end if;
+end $r15d$;
 select pg_temp.expect_ok('14 publish the floor-heat schedule (no sessions needed)',
   $q$select public.publish_competition_schedule_version(pg_temp.id('v1'))$q$);
 select pg_temp.chk('14 published with a snapshot of 7 numbered heats',

@@ -161,6 +161,13 @@ insert into public.event_competition_entry_participants (event_id, entry_id, com
   (pg_temp.u('00e001'), pg_temp.u('008002'), pg_temp.u('007001'), 'professional', 'leader', 'Pat Pro', 2),
   (pg_temp.u('00e001'), pg_temp.u('008003'), pg_temp.u('007004'), 'dancer', 'leader', 'Alex Morgan', 1),
   (pg_temp.u('00e001'), pg_temp.u('008003'), pg_temp.u('007005'), 'dancer', 'follower', 'Bo Bee', 2);
+-- S4/R-15: the running order is published and rounds are started, so the seeded couples need clearance. Clearance is recorded through set_competition_entry_eligibility (fixtures/r15_clear_entries.sql); inert without R-15.
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
 insert into public.event_competition_entry_dances (event_id, entry_id, division_dance_id, dance_key, dance_label)
 select e.event_id, e.id, dd.id, 'offering', 'Offering'
 from public.event_competition_entries e

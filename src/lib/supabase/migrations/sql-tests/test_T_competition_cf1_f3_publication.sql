@@ -260,6 +260,26 @@ select pg_temp.eid(r.n, i), case when r.n = 9 then pg_temp.u('00e002') else pg_t
 from (values (1, 1), (2, 2), (3, 3), (4, 3), (5, 5), (6, 6), (7, 7), (8, 5), (9, 9), (10, 10), (11, 11)) r(n, d)
 cross join generate_series(1, 3) i;
 
+-- Entrant 2's account (moved ahead of placement, S4/R-15).
+insert into auth.users (id, email) values (pg_temp.u('000022'), 't-f3-entrant2@example.test');
+insert into public.profiles (id, email, full_name) values (pg_temp.u('000022'), 't-f3-entrant2@example.test', 'F3 entrant2');
+-- Entrant stand-ins: user 21 is a competitor of entries r1/1 and r5/1; user 22 of r6/2 only.
+insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, user_id, date_of_birth) values
+  (pg_temp.u('007101'), pg_temp.u('00e001'), 'Ena', 'Entrant', 'staff', pg_temp.u('000021'), date '1985-06-15'),
+  (pg_temp.u('007102'), pg_temp.u('00e001'), 'Eve', 'Entrant', 'staff', pg_temp.u('000022'), date '1985-06-15');
+insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order) values
+  (pg_temp.u('00e001'), pg_temp.eid(1, 1), pg_temp.u('007101'), 'dancer', 'leader', 'Ena Entrant', 1),
+  (pg_temp.u('00e001'), pg_temp.eid(5, 1), pg_temp.u('007101'), 'dancer', 'leader', 'Ena Entrant', 1),
+  (pg_temp.u('00e001'), pg_temp.eid(6, 2), pg_temp.u('007102'), 'dancer', 'leader', 'Eve Entrant', 1);
+
+-- S4/R-15: seeded eligible couples get an organizer determination through set_competition_entry_eligibility before they are placed (load fixtures/r15_clear_entries.sql first).
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+
 -- Heats sit in a published schedule version. Fixture-only shortcut: replica mode skips the 10D publish flow.
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
@@ -322,20 +342,12 @@ select pg_temp.ballots(4);   -- r4 (the later round of d3) holds ballots, still 
 -- ============================================================================
 -- F3 fixtures (superuser): an unverified manager, an entrant stand-in, a callback division (r12 preliminary, r13 final)
 -- ============================================================================
-insert into auth.users (id, email) values (pg_temp.u('000003'), 't-f3-owner-unverified@example.test'), (pg_temp.u('000022'), 't-f3-entrant2@example.test');
-insert into public.profiles (id, email, full_name) values (pg_temp.u('000003'), 't-f3-owner-unverified@example.test', 'F3 unverified'), (pg_temp.u('000022'), 't-f3-entrant2@example.test', 'F3 entrant2');
+insert into auth.users (id, email) values (pg_temp.u('000003'), 't-f3-owner-unverified@example.test');
+insert into public.profiles (id, email, full_name) values (pg_temp.u('000003'), 't-f3-owner-unverified@example.test', 'F3 unverified');
 insert into public.verified_email_identities (user_id, email, first_verified_at, last_verified_at, method, source, credential_status, bound_at)
 values (pg_temp.u('000022'), 't-f3-entrant2@example.test', now(), now(), 'otp', 'web_callback', 'bound', now());
 insert into public.user_studio_roles (user_id, studio_id, role, active) values (pg_temp.u('000003'), pg_temp.u('00a001'), 'studio_owner', true);
 
--- Entrant stand-ins: user 21 is a competitor of entries r1/1 and r5/1; user 22 of r6/2 only.
-insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, user_id) values
-  (pg_temp.u('007101'), pg_temp.u('00e001'), 'Ena', 'Entrant', 'staff', pg_temp.u('000021')),
-  (pg_temp.u('007102'), pg_temp.u('00e001'), 'Eve', 'Entrant', 'staff', pg_temp.u('000022'));
-insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order) values
-  (pg_temp.u('00e001'), pg_temp.eid(1, 1), pg_temp.u('007101'), 'dancer', 'leader', 'Ena Entrant', 1),
-  (pg_temp.u('00e001'), pg_temp.eid(5, 1), pg_temp.u('007101'), 'dancer', 'leader', 'Ena Entrant', 1),
-  (pg_temp.u('00e001'), pg_temp.eid(6, 2), pg_temp.u('007102'), 'dancer', 'leader', 'Eve Entrant', 1);
 
 -- Callback division d12: preliminary r12 (callback_tally, program promote_callback) and its Final r13. Fixture-only (replica skips the setup guards).
 set session_replication_role = replica;
@@ -355,6 +367,15 @@ insert into public.event_competition_entries (id, event_id, program_id, division
 select pg_temp.eid(d, i), pg_temp.u('00e001'), pg_temp.u('001012'), pg_temp.did(d), 'E' || d || i, 'confirmed', 'eligible', (d * 10 + i)::text
 from unnest(array[12, 14]) d cross join generate_series(1, 3) i;
 set session_replication_role = origin;
+
+-- S4/R-15: seeded eligible couples get an organizer determination through set_competition_entry_eligibility before they are placed (load fixtures/r15_clear_entries.sql first).
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+
 
 create or replace function pg_temp.pubid(p int, n int) returns uuid language sql stable security definer as $$
   select id from public.event_competition_result_publications where round_id = pg_temp.rid(p) and publication_version = n $$;
