@@ -1,0 +1,31 @@
+{
+  "id": "OD01-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "All UCWDC contests, all disciplines (scoring format)",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Scoring Format v16.9b, opening paragraph (p.1)",
+    "quote_free_summary": "Every UCWDC contest must use the UCWDC Majority Rules scoring format, supervised by a certified Contest Coordinator with verified scoring staff and a vetted, UCWDC-authorized scoring system."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Results of an event that declares UCWDC may be approved or published only through a scoring method verified for UCWDC. None is: the ucwdc_majority_rules registry entry is unavailable (no engine), and Studio methods carry no body source. Declared UCWDC events are blocked at approve and publish.",
+  "implementation": [
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "evaluateSanctionScoringGuard" },
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "guardRoundResultsForSanction" },
+    { "path": "src/app/app/events/[id]/competition/results/actions.ts", "symbol_or_migration": "approveRoundResultAction, publishRoundResultAction" }
+  ],
+  "enforcement_point": "Server actions approveRoundResultAction and publishRoundResultAction call guardRoundResultsForSanction before the database transition and refuse when blocked; the round results page and publicationControls mirror the refusal. App layer only: the database RPCs do not check the declaration (follow-up, needs SQL).",
+  "tests": [
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 guard: every body x method x declaration combination" },
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 server actions" }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Implemented as a block, not as UCWDC scoring: the Majority Rules algorithm, Contest Coordinator certification and the UCWDC authorized-system designation are UNRESOLVED (no designation source supplied; effective_from is the edition's stated 2026 start, exact date not read from the PDF). Not verified_compliant. DanceFlow never claims UCWDC compliance. Organizer acknowledgement does not override.",
+  "applicable_event_versions": ["2026 v16.9b"],
+  "decision_refs": ["OD-01 (owner decision 2026-11-23, BLOCK, Option C; retrospective audit PR #795)"],
+  "last_reviewed": "2026-11-23"
+}

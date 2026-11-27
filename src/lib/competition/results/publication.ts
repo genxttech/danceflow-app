@@ -57,6 +57,8 @@ export type PublicationControlsInput = {
   latestVersion: { id: string; status: string; stale: boolean } | null;
   /** True when a callback result still has an undecided row (a tie over the Final's capacity). */
   unresolvedTie: boolean;
+  /** OD-01: set when the event declares a governing body whose scoring is not implemented and verified; publish is then never offered. */
+  sanctionBlockedReason?: string | null;
   publications: PublicationRecord[];
 };
 
@@ -86,6 +88,7 @@ export function publicationControls(input: PublicationControlsInput): Publicatio
   let blocked: string | null = null;
   if (!v || v.status !== "approved") blocked = "The latest result version is not approved.";
   else if (v.stale) blocked = "The ballots changed after this result was approved. Open a correction and recalculate.";
+  else if (input.sanctionBlockedReason) blocked = input.sanctionBlockedReason;
   else if (input.unresolvedTie) blocked = "This callback result has an undecided tie. It cannot be published until the tie is resolved.";
   else if (input.publications.some((p) => p.resultVersionId === v.id)) blocked = "This result version was already published. A corrected, newly approved version is needed.";
   return { ...none, withdrawPublicationId, publishVersionId: blocked ? null : (v?.id ?? null), publishBlockedReason: blocked };
