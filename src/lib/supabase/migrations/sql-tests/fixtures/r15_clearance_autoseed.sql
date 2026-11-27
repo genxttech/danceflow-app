@@ -6,14 +6,20 @@
 --   \i fixtures/r15_clearance_autoseed.sql
 -- Remove it with:  drop schema r15_testfixture cascade;
 --
--- What it does: when a placement (heat entry insert or update) or a participant row is written for an entry whose status is 'eligible' or 'waived' and that is
--- not cleared, it (1) adds one adult competitor as participant if the entry has none, then (2) calls public.set_competition_entry_eligibility as a studio
+-- The whole file is one transaction: a refused opt-in installs nothing, with or without ON_ERROR_STOP.
+--
+-- What it does: when a participant row is written, or an entry is first placed in a heat, for an entry whose status is 'eligible' or 'waived' and that is not
+-- cleared, it (1) adds one adult competitor as participant if the entry has none, then (2) calls public.set_competition_entry_eligibility as a studio
 -- manager of the event, for the entry's CURRENT status with the required criteria.
+-- A participant write also RENEWS a determination made stale by that roster change (suites build rosters one row at a time). A placement only records a FIRST
+-- decision: a stale determination met at placement stays stale. Floor-state changes (check-in, danced) trigger nothing.
 -- What it never does: it disables, replaces or bypasses no guard; writes no determination row directly; changes no eligibility status; and touches no
 -- 'unverified', 'needs_review' or 'ineligible' entry. A decision the database refuses (minor, unknown age, forbidden waiver, withdrawn entry) is left
 -- refused, and the guard then stops the suite as it should. It needs the real S5 predicate.
 -- Do NOT install it for suites that test eligibility itself (R-15, S5, OD-31 negative): they must see uncleared eligible entries.
 -- Results of a suite run with it are labelled as such: it proves the suite's scenario for CLEARED couples, not that the suite exercises the clearance rules.
+
+begin;
 
 do $guard$
 begin
@@ -28,7 +34,7 @@ end $guard$;
 
 create schema r15_testfixture;
 
-create function r15_testfixture.clear(p_entry uuid) returns void
+create function r15_testfixture.clear(p_entry uuid, p_renew boolean default false) returns void
 language plpgsql security definer set search_path = public, pg_temp as $f$
 declare
   e record;
@@ -39,7 +45,8 @@ declare
 begin
   select id, event_id, status, eligibility_status, display_name into e from public.event_competition_entries where id = p_entry;
   if not found or e.eligibility_status not in ('eligible', 'waived') or e.status not in ('pending', 'confirmed', 'waitlisted')
-     or public._r15_entry_clearance_reason(p_entry) is null then
+     or public._r15_entry_clearance_reason(p_entry) is null
+     or (not p_renew and exists (select 1 from public.event_competition_eligibility_determinations d where d.entry_id = p_entry)) then
     return;
   end if;
   if not exists (select 1 from public.event_competition_entry_participants p where p.entry_id = p_entry) then
@@ -66,12 +73,13 @@ begin
       case e.eligibility_status when 'eligible' then 'criteria_verified_by_organizer' else 'waiver_event_policy_scheduling' end,
       case e.eligibility_status when 'eligible' then v_req else '{}'::text[] end,
       gen_random_uuid());
-  exception when others then
+  -- only the function's own refusals are tolerated; lock, serialization and every other error propagates to the suite
+  exception when check_violation or insufficient_privilege then
     raise notice 'R15 autoseed: the database refused clearance for one entry (%); the guards decide.', sqlstate;
   end;
   perform set_config('request.jwt.claims', v_claims, true);
 end $f$;
-revoke all on function r15_testfixture.clear(uuid) from public;
+revoke all on function r15_testfixture.clear(uuid, boolean) from public;
 
 -- For entries that are neither placed nor given participants by the suite: clear every eligible/waived entry (of one event, or all).
 create function r15_testfixture.clear_all(p_event uuid default null) returns integer
@@ -91,15 +99,17 @@ revoke all on function r15_testfixture.clear_all(uuid) from public;
 create function r15_testfixture.on_write() returns trigger
 language plpgsql security definer set search_path = public, pg_temp as $f$
 begin
-  perform r15_testfixture.clear(new.entry_id);
+  perform r15_testfixture.clear(new.entry_id, tg_table_name = 'event_competition_entry_participants');
   return new;
 end $f$;
 revoke all on function r15_testfixture.on_write() from public;
 
 -- BEFORE the placement guard (BEFORE triggers fire alphabetically; 'a00_' sorts first). AFTER the participant row, so the fingerprint includes it.
-create trigger a00_r15_test_autoseed before insert or update on public.event_competition_heat_entries
+create trigger a00_r15_test_autoseed before insert or update of entry_id, heat_id on public.event_competition_heat_entries
   for each row execute function r15_testfixture.on_write();
 alter table public.event_competition_heat_entries enable always trigger a00_r15_test_autoseed;
 create trigger zz_r15_test_autoseed after insert or update on public.event_competition_entry_participants
   for each row execute function r15_testfixture.on_write();
 alter table public.event_competition_entry_participants enable always trigger zz_r15_test_autoseed;
+
+commit;

@@ -72,6 +72,7 @@ describe("R-15 (S4) migration order and rollback safety", () => {
     const rb = read(`rollback/${GUARD}_rollback.sql`);
     expect(rb).toContain("grant trigger on public.event_competition_entries to %I");
     expect(rb).toMatch(/refused: the prior TRIGGER grantees were not recorded/);
+    expect(rb).toMatch(/refused: the S6 entry guard was applied after this guard/);
   });
 
   it("the shared autoseed fixture records clearance only through the audited function and never weakens a guard", () => {
@@ -79,6 +80,11 @@ describe("R-15 (S4) migration order and rollback safety", () => {
     expect(sql).toContain("r15.install_test_autoseed");
     expect(sql).toContain("public.set_competition_entry_eligibility(");
     expect(sql).toContain("eligibility_status not in ('eligible', 'waived')");
+    expect(sql).toMatch(/^begin;$/m);
+    expect(sql.trimEnd().endsWith("commit;")).toBe(true);
+    expect(sql).toContain("exception when check_violation or insufficient_privilege then");
+    expect(sql).not.toContain("exception when others");
+    expect(sql).toContain("before insert or update of entry_id, heat_id on public.event_competition_heat_entries");
     expect(sql).not.toMatch(/insert\s+into\s+public\.event_competition_eligibility_determinations/i);
     expect(sql).not.toMatch(/disable\s+trigger|drop\s+trigger|create\s+or\s+replace\s+function\s+public\./i);
     expect(sql).not.toMatch(/set\s+eligibility_status/i);
