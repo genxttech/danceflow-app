@@ -57,7 +57,19 @@ The Expo behaviour in the cutover row is design reasoning, **not verified**: con
 
 ## H12. Android 12 image for local QA
 
-Queued as its own FIFO ticket (`*-android-release-h12-api31.txt`) with a self-releasing script: `system-images;android-31;google_apis;x86_64` through `sdkmanager` from Google's SDK repository (about 1 GB download, owner-approved), at least 15 GB free required (about 40 GB free when queued), no licence is accepted by the script, `sdkmanager`'s archive checksum plus recorded SHA-256 of the installed images, AVD `df-api31`, one headless boot. Evidence: `C:\dfr-out\android12-image\`. **Result: pending.** The first attempt (20:42-20:43Z) failed before downloading: this PC's `sdkmanager.bat` is now a wrapper over the Android CLI, and the unquoted `;` package name was split into four unknown packages. The lock was released. The script now passes the slash form `system-images/android-31/google_apis/x86_64` (listed by the repository as revision 14.0.0) and was re-queued at the back. The wrapper asks for no licence interactively; the installed `android-35` image uses `android-sdk-license`, already accepted on this PC, and the script records which licence the new image names. App checks on Android 12 are not part of this job and remain UNTESTED.
+**Result (2026-11-27 03:27-03:39Z): downloaded and booted, with a licence problem the owner must decide.** Evidence: `C:\dfr-out\android12-image\`.
+
+| Item | Result |
+|---|---|
+| Download | `https://dl.google.com/android/repository/sys-img/google_apis/x86_64-31_r14.zip`, installed to `system-images\android-31\google_apis\x86_64` (4.3 GB) |
+| Disk | 36 GB free before, 29 GB after |
+| Integrity | SHA-256 of `system.img`, `vendor.img`, `ramdisk.img` recorded (`image-sha256.txt`). Whether the tool checked the archive against the repository checksum is **UNVERIFIED** (not shown in its log; the archive was not kept) |
+| Boot | PASS: AVD `df-api31`, Android 12 (API 31), one headless boot; emulator stopped, lock released |
+| Licence | **The package names `android-sdk-preview-license` (Android SDK Preview License Agreement), which had not been accepted on this PC. The tool recorded acceptance without asking** (`C:\Android\sdk\licenses\android-sdk-preview-license`, created 2026-11-26 22:33 local, during this download) |
+
+The approval covered the download, not new terms. The script was written on the assumption that an unaccepted licence would stop the download; that is no longer true: this PC's `sdkmanager.bat` is now a wrapper over the Android CLI, which does not prompt. Until the owner decides, the image and AVD are not used for anything. Owner choice: **keep** (read and accept the preview terms), or **remove** (delete the image, the AVD and that licence file, returning the SDK to its earlier state; removing the file may not by itself withdraw acceptance).
+
+The first attempt (2026-11-26 20:42Z) downloaded nothing: the unquoted `;` package name was split into four unknown packages. App checks on Android 12 were not part of this job and remain UNTESTED.
 
 ## H13. One real-device pass without owner manual testing (proposal)
 
