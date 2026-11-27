@@ -58,6 +58,10 @@ class Fake {
     this.filters.push((row) => (row[column] ?? null) !== value);
     return this;
   }
+  neq(column: string, value: unknown) {
+    this.filters.push((row) => row[column] !== value);
+    return this;
+  }
   or(expression: string) {
     // "col.is.null,col.neq.value" and "col.is.null,col.not.ilike.pattern*pattern": enough of PostgREST's grammar for the loader
     const parts = expression.split(",").map((part) => part.split("."));
@@ -66,6 +70,12 @@ class Fake {
         const value = row[column] ?? null;
         if (op === "is") return rest[0] === "null" && value === null;
         if (op === "neq") return value !== rest.join(".");
+        if (op === "eq") return value === rest.join(".");
+        if (op === "not" && rest[0] === "is") return rest[1] === "null" && value !== null;
+        if (op === "ilike") {
+          const pattern = new RegExp("^" + rest.join(".").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/_/g, ".").replace(/%/g, ".*") + "$", "i");
+          return value !== null && pattern.test(String(value));
+        }
         if (op === "not" && rest[0] === "ilike") {
           const pattern = new RegExp("^" + rest.slice(1).join(".").replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/_/g, ".").replace(/%/g, ".*") + "$", "i"); // ILIKE: _ is one character, % any run
           return value !== null && !pattern.test(String(value));
@@ -378,6 +388,55 @@ describe("classification guard: a lead is not a lesson request, a booking, an ev
     expect(leadSourceLabel("Instagram")).toBe("Instagram");
     expect(leadSourceLabel("Friend or family")).toBe("Friend or family");
     expect(leadSourceLabel("  Event Registration ")).toBe("Other");
+  });
+});
+
+describe("P2: an event-only buyer is not a lead, a real lead who bought a ticket is", () => {
+  const person = (id: string, over: Row): Row => ({ id, studio_id: STUDIO, first_name: id, last_name: "Test", status: "lead", created_at: "2026-11-22T10:00:00Z", referral_source: "Event Registration", source_system: "event_registration", is_independent_instructor: false, ...over });
+  const leadIds = async (tables: Record<string, Row[]>) => ((await call("studio_owner", {}, tables).run()).leads as { recent: { id: string }[] }).recent.map((l) => l.id);
+  const withRows = (clients: Row[], extra: Record<string, Row[]> = {}) => {
+    const tables: Record<string, Row[]> = { ...data, clients: [...data.clients, ...clients] };
+    for (const [table, rows] of Object.entries(extra)) tables[table] = [...(tables[table] ?? []), ...rows];
+    return tables;
+  };
+
+  it("the predicate: a chosen referral source or any other relationship keeps an event-origin lead", () => {
+    const row = { referral_source: null, source_system: "event_registration", is_independent_instructor: false };
+    expect(isPulseLead(row)).toBe(false);
+    expect(isPulseLead(row, true)).toBe(true);
+    expect(isPulseLead({ ...row, referral_source: "Website" })).toBe(true);
+    expect(isPulseLead({ ...row, referral_source: "Event Registration" }, true)).toBe(true);
+    expect(isPulseLead({ ...row, is_independent_instructor: true }, true)).toBe(false);
+  });
+
+  it("a website lead the checkout stamped with the event source system is still a lead", async () => {
+    expect(await leadIds(withRows([person("W1", { referral_source: "website" })]))).toContain("W1");
+  });
+
+  it.each([
+    ["a lead activity", "lead_activities", { id: "ea", follow_up_due_at: null, completed_at: null }],
+    ["a package", "client_packages", { id: "ep", active: false, client_package_items: [] }],
+    ["an appointment", "appointments", { id: "eapp", status: "scheduled", starts_at: "2026-10-01T10:00:00Z" }],
+    ["an attended class", "attendance_records", { id: "eatt", status: "attended" }],
+  ])("an event-origin lead with %s is a lead; the same one without it is not", async (_label, table, evidence) => {
+    const tables = withRows([person("E1", {}), person("E2", {})], { [table]: [{ studio_id: STUDIO, client_id: "E1", ...evidence }] });
+    const ids = await leadIds(tables);
+    expect(ids).toContain("E1");
+    expect(ids).not.toContain("E2");
+  });
+
+  it("a cancelled appointment and another studio's rows are not evidence", async () => {
+    const tables = withRows([person("E1", {})], {
+      appointments: [{ id: "c", studio_id: STUDIO, client_id: "E1", status: "cancelled", starts_at: "2026-10-01T10:00:00Z" }],
+      client_packages: [{ id: "o", studio_id: OTHER, client_id: "E1", active: true, client_package_items: [] }],
+    });
+    expect(await leadIds(tables)).not.toContain("E1");
+  });
+
+  it("says truncated when there are more event-origin leads than it checks", async () => {
+    const many = Array.from({ length: 301 }, (_, i) => person("EV" + i, {}));
+    const cards = await call("studio_owner", {}, withRows(many)).run();
+    expect((cards.leads as { truncated: boolean }).truncated).toBe(true);
   });
 });
 

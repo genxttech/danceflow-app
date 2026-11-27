@@ -17,6 +17,9 @@ import { canViewStudioWideSchedule } from "@/lib/staff/studioSchedule";
 
 export const PULSE_LIST_LIMIT = 5;
 const LEAD_SCAN_LIMIT = 200;
+const EVENT_LEAD_SCAN_LIMIT = 300;
+const EVIDENCE_CHUNK = 100;
+const LEAD_COLUMNS = "id, first_name, last_name, created_at, referral_source, source_system, is_independent_instructor";
 const NEW_LEAD_WINDOW_DAYS = 7;
 const LOW_PACKAGE_THRESHOLD = 1;
 const PACKAGE_SCAN_LIMIT = 150;
@@ -161,18 +164,19 @@ export function leadSourceLabel(source: string | null | undefined) {
 }
 
 /**
- * Lead eligibility (audit decision O3, interim): `status = 'lead'` excluding event-registration origins and independent instructors. When the lead-integrity rule
- * (PR 576) lands, this single predicate is where it plugs in, so the app and the web agree.
+ * Lead eligibility (owner decision P2): `status = 'lead'`, not an independent instructor, and not an event-only buyer. An event-only buyer has an
+ * event origin (the event checkout writes referral_source "Event Registration" and source_system 'event_registration') and no other sign of a
+ * studio relationship: no studio-chosen referral source, no lead activity, no package, appointment or attended class (`hasOtherEvidence`).
  */
-export function isPulseLead(row: Pick<LeadRow, "referral_source" | "is_independent_instructor"> & { source_system?: string | null }) {
-  // An event ticket purchaser or registrant is a customer of the event, not a studio lead: the event checkout creates them with status 'lead',
-  // referral_source "Event Registration" and source_system 'event_registration', so every one of those spellings is excluded.
-  const eventOrigin = sourceKey(row.referral_source) === "event_registration" || sourceKey(row.source_system) === "event_registration";
-  return !eventOrigin && row.is_independent_instructor !== true;
+export function isPulseLead(row: Pick<LeadRow, "referral_source" | "is_independent_instructor"> & { source_system?: string | null }, hasOtherEvidence = false) {
+  if (row.is_independent_instructor === true) return false;
+  const referral = sourceKey(row.referral_source);
+  if (referral !== "event_registration" && sourceKey(row.source_system) !== "event_registration") return true;
+  return hasOtherEvidence || (referral !== "" && referral !== "event_registration");
 }
 
-export function summarizeLeads(rows: LeadRow[], activityClientIds: Set<string>, followUps: FollowUpRow[], now: Date) {
-  const leads = rows.filter(isPulseLead);
+export function summarizeLeads(rows: LeadRow[], activityClientIds: Set<string>, followUps: FollowUpRow[], now: Date, evidenceClientIds: Set<string> = new Set()) {
+  const leads = rows.filter((row) => isPulseLead(row, activityClientIds.has(row.id) || evidenceClientIds.has(row.id)));
   const since = now.getTime() - NEW_LEAD_WINDOW_DAYS * 86_400_000;
   const leadIds = new Set(leads.map((row) => row.id));
   const overdueClients = new Set(
@@ -289,21 +293,60 @@ async function loadRequests(ctx: Ctx, scope: "all" | "own"): Promise<RequestsCar
   };
 }
 
+/**
+ * Event-origin leads are read apart from the main scan, so a large event cannot fill it, and only those with another sign of a studio relationship
+ * come back. Bounded: the newest EVENT_LEAD_SCAN_LIMIT event-origin leads are checked, and the card says it is truncated beyond that.
+ */
+async function loadQualifiedEventLeads(ctx: Ctx) {
+  const { data, error } = await ctx.supabase
+    .from("clients")
+    .select(LEAD_COLUMNS)
+    .eq("studio_id", ctx.studioId)
+    .eq("status", "lead")
+    .or("source_system.eq.event_registration,referral_source.ilike.event_registration")
+    .order("created_at", { ascending: false })
+    .limit(EVENT_LEAD_SCAN_LIMIT + 1);
+  if (error) throw new Error(`Pulse event lead lookup failed: ${error.message}`);
+  const found = (data ?? []) as LeadRow[];
+  const candidates = found.slice(0, EVENT_LEAD_SCAN_LIMIT);
+  const evidence = new Set<string>();
+  let truncated = found.length > EVENT_LEAD_SCAN_LIMIT;
+  for (let from = 0; from < candidates.length; from += EVIDENCE_CHUNK) {
+    const ids = candidates.slice(from, from + EVIDENCE_CHUNK).map((row) => row.id);
+    const lookups = await Promise.all([
+      ctx.supabase.from("lead_activities").select("client_id").eq("studio_id", ctx.studioId).in("client_id", ids).limit(1000),
+      ctx.supabase.from("client_packages").select("client_id").eq("studio_id", ctx.studioId).in("client_id", ids).limit(1000),
+      ctx.supabase.from("appointments").select("client_id").eq("studio_id", ctx.studioId).in("client_id", ids).neq("status", "cancelled").limit(1000),
+      ctx.supabase.from("attendance_records").select("client_id").eq("studio_id", ctx.studioId).in("client_id", ids).eq("status", "attended").limit(1000),
+    ]);
+    for (const lookup of lookups) {
+      if (lookup.error) throw new Error(`Pulse event lead evidence lookup failed: ${lookup.error.message}`);
+      const rows = (lookup.data ?? []) as { client_id: string }[];
+      if (rows.length >= 1000) truncated = true;
+      for (const row of rows) evidence.add(row.client_id);
+    }
+  }
+  return { rows: candidates.filter((row) => isPulseLead(row, evidence.has(row.id))), evidence, truncated };
+}
+
 async function loadLeads(ctx: Ctx): Promise<LeadsCard> {
   const nowIso = ctx.now.toISOString();
   const { data, error } = await ctx.supabase
     .from("clients")
-    .select("id, first_name, last_name, created_at, referral_source, source_system, is_independent_instructor")
+    .select(LEAD_COLUMNS)
     .eq("studio_id", ctx.studioId)
     .eq("status", "lead")
     // In ILIKE the underscore is a one-character wildcard, so this one pattern covers the space, dash and underscore spellings and nothing wider; any other odd spelling is still caught by isPulseLead.
-    .or("source_system.is.null,source_system.neq.event_registration")
+    // a studio-chosen referral source keeps a lead even when the event checkout stamped source_system on it
+    .or("source_system.is.null,source_system.neq.event_registration,referral_source.not.is.null")
     .or("referral_source.is.null,referral_source.not.ilike.event_registration")
     .order("created_at", { ascending: false })
     .limit(LEAD_SCAN_LIMIT + 1);
   if (error) throw new Error(`Pulse leads lookup failed: ${error.message}`);
   const all = (data ?? []) as LeadRow[];
-  const rows = all.slice(0, LEAD_SCAN_LIMIT);
+  const event = await loadQualifiedEventLeads(ctx);
+  const merged = new Map([...all.slice(0, LEAD_SCAN_LIMIT), ...event.rows].map((row) => [row.id, row]));
+  const rows = [...merged.values()].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, LEAD_SCAN_LIMIT);
   const ids = rows.map((row) => row.id);
   let activityClientIds = new Set<string>();
   let followUps: FollowUpRow[] = [];
@@ -326,9 +369,9 @@ async function loadLeads(ctx: Ctx): Promise<LeadsCard> {
     activityClientIds = new Set(activityRows.map((row) => row.client_id));
     followUps = (due.data ?? []) as FollowUpRow[];
   }
-  const summary = summarizeLeads(rows, activityClientIds, followUps, ctx.now);
+  const summary = summarizeLeads(rows, activityClientIds, followUps, ctx.now, event.evidence);
   // the activity lookup is bounded too: at its cap some leads could read as not contacted, so say the card is truncated
-  return { state: "ok", asOf: nowIso, truncated: all.length > LEAD_SCAN_LIMIT || activityRows.length >= 1000 || followUps.length >= 500, ...summary };
+  return { state: "ok", asOf: nowIso, truncated: all.length > LEAD_SCAN_LIMIT || merged.size > LEAD_SCAN_LIMIT || event.truncated || activityRows.length >= 1000 || followUps.length >= 500, ...summary };
 }
 
 async function loadAria(ctx: Ctx): Promise<AriaCard> {
