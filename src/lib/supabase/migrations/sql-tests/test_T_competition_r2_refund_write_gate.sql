@@ -207,8 +207,18 @@ insert into public.event_competition_entries (id, event_id, program_id, division
 select pg_temp.u(entry), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u(division), pg_temp.u(reg),
        case when ord is not null then pg_temp.u(ord) end, case when item is not null then pg_temp.u(item) end, label, 'confirmed', 'eligible', sort
 from t_entries;
+-- S5 (OD-02): fixture competitors are adults. The database participant age guard (20270301120000) refuses an unknown or under-18 date of birth;
+-- the negative cases for both live in test_T_competition_s5_participant_age_guard.sql. Harmless on a chain without S5.
+update public.event_competition_competitors set date_of_birth = date '1985-06-15' where date_of_birth is null;
 insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name)
 select pg_temp.u('00e001'), pg_temp.u(entry), pg_temp.u('007' || right(entry, 3)), 'dancer', 'leader', label from t_entries;
+-- S4/R-15: the couples are checked in and refunded as competitors, so they need clearance once their participants are seeded. Clearance is recorded through set_competition_entry_eligibility (fixtures/r15_clear_entries.sql); inert without R-15.
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
 insert into public.event_competition_entry_dances (event_id, entry_id, division_dance_id, dance_key, dance_label)
 select pg_temp.u('00e001'), pg_temp.u(entry), case when division = '003001' then pg_temp.u('005011') else pg_temp.u('005021') end, 'offering', 'Offering'
 from t_entries;

@@ -74,6 +74,12 @@ begin
         'danceIds', v_dances, 'entryIds', jsonb_build_array(v_entry)))));
   end loop;
 
+  -- S4/R-15: publishing needs cleared entries. When the clearance fixture (r15_clear_entries.sql) is loaded and the caller is the fixture owner, the event's
+  -- eligible/waived entries get their organizer determination through the real RPC first. Unverified and needs_review entries are never cleared here.
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null and current_user in ('postgres', 'supabase_admin') then
+    perform pg_temp.r15_clear_entries(v_event);
+  end if;
+
   perform pg_temp.compo1_fixture_as(p_actor);
   v_version := public.create_competition_schedule_version(v_event, 'Fixture running order', null);
   perform public.apply_competition_floor_plan(v_version, jsonb_build_object('floorHeats', v_floor));
