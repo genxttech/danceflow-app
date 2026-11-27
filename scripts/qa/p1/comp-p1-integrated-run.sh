@@ -225,7 +225,7 @@ run_suite(){ # <phase> <tests dir> <suite>
   if [ "$res" = PASS ] && [ -n "$first" ]; then case "$first" in *PASS*) ;; *) res=FAIL; line="verdict says PASS but an earlier error exists: $first";; esac; fi
   case "$s" in *od04_ordinary_event_baseline) res=OUTPUT; line="compared across phases (od04-baseline-diff.txt)";; esac
   [ "$before" = "$after" ] || { res=FAIL-PREDICATE; log "[$ph] $s: S5 predicate changed"; }
-  [ "$ph" != A ] && grep -qs "^$s " "$OUT/adapted-copies.txt" && [ "$(blob "$dir/$s.sql")" != "$(blob "$CHAIN/tests-A/$s.sql" 2>/dev/null)" ] && res="$res [ADAPTED COPY]"
+  [ "$ph" != A ] && grep -qs "^$s " "$OUT/adapted-copies.txt" && ! cmp -s "$dir/$s.sql" "$CHAIN/tests-A/$s.sql" && res="$res [ADAPTED COPY]"
   printf '%s\t%s\t%s\t%s\n' "$ph" "$s" "$res" "$line" >> "$OUT/suites.tsv"; log "[$ph] $s: $res"
 }
 run_phase_suites(){ for s in $(cat "$OUT/list-suites-$1.txt"); do run_suite "$1" "$CHAIN/tests-$1" "$s"; done; }

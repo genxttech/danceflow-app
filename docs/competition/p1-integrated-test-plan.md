@@ -1,6 +1,6 @@
 # P1 restricted pilot: integrated test plan
 
-Scope: OWNER-DECISIONS.md section 21 and `P1-RELEASE-PACKAGE.md` (PR 795). DanceFlow Studio/Custom pilot behaviour; nothing here states a governing-body rule. **Local only. No hosted SQL, merge, deploy, activation or provider call.** Status words: EXECUTED / PENDING / BLOCKED. As written, everything below is **PENDING**.
+Scope: OWNER-DECISIONS.md section 21 and `P1-RELEASE-PACKAGE.md` (PR 795). DanceFlow Studio/Custom pilot behaviour; nothing here states a governing-body rule. **Local only. No hosted SQL, merge, deploy, activation or provider call.** Status words: EXECUTED / PENDING / BLOCKED. The database composition has run once (`p1-integrated-run-record.md`); the application workflow, browser run and flag-off smoke are **PENDING**.
 
 ## 1. Database composition run (`scripts/qa/p1/comp-p1-integrated-run.sh`)
 
@@ -18,7 +18,7 @@ Rules: suites are unmodified where possible; every modified copy is listed in `a
 
 ### Route probe (`scripts/qa/p1/probe_p1_r11_routes.sql`)
 
-Replays NC, CS, CA and R with competition state built only through application paths; the superuser seeds identities and studio roles, computes the engine rows through a read-only helper and reads state; deferred constraints are checked per step. Verdicts: REACHED; NOT REACHED (read which guard refused first); CLOSED AT SETUP (the restriction removed a precondition, so the later route steps were not exercised); INCONCLUSIVE (the probe or something else failed: fix and re-run). A direct move of an existing published heat is observed separately. Expected in B: reachable (the package records the self-approved replacement as reachable with all existing PRs). Expected in C: closed, mostly at setup. PR 877's head is the branch tip until its rebased head is reported (`P_S6` pins it); the restriction is stacked on 877 `6c80b98a7`. The probe has **never been executed**.
+Replays NC, CS, CA and R with competition state built only through application paths; the superuser seeds identities and studio roles, computes the engine rows through a read-only helper and reads state; deferred constraints are checked per step. Verdicts: REACHED; NOT REACHED (read which guard refused first); CLOSED AT SETUP (the restriction removed a precondition, so the later route steps were not exercised); INCONCLUSIVE (the probe or something else failed: fix and re-run). A direct move of an existing published heat is observed separately. Expected in B: reachable (the package records the self-approved replacement as reachable with all existing PRs). Expected in C: closed, mostly at setup. PR 877's head is the branch tip until its rebased head is reported (`P_S6` pins it); the restriction is stacked on 877 `6c80b98a7`. First execution: inconclusive on A and B (probe defect), closed at setup on C.
 
 Not covered by the probe: the named residual (a second contest with the same people prepared before judging: another division, program or event). Add it as a separate case once the restriction's text is final; it is expected to remain reachable.
 

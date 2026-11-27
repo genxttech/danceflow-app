@@ -116,11 +116,11 @@ select pg_temp.uid(a), pg_temp.u('00a001'), (case when a like 'A%' then 'studio_
 -- ============================================================================
 create or replace function pg_temp.setup() returns void language plpgsql as $fn$
 declare
-  d int; i int; r int; v_prog uuid; v_div uuid; v_people jsonb; v_entries jsonb; v_floor jsonb; v_version uuid; v_has_r15 boolean; v_e record; v_req text[];
+  d int; i int; r int; v_prog uuid; v_div uuid; v_people jsonb; v_entries jsonb; v_floor jsonb; v_version uuid; v_has_r15 boolean; v_ignore jsonb; v_e record; v_req text[];
   v_order int[]; j text;
 begin
   perform pg_temp.step('setup', 'create the event', format($q$insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required) values (%L, %L, 'P1R11 Comp', 't-p1r11-e1', 'competition', current_date + 30, current_date + 30, 'published', 'public', true)$q$, pg_temp.ev(), pg_temp.u('00a001')));
-  perform pg_temp.step('setup', 'create_simple_competition', format($q$select public.create_simple_competition(%L, '{"profile_key":"studio_simple","profile_version":1,"request_key":"p1r11-request-0001","preset":"studio_competition","judging":"placements","categories":[{"type":"solo","price":"0"}],"divisions":[{"name":"D1"},{"name":"D2"},{"name":"D3"},{"name":"D4"}]}'::jsonb)$q$, pg_temp.ev()));
+  perform pg_temp.step('setup', 'create_simple_competition', format($q$select public.create_simple_competition(%L, '{"profile_key":"studio_simple","profile_version":1,"request_key":"p1r11-request-0001","preset":"studio_competition","judging":"placements","categories":[{"type":"couples","price":"0","dances":["waltz"]}],"divisions":[{"name":"D1"},{"name":"D2"},{"name":"D3"},{"name":"D4"}]}'::jsonb)$q$, pg_temp.ev()));
   select id into v_prog from public.event_competition_programs where event_id = pg_temp.ev();
   perform pg_temp.put('program', v_prog);
   perform pg_temp.step('setup', 'publish_competition_program', format('select public.publish_competition_program(%L)', v_prog));
@@ -129,10 +129,15 @@ begin
     select id into v_div from public.event_competition_divisions where event_id = pg_temp.ev() and name = 'D' || d;
     perform pg_temp.put('div' || d, v_div);
     select jsonb_agg(jsonb_build_object('clientId', 'p' || g, 'firstName', 'Adult' || d || g, 'lastName', 'Tester', 'personType', 'dancer', 'dateOfBirth', '1990-01-0' || g) order by g),
+           null::jsonb
+    into v_people, v_entries from generate_series(1, 6) g;
+    select
+           null::jsonb,
            jsonb_agg(jsonb_build_object('clientId', 'e' || g, 'programId', v_prog, 'contestId', (select contest_id from public.event_competition_divisions where id = v_div), 'divisionId', v_div,
-             'participantIds', jsonb_build_array('p' || g), 'participantRoles', jsonb_build_object('p' || g, 'dancer'), 'selectedOfferingIds', '[]'::jsonb, 'routineTitle', 'Routine ' || d || '-' || g, 'musicTitle', 'Music ' || d || '-' || g, 'routineDurationSeconds', '90') order by g)
-    into v_people, v_entries from generate_series(1, 3) g;
-    perform pg_temp.step('setup', 'register three adults in D' || d, format($q$select public.start_competition_registration(%L, %L, %L::jsonb, %L)$q$, pg_temp.ev(), pg_temp.u('00f00' || d),
+             'participantIds', jsonb_build_array('p' || (2 * g - 1), 'p' || (2 * g)), 'participantRoles', jsonb_build_object('p' || (2 * g - 1), 'leader', 'p' || (2 * g), 'follower'),
+             'selectedOfferingIds', (select jsonb_agg(dd.id) from public.event_competition_division_dances dd where dd.division_id = v_div), 'routineTitle', 'Routine ' || d || '-' || g, 'musicTitle', 'Music ' || d || '-' || g, 'routineDurationSeconds', '90') order by g)
+    into v_ignore, v_entries from generate_series(1, 3) g;
+    perform pg_temp.step('setup', 'register three adult couples in D' || d, format($q$select public.start_competition_registration(%L, %L, %L::jsonb, %L)$q$, pg_temp.ev(), pg_temp.u('00f00' || d),
       jsonb_build_object('registrationMode', 'individual', 'buyerName', 'Bea Buyer', 'buyerEmail', 'buyer@example.test', 'people', v_people, 'entries', v_entries), pg_temp.uid('A1')), 'SVC');
   end loop;
   v_has_r15 := to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is not null;
@@ -165,7 +170,7 @@ begin
   -- one published running order: floor heats numbered in the order they are run
   for v_order in select * from (values (array[1, 2, 5, 7, 6, 3, 8, 4]), (array[1, 2, 5, 7])) v loop
     select jsonb_agg(jsonb_build_object('number', o.ord, 'scoringHeats', jsonb_build_array(jsonb_build_object(
-             'divisionId', rr.division_id, 'roundId', rr.id, 'heatNumber', o.ord, 'name', 'Heat ' || o.ord, 'danceIds', '[]'::jsonb,
+             'divisionId', rr.division_id, 'roundId', rr.id, 'heatNumber', o.ord, 'name', 'Heat ' || o.ord, 'danceIds', (select jsonb_agg(distinct dd.dance_id) from public.event_competition_division_dances dd where dd.division_id = rr.division_id),
              'entryIds', (select jsonb_agg(e.id order by e.id) from public.event_competition_entries e where e.division_id = rr.division_id and e.status = 'confirmed')))) order by o.ord)
     into v_floor from unnest(v_order) with ordinality o(rn, ord) join public.event_competition_rounds rr on rr.id = pg_temp.rid(o.rn);
     continue when v_floor is null;
