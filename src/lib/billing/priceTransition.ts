@@ -9,6 +9,9 @@
  * This module is a library only. Nothing calls it from a route, job or webhook, and it never runs on its own. The pure
  * planner makes no network calls. The executor refuses live Stripe keys unless the caller passes allowLive explicitly.
  *
+ * Several items (docs/billing/D7-WP3-MULTI-ITEM.md): the operator names the ONE protected item by Price id; every other item is
+ * carried unchanged into both phases, and anything that could not be carried verbatim is refused.
+ *
  * Phase construction: the schedule Stripe creates from the subscription is the source of truth for the CURRENT phase. The
  * executor copies every carry-over field of that phase (metadata, tax, discounts, payment settings, item metadata) into both
  * the first and the second phase and changes only the end date of the first and the Price of the second. Subscriptions with
@@ -47,6 +50,31 @@ export type TransitionTargetPrice = {
   hasTransformQuantity?: boolean;
 };
 
+/** Billing shape of a Stripe Price as read from a subscription item; needed only for multi-item subscriptions. */
+export type TransitionItemShape = {
+  currency: string;
+  interval: string | null;
+  intervalCount: number | null;
+  type: string | null;
+  billingScheme: string | null;
+  usageType: string | null;
+  hasTransformQuantity: boolean;
+};
+
+export type TransitionItem = {
+  priceId: string;
+  quantity: number;
+  /** Subscription-item metadata; Stripe schedules do not copy it, so it is set explicitly on both phases. */
+  metadata?: Record<string, string>;
+  /** Multi-item only: the Price's billing shape. Missing on a multi-item subscription is refused (fail closed). */
+  shape?: TransitionItemShape;
+  /** Multi-item only: item-level settings that cannot be carried verbatim (e.g. "discounts", "tax_rates", "billing_thresholds"). */
+  unsupported?: string[];
+};
+
+/** More items than this on one subscription is not a shape this transition has been designed for. */
+export const MAX_SUBSCRIPTION_ITEMS = 5;
+
 export type TransitionSubscription = {
   id: string;
   status: string;
@@ -54,7 +82,7 @@ export type TransitionSubscription = {
   currentPeriodEnd: Date;
   cancelAtPeriodEnd: boolean;
   scheduleId: string | null;
-  items: Array<{ priceId: string; quantity: number; /** Subscription-item metadata; Stripe schedules do not copy it, so it is set explicitly on both phases. */ metadata?: Record<string, string> }>;
+  items: TransitionItem[];
   /** Subscription-level metadata, carried explicitly onto both phases. */
   metadata?: Record<string, string>;
   /** Settings this transition does not model; any entry blocks the plan (e.g. "trial", "pause_collection", "pending_update"). */
@@ -81,6 +109,16 @@ export type TransitionBlocker =
   | "subscription_cancelling"
   | "subscription_has_schedule"
   | "subscription_unsupported_items"
+  | "subscription_items_over_cap"
+  | "protected_item_not_found"
+  | "protected_item_ambiguous"
+  | "item_duplicate_price"
+  | "item_quantity_invalid"
+  | "item_unsupported_settings"
+  | "item_shape_unsupported"
+  | "item_interval_or_currency_mismatch"
+  | "item_is_protected_price"
+  | "target_price_already_on_subscription"
   | "subscription_unsupported_settings"
   | "boundary_in_past"
   | "boundary_too_soon"
@@ -107,6 +145,8 @@ export type TransitionPlan =
         subscriptionId: string;
         boundaryAt: string;
         fromPriceIds: string[];
+        /** Multi-item subscriptions only: the one item (by Price id) that moves to the target; every other item is preserved. */
+        protectedPriceId?: string;
         toPriceId: string;
         toUnitAmountCents: number;
         currency: string;
@@ -126,6 +166,10 @@ export function planPriceTransition(input: {
   approval: TransitionApproval | null;
   protectedSubscriptionId: string;
   minNoticeDays?: number;
+  /** Multi-item subscriptions: the operator-supplied Price id of the ONE item to transition. Ignored for single-item subscriptions. */
+  protectedPriceId?: string;
+  /** Multi-item subscriptions: Price ids of the OTHER items that are themselves protected/legacy prices (any entry blocks). */
+  otherProtectedPriceIds?: string[];
 }): TransitionPlan {
   const { now, subscription, notice, target, approval } = input;
   const blockers: TransitionBlocker[] = [];
@@ -165,7 +209,7 @@ export function planPriceTransition(input: {
   if (subscription.status !== "active") blockers.push("subscription_not_active");
   if (subscription.cancelAtPeriodEnd) blockers.push("subscription_cancelling");
   if (subscription.scheduleId) blockers.push("subscription_has_schedule");
-  if (subscription.items.length !== 1) blockers.push("subscription_unsupported_items");
+  blockers.push(...itemBlockers(subscription, target, input.protectedPriceId, input.otherProtectedPriceIds ?? []));
   if ((subscription.unsupportedSettings ?? []).length > 0) blockers.push("subscription_unsupported_settings");
   if (approval) {
     if (approval.boundaryAt.getTime() <= now.getTime()) blockers.push("boundary_in_past");
@@ -175,16 +219,19 @@ export function planPriceTransition(input: {
 
   if (blockers.length > 0 || !approval || !notice) return { ok: false, blockers: [...new Set(blockers)] };
 
-  const [item] = subscription.items;
-  const itemMeta = item.metadata && Object.keys(item.metadata).length > 0 ? { metadata: item.metadata } : {};
+  const metaOf = (item: TransitionItem) => (item.metadata && Object.keys(item.metadata).length > 0 ? { metadata: item.metadata } : {});
   const subMeta = subscription.metadata && Object.keys(subscription.metadata).length > 0 ? { subscriptionMetadata: subscription.metadata } : {};
+  const multi = subscription.items.length > 1;
+  // Multi-item: deterministic order (by Price id) so the plan, its hash and the phases never depend on Stripe's item order.
+  const items = multi ? [...subscription.items].sort((a, b) => (a.priceId < b.priceId ? -1 : a.priceId > b.priceId ? 1 : 0)) : subscription.items;
   return {
     ok: true,
     blockers: [],
     change: {
       subscriptionId: subscription.id,
       boundaryAt: approval.boundaryAt.toISOString(),
-      fromPriceIds: subscription.items.map((i) => i.priceId),
+      fromPriceIds: items.map((i) => i.priceId),
+      ...(multi ? { protectedPriceId: input.protectedPriceId } : {}),
       toPriceId: target.id,
       toUnitAmountCents: notice.newUnitAmountCents,
       currency: notice.currency,
@@ -194,12 +241,50 @@ export function planPriceTransition(input: {
         {
           startDate: unix(subscription.currentPeriodStart),
           endDate: unix(approval.boundaryAt),
-          items: [{ price: item.priceId, quantity: item.quantity, ...itemMeta }],
+          items: items.map((i) => ({ price: i.priceId, quantity: i.quantity, ...metaOf(i) })),
         },
-        { startDate: unix(approval.boundaryAt), items: [{ price: target.id, quantity: item.quantity, ...itemMeta }] },
+        {
+          startDate: unix(approval.boundaryAt),
+          items: items.map((i) => ({ price: multi && i.priceId !== input.protectedPriceId ? i.priceId : target.id, quantity: i.quantity, ...metaOf(i) })),
+        },
       ],
     },
   };
+}
+
+/**
+ * Item-set rules. One item: unchanged (the runner checks its price). Several items: the operator names the ONE protected item by
+ * Price id; everything else is carried unchanged, so anything that could not be carried verbatim or could bill differently at the
+ * boundary is refused.
+ */
+function itemBlockers(subscription: TransitionSubscription, target: TransitionTargetPrice, protectedPriceId: string | undefined, otherProtected: string[]): TransitionBlocker[] {
+  const items = subscription.items;
+  if (items.length === 0) return ["subscription_unsupported_items"];
+  if (items.length === 1) return [];
+  if (items.length > MAX_SUBSCRIPTION_ITEMS) return ["subscription_items_over_cap"];
+  if (!protectedPriceId) return ["subscription_unsupported_items"];
+
+  const out = new Set<TransitionBlocker>();
+  const count = new Map<string, number>();
+  for (const item of items) count.set(item.priceId, (count.get(item.priceId) ?? 0) + 1);
+  const protectedCount = count.get(protectedPriceId) ?? 0;
+  if (protectedCount === 0) out.add("protected_item_not_found");
+  if (protectedCount > 1) out.add("protected_item_ambiguous");
+  if ([...count.entries()].some(([price, n]) => n > 1 && price !== protectedPriceId)) out.add("item_duplicate_price");
+  if (count.has(target.id)) out.add("target_price_already_on_subscription");
+
+  for (const item of items) {
+    if (!Number.isInteger(item.quantity) || item.quantity < 1) out.add("item_quantity_invalid");
+    if ((item.unsupported ?? []).length > 0) out.add("item_unsupported_settings");
+    const shape = item.shape;
+    if (!shape || shape.type !== "recurring" || shape.intervalCount !== 1 || shape.billingScheme !== "per_unit" || shape.usageType !== "licensed" || shape.hasTransformQuantity !== false) {
+      out.add("item_shape_unsupported");
+    } else if (shape.interval !== target.interval || shape.currency.toLowerCase() !== target.currency.toLowerCase()) {
+      out.add("item_interval_or_currency_mismatch");
+    }
+    if (item.priceId !== protectedPriceId && otherProtected.includes(item.priceId)) out.add("item_is_protected_price");
+  }
+  return [...out];
 }
 
 type SchedulePhaseRead = {
@@ -348,7 +433,8 @@ export async function executePriceTransition(
     const [phase0] = current.phases;
     const [wantCurrent, wantNext] = change.phases;
     if (phase0.start_date !== wantCurrent.startDate) throw new Error("current phase start differs from the approved period start");
-    if (phase0.items.length !== 1 || phase0.items[0].price !== wantCurrent.items[0].price || phase0.items[0].quantity !== wantCurrent.items[0].quantity) {
+    // Whole item set, order-insensitive: an add-on bought or removed since the dry run must stop the run here.
+    if (!sameItemSet(phase0.items, wantCurrent.items)) {
       throw new Error("current phase items differ from the approved plan");
     }
 
@@ -359,21 +445,26 @@ export async function executePriceTransition(
 
     const carry = carryFields(phase0);
     if (change.subscriptionMetadata) carry.metadata = { ...(carry.metadata as Record<string, string> | undefined), ...change.subscriptionMetadata };
+    // Every plan item is built from the phase item with the SAME current Price (unique by construction), so unrelated items are
+    // copied verbatim; only the Price of the protected item differs in the second phase (plan items are index-aligned).
+    const source = (price: string) => phase0.items.find((i) => i.price === price)!;
+    const firstItems = wantCurrent.items.map((w) => carryItem(source(w.price), w.price, w.metadata));
+    const secondItems = wantNext.items.map((w, i) => carryItem(source(wantCurrent.items[i].price), w.price, w.metadata));
     await stripe.subscriptionSchedules.update(
       scheduleId,
       {
         end_behavior: "release",
         proration_behavior: "none",
         phases: [
-          { ...carry, start_date: phase0.start_date, end_date: wantCurrent.endDate!, items: [carryItem(phase0.items[0], wantCurrent.items[0].price, wantCurrent.items[0].metadata)], proration_behavior: "none" },
-          { ...carry, start_date: wantNext.startDate, items: [carryItem(phase0.items[0], wantNext.items[0].price, wantNext.items[0].metadata)], proration_behavior: "none" },
+          { ...carry, start_date: phase0.start_date, end_date: wantCurrent.endDate!, items: firstItems, proration_behavior: "none" },
+          { ...carry, start_date: wantNext.startDate, items: secondItems, proration_behavior: "none" },
         ],
       },
       idem("update"),
     );
 
     const readBack = await stripe.subscriptionSchedules.retrieve(scheduleId);
-    const mismatch = verifyReadBack(readBack, change, carry);
+    const mismatch = verifyReadBack(readBack, change, carry, { first: firstItems, second: secondItems });
     if (mismatch) throw new Error(`read-back mismatch: ${mismatch}`);
     return { status: "scheduled", scheduleId };
   } catch (error) {
@@ -400,20 +491,60 @@ export async function executePriceTransition(
   }
 }
 
-function verifyReadBack(schedule: ScheduleRead, change: Extract<TransitionPlan, { ok: true }>["change"], carry: PhaseCarry): string | null {
+/** Same (price, quantity) multiset, any order. */
+function sameItemSet(a: Array<{ price: string; quantity: number }>, b: Array<{ price: string; quantity: number }>): boolean {
+  if (a.length !== b.length) return false;
+  const key = (i: { price: string; quantity: number }) => `${i.price}\u0000${i.quantity}`;
+  const left = a.map(key).sort();
+  const right = b.map(key).sort();
+  return left.every((k, i) => k === right[i]);
+}
+
+/** Key-order-insensitive serialisation of a pruned value, for byte-for-byte comparison of items across phases. */
+function canon(value: unknown): string {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : 1)).map(([k, inner]) => [k, walk(inner)]));
+    return v;
+  };
+  return JSON.stringify(walk(prune(value)) ?? null);
+}
+
+function verifyReadBack(
+  schedule: ScheduleRead,
+  change: Extract<TransitionPlan, { ok: true }>["change"],
+  carry: PhaseCarry,
+  sent: { first: Array<Record<string, unknown>>; second: Array<Record<string, unknown>> },
+): string | null {
   if (schedule.subscription !== change.subscriptionId) return "schedule is attached to another subscription";
   if (schedule.phases.length !== 2) return `expected 2 phases, got ${schedule.phases.length}`;
   const [current, next] = schedule.phases;
   const [wantCurrent, wantNext] = change.phases;
-  const same = (a: { price: string; quantity: number }[], b: { price: string; quantity: number }[]) =>
-    a.length === b.length && a.every((item, i) => item.price === b[i].price && item.quantity === b[i].quantity);
   if (current.start_date !== wantCurrent.startDate) return "first phase start moved";
   if (current.end_date !== wantCurrent.endDate) return "first phase does not end at the approved boundary";
-  if (!same(current.items, wantCurrent.items)) return "first phase items changed";
+  if (!sameItemSet(current.items, wantCurrent.items)) return "first phase items changed";
   if (next.start_date !== wantNext.startDate) return "second phase does not start at the approved boundary";
-  if (!same(next.items, wantNext.items)) return "second phase is not the disclosed price";
+  if (!sameItemSet(next.items, wantNext.items)) return "second phase is not the disclosed price";
   for (const [phase, want] of [[current, wantCurrent], [next, wantNext]] as const) {
-    if (want.items[0].metadata && !isSubset(want.items[0].metadata, phase.items[0].metadata)) return "item metadata was not carried onto the phase";
+    for (const wantItem of want.items) {
+      const got = phase.items.find((i) => i.price === wantItem.price);
+      if (wantItem.metadata && !isSubset(wantItem.metadata, got?.metadata)) return "item metadata was not carried onto the phase";
+    }
+  }
+  if (change.phases[0].items.length > 1) {
+    // Multi-item: every sent item (settings included) must be present, and every unrelated item must be identical in both phases.
+    for (const [phase, items, label] of [[current, sent.first, "first"], [next, sent.second, "second"]] as const) {
+      for (const item of items) {
+        const got = phase.items.find((i) => i.price === item.price);
+        if (!got || !isSubset(item, got)) return `${label} phase lost or changed the settings of item ${String(item.price)}`;
+      }
+    }
+    for (const wantItem of wantCurrent.items) {
+      if (wantItem.price === change.protectedPriceId) continue;
+      const a = current.items.find((i) => i.price === wantItem.price);
+      const b = next.items.find((i) => i.price === wantItem.price);
+      if (!a || !b || canon(a) !== canon(b)) return `unrelated item ${wantItem.price} differs between the phases`;
+    }
   }
   for (const [key, value] of Object.entries(carry)) {
     if (!isSubset(value, current[key])) return `first phase lost ${key}`;

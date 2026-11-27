@@ -410,7 +410,7 @@ export async function runScenarios(stripe: Stripe): Promise<{ results: CaseResul
       await op("subscriptionSchedules.create", { from_subscription: c.subscriptionId, existing: true }, () => stripe.subscriptionSchedules.create({ from_subscription: c.subscriptionId }));
       const rc = await runPriceTransition(c.args, memRunnerDeps(ctx, c.mem));
       await cleanup(ctx, c.subscriptionId);
-      record(ctx, "T8", "cancel-at-period-end, two items and an existing schedule are each refused with nothing written", [ra, rb, rc].every((r) => !r.ok) && ra.blockers.some((x) => /cancel/.test(x)) && rb.blockers.includes("current_price_unexpected") && rc.blockers.includes("subscription_has_schedule"), `cancel=${ra.blockers.join(",")} | items=${rb.blockers.join(",")} | schedule=${rc.blockers.join(",")}`);
+      record(ctx, "T8", "cancel-at-period-end, two items and an existing schedule are each refused with nothing written", [ra, rb, rc].every((r) => !r.ok) && ra.blockers.some((x) => /cancel/.test(x)) && rb.blockers.includes("protected_price_check_unavailable") && rc.blockers.includes("subscription_has_schedule"), `cancel=${ra.blockers.join(",")} | items=${rb.blockers.join(",")} | schedule=${rc.blockers.join(",")}`);
     }
 
     // ---- T11: discount / trial / pause refused ----

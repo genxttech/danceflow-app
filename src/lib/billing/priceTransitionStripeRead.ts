@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { StripeSubscriptionRead } from "@/lib/billing/priceTransitionRunner";
-import type { TransitionTargetPrice } from "@/lib/billing/priceTransition";
+import type { TransitionItemShape, TransitionTargetPrice } from "@/lib/billing/priceTransition";
 
 /**
  * D7 WP-3: the ONE mapping from Stripe objects to the planner's inputs, shared by the production script and the test-mode
@@ -23,6 +23,9 @@ export function mapStripeSubscription(sub: any): StripeSubscriptionRead {
   if ((Array.isArray(sub.discounts) && sub.discounts.length > 0) || sub.discount) unsupportedSettings.push("discounts");
   if (sub.automatic_tax?.enabled) unsupportedSettings.push("automatic_tax");
   if (typeof periodStart !== "number" || typeof periodEnd !== "number") unsupportedSettings.push("period_unreadable");
+  // Multi-item: every item must report the same period (newer API versions carry it per item); a disagreement is not modelled.
+  const itemPeriods = (sub.items?.data ?? []).map((i: any) => `${i.current_period_start ?? ""}|${i.current_period_end ?? ""}`);
+  if (new Set(itemPeriods).size > 1) unsupportedSettings.push("item_periods_differ");
   return {
     id: sub.id,
     customerId: typeof sub.customer === "string" ? sub.customer : sub.customer.id,
@@ -31,10 +34,38 @@ export function mapStripeSubscription(sub: any): StripeSubscriptionRead {
     currentPeriodEnd: new Date((periodEnd ?? Number.NaN) * 1000),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     scheduleId: typeof sub.schedule === "string" ? sub.schedule : sub.schedule?.id ?? null,
-    items: (sub.items?.data ?? []).map((i: any) => ({ priceId: i.price.id, quantity: i.quantity ?? 1, metadata: { ...(i.metadata ?? {}) } })),
+    items: (sub.items?.data ?? []).map((i: any) => ({
+      priceId: i.price.id,
+      quantity: i.quantity ?? 1,
+      metadata: { ...(i.metadata ?? {}) },
+      shape: mapItemShape(i.price),
+      unsupported: itemUnsupported(i),
+    })),
     metadata: { ...(sub.metadata ?? {}) },
     unsupportedSettings,
   };
+}
+
+/** Billing shape of the Price on a subscription item (null/odd values are kept as such so the planner can fail closed). */
+function mapItemShape(price: any): TransitionItemShape {
+  return {
+    currency: typeof price?.currency === "string" ? price.currency : "",
+    interval: price?.recurring?.interval ?? null,
+    intervalCount: price?.recurring?.interval_count ?? null,
+    type: price?.type ?? null,
+    billingScheme: price?.billing_scheme ?? null,
+    usageType: price?.recurring?.usage_type ?? null,
+    hasTransformQuantity: price?.transform_quantity != null,
+  };
+}
+
+/** Item-level settings that a phase copy would have to carry verbatim; on a multi-item subscription any of them blocks the plan. */
+function itemUnsupported(item: any): string[] {
+  const out: string[] = [];
+  if (item.billing_thresholds) out.push("billing_thresholds");
+  if (Array.isArray(item.discounts) && item.discounts.length > 0) out.push("discounts");
+  if (Array.isArray(item.tax_rates) && item.tax_rates.length > 0) out.push("tax_rates");
+  return out;
 }
 
 export function mapStripePrice(price: any): TransitionTargetPrice {
