@@ -13,7 +13,7 @@ Counts: race B a = 2; race B b = 13; race B c = 4; race B e = 2; race B expected
 | Name | A base | B corrections | C restriction | First refusal on B / C | Owner of (e) or unbacked |
 |---|---|---|---|---|---|
 | cf1_a0_tie_policy | pass | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |
-| cf1_a1_helpers | pass | e | d, UNBACKED | B: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_R15_ENTRY_NOT_CLEARED; C: COMP_P1_FINAL_ONLY | R-15 (still not cleared with fixture at 8f5d3d68) |
+| cf1_a1_helpers | pass | e | d, UNBACKED | B: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_R15_ENTRY_NOT_CLEARED; C: COMP_P1_FINAL_ONLY | R-15: source places an ineligible couple (refused by design); failing, unadapted; copy awaits go-ahead |
 | cf1_a2_lock | pass | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |
 | cf1_a3_results | pass | a | d, backed a | C: COMP_P1_FINAL_ONLY |  |
 | cf1_a4_minimum_integration | pass | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |
@@ -27,7 +27,7 @@ Counts: race B a = 2; race B b = 13; race B c = 4; race B e = 2; race B expected
 | cf1_callback_final_advancement_with_r15 | - | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |
 | cf1_f3_publication | pass | a | d, backed a | C: compp1_one_round_per_division |  |
 | cf1_od17_enforcement | pass | b | e | C: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_OD17_REFUND_GATE | OD-31 (restriction chain) and R-15 |
-| cf1_rb3_refund_evidence | pass | e | d, UNBACKED | B: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_R15_ENTRY_NOT_CLEARED; C: COMP_P1_FINAL_ONLY | R-15 (still not cleared with fixture at 8f5d3d68) |
+| cf1_rb3_refund_evidence | pass | e | d, UNBACKED | B: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_R15_ENTRY_NOT_CLEARED; C: COMP_P1_FINAL_ONLY | R-15: source places an ineligible couple (refused by design); failing, unadapted; copy awaits go-ahead |
 | cf1_rb3r_reconciliation | pass | b | pass (copy) | B: passes as cf1_rb3r_reconciliation_with_r15; C: COMPETITION CF1 RB3R SQL SUITE FAIL: RB3R F15 failed / canceled refunds only (reversed) ->; passes as cf1_rb3r_reconciliation_with_r15 |  |
 | cf1_u66_recovery | pass | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |
 | cx1_correction_readers | pass | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |

@@ -45,7 +45,7 @@ All seven behaved as R-15 stated on B (a5_exclusion, with_s6 race, rb3r suite an
 
 ### Still open
 
-- `cf1_a1_helpers`, `cf1_rb3_refund_evidence`: still `COMP_R15_ENTRY_NOT_CLEARED` at heat placement with R-15's fixture at `8f5d3d68` (R-15).
+- `cf1_a1_helpers` (844's version, blob `5f5dd420`), `cf1_rb3_refund_evidence`: **still failing as the source suites, no adaptation**. `COMP_R15_ENTRY_NOT_CLEARED`, reason `entry_ineligible`, entry `…cf1a10008004` into heat `…cf1a1000d201`: the fixtures place an ineligible couple directly into a heat, which 866 refuses by design and its test fixture never clears (not a fixture defect, per R-15). Labelled copies await the coordinator's go-ahead (R-15).
 - `cf1_od17_enforcement` on C: after AUTOSEED, checks S09 and M3d on the advancement-insert refund gate fail; no restriction code in the log (OD-31 reads it as the 866 clearance gate; not confirmed) (OD-31, R-15).
 - `o1_concurrency` on C (OD-31 written reason, not verified) and `od31_guarded_baseline_negative` (OD-31 written reason; no copy).
 - Unassigned: `cf1_a3_locks`, `e2_marks_txn`, `cf1_a4_concurrency`, `e2_submit_vs_lock`, `f2_races`, `ns1_races`, and the missing competition template behind `phase10a` / `phase10b`.
