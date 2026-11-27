@@ -21,7 +21,14 @@ jest.mock("react-native-safe-area-context", () => ({
 }));
 
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, Text } from "react-native";
+import {
+  DeviceEventEmitter,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Text,
+} from "react-native";
 import SignInScreen from "../../../app/(auth)/sign-in";
 import { Screen } from "@/components/Screen";
 import { WARM_UP_TIMEOUT_MS, warmUpRenderer } from "@/test/warmUpRenderer";
@@ -42,26 +49,51 @@ describe("sign-in above the Android keyboard", () => {
     jest.replaceProperty(Platform, "OS", "android");
   });
 
-  it("shrinks the scroll area by the keyboard", () => {
+  it("shrinks the scroll area by the keyboard only while it is open", async () => {
     const view = render(<SignInScreen />);
-    const areas = keyboardAreas(view);
-    expect(areas).toHaveLength(1);
-    expect(areas[0].props.behavior).toBe("padding");
+    const behavior = () => {
+      const areas = keyboardAreas(view);
+      expect(areas).toHaveLength(1);
+      return areas[0].props.behavior;
+    };
+    const emit = (event: string, screenY: number) =>
+      act(async () => {
+        DeviceEventEmitter.emit(event, {
+          endCoordinates: { screenX: 0, screenY, width: 400, height: 300 },
+        });
+      });
+
+    expect(behavior()).toBeUndefined();
+    await emit("keyboardDidShow", 500);
+    expect(behavior()).toBe("padding");
+    await emit("keyboardDidHide", 776);
+    expect(behavior()).toBeUndefined();
   });
 
-  it("scrolls to the button when the area is resized with the keyboard open", () => {
-    const visible = jest.spyOn(Keyboard, "isVisible").mockReturnValue(false);
-    const view = render(<SignInScreen />);
-    const scrollView = view.UNSAFE_getByType(ScrollView);
-    const scrollToEnd = jest.spyOn(scrollView.instance as ScrollView, "scrollToEnd");
+  it.each(["onLayout", "onContentSizeChange"])(
+    "scrolls to the button, a frame later, on %s with the keyboard open",
+    (event) => {
+      const visible = jest.spyOn(Keyboard, "isVisible").mockReturnValue(false);
+      const frames: FrameRequestCallback[] = [];
+      const view = render(<SignInScreen />);
+      jest.spyOn(global, "requestAnimationFrame").mockImplementation((frame) => frames.push(frame));
+      const scrollView = view.UNSAFE_getByType(ScrollView);
+      const scrollToEnd = jest.spyOn(scrollView.instance as ScrollView, "scrollToEnd");
+      const resize = () => {
+        act(() => scrollView.props[event]());
+        act(() => frames.splice(0).forEach((frame) => frame(0)));
+      };
 
-    act(() => scrollView.props.onLayout());
-    expect(scrollToEnd).not.toHaveBeenCalled();
+      resize();
+      expect(scrollToEnd).not.toHaveBeenCalled();
 
-    visible.mockReturnValue(true);
-    act(() => scrollView.props.onLayout());
-    expect(scrollToEnd).toHaveBeenCalledTimes(1);
-  });
+      visible.mockReturnValue(true);
+      act(() => scrollView.props[event]());
+      expect(scrollToEnd).not.toHaveBeenCalled();
+      act(() => frames.splice(0).forEach((frame) => frame(0)));
+      expect(scrollToEnd).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("leaves screens that did not ask for it unchanged", () => {
     const view = render(
@@ -71,6 +103,7 @@ describe("sign-in above the Android keyboard", () => {
     );
     expect(keyboardAreas(view)).toHaveLength(0);
     expect(view.UNSAFE_getByType(ScrollView).props.onLayout).toBeUndefined();
+    expect(view.UNSAFE_getByType(ScrollView).props.onContentSizeChange).toBeUndefined();
   });
 });
 

@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -43,21 +43,35 @@ export function Screen({
   const scrollRef = useRef<ScrollView>(null);
   // Android draws edge to edge, so the window does not resize for the keyboard.
   const avoidKeyboard = keepEndAboveKeyboard && Platform.OS === "android";
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    if (!avoidKeyboard) return;
+    const shown = Keyboard.addListener("keyboardDidShow", () => setKeyboardOpen(true));
+    const hidden = Keyboard.addListener("keyboardDidHide", () => setKeyboardOpen(false));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, [avoidKeyboard]);
 
   const content = (
     <View style={[styles.content, contentWidthStyle, style]}>{children}</View>
   );
 
+  // Asked after the scroll area or its content is resized, one frame later: on a device, asking
+  // only as the area resized stopped short of the end at large text.
+  const scrollToEndAboveKeyboard = () => {
+    requestAnimationFrame(() => {
+      if (Keyboard.isVisible()) scrollRef.current?.scrollToEnd();
+    });
+  };
+
   const scrollView = (
     <ScrollView
       ref={scrollRef}
-      onLayout={
-        avoidKeyboard
-          ? () => {
-              if (Keyboard.isVisible()) scrollRef.current?.scrollToEnd();
-            }
-          : undefined
-      }
+      onLayout={avoidKeyboard ? scrollToEndAboveKeyboard : undefined}
+      onContentSizeChange={avoidKeyboard ? scrollToEndAboveKeyboard : undefined}
       contentContainerStyle={styles.scrollContent}
       contentInsetAdjustmentBehavior="automatic"
       keyboardDismissMode="on-drag"
@@ -86,7 +100,12 @@ export function Screen({
         {!scroll ? (
           content
         ) : avoidKeyboard ? (
-          <KeyboardAvoidingView behavior="padding" style={styles.keyboardArea}>
+          // Padding only while open: after the keyboard hides, Android's hide event still leaves
+          // KeyboardAvoidingView with a strip of padding the height of a system bar.
+          <KeyboardAvoidingView
+            behavior={keyboardOpen ? "padding" : undefined}
+            style={styles.keyboardArea}
+          >
             {scrollView}
           </KeyboardAvoidingView>
         ) : (
