@@ -6,6 +6,51 @@ Heads (base fingerprint `d87e4285`): live `57c331910`, candidate `92a8c17c6`, 84
 
 Phases: A base chain; B base + 12 corrections; C B + restriction (919); D rollback; E re-apply.
 
+## Targeted rerun: p1run7 (2026-11-27 19:24-21:25Z)
+
+Local only; no hosted apply, merge or deploy. **P1 is still not shown to be release-ready.**
+
+Heads: base `57c33191`, 844 `ccc084057`, 865 `382a8850d`, 864 `23bd68d60`, 863 `f94bec831`, 866 `8f5d3d68a`, 877 `98ae57a29`, 899 `2754a4402`, 919 `6ef4e4e9f`, 926 `e851833d3` (test only), plus 20270223150000 from PR 888 `3d0e13cbd`. 899 `3dec13535` and 919 `f964facf1` change no SQL or test file. 0 composition warnings.
+
+| Step | Result |
+|---|---|
+| Migrations | base 23/23, corrections 13/13 (incl. 20270223150000), restriction 1/1 |
+| Rollback / re-apply | 14/14 and 14/14; catalog after rollback identical to base, after re-apply identical to C |
+| Selected suites B (35) | 22 pass, 13 fail; AUTOSEED reruns 4 pass, 5 fail |
+| Selected suites C (38) | 11 pass, 27 fail; AUTOSEED reruns 2 fail |
+| Selected race scripts B (14) | 6 pass, 8 fail; AUTOSEED 4 pass, 2 fail |
+| Selected race scripts C (14) | 3 pass, 11 fail; AUTOSEED 1 pass, 2 fail |
+| Route replay | unchanged: A all four reached; B NC, CS, CA reached, R refused; C all closed at setup, later steps refused, second approval and publication accepted |
+
+Not rerun (carried from p1run6): every suite and script outside the selection. 20270223150000's own suite was not run.
+
+### Each correction's own suite on the restriction chain
+
+| PR | Suite on C | Result |
+|---|---|---|
+| 844 | od04_event_delete_guard | pass |
+| 865 | r11_approval_override_scope_p1_pilot (copy; 41 assertions dropped per its header) | pass; original stops at `COMP_P1_HEAT_NOT_STARTED` |
+| 864 | r10_s3_panel_readiness_p1pilot (copy), e1_officials | pass; original stops at `COMP_P1_CALLBACKS_OFF` |
+| 866 | r15_eligibility_clearance | pass |
+| 863 | s5_participant_age_guard | pass |
+| 877 | s6_entry_status_guard_with_p1 (copy) | pass (first execution); original stops at `COMP_P1_FINAL_ONLY` |
+| 899 | d_published_order_write_guard, run_d_publish_race | pass |
+| 919 | p1_pilot_restrictions | pass |
+
+A copy's pass is not a pass of its original.
+
+### R-15's seven copies against its stated expectations
+
+All seven behaved as R-15 stated on B (a5_exclusion, with_s6 race, rb3r suite and race pass; callback passes only in the AUTOSEED rerun; the a5 race without S6 fails exactly P1 and P2; phase10a fails on the missing template) and on C (stops on restriction refusals); the two rb3r copies also pass on C.
+
+### Still open
+
+- `cf1_a1_helpers`, `cf1_rb3_refund_evidence`: still `COMP_R15_ENTRY_NOT_CLEARED` at heat placement with R-15's fixture at `8f5d3d68` (R-15).
+- `cf1_od17_enforcement` on C: after AUTOSEED, checks S09 and M3d on the advancement-insert refund gate fail; no restriction code in the log (OD-31 reads it as the 866 clearance gate; not confirmed) (OD-31, R-15).
+- `o1_concurrency` on C (OD-31 written reason, not verified) and `od31_guarded_baseline_negative` (OD-31 written reason; no copy).
+- Unassigned: `cf1_a3_locks`, `e2_marks_txn`, `cf1_a4_concurrency`, `e2_submit_vs_lock`, `f2_races`, `ns1_races`, and the missing competition template behind `phase10a` / `phase10b`.
+- Second-contest residual, application end-to-end workflow, production-build browser run and flag-off smoke.
+
 ## Run of record: p1run6 (2026-11-27 13:54-17:36Z)
 
 Local only; no hosted apply, merge or deploy. Supersedes the two earlier runs below. **P1 is still not shown to be release-ready.**
