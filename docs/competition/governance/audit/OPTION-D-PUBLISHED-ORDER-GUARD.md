@@ -59,11 +59,16 @@ Run on head `41cecd3e9` (lock 13:40Z, finished 13:54Z), disposable local databas
 
 Also passed in this run: publication races 25 checks (standalone and P1 chain), planted-heat probe (reproduced before its fix, not after), apply preflight, D rollback and re-apply beside the restrictions, rollback / replay / re-apply on the standalone chain.
 
-**Not met, both from this change, fixed in `8e371bd56` (rerun pending):**
+**Not met in that run, both from this change, fixed in `8e371bd56` (rerun passed, below):**
 * one D suite check (forward, re-apply, P1 chain): "move to another round" had been changed to move the division too, so the existing placement validator refused it before D;
 * the 10D.1 and NS1 suites assert which triggers heat entries may carry and rejected `aa_compd_lock_heat_entry`. The lock triggers are now `cf1_compd_lock_*`, the prefix those suites allow for later additions. Side effect: six CF1 suites disable every `cf1_%` trigger on heats, entries and rounds inside their own rolled-back transaction, so D's lock is off during those suites.
 
 Callback-Final advancement suite: not covered (fails with and without D).
+
+### Rerun on `2754a4402` (code `8e371bd56`): PASS
+
+Lock 18:31Z, finished 18:51Z, disposable local database. **D STANDALONE: PASS, 33 expectations met, 0 failed.** D suite **54 checks** on the standalone chain, after rollback / re-apply, and beside the restrictions; publication races **25 checks** on both chains; 10D.1 and NS1 suites pass with the renamed triggers; the other existing suites keep their passing verdicts; planted-heat probe reproduced before its fix and not after; apply preflight; D rollback and re-apply beside the restrictions. The "before" proofs repeated (heat entry and schedule session entering an order during publication, snapshot row insert).
+Not covered: callback-Final advancement suite (fails with and without D). The restriction files here are the earlier composed run's (restrictions `aff35ffa3`); newer restriction heads are not covered by this job.
 
 **Narrow re-review of the corrections (`0e1905426..8e371bd56`, by reading only): no blocker.** Lock triggers fire before every other BEFORE trigger found on the seven tables, including the restriction triggers; a future `cf1_a*` or `cf1_b*` trigger would run before the lock and nothing asserts the order.
 * **Should-fix, kept as a deliberate choice:** the `cf1_` name passes the two inventory checks by using CF1's prefix. The reviewer prefers a D-specific name listed explicitly in both suites. Not done because PR 866's versions of those suites change the same allow-list line (a merge conflict, and the composed run takes 866's copies). Consequences to accept or change: six CF1 suites run with D's heat and entry locks off, and any owner procedure that disables `cf1_%` triggers would silently reopen the publication race.
