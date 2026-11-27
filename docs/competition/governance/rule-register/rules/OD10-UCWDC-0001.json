@@ -1,0 +1,20 @@
+{
+  "id": "OD10-UCWDC-0001",
+  "governing_body": "silent",
+  "format": "UCWDC Couples and ProPro/ProAm, access to individual ballots before results",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: no clause restricting or granting access to individual ballots before results was found in the Couples, ProPro/ProAm or Scoring Format texts (full-text search 2026-11-23).",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "UCWDC ballot visibility is DanceFlow baseline policy (OD10-DF-0001). No ballot-confidentiality clause found, BUT Scoring Format p.8 says personnel who see or touch contest scoring must be trained and tested by a UCWDC Scoring Examiner, and p.1 says balloting/scrutineering/auditing is supervised by a certified Contest Coordinator: a self-designated studio-staff scoring operator may not meet that. Whether it binds DanceFlow designees is unresolved; UCWDC content designees are treated as an attested qualification. The Judge Certification Code of Conduct was not read. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

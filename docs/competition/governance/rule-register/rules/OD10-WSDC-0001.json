@@ -1,0 +1,28 @@
+{
+  "id": "OD10-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, Raw Score Judge",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "Definitions, Raw Score Judge (p.3)",
+    "quote_free_summary": "A Raw Score Judge is a separate judge who raw-scores one role and does not have access to scores or to contest-structure decisions."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A person designated raw_score_judge (OD-06 kind) can never be granted ballot or score content access in that event.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Only WSDC access limit found. Depends on the OD-06 designations table (not built). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

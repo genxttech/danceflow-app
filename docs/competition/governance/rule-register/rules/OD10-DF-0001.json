@@ -1,0 +1,20 @@
+{
+  "id": "OD10-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "All Competition OS events (Studio, Custom, WSDC, UCWDC, other; baseline for NDCA too)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow baseline policy (not a body rule): individual ballot content is never available by account role; it requires an event-level designation of a role that needs it, a purpose, and an audited reader. Owners and managers see aggregated results and ballot status. WSDC Event Owner/Director/family designees and Raw Score Judges get no content.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Least-privilege policy chosen by the owner for bodies whose rules are silent; never to be presented as WSDC, UCWDC or NDCA text. Body-specific exceptions only after verification. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

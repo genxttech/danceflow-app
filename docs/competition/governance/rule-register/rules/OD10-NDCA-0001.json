@@ -1,0 +1,28 @@
+{
+  "id": "OD10-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, original judges' marking sheets and their electronic equivalents",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.16 (p.21)",
+    "quote_free_summary": "Only the Chairman of Adjudicators and the Scrutineer have direct access to the original copies of the judges' marking sheets until the end of the competition. Silent on electronic ballots and on who else (organizer, staff) may see them; the end of the competition is not defined."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Content of a submitted ballot (marks, selections, derived per-judge copies) is readable before the end of the competition only by a person explicitly designated at event level as the event's Chairman of Adjudicators or Scrutineer; never by account role (manager, owner, generic scorer, chair official).",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md). Not built.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Today managers and assigned scorers read all ballots and the persisted evidence (RLS competition_ballots_manager_read/scorer_read, result_versions.input, competition_round_calculation_input), which is inconsistent with the owner's reading. Whether an electronic ballot is an original copy is an interpretation the owner decided to apply strictly; the rule does not state it. The end of the competition needs an owner definition (design Q1). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-10 (owner decision 2026-11-23, Options A + C with audit logging; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

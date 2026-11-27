@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## OD-10 ballot visibility (design)
+
+| Id | Decision | Date | Design | Status |
+|---|---|---|---|---|
+| OD-10 | **Options A + C with audit logging for all Competition OS events.** NDCA-declared events: pre-end-of-competition ballot content only for explicitly designated Chairman of Adjudicators and Scrutineer (NDCA III.D.16, original copies; electronic-ballot confidentiality is DanceFlow policy). Least-privilege baseline for Studio/Custom, WSDC, UCWDC (WSDC and UCWDC rules silent). Managers get aggregates only. Every authorized ballot retrieval audited, no contents in the ledger. | 2026-11-23 | Draft design PR (docs only): `docs/competition/governance/ballot-visibility/OD-10-ballot-visibility-design.md`; register OD10-NDCA-0001..0003, OD10-WSDC-0001/0002, OD10-UCWDC-0001/0002, OD10-DF-0001..0003 (none `verified_compliant`). | design drafted, independent security review recorded in the design; nothing implemented, applied or merged |
