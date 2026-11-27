@@ -7,6 +7,8 @@
 #
 #   bash scripts/qa/p1/comp-p1-integrated-run.sh <ticket-file> <out-dir> [--wait-minutes N]
 #   bash scripts/qa/p1/comp-p1-integrated-run.sh --compose-only <out-dir>          (git only: no lock, no docker)
+#   A_RACES="concurrency/x.sh ..."  composed scripts also copied into the base tests and run on A
+#   A script or suite whose name marks it as a copy (COPY_RE) is labelled [ADAPTED COPY].
 #   P_P1=origin/<branch>  restriction branch (default: newest of the 25 most recent origin branches that carries a 2027030118x migration)
 #   P_S6=<ref or sha>     PR 877 head (pin it once its rebased head is reported; default: the branch tip)
 #   P1_STACK=<sha>        877 commit the restriction is stacked on, kept out of the restriction's own files
@@ -251,6 +253,8 @@ SQL
 }
 guards(){ "${PSQL[@]}" -At -F' | ' -c "select c.relname, t.tgname, t.tgenabled, p.proname, case when t.tgtype & 2 = 2 then 'before' else 'after' end || ' ' || concat_ws(',', case when t.tgtype & 4 = 4 then 'insert' end, case when t.tgtype & 16 = 16 then 'update' end, case when t.tgtype & 8 = 8 then 'delete' end, case when t.tgtype & 32 = 32 then 'truncate' end) from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_proc p on p.oid = t.tgfoid where not t.tgisinternal and c.relname in ('event_competition_heats', 'event_competition_heat_entries', 'event_competition_entries', 'event_competition_schedule_versions') order by 1, 2" > "$OUT/guards-$1.txt"; }
 pred(){ "${PSQL[@]}" -Atc "select coalesce(md5(string_agg(pg_get_functiondef(p.oid), '|' order by p.proname)), 'absent') from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('_comp_participant_age_clearance', '_comp_age_clearance_from_dob')"; }
+# names the owners give to labelled copies: their results are never those of the original
+COPY_RE='_with_r15|_with_p1|_with_s6|_p1_pilot$|_p1pilot$|_verdict$|_danced$|_pv1$|_chain_copy$'
 run_suite(){ # <phase> <tests dir> <suite>
   local ph="$1" dir="$2" s="$3" pre=() before after line res first
   [ -f "$dir/fixtures/r15_clear_entries.sql" ] && pre+=("$dir/fixtures/r15_clear_entries.sql")
@@ -267,6 +271,7 @@ run_suite(){ # <phase> <tests dir> <suite>
   [ "$before" = "$after" ] || { res=FAIL-PREDICATE; log "[$ph] $s: S5 predicate changed"; }
   [ "$ph" != A ] && grep -qs "^$s " "$OUT/adapted-copies.txt" && ! cmp -s "$dir/$s.sql" "$CHAIN/tests-A/$s.sql" && res="$res [ADAPTED COPY]"
   case "$ph" in *-autoseed) res="$res [AUTOSEED]";; esac
+  case "$res" in *"[ADAPTED COPY]"*) ;; *) if echo "$s" | grep -qE "$COPY_RE"; then res="$res [ADAPTED COPY]"; fi;; esac
   printf '%s\t%s\t%s\t%s\n' "$ph" "$s" "$res" "$line" >> "$OUT/suites.tsv"; log "[$ph] $s: $res"
 }
 R15_RE='COMP_R15_(ENTRY_NOT_CLEARED|PROVISIONAL_ASSIGNMENT)'
@@ -301,8 +306,9 @@ race(){ # <phase> <snapshot phase> <script>
   docker rm -f -v "$c" >/dev/null 2>&1
   line="$(grep -E '(PASS|FAIL)' "$OUT/race-$ph-$tag.log" | tail -1 | cut -c1-400)"
   if [ "$rc" = 0 ] && ! grep -qE '^FAIL|RACES FAIL|CONCURRENCY FAIL' "$OUT/race-$ph-$tag.log" && [ -n "$line" ]; then res=PASS; else res=FAIL; [ -n "$line" ] || line="rc=$rc $(grep -m1 -E 'ERROR|FATAL' "$OUT/race-$ph-$tag.log" | cut -c1-300)"; fi
+  local verdict="$res"; if echo "$tag" | grep -qE "$COPY_RE"; then res="$res [ADAPTED COPY]"; fi
   printf '%s\t%s\t%s\trc=%s %s\n' "$ph" "$sc" "$res" "$rc" "$line" >> "$OUT/races.tsv"; log "[$ph] race $tag: $res"
-  [ "$res" = PASS ]
+  [ "$verdict" = PASS ]
 }
 # races run on the last forward phase; a failure is re-run on B (if that phase is C) and on A
 # re-run with the clearance fixture when the failing log names an R-15 clearance refusal; the result is labelled and never replaces the released one
@@ -325,6 +331,10 @@ run_phase_races(){ local ph="$1" sc; for sc in $(cat "$OUT/list-races-$ph.txt");
   if [ "$ph" = C ] && [ "${RACES_BOTH:-0}" != 1 ] && [ -f "$CHAIN/tests-B/$sc" ] && ! race "B-attribution" B "$sc"; then race_autoseed B "$sc" "B-attribution"; fi
   [ -f "$CHAIN/tests-A/$sc" ] && race "A-attribution" A "$sc"
 done; }
+run_races_a(){ local sc; for sc in ${A_RACES:-}; do
+  [ -f "$CHAIN/tests-B/$sc" ] || { log "[A] race not in this composition: $sc"; continue; }
+  mkdir -p "$CHAIN/tests-A/$(dirname "$sc")"; cp "$CHAIN/tests-B/$sc" "$CHAIN/tests-A/$sc"; race A A "$sc"
+done; return 0; }
 # Option D's own planted-heat probe (observation only), when that head carries it
 probe_d(){ local f="$CHAIN/tests-$1/probe_D_planted_heat.sql"; [ -f "$f" ] || return 0
   tr -d '\r' < "$f" | timeout 600 "${PSQL[@]}" -v ON_ERROR_STOP=0 > "$OUT/probe-D-$1.log" 2>&1; log "[$1] Option D planted-heat probe: $(grep -m1 -E '(ERROR|FATAL):' "$OUT/probe-D-$1.log" | cut -c1-300)"; }
@@ -337,7 +347,7 @@ grep -q '^FAIL A' "$OUT/steps.txt" && blocked "the base chain did not apply"
 # base seed DATA the schema-only image lacks (competition starter templates), when a composed head carries it: part of the base for every phase
 seed="$CHAIN/tests-B/fixtures/seed_competition_starter_templates.sql"
 if [ -f "$seed" ]; then apply "$seed" seed || log "starter-template seed did not load: phase10a / phase10b still lack their base data"; fi
-catalog A; guards A; snapshot A; run_phase_suites A; probe A
+catalog A; guards A; snapshot A; run_phase_suites A; probe A; run_races_a
 # B: corrections in timestamp order. A correction that does not apply is recorded and the chain continues without it.
 for f in $(cat "$OUT/order-B.txt"); do apply "$CHAIN/new/$f" B; done
 catalog B; guards B; snapshot B; run_phase_suites B; autoseed_suites B; probe B; probe_d B; [ "${RACES_BOTH:-0}" != 1 ] || run_races_b
