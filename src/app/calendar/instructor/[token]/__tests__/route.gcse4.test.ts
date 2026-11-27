@@ -126,3 +126,12 @@ describe("S1E-4 instructor ICS: group classes", () => {
     expect(strip(await feed())).toBe(strip(await feed()));
   });
 });
+
+describe("instructor ICS privacy", () => {
+  it("never emits appointment notes", async () => {
+    db.appointments = [appt("a1", { notes: "SECRET medical note", client_id: null })];
+    const ics = await feed();
+    expect(ics).not.toContain("SECRET");
+    expect(ics).toContain("Type: Group Class");
+  });
+});

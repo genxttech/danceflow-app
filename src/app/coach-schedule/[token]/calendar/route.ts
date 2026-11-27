@@ -100,10 +100,8 @@ function buildBookedDescription(slot: SlotRow, event: EventRow, coach: CoachRow)
   const lines = [
     `Event: ${event.name}`,
     `Coach: ${coach.name}`,
+    // Buyer email, phone and notes are deliberately not emitted: the feed URL is a bearer link stored in third-party calendar apps.
     slot.buyer_name ? `Student: ${slot.buyer_name}` : "Student: Booked student",
-    slot.buyer_email ? `Email: ${slot.buyer_email}` : "",
-    slot.buyer_phone ? `Phone: ${slot.buyer_phone}` : "",
-    slot.buyer_notes ? `Notes: ${slot.buyer_notes}` : "",
   ].filter(Boolean);
 
   return lines.join("\\n");
@@ -181,7 +179,7 @@ export async function GET(
       supabase
         .from("event_private_lesson_slots")
         .select(
-          "id, starts_at, ends_at, location_label, status, buyer_name, buyer_email, buyer_phone, buyer_notes, held_until, updated_at",
+          "id, starts_at, ends_at, location_label, status, buyer_name, buyer_notes, held_until, updated_at",
         )
         .eq("coach_id", typedCoach.id)
         .or("status.eq.booked,and(status.eq.held,held_until.is.null)")

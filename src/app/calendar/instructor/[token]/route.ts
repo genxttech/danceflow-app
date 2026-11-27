@@ -25,7 +25,6 @@ type AppointmentRow = {
   status: string;
   starts_at: string;
   ends_at: string;
-  notes: string | null;
   location_name: string | null;
   client_id: string | null;
   room_id: string | null;
@@ -123,9 +122,7 @@ function buildAppointmentDescription(appointment: AppointmentRow) {
     `Status: ${appointment.status.replaceAll("_", " ")}`,
   ];
 
-  if (appointment.notes) {
-    lines.push("", appointment.notes);
-  }
+  // Appointment notes are internal staff text; a feed URL is a bearer link that lives in third-party calendar apps, so they are never emitted.
 
   return lines.join("\n");
 }
@@ -192,7 +189,6 @@ export async function GET(
       status,
       starts_at,
       ends_at,
-      notes,
       location_name,
       client_id,
       room_id
