@@ -1,0 +1,21 @@
+{
+  "id": "OD24-SILENT-0001",
+  "governing_body": "silent",
+  "format": "WSDC Relative Placement and NDCA Skating System: algorithm text",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: the WSDC Relative Placement final-scoring algorithm (3.4.9.d defers to the WSDC website) and the NDCA Skating System algorithm (III.D.11 requires it without defining it). Public candidate documents are recorded as UNREVIEWED in the OD-24 source note and are not authoritative. No behavior is invented and nothing is built from them.",
+  "implementation": [],
+  "enforcement_point": "Not built. SCORING_REGISTRY keeps wsdc_relative_placement@unpinned and ndca_skating@unpinned unavailable.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Promotion of a candidate needs independent review of applicability, completeness and authority. UCWDC Majority Rules v16.9b is the only final/placement algorithm fully specified in the supplied sources (the WSDC callback tally is also specified) (OD-24 source note section 7).",
+  "applicable_event_versions": [
+    "Version 2026.1C",
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-24 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -36,9 +36,29 @@ A profile version is immutable once a program references it; a correction is pub
 | `studio_simple@2` | superseded, kept | Seeded by `20261113090000`. Referenced by a DEV walkthrough draft, so it is kept unchanged; new setups cannot use it. |
 | `studio_simple@3` | current | Seeded by `20261114090000`. Cites the documents above; see [phase10c5-source-to-ui-matrix.md](phase10c5-source-to-ui-matrix.md). |
 
+## Candidate scoring sources (OD-24; unreviewed; NOT registry rows)
+
+Recorded for review only, after owner decision OD-24 (2026-11-23). A candidate is **not authoritative**, is not in the
+table above, and no register entry or profile may cite it. Adopting one is a deliberate, independently reviewed change
+(new table row, status decision, new profile version) that must establish applicability, completeness and
+authority/effective date. Full table, retrieval log and review requirements:
+[governance/scoring-sources/OD-24-scoring-source-candidates.md](governance/scoring-sources/OD-24-scoring-source-candidates.md).
+
+- **WSDC Rules & Info page, "Prelim Scoring" and "Relative Placement"** (the location 3.4.9.d points to), retrieved
+  2026-11-24 from `worldsdc.com`: Callback Scoring Memorandum (dated 2019-12-07, `5ef9478e...`), Call-Back Scoring white
+  paper (`c14a50cc...`), Relative Placement Details (Tigges, "Updated 12.20.2021", `573cb005...`, identical to the
+  existing `reference` row), Scoring-By-Hand Template (`7ba2b498...`) and Example (`35b50754...`). Relationship to the
+  pinned v2026.1C: the callback values equal pinned Section 5 and add no authority; the Relative Placement documents are
+  explanations whose authority, completeness and applicability are unestablished.
+- **NDCA Rule Book June 2026 Master v2** (`0685c07f...`) and the 2026_06 rule change log (`a97d6301...`) from `ndca.org`.
+  Neither defines the Skating System algorithm. A July 2026 edition is recorded by PR 840.
+- **WSDC 2027 draft v4** (11.17.2026, `b74eebe5...`) differs from the pinned 2027 draft; still `not current`.
+- Not retrieved: WDSF "The Skating System" (file-share redirect).
+
 ## Known gaps
 
-- **Undefined algorithms.** The NDCA rule book requires the Skating System but does not define the algorithm, and the WSDC rules refer to their website for Relative Placement. Scoring engines (10F) need authoritative specifications for both.
+- **Undefined algorithms.** The NDCA rule book requires the Skating System but does not define the algorithm. For WSDC, the **preliminary callback system is defined** in the pinned rules (Section 5); only the **Relative Placement** final-scoring algorithm is off-document (3.4.9.d refers to their website). Scoring engines (10F) need authoritative specifications for both. Public candidates are held unreviewed (see above).
+- **External authorizations.** WSDC-approved scoring systems and the UCWDC-authorized Scoring System designation are external approvals, separate from algorithm correctness and from rule compliance; none is claimed.
 - **No NASDE source.** None was supplied, so WCS Classic / Showcase routine divisions have no source-grounded metadata.
 
 ## Rules for using a source
