@@ -13,6 +13,9 @@ begin;
 
 create temp table t_results (name text, ok boolean, detail text) on commit drop;
 
+-- trigger modes before anything runs: the seed helper switches other packages' triggers off for single inserts and must restore them (S11)
+create temp table t_trg_before on commit drop as select tgrelid, tgname, tgenabled from pg_trigger where not tgisinternal;
+
 create or replace function pg_temp.chk(p_name text, p_ok boolean, p_detail text default '') returns void
 language plpgsql as $$
 begin
@@ -86,7 +89,8 @@ insert into t_overrides(tbl, ov) values
   ('event_competition_credentials', '{"holder_type": "participant", "registration_attendee_id": "00000000-0000-0000-0000-0000000a0001"}'),
   ('event_competition_schedule_blocks', '{"starts_at": "2030-01-01 10:00:00+00", "ends_at": "2030-01-01 11:00:00+00"}'),
   ('event_competition_schedule_sessions', '{"starts_at": "2030-01-01 10:00:00+00", "ends_at": "2030-01-01 11:00:00+00"}'),
-  ('event_competition_scoring_pins', '{"resolution": "unmapped"}');
+  ('event_competition_scoring_pins', '{"resolution": "unmapped"}'),
+  ('event_competition_eligibility_determinations', '{"fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}');
 
 -- ---------------------------------------------------------------------------
 -- 1. Structure
@@ -135,6 +139,10 @@ select t, false, r from (values
   ('event_competition_official_events', 'operational audit of officials/panels'), ('event_competition_round_transition_events', 'operational audit of round start/cancel'),
   ('event_competition_heat_no_shows', 'day-of attendance'), ('event_competition_heat_no_show_voids', 'day-of attendance'),
   ('competition_cf1_od17_enforcement', 'control switch'), ('competition_cf1_od17_audit', 'audit of the control switch'),
+  -- added by later competition packages (present only on the composed chain). Neither is a ballot or a result, so an event holding only these stays
+  -- deletable (owner OD-04 scope: block once ballots or results exist); whether to extend the block to them is an open owner question.
+  ('event_competition_eligibility_determinations', 'registration eligibility decision (R-15); append-only, leaves only with its event'),
+  ('event_competition_panel_recovery_cases', 'panel-break case (R-10); an attendance-driven case also has a protected attendance row'),
   ('event_competition_refund_exception_scopes', 'money; ON DELETE RESTRICT already blocks'), ('competition_cf1_rb3_reconciliations', 'money; ON DELETE RESTRICT already blocks')
 ) v(t, r);
 
@@ -320,7 +328,8 @@ declare
 begin
   for r in select tbl from t_classified where not protected and tbl not in ('event_competition_programs', 'event_competition_refund_exception_scopes', 'competition_cf1_rb3_reconciliations',
     -- no foreign key to events (event_id is a plain value; scoring_pins / program_locks cascade from their program): nothing to cascade, so nothing to assert here
-    'event_competition_checkin_payment_audit', 'event_competition_program_locks', 'event_competition_scoring_pins') order by tbl loop
+    'event_competition_checkin_payment_audit', 'event_competition_program_locks', 'event_competition_scoring_pins')
+    and to_regclass('public.' || tbl) is not null order by tbl loop
     begin
       perform pg_temp.od04_seed(r.tbl, v_empty, coalesce((select ov from t_overrides where tbl = r.tbl), '{}'::jsonb));
       insert into t_np_seeded values (r.tbl, true, 'seeded');
@@ -384,6 +393,9 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+select pg_temp.chk('S11 every trigger is in the same mode as before the suite (the seed helper restored what it switched off)',
+  not exists (select tgrelid, tgname, tgenabled from t_trg_before except select tgrelid, tgname, tgenabled from pg_trigger where not tgisinternal), '');
+
 do $$
 declare
   v_fail text;

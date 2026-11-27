@@ -84,3 +84,22 @@ The independent review is recorded in the PR description.
 - If a later migration drops or renames one of the 21 tables, every event delete fails ("relation does not exist") until `_compod04_evidence_tables()` is updated (fails closed).
 - Suite check C1 records a pass on any error from the direct row delete, not only the append-only message; it shows each table refuses, not why.
 - Race 2 cannot fail without the guard (see above); only race 1 exercises it.
+
+## Composed pilot run (P1, 2026-11-27): classification and fixes
+Record: shared note `od02-s5-p1-run-record.md`. #844 head in that run: `b56ea086f`. No finding was a defect of the delete guard; the guard migration and its rollback are unchanged.
+
+| Finding | Class | Disposition |
+|---|---|---|
+| OD-04 suite B/C: two "unclassified table" failures (`eligibility_determinations` R-15, `panel_recovery_cases` R-10) | completeness check working; classification missing | classified **not protected** in the suite; open owner question below |
+| OD-04 suite B/C: `entry_participants` seed refused (`COMP_S5_AGE_BLOCKED`) | test harness: synthetic fixture refused by another package's guard | seed helper switches that table's ENABLE ALWAYS/REPLICA triggers off for the one insert and restores them (suite check S11); never `public.events` |
+| OD-04 suite C: seeds of ballots, correction causes and co-signs, approvals, advancements, rounds refused (`COMP_P1_*`) | same | same fix |
+| E2 ballots suite B: event delete refused | intended refusal; the suite asserted the old cascade | chain-aware: without the guard the cascade assertions, with it the refusal and "nothing removed" |
+| Same assertion in CF1 A1 (U74), A6, A7, advancement (U50) suites; in the composed run their first failure was an R-15 gate | intended refusal, found by running the base chain plus #844 | chain-aware in the same way |
+| `run_e2_marks_txn` B | not caused by the guard: passes on base chain plus #844 | left to the owner of the R-15 fixtures |
+| E2 ballots suite C: `COMP_P1_FINAL_ONLY` | pilot restriction refuses the fixture (#919) | not this PR |
+
+**Open owner question.** On the composed chain an event holding only eligibility determinations, or a panel recovery case opened by deactivating an official (no attendance row, no ballot), is still deletable and the cascade removes them. That follows the decided scope ("once ballots or results exist"); extending the block to either table is a separate decision (it would have to skip tables that do not exist yet, since both arrive after this migration).
+
+**Still true after the fixes.** Race scripts and fixture clean-ups that delete an event holding evidence are refused silently at clean-up (use a fresh database to re-run). `run_e2_rollback.sh` / `run_f2_rollback.sh` delete evidence-bearing events and assert it worked, so they cannot pass on a chain with this guard; roll this guard back before dropping any of its 21 tables (otherwise every event delete errors).
+
+**Local results (disposable database, composed chain saved by that run):** base plus #844: OD-04 suite 159 PASS; E2, CF1 A1/A6/A7/advancement suites PASS with the guard and again after its rollback; E2 marks, CF1 A6 and CF1 concurrency scripts PASS. With the 12 corrections: OD-04 suite 161 PASS, E2 ballots 211 PASS. With the pilot restriction: OD-04 suite 161 PASS (again after rollback and re-apply), OD-04 race 6 PASS. Ordinary-event baseline identical with and without the guard and across all three chains.

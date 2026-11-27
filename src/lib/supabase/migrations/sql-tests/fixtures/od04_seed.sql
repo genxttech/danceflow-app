@@ -8,6 +8,9 @@
 --   p_override (a jsonb object of column -> value) replaces or adds any column. The insert runs with session_replication_role = replica
 --   (foreign-key triggers off, like the other competition suites' fixtures) and restores the previous setting. NOT NULL and CHECK constraints
 --   stay enforced, so a table whose CHECKs need real values gets them through p_override. Returns the new row's id when the table has one.
+--   OTHER packages' ENABLE ALWAYS / ENABLE REPLICA triggers on <p_table> still fire in replica mode (later competition guards refuse synthetic rows),
+--   so they are switched off for this one insert and restored to exactly their previous mode. Never for public.events: the guards under test are
+--   never touched. Use only inside a transaction that is rolled back, or on a disposable database.
 --   Must run as a superuser.
 
 create or replace function pg_temp.od04_default_value(p_type text) returns text
@@ -26,6 +29,16 @@ language sql immutable as $$
   end
 $$;
 
+create or replace function pg_temp.od04_restore_triggers(p_rel regclass, p_off jsonb) returns void
+language plpgsql as $$
+declare
+  v record;
+begin
+  for v in select key, value from jsonb_each_text(p_off) loop
+    execute format('alter table %s enable %s trigger %I', p_rel, v.value, v.key);
+  end loop;
+end $$;
+
 create or replace function pg_temp.od04_seed(p_table text, p_event uuid, p_override jsonb default '{}'::jsonb) returns uuid
 language plpgsql as $$
 declare
@@ -38,8 +51,11 @@ declare
   v_has_id boolean;
   v_id uuid;
   v_prev text := current_setting('session_replication_role');
+  v_trg record;
+  v_off jsonb := '{}'::jsonb;
 begin
   if v_rel is null then raise exception 'od04_seed: table % does not exist', p_table; end if;
+  if v_rel = 'public.events'::regclass then raise exception 'od04_seed: public.events is never seeded through this helper'; end if;
   for v_col in
     select a.attname, format_type(a.atttypid, a.atttypmod) as typ, a.attnotnull, a.atthasdef, a.attgenerated, a.attidentity
     from pg_attribute a
@@ -65,6 +81,10 @@ begin
     end if;
   end loop;
   select exists (select 1 from pg_attribute where attrelid = v_rel and attname = 'id' and not attisdropped) into v_has_id;
+  for v_trg in select tgname, tgenabled from pg_trigger where tgrelid = v_rel and not tgisinternal and tgenabled in ('A', 'R') loop
+    execute format('alter table %s disable trigger %I', v_rel, v_trg.tgname);
+    v_off := v_off || jsonb_build_object(v_trg.tgname, case v_trg.tgenabled when 'A' then 'always' else 'replica' end);
+  end loop;
   perform set_config('session_replication_role', 'replica', true);
   begin
     if v_has_id then
@@ -74,8 +94,10 @@ begin
     end if;
   exception when others then
     perform set_config('session_replication_role', v_prev, true);
+    perform pg_temp.od04_restore_triggers(v_rel, v_off);
     raise;
   end;
   perform set_config('session_replication_role', v_prev, true);
+  perform pg_temp.od04_restore_triggers(v_rel, v_off);
   return v_id;
 end $$;

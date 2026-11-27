@@ -687,11 +687,22 @@ reset role;
 insert into public.event_competition_round_exclusions
   (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values
   (pg_temp.u('0e0099'), pg_temp.u('00e002'), pg_temp.u('006016'), pg_temp.u('008901'), 'exclude_requested', 'other', 'cascade probe', pg_temp.u('000001'), 'manager', pg_temp.u('0f0099'), 1);
+-- OD-04 (20270219090000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
 select pg_temp.expect_ok('U74: deleting the event cascades through the protected table (the one permitted removal)',
-  format($q$delete from public.events where id = %L$q$, pg_temp.u('00e002')));
+  format($q$delete from public.events where id = %L$q$, pg_temp.u('00e002')))
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
 select pg_temp.chk('U74: the cascaded exclusion row is gone with its event, the event-1 rows remain',
   not exists (select 1 from public.event_competition_round_exclusions where id = pg_temp.u('0e0099'))
-  and (select count(*) from public.event_competition_round_exclusions) = 7);
+  and (select count(*) from public.event_competition_round_exclusions) = 7)
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
+select pg_temp.expect_msg('OD-04: deleting an event that holds an exclusion decision is refused',
+  format($q$delete from public.events where id = %L$q$, pg_temp.u('00e002')), 'COMP_EVENT_HAS_SCORING_EVIDENCE', '23503')
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
+select pg_temp.chk('OD-04: the refused delete removed nothing (the exclusion row and all others remain)',
+  exists (select 1 from public.event_competition_round_exclusions where id = pg_temp.u('0e0099'))
+  and (select count(*) from public.event_competition_round_exclusions) = 8)
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
 
 -- ============================================================================
 -- 7. Rollback guard (the rollback file is exercised by the harness; here: the refusal logic is documented, not executed)

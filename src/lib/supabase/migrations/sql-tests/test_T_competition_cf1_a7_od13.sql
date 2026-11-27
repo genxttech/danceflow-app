@@ -628,8 +628,16 @@ begin
 end $$;
 select pg_temp.su(format($q$update public.event_competition_heats set lock_state = 'open' where event_id = %L$q$, pg_temp.id('evt', 1)));
 select pg_temp.del_event() as del_result \gset
+-- OD-04 (20270219090000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
 select pg_temp.chk('E2 event deletion cascades (A7 tables empty afterwards)', :'del_result' = 'deleted'
-  and not exists (select 1 from public.event_competition_correction_causes) and not exists (select 1 from public.event_competition_ballot_corrections), :'del_result');
+  and not exists (select 1 from public.event_competition_correction_causes) and not exists (select 1 from public.event_competition_ballot_corrections), :'del_result')
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
+select pg_temp.chk('OD-04: deleting an event that holds correction evidence is refused and removes nothing',
+  :'del_result' like 'COMP_EVENT_HAS_SCORING_EVIDENCE:%'
+  and exists (select 1 from public.events where id = pg_temp.id('evt', 1))
+  and exists (select 1 from public.event_competition_correction_causes) and exists (select 1 from public.event_competition_ballot_corrections), :'del_result')
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
 
 select pg_temp.blocked('two-session races (two judges filing at once; a ballot racing the correction closing; co-sign vs filing)', 'see test_T_competition_cf1_a7_concurrency.sh');
 

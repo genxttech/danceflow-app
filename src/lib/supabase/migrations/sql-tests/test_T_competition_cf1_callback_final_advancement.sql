@@ -902,10 +902,22 @@ set role authenticated;
 select pg_temp.as_user(pg_temp.id('user', 1));
 reset role;
 select pg_temp.su(format($q$update public.event_competition_heats set lock_state = 'open' where event_id = %L$q$, pg_temp.id('evt', 4)));
-select pg_temp.expect_ok('U50: deleting the event cascades through advancement, withdrawal-free CF1 tables and heats', format($q$delete from public.events where id = %L$q$, pg_temp.id('evt', 4)));
+-- OD-04 (20270219090000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
+select pg_temp.expect_ok('U50: deleting the event cascades through advancement, withdrawal-free CF1 tables and heats', format($q$delete from public.events where id = %L$q$, pg_temp.id('evt', 4)))
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
 select pg_temp.chk('U50: the cascaded CF1 rows are gone with their event, the other events keep theirs',
   not exists (select 1 from public.event_competition_round_advancements where event_id = pg_temp.id('evt', 4))
-  and exists (select 1 from public.event_competition_round_advancements where event_id = pg_temp.id('evt', 1)));
+  and exists (select 1 from public.event_competition_round_advancements where event_id = pg_temp.id('evt', 1)))
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
+select pg_temp.expect_msg('OD-04: deleting an event that holds advancement evidence is refused',
+  format($q$delete from public.events where id = %L$q$, pg_temp.id('evt', 4)), 'COMP_EVENT_HAS_SCORING_EVIDENCE', '23503')
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
+select pg_temp.chk('OD-04: the refused delete removed nothing (event and advancements remain)',
+  exists (select 1 from public.events where id = pg_temp.id('evt', 4))
+  and exists (select 1 from public.event_competition_round_advancements where event_id = pg_temp.id('evt', 4))
+  and exists (select 1 from public.event_competition_round_advancements where event_id = pg_temp.id('evt', 1)))
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
 select pg_temp.expect_msg('evidence tables are insert-only: UPDATE refused', format($q$update public.event_competition_round_advancements set generation = 9 where event_id = %L$q$, pg_temp.id('evt', 1)), 'append-only');
 select pg_temp.expect_msg('evidence tables are insert-only: DELETE refused', format($q$delete from public.event_competition_round_advancements where event_id = %L$q$, pg_temp.id('evt', 1)), 'append-only');
 select pg_temp.expect_msg('evidence tables are insert-only: TRUNCATE refused', $q$truncate public.event_competition_round_capacity_events$q$, 'append-only');
