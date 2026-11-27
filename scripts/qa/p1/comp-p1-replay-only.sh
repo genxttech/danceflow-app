@@ -5,6 +5,7 @@
 #
 #   bash scripts/qa/p1/comp-p1-replay-only.sh <ticket-file> <out-dir> <composed-out-dir> [wait-minutes] [hold-minutes]
 #
+# ONLY_BASE=1 runs chain A alone (no snapshots, same bounded hold on an inconclusive A verdict).
 # A base chain, B + corrections, C + restriction; the probe after each. If a B or C verdict is INCONCLUSIVE (a probe defect), the lock and the databases are
 # held for at most <hold-minutes> so the probe can be corrected against them; creating <out-dir>/release ends the hold. Everything is removed at the end.
 set -uo pipefail
@@ -51,7 +52,16 @@ probe(){ # <phase>
   log "[$1] reached $(grep -c ': REACHED' "$OUT/bypass-$1.txt"), not reached $(grep -c ': NOT REACHED' "$OUT/bypass-$1.txt"), closed at setup $(grep -c ': CLOSED AT SETUP' "$OUT/bypass-$1.txt"), inconclusive $(grep -c ': INCONCLUSIVE' "$OUT/bypass-$1.txt")"
 }
 for f in $(ls "$CHAIN/base" | sort); do v="${f%%_*}"; case "$v" in 20270103090000|20270103091000) ;; *) [[ "$v" > "20270119090000" ]] || continue ;; esac; apply "$CHAIN/base/$f" A; done
-probe A; snapshot a
+probe A
+if [ "${ONLY_BASE:-0}" = 1 ]; then
+  echo "$NAME $RUN_ID" > "$OUT/ready"
+  if grep -qE 'INCONCLUSIVE|NO VERDICT|PROBE INCOMPLETE' "$OUT/bypass-A.txt"; then
+    log "held for probe corrections (up to ${HOLD_MIN} min)"; end=$(( $(date +%s) + HOLD_MIN*60 ))
+    while [ ! -f "$OUT/release" ] && [ "$(date +%s)" -lt "$end" ]; do sleep 10; done
+  fi
+  echo DONE > "$OUT/result.txt"; exit 0
+fi
+snapshot a
 for f in $(ls "$CHAIN/new" | sort); do apply "$CHAIN/new/$f" B; done
 snapshot b; probe B
 for f in $(ls "$CHAIN/p1" | sort); do apply "$CHAIN/p1/$f" C; done

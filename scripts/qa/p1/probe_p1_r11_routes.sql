@@ -134,7 +134,7 @@ begin
     select
            null::jsonb,
            jsonb_agg(jsonb_build_object('clientId', 'e' || g, 'programId', v_prog, 'contestId', (select contest_id from public.event_competition_divisions where id = v_div), 'divisionId', v_div,
-             'participantIds', jsonb_build_array('p' || (2 * g - 1), 'p' || (2 * g)), 'participantRoles', jsonb_build_object('p' || (2 * g - 1), 'leader', 'p' || (2 * g), 'follower'),
+             'participantIds', jsonb_build_array('p' || (2 * g - 1), 'p' || (2 * g)), 'participantRoles', jsonb_build_object('p' || (2 * g - 1), 'dancer', 'p' || (2 * g), 'dancer'), 'participantDanceRoles', jsonb_build_object('p' || (2 * g - 1), 'leader', 'p' || (2 * g), 'follower'),
              'selectedOfferingIds', (select jsonb_agg(dd.id) from public.event_competition_division_dances dd where dd.division_id = v_div), 'routineTitle', 'Routine ' || d || '-' || g, 'musicTitle', 'Music ' || d || '-' || g, 'routineDurationSeconds', '90') order by g)
     into v_ignore, v_entries from generate_series(1, 3) g;
     perform pg_temp.step('setup', 'register three adult couples in D' || d, format($q$select public.start_competition_registration(%L, %L, %L::jsonb, %L)$q$, pg_temp.ev(), pg_temp.u('00f00' || d),
