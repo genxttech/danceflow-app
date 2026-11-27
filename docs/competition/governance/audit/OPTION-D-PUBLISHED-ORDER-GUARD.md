@@ -65,6 +65,10 @@ Also passed in this run: publication races 25 checks (standalone and P1 chain), 
 
 Callback-Final advancement suite: not covered (fails with and without D).
 
+**Narrow re-review of the corrections (`0e1905426..8e371bd56`, by reading only): no blocker.** Lock triggers fire before every other BEFORE trigger found on the seven tables, including the restriction triggers; a future `cf1_a*` or `cf1_b*` trigger would run before the lock and nothing asserts the order.
+* **Should-fix, kept as a deliberate choice:** the `cf1_` name passes the two inventory checks by using CF1's prefix. The reviewer prefers a D-specific name listed explicitly in both suites. Not done because PR 866's versions of those suites change the same allow-list line (a merge conflict, and the composed run takes 866's copies). Consequences to accept or change: six CF1 suites run with D's heat and entry locks off, and any owner procedure that disables `cf1_%` triggers would silently reopen the publication race.
+* Not changed: the migration header still says advanced-mode schedule items "have their own rules" although their three tables are now locked too; the session race on the previous version is logged, not asserted.
+
 ### Composed run beside the restrictions (`/c/dfr/s5int-out/p1run4`, D `db5c9b876`): D failures
 
 | Failure | Defect or harness |
