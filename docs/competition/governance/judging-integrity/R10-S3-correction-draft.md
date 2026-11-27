@@ -29,7 +29,7 @@ S3 changes in `102000` since `5eea51ff`: new trigger `compr10_official_status_pa
 attendance now inserts first and evaluates the real resulting panel (a refusal rolls back); confirmation is required for the change that turns a valid panel invalid, for `present` as well as `absent`, and not again for later changes on an already
 invalid panel; audit refs now separate `panel_break_confirmed` and `recovery_case_opened`. `101000`: comment only. `100000`: unchanged. Tests: S3 suite updated; E1 and E2 suites adjusted (section 6).
 
-At S4 (R-15) request, the E2 suite later gained a clearance call that does nothing unless S4's test fixture is loaded. **Not executed** by any run recorded here (run 2 pins `cde6b1225`, before it); it has not been independently reviewed.
+At S4 (R-15) request, the E2 suite later gained a clearance call that does nothing unless S4's test fixture is loaded. Run 2 predates it. It was later **executed** in the S4/S5 combined run (run6, 2026-11-26, S3 head `a1b0eb9d5`, 8 correction migrations): E2 PASS (211) in its baseline, forward and S5-only phases (evidence `run6/suites-*.tsv`, read here; that run belongs to those sessions). Not independently reviewed.
 
 ## 3. What ships
 
@@ -87,7 +87,7 @@ Authority (unchanged): assign/unassign = event manager, draft/scheduled only; at
 | All races | no deadlock in the server log; at most one open case per round |
 | Rollback with open cases | EXECUTED: refused as designed |
 | Start-vs-attendance and start-vs-deactivation races; ballot-lock-first ordering; `test_T_competition_e2_p1fix.sql` and `test_T_competition_o1_concurrency.sh` with S3 | PENDING, not run |
-| E2 clearance call added after `cde6b1225`; composed compatibility with the other correction PRs | PENDING: not covered by this run |
+| E2 clearance call added after `cde6b1225`; composed compatibility with the other correction PRs | Not covered by run 2. The E2 call ran later in run6 (section 2); other composed compatibility stays PENDING |
 
 **Run 3** (same image, isolation and base chain composition as run 2; S3 files unchanged). It covers the two suites that failed before.
 
