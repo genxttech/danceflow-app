@@ -23,4 +23,4 @@ PR lands. Update the row in the same PR that adds the inventory file.
 
 | Decision | Item | PR | Status |
 |---|---|---|---|
-| OD-04 (2026-11-23, Option A BLOCK) | Event deletion with ballots/results (row X-18) | draft PR, branch `claude/od04-event-delete-guard-c68a8f` | Migration `20270219090000` + rollback + SQL suite (158 checks) + race script run on a local isolated Postgres; **not applied to DEV or PROD**; register entries OD04-0001..0003; results contract corrected. Owner gates: merge, DEV/PROD SQL apply. |
+| OD-04 (2026-11-23, Option A BLOCK) | Event deletion with ballots/results (row X-18) | draft PR, branch `claude/od04-event-delete-guard-c68a8f` | Migration `20270219090000` + rollback + SQL suite + race script run on a local isolated Postgres (158 checks at the first head; 159 on base, 161 on the composed pilot chain after the fixture fixes); **not applied to DEV or PROD**; register entries OD04-0001..0003; results contract corrected. Owner gates: merge, DEV/PROD SQL apply. |
