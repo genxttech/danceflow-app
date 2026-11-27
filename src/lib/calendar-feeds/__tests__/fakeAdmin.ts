@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- in-memory PostgREST stand-in for tests */
 
-type Filter = { op: "eq" | "in" | "gte" | "lte"; col: string; val: any };
-export type QueryRecord = { table: string; filters: Filter[] };
+type Filter = { op: "eq" | "in" | "gte" | "lte" | "is"; col: string; val: any };
+export type QueryRecord = { table: string; filters: Filter[]; select?: string };
 
 export class FakeAdmin {
   tables: Record<string, any[]> = {};
@@ -29,8 +29,10 @@ export class FakeAdmin {
     const filters: Filter[] = [];
     let limit = Infinity;
     let orderCol: string | null = null;
+    let selectCols: string | undefined;
     const builder: any = {
-      select: () => builder,
+      select: (cols?: string) => ((selectCols = cols), builder),
+      is: (col: string, val: any) => (filters.push({ op: "is", col, val }), builder),
       eq: (col: string, val: any) => (filters.push({ op: "eq", col, val }), builder),
       in: (col: string, val: any[]) => (filters.push({ op: "in", col, val }), builder),
       gte: (col: string, val: any) => (filters.push({ op: "gte", col, val }), builder),
@@ -41,11 +43,12 @@ export class FakeAdmin {
       then: (resolve: any, reject: any) => run(false).then(resolve, reject),
     };
     function run(single: boolean): Promise<{ data: any; error: any }> {
-      self.queries.push({ table, filters: [...filters] });
+      self.queries.push({ table, filters: [...filters], select: selectCols });
       let rows = (self.tables[table] ?? []).filter((row) =>
         filters.every((f) => {
           const v = f.col.split(".").reduce((acc: any, k: string) => (acc == null ? acc : acc[k]), row);
           if (f.op === "eq") return v === f.val;
+          if (f.op === "is") return (v ?? null) === f.val;
           if (f.op === "in") return (f.val as any[]).includes(v);
           if (f.op === "gte") return v >= f.val;
           return v <= f.val;
