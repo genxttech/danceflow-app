@@ -46,6 +46,10 @@
 /src/app/auth/ @genxttech
 /src/app/(auth)/ @genxttech
 
+# --- Calendar subscription feeds: public bearer-link routes (no session) and the feed token, privacy and revocation code ---
+/src/lib/calendar-feeds/ @genxttech
+/src/app/calendar/ @genxttech
+
 # --- Money: payments, billing, payouts, payroll, accounting, usage charges ---
 /src/lib/payments/ @genxttech
 /src/lib/billing/ @genxttech
