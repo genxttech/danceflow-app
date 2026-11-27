@@ -322,7 +322,11 @@ select pg_temp.expect_ok('A/SC1: staff scratch 008011 before any refund (lifecyc
     then $q$select public.change_competition_entry_lifecycle(pg_temp.u('008011'), 'scratched', 'Scratched at the desk', 'retain')$q$
     else $q$select public.scratch_competition_entry(pg_temp.u('008011'), pg_temp.u('008f11'), 'Scratched at the desk', null)$q$ end);
 reset role;
+-- Fixture only: put heat_a2 on the floor without the day-of writer. O1 (20270106) lets only advance_competition_floor_heat move a
+-- heat into staging/active, for privileged roles too. Replica mode skips ordinary triggers (not ENABLE ALWAYS ones) for this ONE statement.
+set session_replication_role = replica;
 update public.event_competition_heats set status = 'active' where id = pg_temp.id('heat_a2');
+set session_replication_role = origin;
 select pg_temp.expect_ok('A/SC1: full refund of the registration holding them',
   $q$update public.event_registrations set payment_status = 'refunded', status = 'refunded' where id = pg_temp.u('00f007')$q$);
 select pg_temp.chk('A/SC1 P2-4: the scratched entry stays scratched; no second (withdraw/refund) audit row',
