@@ -1,0 +1,17 @@
+test_T_competition_s6_entry_status_guard	PASS	ERROR:  COMPETITION S6 ENTRY STATUS GUARD SQL SUITE PASS (89 checks)
+test_T_competition_u18_heat_entry_status_guard	PASS	ERROR:  COMPETITION U18 SQL SUITE PASS (21 checks)
+test_T_competition_u18s_heat_entry_scratch_audit	PASS	ERROR:  COMPETITION U18S SQL SUITE PASS (17 checks)
+test_T_competition_jc1_inactive_judge_absent	PASS	ERROR:  COMPETITION JC1 SQL SUITE PASS (15 checks)
+test_T_competition_cf1_a5_exclusion	PASS	ERROR:  COMPETITION CF1 A5 SQL SUITE PASS (186 checks, 4 blocked: A3-dependent lock refusal, cancel exit, multi-session probe, other suites)
+test_T_competition_cf1_a6_withdrawal	PASS	ERROR:  COMPETITION CF1 A6 SQL SUITE PASS (247 checks, 3 blocked)
+test_T_competition_cf1_a2_lock	PASS	ERROR:  COMPETITION CF1 A2 LOCK CHECK SQL SUITE PASS (35 checks, 1 blocked)
+test_T_competition_hl1_heat_guards	PASS	ERROR:  COMPETITION HL1 HEAT GUARDS SQL SUITE PASS (42 checks)
+test_T_competition_f2_results	PASS	ERROR:  COMPETITION F2 SQL SUITE PASS (198 checks)
+test_T_competition_cf1_od17_enforcement	PASS	ERROR:  COMPETITION CF1 OD17 SQL SUITE PASS (59 checks, r2=true)
+test_T_competition_cf1_a4_minimum_integration	PASS	ERROR:  COMPETITION CF1 A4 SQL SUITE PASS (55 checks, 3 blocked)
+test_T_competition_cf1_callback_final_advancement	PASS	ERROR:  COMPETITION CF1 A0 SQL SUITE PASS (199 checks, 5 blocked)
+test_T_competition_r2_refund_write_gate	PASS	ERROR:  COMPETITION R2 GATE SQL SUITE PASS (21 checks)
+test_T_competition_e2_ballots	PASS	ERROR:  COMPETITION E2 SQL SUITE PASS (211 checks)
+test_T_competition_o1_day_of	FAIL	
+test_T_phase10a_competition_foundation	FAIL	ERROR:  PHASE 10A SQL SUITE FAIL: manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+test_T_phase10d1_heat_entry_eligibility	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)

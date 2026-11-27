@@ -1,0 +1,24 @@
+[02:04:51Z] composed 39 competition migrations; fingerprint 2f423e95b9322bc2dcfa29a51f67e0eb48d92ad50da57a1e0a972f14aee6f54a; head 6c80b98a76831647dc603ff839dc2c8edcf2cc3e
+[03:40:07Z] lock taken
+[03:40:09Z] under lock: head 6c80b98a76831647dc603ff839dc2c8edcf2cc3e, fingerprint 2f423e95b9322bc2dcfa29a51f67e0eb48d92ad50da57a1e0a972f14aee6f54a, uncommitted files 0
+[03:41:12Z] chain applied: 23 ok, 0 failed
+[03:41:18Z] suites-pr867 test_T_competition_o1_day_of: PASS
+[03:41:23Z] suites-pr867 test_T_competition_ns1_no_show: PASS
+[03:41:32Z] suites test_T_competition_s6_entry_status_guard: PASS
+[03:41:35Z] suites test_T_competition_o1_day_of: PASS
+[03:41:39Z] suites test_T_competition_ns1_no_show: PASS
+[03:42:05Z] concurrency: S6 CONCURRENCY PASS (11 checks; 3 lock waiters observed)
+[03:43:47Z] a5 adapted-with-S6: rc=0 COMPETITION CF1 A5 CONCURRENCY PASS
+[03:43:52Z] mutant insert-link-rule: DETECTED
+[03:43:56Z] mutant delete-status-rule: DETECTED
+[03:44:02Z] mutant delete-order-link: DETECTED
+[03:44:08Z] mutant evidence-rule: DETECTED
+[03:44:31Z] mutant entry-lock: DETECTED
+[03:44:36Z] mutant participation-guard: DETECTED
+[03:45:29Z] mutant heat-lock: DETECTED
+[03:45:36Z] rollback proof: PASS (catalog state identical to pre-S6, 32 lines)
+[03:45:41Z] suite-s6-after-reapply test_T_competition_s6_entry_status_guard: PASS
+[03:45:43Z] sc1 suite: ERROR:  SC1 SQL SUITE PASS (37 checks; s4=false s5=false s6=true)
+[03:46:36Z] sc1 concurrency: rc=0 SC1 CONCURRENCY PASS (s6=t)
+[03:46:38Z] failures also present without S6: 0
+[03:46:39Z] done

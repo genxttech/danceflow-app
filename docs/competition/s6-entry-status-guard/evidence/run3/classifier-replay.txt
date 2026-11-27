@@ -1,0 +1,7 @@
+# replay of the corrected classifier on run 3 logs (not part of the run)
+test_T_competition_o1_day_of	FAIL-ALSO-WITHOUT-S6
+test_T_phase10a_competition_foundation	FAIL-ALSO-WITHOUT-S6
+test_T_competition_r2_entry_refunds	FAIL-ALSO-WITHOUT-S6
+test_T_competition_ns1_no_show	FAIL-ALSO-WITHOUT-S6
+# grep -P in this shell:
+grep: -P supports only unibyte and UTF-8 locales

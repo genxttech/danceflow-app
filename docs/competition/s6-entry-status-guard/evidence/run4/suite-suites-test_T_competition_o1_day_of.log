@@ -1,0 +1,532 @@
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ set_config 
+------------
+ off
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ set_config 
+------------
+ on
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ set_config 
+------------
+ on
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ERROR:  COMPETITION O1 SQL SUITE PASS (95 checks)
+CONTEXT:  PL/pgSQL function inline_code_block line 9 at RAISE

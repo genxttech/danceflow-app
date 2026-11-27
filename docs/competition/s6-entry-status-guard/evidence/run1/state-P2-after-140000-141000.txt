@@ -1,0 +1,4 @@
+fn|_r2_apply_participation|p_refund_id uuid|true|supabase_admin|{supabase_admin=X/supabase_admin,postgres=X/supabase_admin}|{"search_path=public, pg_temp"}|b6f3865bcb7f938882e8f74963a9b3ff
+fn|_r2_withdraw_entry|p_entry_id uuid, p_reason text, p_fee_handling text|true|supabase_admin|{supabase_admin=X/supabase_admin,postgres=X/supabase_admin}|{"search_path=public, pg_temp"}|85f45769790cc7c34b034e4d3a89083e
+fn|cf1_s6_guard_entry_status||false|supabase_admin|{supabase_admin=X/supabase_admin,postgres=X/supabase_admin}|{"search_path=public, pg_temp"}|3067d29cc8270296d04c806a9a419766
+fn|change_competition_entry_lifecycle|selected_entry_id uuid, selected_status text, selected_reason text, selected_fee_handling text|true|postgres|{postgres=X/postgres,authenticated=X/postgres}|{"search_path=public, pg_temp"}|25fdb16ba0e23069254c249c3a738aac

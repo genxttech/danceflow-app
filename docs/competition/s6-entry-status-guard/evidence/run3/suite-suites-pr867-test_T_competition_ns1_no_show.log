@@ -1,0 +1,1263 @@
+ as_user 
+---------
+ 
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "8d872cd2-cded-4ffc-9fb4-0850e5d4dd79"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "90113405-ca67-47b1-a890-15d144ab3b88"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "3c0e470c-8b38-43e0-98d0-bb9fac572cbc"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "chair", "official_id": "0ec4facc-cb17-48f5-9694-38d232169254"}
+(1 row)
+
+                         add_competition_official                          
+---------------------------------------------------------------------------
+ {"role": "scorer", "official_id": "5e1d6551-33d8-4079-a635-f18d707457f9"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "19e30ab1-ab47-4390-96a5-3f5bb280aec0"}
+ {"judge_letter": "B", "assignment_id": "4e86f8ab-58d1-4d54-995c-70720a9b3539"}
+ {"judge_letter": "C", "assignment_id": "b48b8de9-e645-4669-906a-4318b26490ba"}
+ {"judge_letter": "A", "assignment_id": "0c9608a7-8bc2-4ded-9dc5-35d651a486b3"}
+ {"judge_letter": "B", "assignment_id": "81cd8b5c-dae1-4607-a60d-7318a2b002b1"}
+ {"judge_letter": "C", "assignment_id": "f004c235-1b99-4488-bc9c-dcfb05014e07"}
+ {"judge_letter": "A", "assignment_id": "6b52a37d-0e75-4ef3-b746-1537b7b47e5e"}
+ {"judge_letter": "B", "assignment_id": "de376ec8-4348-4046-816a-49cee5286810"}
+ {"judge_letter": "C", "assignment_id": "3dec498c-cc3a-4164-9b1e-3f003eea94e8"}
+ {"judge_letter": "A", "assignment_id": "62654db6-df99-42d4-af9d-3103444af211"}
+ {"judge_letter": "B", "assignment_id": "1b6f4629-995f-4677-aa2b-af9658b28417"}
+ {"judge_letter": "C", "assignment_id": "4a15e70d-ac46-418d-a814-8fd9836b89a5"}
+(12 rows)
+
+                         assign_competition_panel_member                         
+---------------------------------------------------------------------------------
+ {"judge_letter": null, "assignment_id": "0e76d351-d7bc-42db-82d0-c0cd6242dfe4"}
+ {"judge_letter": null, "assignment_id": "6c8af6ed-9e99-4332-8f81-671f270f7086"}
+(2 rows)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "86cd6a56-6529-49a5-944b-775b35bb1634"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "1377204a-e55e-48c9-b3bb-0e87e0186c07"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_anon 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                                   mark_competition_heat_no_show                                                    
+------------------------------------------------------------------------------------------------------------------------------------
+ {"replayed": false, "no_show_id": "5c9e9cd2-dfa8-4ced-8dc0-f35dd862c855", "heat_entry_id": "3500d7c6-98f8-4148-8c9d-00f2e8e5bb4b"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                                   mark_competition_heat_no_show                                                    
+------------------------------------------------------------------------------------------------------------------------------------
+ {"replayed": false, "no_show_id": "633cb290-906e-430a-a116-e2a96bbebde3", "heat_entry_id": "c2620382-37fe-4293-a312-a072b5c25939"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "25a34e57-d699-4b41-9e87-1b2d4f9dae49"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "43f042ae-3a30-44ca-8dff-97f00a7c4e38"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "e7778310-4924-473e-ad7d-78e2be118d67"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                                   mark_competition_heat_no_show                                                    
+------------------------------------------------------------------------------------------------------------------------------------
+ {"replayed": false, "no_show_id": "b91a0870-8acf-43a4-b016-c9ba398924b9", "heat_entry_id": "29318b29-915b-4f09-8018-500dd7fc9645"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 2, "replayed": false, "ballot_id": "2b369476-cf15-44df-bf4a-d28fdb67cef5"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 2, "replayed": false, "ballot_id": "350de6fe-a769-4262-91e8-2640b2cc7c49"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                                   mark_competition_heat_no_show                                                    
+------------------------------------------------------------------------------------------------------------------------------------
+ {"replayed": false, "no_show_id": "3b87b5e2-8032-4ea9-97de-d844fcccf6c7", "heat_entry_id": "cfec89ad-981c-421b-8ce8-89ec6622e1da"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                                   mark_competition_heat_no_show                                                    
+------------------------------------------------------------------------------------------------------------------------------------
+ {"replayed": false, "no_show_id": "685b6eb3-a668-459c-8318-f9c2aca994a0", "heat_entry_id": "b6852969-947f-4c8b-b88b-a978b7f3928c"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ hl1_danced 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_anon 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_anon 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_anon 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+NOTICE:  truncate cascades to table "event_competition_heat_no_show_voids"
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "9d36327b-5a7c-43de-8ce8-2542567c403b"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "B", "assignment_id": "39217505-c80d-4fba-980a-01dab2536612"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "C", "assignment_id": "e028e787-ba2d-43bc-afcd-c4dbc7e681a7"}
+(1 row)
+
+ pin_competition_round_scoring 
+-------------------------------
+ 
+(1 row)
+
+ pin_competition_round_scoring 
+-------------------------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                                   mark_competition_heat_no_show                                                    
+------------------------------------------------------------------------------------------------------------------------------------
+ {"replayed": false, "no_show_id": "a53f4b0b-4981-4747-9786-224390cd5697", "heat_entry_id": "de671945-1a00-4036-9e86-857dc5182c6a"}
+(1 row)
+
+                                                   mark_competition_heat_no_show                                                    
+------------------------------------------------------------------------------------------------------------------------------------
+ {"replayed": false, "no_show_id": "e22891bc-3698-4049-a09b-2b4dae967c56", "heat_entry_id": "34f7c9a0-bc23-4379-b07f-a47ee296ae61"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "cdab7f2a-e4b3-4bd4-ba19-515c3100e6c4"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "aa80b22c-e596-481a-8665-1c77e58b8264"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                                           submit_competition_ballot                                           
+---------------------------------------------------------------------------------------------------------------
+ {"source": "judge_web", "version": 1, "replayed": false, "ballot_id": "29db290c-57f1-4c97-8056-2c16276ed5d4"}
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ hl1_danced 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "f7724ead-e937-41d0-8bb0-4ed391aa69e4"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "6c5442a8-af27-4898-be33-9b3d992c97d5"}
+(1 row)
+
+                         add_competition_official                         
+--------------------------------------------------------------------------
+ {"role": "judge", "official_id": "68765a46-fc3c-4c1e-ae36-d0c7a4407561"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "A", "assignment_id": "4d32fbaf-ceb7-45d6-924c-ace0eb239282"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "B", "assignment_id": "b6bb84ca-6027-46ad-851b-76f3460539f5"}
+(1 row)
+
+                        assign_competition_panel_member                         
+--------------------------------------------------------------------------------
+ {"judge_letter": "C", "assignment_id": "7f659949-6d80-47a6-9f34-e2c634f4d817"}
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ERROR:  function pg_temp.compo1_fixture_activate_round(uuid, uuid) does not exist
+LINE 1: ... the round through schedule + start (real RPCs)', pg_temp.co...
+                                                             ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block

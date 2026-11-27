@@ -1,0 +1,745 @@
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-cf1032000001","role":"authenticated"}
+(1 row)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(21 rows)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(7 rows)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(12 rows)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(8 rows)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+ 
+ 
+ 
+(4 rows)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+(4 rows)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+(6 rows)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+(6 rows)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(8 rows)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(8 rows)
+
+ set_config |  set_config   
+------------+---------------
+ scratch    | forged marker
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ set_config | set_config 
+------------+------------
+            | 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+ 
+ 
+(3 rows)
+
+ chk 
+-----
+ 
+ 
+ 
+(3 rows)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-cf1032000002","role":"authenticated"}
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-cf1032000001","role":"authenticated"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(7 rows)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ set_config | set_config | set_config 
+------------+------------+------------
+            |            | 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+ 
+ 
+ 
+(4 rows)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+(4 rows)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+ 
+ 
+ 
+ 
+ 
+(6 rows)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ run 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ERROR:  COMPETITION S6 ENTRY STATUS GUARD SQL SUITE FAIL: D4d dd_840001: refused (disqualified without history) [OK]; D4d dd_840002: refused (waitlisted) [OK]
+CONTEXT:  PL/pgSQL function inline_code_block line 6 at RAISE
+    target    |    as_role    |                                                                                     outcome                                                                                     | start_status | status_after | audits_before | audits_after | class_before | class_after 
+--------------+---------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------+--------------+---------------+--------------+--------------+-------------
+ complete     | anon          | OK                                                                                                                                                                              | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ complete     | authenticated | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> complete cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.     | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ complete     | cf1032_probe  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> complete cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.     | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ complete     | service_role  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> complete cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.     | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ confirmed    | anon          | OK                                                                                                                                                                              | pending      | pending      |             1 |            1 | unplaced     | unplaced
+ confirmed    | authenticated | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status pending -> confirmed cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.      | pending      | pending      |             1 |            1 | unplaced     | unplaced
+ confirmed    | cf1032_probe  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status pending -> confirmed cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.      | pending      | pending      |             1 |            1 | unplaced     | unplaced
+ confirmed    | service_role  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status pending -> confirmed cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.      | pending      | pending      |             1 |            1 | unplaced     | unplaced
+ disqualified | anon          | OK                                                                                                                                                                              | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ disqualified | authenticated | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> disqualified cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow. | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ disqualified | cf1032_probe  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> disqualified cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow. | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ disqualified | service_role  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> disqualified cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow. | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ pending      | anon          | OK                                                                                                                                                                              | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ pending      | authenticated | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> pending cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.      | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ pending      | cf1032_probe  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> pending cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.      | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ pending      | service_role  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> pending cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.      | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ scratched    | anon          | OK                                                                                                                                                                              | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ scratched    | authenticated | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.    | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ scratched    | cf1032_probe  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.    | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ scratched    | service_role  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.    | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ waitlisted   | anon          | OK                                                                                                                                                                              | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ waitlisted   | authenticated | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> waitlisted cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.   | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ waitlisted   | cf1032_probe  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> waitlisted cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.   | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ waitlisted   | service_role  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> waitlisted cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.   | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ withdrawn    | anon          | OK                                                                                                                                                                              | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ withdrawn    | authenticated | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> withdrawn cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.    | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ withdrawn    | cf1032_probe  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> withdrawn cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.    | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+ withdrawn    | service_role  | 42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> withdrawn cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.    | confirmed    | confirmed    |             0 |            0 | unplaced     | unplaced
+(28 rows)
+
+                         name                          | ok | left 
+-------------------------------------------------------+----+------
+ D4d dd_840001: refused (disqualified without history) | f  | OK
+ D4d dd_840002: refused (waitlisted)                   | f  | OK
+(2 rows)
+

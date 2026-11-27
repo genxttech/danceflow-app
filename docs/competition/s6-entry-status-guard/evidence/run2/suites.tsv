@@ -1,0 +1,5 @@
+test_T_competition_s6_entry_status_guard	PASS	ERROR:  COMPETITION S6 ENTRY STATUS GUARD SQL SUITE PASS (89 checks)
+test_T_competition_u18s_heat_entry_scratch_audit_with_s6	PASS	ERROR:  COMPETITION U18S SQL SUITE PASS (17 checks)
+test_T_competition_u18s_heat_entry_scratch_audit	FAIL	ERROR:  COMPETITION U18S SQL SUITE FAIL: direct parent-entry status write does not unlock a direct heat-entry scratch [42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.]; RPC on an entry scratched in an EARLIER transaction still scratches its heat entries (reviewer finding 1) [42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direc
+test_T_phase10a_competition_foundation	FAIL	ERROR:  PHASE 10A SQL SUITE FAIL: manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+test_T_competition_o1_day_of	FAIL	

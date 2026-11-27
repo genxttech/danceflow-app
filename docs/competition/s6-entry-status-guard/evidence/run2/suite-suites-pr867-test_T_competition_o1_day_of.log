@@ -1,0 +1,519 @@
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ set_config 
+------------
+ off
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ set_config 
+------------
+ on
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ as_user 
+---------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_msg 
+------------
+ 
+(1 row)
+
+ set_config 
+------------
+ on
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ERROR:  function pg_temp.compo1_fixture_activate_round(uuid, uuid) does not exist
+LINE 2:   pg_temp.compo1_fixture_activate_round(pg_temp.u('006009'),...
+          ^
+HINT:  No function matches the given name and argument types. You might need to add explicit type casts.
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ERROR:  current transaction is aborted, commands ignored until end of transaction block
