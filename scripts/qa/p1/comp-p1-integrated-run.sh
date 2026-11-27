@@ -16,6 +16,9 @@
 #         D rollback of every new migration in reverse order, catalog compared with A | E re-apply, the corrections' own suites again.
 # Every phase A-C: all Competition SQL suites present for it and the R-11 route probe. Concurrency scripts run on the last forward phase (C, else B);
 # a script that fails is re-run on B (when the last phase is C) and on A, for attribution.
+# A suite or script that fails on B or C naming COMP_R15_ENTRY_NOT_CLEARED / _PROVISIONAL_ASSIGNMENT is run once more on a separate copy of that phase's
+# database with PR 866's test-only fixture r15_clearance_autoseed.sql installed (it records the missing organizer clearance through the real function).
+# Those results are phase <p>-autoseed, labelled [AUTOSEED]; the released result stays as reported. Never installed for the R-15, S5 or OD-31 negative suites.
 set -uo pipefail
 if [ "${1:-}" = "--compose-only" ]; then COMPOSE_ONLY=1; TICKET=""; OUT="${2:?out dir}"; else COMPOSE_ONLY=0; TICKET="${1:?ticket file}"; OUT="${2:?out dir}"; fi
 WAIT_MIN=45; [ "${3:-}" = "--wait-minutes" ] && WAIT_MIN="${4:-45}"
@@ -226,7 +229,26 @@ run_suite(){ # <phase> <tests dir> <suite>
   case "$s" in *od04_ordinary_event_baseline) res=OUTPUT; line="compared across phases (od04-baseline-diff.txt)";; esac
   [ "$before" = "$after" ] || { res=FAIL-PREDICATE; log "[$ph] $s: S5 predicate changed"; }
   [ "$ph" != A ] && grep -qs "^$s " "$OUT/adapted-copies.txt" && ! cmp -s "$dir/$s.sql" "$CHAIN/tests-A/$s.sql" && res="$res [ADAPTED COPY]"
+  case "$ph" in *-autoseed) res="$res [AUTOSEED]";; esac
   printf '%s\t%s\t%s\t%s\n' "$ph" "$s" "$res" "$line" >> "$OUT/suites.tsv"; log "[$ph] $s: $res"
+}
+R15_RE='COMP_R15_(ENTRY_NOT_CLEARED|PROVISIONAL_ASSIGNMENT)'
+NO_AUTOSEED='^test_T_(competition_r15_|competition_s5_|od31_guarded_baseline_negative)'
+autoseed(){ # <container> <tests dir>: opt-in and fixture in one session; the file is its own transaction
+  { echo 'set r15.install_test_autoseed = on;'; cat "$2/fixtures/r15_clearance_autoseed.sql"; } | tr -d '\r' | docker exec -i -e PGPASSWORD=postgres "$1" psql -U supabase_admin -d postgres -X -q -v ON_ERROR_STOP=1 > "$OUT/autoseed-$1.log" 2>&1 \
+    && [ "$(docker exec -e PGPASSWORD=postgres "$1" psql -U supabase_admin -d postgres -Atc "select to_regnamespace('r15_testfixture') is not null")" = t ]; }
+autoseed_suites(){ # <phase>
+  local ph="$1" dir="$CHAIN/tests-$1" c="df-p1int-as-$RUN_ID-$1" list=() s keep
+  [ -f "$dir/fixtures/r15_clearance_autoseed.sql" ] || { log "[$ph] no autoseed fixture in this composition"; return 0; }
+  for s in $(awk -F'\t' -v p="$ph" '$1==p && $3 ~ /^FAIL/{print $2}' "$OUT/suites.tsv"); do
+    echo "$s" | grep -qE "$NO_AUTOSEED" && continue
+    grep -qE "$R15_RE" "$OUT/suite-$ph-$s.log" && list+=("$s")
+  done
+  [ "${#list[@]}" -gt 0 ] || return 0
+  if ! { start_db "$c" "df-p1int-snap-$RUN_ID-${ph,,}" && autoseed "$c" "$dir"; }; then log "[$ph] AUTOSEED NOT RUN (${#list[@]} suites): database copy or fixture failed"; docker rm -f -v "$c" >/dev/null 2>&1; return 1; fi
+  keep=("${PSQL[@]}"); PSQL=(docker exec -i -e PGPASSWORD=postgres "$c" psql -U supabase_admin -d postgres -X -q -v ON_ERROR_STOP=1)
+  for s in "${list[@]}"; do run_suite "$ph-autoseed" "$dir" "$s"; done
+  PSQL=("${keep[@]}"); docker rm -f -v "$c" >/dev/null 2>&1
 }
 run_phase_suites(){ for s in $(cat "$OUT/list-suites-$1.txt"); do run_suite "$1" "$CHAIN/tests-$1" "$s"; done; }
 probe(){ # <phase>
@@ -237,7 +259,7 @@ probe(){ # <phase>
 race(){ # <phase> <snapshot phase> <script>
   local ph="$1" img="df-p1int-snap-$RUN_ID-${2,,}" sc="$3" c rc line res tag
   tag="$(basename "$sc" .sh)"; c="df-p1int-r-$RUN_ID-$ph-$tag"
-  start_db "$c" "$img" || { printf '%s\t%s\tNOT RUN\tcontainer from %s not ready\n' "$ph" "$sc" "$img" >> "$OUT/races.tsv"; docker rm -f -v "$c" >/dev/null 2>&1; return 1; }
+  { start_db "$c" "$img" && { [ -z "${4:-}" ] || autoseed "$c" "$CHAIN/tests-$2"; }; } || { printf '%s\t%s\tNOT RUN\tcontainer from %s not ready\n' "$ph" "$sc" "$img" >> "$OUT/races.tsv"; docker rm -f -v "$c" >/dev/null 2>&1; return 1; }
   ( cd "$CHAIN/tests-$2" && CONTAINER="$c" DBUSER=supabase_admin timeout 600 bash "$sc" "$c" ) > "$OUT/race-$ph-$tag.log" 2>&1; rc=$?
   docker rm -f -v "$c" >/dev/null 2>&1
   line="$(grep -E '(PASS|FAIL)' "$OUT/race-$ph-$tag.log" | tail -1 | cut -c1-400)"
@@ -246,9 +268,16 @@ race(){ # <phase> <snapshot phase> <script>
   [ "$res" = PASS ]
 }
 # races run on the last forward phase; a failure is re-run on B (if that phase is C) and on A
+# re-run with the clearance fixture when the failing log names an R-15 clearance refusal; the result is labelled and never replaces the released one
+race_autoseed(){ # <phase> <script> <log label of the failed run>
+  local ph="$1" sc="$2" tag; tag="$(basename "$sc" .sh)"
+  case "$tag" in *_r15_*|*_s5_*) return 0;; esac
+  [ -f "$CHAIN/tests-$ph/fixtures/r15_clearance_autoseed.sql" ] && grep -qE "$R15_RE" "$OUT/race-$3-$tag.log" 2>/dev/null && race "$ph-autoseed" "$ph" "$sc" autoseed
+  return 0; }
 run_phase_races(){ local ph="$1" sc; for sc in $(cat "$OUT/list-races-$ph.txt"); do
   race "$ph" "$ph" "$sc" && continue
-  [ "$ph" = C ] && [ -f "$CHAIN/tests-B/$sc" ] && race "B-attribution" B "$sc"
+  race_autoseed "$ph" "$sc" "$ph"
+  if [ "$ph" = C ] && [ -f "$CHAIN/tests-B/$sc" ] && ! race "B-attribution" B "$sc"; then race_autoseed B "$sc" "B-attribution"; fi
   [ -f "$CHAIN/tests-A/$sc" ] && race "A-attribution" A "$sc"
 done; }
 # Option D's own planted-heat probe (observation only), when that head carries it
@@ -263,12 +292,12 @@ grep -q '^FAIL A' "$OUT/steps.txt" && blocked "the base chain did not apply"
 catalog A; guards A; snapshot A; run_phase_suites A; probe A
 # B: corrections in timestamp order. A correction that does not apply is recorded and the chain continues without it.
 for f in $(cat "$OUT/order-B.txt"); do apply "$CHAIN/new/$f" B; done
-catalog B; guards B; snapshot B; run_phase_suites B; probe B; probe_d B
+catalog B; guards B; snapshot B; run_phase_suites B; autoseed_suites B; probe B; probe_d B
 # C
 if [ -s "$OUT/order-C.txt" ]; then
   for f in $(cat "$OUT/order-C.txt"); do apply "$CHAIN/p1/$f" C; done
   if grep -q '^FAIL C ' "$OUT/steps.txt"; then C_OK=0; log "C BLOCKED: a restriction migration did not apply; no phase C evidence"; run_phase_races B
-  else C_OK=1; catalog C; guards C; snapshot C; run_phase_suites C; probe C; probe_d C; run_phase_races C; fi
+  else C_OK=1; catalog C; guards C; snapshot C; run_phase_suites C; autoseed_suites C; probe C; probe_d C; run_phase_races C; fi
 else log "PENDING: no restriction migration found; phase C not run"; run_phase_races B; fi
 o="$(ls "$OUT"/suite-A-test_T_competition_od04_ordinary_event_baseline.log 2>/dev/null)"
 if [ -n "$o" ]; then for p in B C; do q="$OUT/suite-$p-test_T_competition_od04_ordinary_event_baseline.log"; [ -f "$q" ] && { echo "== A vs $p"; diff "$o" "$q" && echo identical; } ; done > "$OUT/od04-baseline-diff.txt"; fi
