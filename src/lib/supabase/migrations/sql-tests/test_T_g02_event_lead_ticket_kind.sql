@@ -1,6 +1,6 @@
 -- G-02 -- event registration lead capture follows the per-ticket-type creates_prospect_lead setting (migration 20270219100000).
 --
--- Needs the PAY-WH-1 chain (20261116090000..20261116094000) plus 20270219100000. One transaction, synthetic fixtures only
+-- Needs the PAY-WH-1 chain (20261116090000..20261116094000) plus 20270219100000 and 20270226090000 (P2). One transaction, synthetic fixtures only
 -- (UUID block 00000000-0000-0000-0000-00a2f0XXXXXX). The final block ALWAYS raises, so nothing persists; its message is
 -- the verdict: "G-02 SQL SUITE PASS (<n> checks)" or "G-02 SQL SUITE FAIL: <failures>".
 --
@@ -279,15 +279,15 @@ select pg_temp.chk('existing client + spectator: client row byte-identical, no n
   and (select client_id is null from public.event_registrations where id = pg_temp.kv('reg:ec_spectator')::uuid)
   and pg_temp.notices('ec_spectator', 'event_registration_notice') = 1);
 
--- Existing lead buys general admission: the previous (preserved) behavior -- reuse the client, fill empty source fields only.
+-- Existing lead buys general admission: reuse and link the client; its row (attribution included) is not written (P2).
 select pg_temp.mk_order('ec_ga', pg_temp.kv('tt:ga_flagged')::uuid);
 select pg_temp.settle('ec_ga');
 select pg_temp.run_order('ecg', 'ec_ga');
-select pg_temp.chk('existing lead + general admission: reused (no duplicate), linked, source filled only where empty',
+select pg_temp.chk('existing lead + general admission: reused (no duplicate), linked, client row byte-identical',
   (pg_temp.o('ecg') -> 0 ->> 'outcome') = 'captured'
   and pg_temp.leads('00000000-0000-0000-0000-00a2f0000101', 'g02-ec_ga@example.com') = 1
   and (select client_id from public.event_registrations where id = pg_temp.kv('reg:ec_ga')::uuid) = '00000000-0000-0000-0000-00a2f0000c02'
-  and (select status || '/' || referral_source from public.clients where id = '00000000-0000-0000-0000-00a2f0000c02') = 'lead/Event Registration');
+  and pg_temp.unchanged('00000000-0000-0000-0000-00a2f0000c02'));
 
 -- A registration that already carries a client (e.g. linked by staff): a non-qualifying kind keeps that link untouched and the notice references it.
 select pg_temp.mk_order('pre_client', pg_temp.kv('tt:vendor')::uuid);
