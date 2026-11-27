@@ -1,3 +1,4 @@
+import { capComplimentaryAllowance } from "@/lib/ai/complimentaryCap";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getCurrentStudioPlanForUser, type WorkspacePlanCode } from "@/lib/billing/access";
@@ -153,10 +154,14 @@ export async function getUsageAllowance(args: {
   }
 
   const { periodStart, periodEnd } = getCurrentMonthlyPeriod();
-  const includedAllowance = getIncludedUsageAllowance({
+  let includedAllowance = getIncludedUsageAllowance({
     planCode,
     featureKey: args.featureKey,
   });
+  // Complimentary (billing override) studios: included AI is capped; purchased add-ons are added on top below.
+  if (args.featureKey === "ai_action" && workspaceType === "studio" && studioId) {
+    includedAllowance = await capComplimentaryAllowance(supabase, studioId, includedAllowance);
+  }
 
   let summaryQuery = supabase
     .from("usage_monthly_summaries")

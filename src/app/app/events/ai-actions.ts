@@ -1,6 +1,8 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
+import { callOpenAiResponses } from "@/lib/ai/providerCall";
+import { authorizeEventDescriptionAi } from "@/lib/ai/eventDescriptionAccess";
 export type EventDescriptionAIState = {
   ok: boolean;
   error?: string;
@@ -10,36 +12,9 @@ export type EventDescriptionAIState = {
   ticketCopy?: string;
 };
 
-type OpenAiResponse = {
-  output_text?: string;
-  output?: Array<{
-    content?: Array<{
-      text?: string;
-      type?: string;
-    }>;
-  }>;
-  error?: {
-    message?: string;
-  };
-};
-
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
-}
-
-function getOutputText(data: OpenAiResponse) {
-  if (typeof data.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim();
-  }
-
-  const text = data.output
-    ?.flatMap((item) => item.content ?? [])
-    .map((content) => content.text ?? "")
-    .join("\n")
-    .trim();
-
-  return text || null;
 }
 
 function parseJsonFromText(text: string) {
@@ -69,22 +44,6 @@ export async function generateEventDescriptionAssistantAction(
   _previousState: EventDescriptionAIState,
   formData: FormData,
 ): Promise<EventDescriptionAIState> {
-  if (process.env.AI_FEATURES_ENABLED !== "true") {
-    return {
-      ok: false,
-      error: "AI writing help is not enabled yet.",
-    };
-  }
-
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    return {
-      ok: false,
-      error: "AI writing help is not configured yet.",
-    };
-  }
-
   const eventName = getString(formData, "eventName");
   const eventType = getString(formData, "eventType") || "event";
   const danceCategory = getString(formData, "danceCategory");
@@ -132,17 +91,19 @@ export async function generateEventDescriptionAssistantAction(
     return { ok: false, error: rateLimitErrorMessage(rateLimit) };
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.45,
-      max_output_tokens: 900,
-      input: [
+  // Signed-in studio user, plan and allowance, decided (and for the basic pool reserved) before any provider spend.
+  const grant = await authorizeEventDescriptionAi(task);
+  if (!grant.ok) {
+    return { ok: false, error: grant.error };
+  }
+
+  const result = await callOpenAiResponses({
+    feature: "event_description",
+    model,
+    temperature: 0.45,
+    maxOutputTokens: 900,
+    maxInputChars: 16000,
+    input: [
         {
           role: "system",
           content:
@@ -152,29 +113,17 @@ export async function generateEventDescriptionAssistantAction(
           role: "user",
           content: `Create event or class copy using this context:\n${JSON.stringify(prompt, null, 2)}`,
         },
-      ],
-    }),
+    ],
   });
 
-  const data = (await response.json().catch(() => ({}))) as OpenAiResponse;
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      error:
-        data.error?.message ??
-        "AI writing help could not generate copy right now. Please try again.",
-    };
+  if (!result.ok) {
+    await grant.finish(result.mayHaveBilled ? "maybe_billed" : "not_billed");
+    return { ok: false, error: result.message };
   }
 
-  const text = getOutputText(data);
+  const text = result.text;
 
-  if (!text) {
-    return {
-      ok: false,
-      error: "AI writing help did not return a readable response.",
-    };
-  }
+  await grant.finish("success");
 
   const parsed = parseJsonFromText(text) as
     | {

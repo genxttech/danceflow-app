@@ -15,6 +15,8 @@ import { EVENT_LIST_PAST_BUFFER, eventEndDateLowerBound, filterNotPastEvents } f
 import { portalClientPath } from "@/lib/student-identity/portal-context";
 import { presentDocumentAssignment } from "@/lib/documents/presentation";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveStudioBillingPlan } from "@/lib/billing/access";
+import { isLumiPlanAllowed } from "@/lib/lumi/plan";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -704,9 +706,13 @@ export default async function PortalHomePage({
   const studioTimeZone = getStudioTimeZone(
     (settingsRow as { timezone?: string | null } | null)?.timezone,
   );
-  const lumiEnabled =
+  const lumiFlag =
     (settingsRow as { lumi_enabled?: boolean | null } | null)?.lumi_enabled ===
     true;
+  // The "ask LUMI" tile shows only where the plan includes LUMI, the same rule the Journey page enforces.
+  const lumiEnabled =
+    lumiFlag &&
+    isLumiPlanAllowed(await resolveStudioBillingPlan(createAdminClient(), typedStudio.id));
   const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
 
   const { data: accountLinks, error: accountLinksError } = await supabase
