@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { randomUUID } from "crypto";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { isCallbackRound } from "@/lib/competition/callbackTarget";
 import { buildHeatPlan, HEAT_PLANNER_VERSION, type HeatPlannerInput } from "@/lib/competition/heatPlanner";
 
 const CONSTRAINT_TYPES = [
@@ -172,7 +173,7 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
   const [contestResult, divisionResult, roundResult, danceResult, offeringResult, entryResult, entryDanceResult, participantResult, blockResult, assignmentResult, constraintResult] = await Promise.all([
     supabase.from("event_competition_contests").select("id, name, contest_type").eq("event_id", eventId).neq("status", "cancelled").order("sort_order"),
     supabase.from("event_competition_divisions").select("id, contest_id, name").eq("event_id", eventId).neq("status", "cancelled").order("sort_order"),
-    supabase.from("event_competition_rounds").select("id, division_id, name, round_type, sequence_number, target_advancement_count").eq("event_id", eventId).neq("status", "cancelled").order("sequence_number"),
+    supabase.from("event_competition_rounds").select("id, division_id, name, round_type, sequence_number, target_advancement_count, scoring_method").eq("event_id", eventId).neq("status", "cancelled").order("sequence_number"),
     supabase.from("event_competition_dances").select("id, dance_key, name").eq("event_id", eventId).eq("active", true).order("sort_order"),
     supabase.from("event_competition_division_dances").select("division_id, dance_id, required, sort_order").eq("event_id", eventId).eq("active", true).order("sort_order"),
     supabase.from("event_competition_entries").select("id, division_id, display_name, entry_number").eq("event_id", eventId).eq("status", "confirmed").in("eligibility_status", ["eligible", "waived"]).order("sort_order"),
@@ -184,6 +185,10 @@ export async function generateHeatPlanAction(formData: FormData): Promise<void> 
   ]);
   const loadError = contestResult.error || divisionResult.error || roundResult.error || danceResult.error || offeringResult.error || entryResult.error || entryDanceResult.error || participantResult.error || blockResult.error || assignmentResult.error || constraintResult.error;
   if (loadError) throw new Error(`Could not load heat-planning inputs: ${loadError.message}`);
+  // Fail closed: a callback round without an organizer-set target (D-CT-5 is open; no default exists) cannot be planned.
+  if ((roundResult.data ?? []).some((round) => isCallbackRound(round as { scoring_method: string }) && round.target_advancement_count == null)) {
+    throw new Error("Callback target not set. Set it in Advanced settings before generating heats.");
+  }
 
   const seed = randomUUID();
   const input: HeatPlannerInput = {
