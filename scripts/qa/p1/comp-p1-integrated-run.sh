@@ -52,7 +52,7 @@ if [ "$COMPOSE_ONLY" = 0 ]; then
     [ "$(date +%s)" -gt "$deadline" ] && blocked "lock/queue not available within ${WAIT_MIN} min (oldest ticket: $oldest)"
     sleep 60
   done
-  printf 'session: od02-s5 P1 integrated run\njob: local Postgres (%s) P1 composition: suites, bypass probe, concurrency, rollback, re-apply\nstart: %s\nexpected minutes: 90\n' "$NAME" "$(date -u +%FT%TZ)" > "$LOCK/owner.txt"
+  printf 'session: od02-s5 P1 integrated run\njob: local Postgres (%s) P1 composition: suites, bypass probe, concurrency, rollback, re-apply\nstart: %s\nexpected minutes: 170\n' "$NAME" "$(date -u +%FT%TZ)" > "$LOCK/owner.txt"
   log "lock taken"
 fi
 
@@ -76,6 +76,7 @@ done
 : > "$OUT/heads.txt"; : > "$OUT/suite-sources.txt"; : > "$OUT/adapted-copies.txt"
 git rev-parse --verify -q "$LIVE" >/dev/null || blocked "missing $LIVE"; git rev-parse --verify -q "$CAND" >/dev/null || blocked "missing $CAND"
 printf 'live (pinned base) %s\ncandidate %s\n' "$(git rev-parse "$LIVE")" "$(git rev-parse "$CAND")" >> "$OUT/heads.txt"
+[ -n "${HEAD_NOTES:-}" ] && echo "note: $HEAD_NOTES" >> "$OUT/heads.txt"
 now="$(git rev-parse origin/release/website-embeds 2>/dev/null)"; [ "$now" = "$(git rev-parse "$LIVE")" ] || log "WARNING: release line moved to $now since the pinned base"
 # one archive per ref (a git process per file is far too slow under the lock)
 extract(){ local ref="$1" dest="$2"; shift 2; mkdir -p "$dest"; git archive "$ref" -- "$@" | tar -x -C "$dest"; }

@@ -120,12 +120,12 @@ declare
   v_order int[]; j text;
 begin
   perform pg_temp.step('setup', 'create the event', format($q$insert into public.events (id, studio_id, name, slug, event_type, start_date, end_date, status, visibility, registration_required) values (%L, %L, 'P1R11 Comp', 't-p1r11-e1', 'competition', current_date + 30, current_date + 30, 'published', 'public', true)$q$, pg_temp.ev(), pg_temp.u('00a001')));
-  perform pg_temp.step('setup', 'create_simple_competition', format($q$select public.create_simple_competition(%L, '{"profile_key":"studio_simple","profile_version":1,"request_key":"p1r11-request-0001","preset":"studio_competition","judging":"placements","categories":[{"type":"couples","price":"0","dances":["waltz"]}],"divisions":[{"name":"D1"},{"name":"D2"},{"name":"D3"},{"name":"D4"}]}'::jsonb)$q$, pg_temp.ev()));
+  perform pg_temp.step('setup', 'create_simple_competition', format($q$select public.create_simple_competition(%L, '{"profile_key":"studio_simple","profile_version":1,"request_key":"p1r11-request-0001","preset":"studio_competition","judging":"placements","categories":[{"type":"couples","price":"0","dances":["waltz"]}],"divisions":[{"name":"D1"},{"name":"D2"},{"name":"D3"},{"name":"D4"},{"name":"D5"}]}'::jsonb)$q$, pg_temp.ev()));
   select id into v_prog from public.event_competition_programs where event_id = pg_temp.ev();
   perform pg_temp.put('program', v_prog);
   perform pg_temp.step('setup', 'publish_competition_program', format('select public.publish_competition_program(%L)', v_prog));
   perform pg_temp.step('setup', 'open_competition_registration', format('select public.open_competition_registration(%L)', v_prog));
-  for d in 1..4 loop
+  for d in 1..5 loop
     select id into v_div from public.event_competition_divisions where event_id = pg_temp.ev() and name = 'D' || d;
     perform pg_temp.put('div' || d, v_div);
     select jsonb_agg(jsonb_build_object('clientId', 'p' || g, 'firstName', 'Adult' || d || g, 'lastName', 'Tester', 'personType', 'dancer', 'dateOfBirth', '1990-01-0' || g) order by g),
@@ -151,7 +151,7 @@ begin
   end loop;
   perform pg_temp.note('setup', 'entries', (select count(*)::text || ' entries, ' || count(*) filter (where status = 'confirmed')::text || ' confirmed, ' || count(*) filter (where eligibility_status = 'eligible')::text || ' eligible' from public.event_competition_entries where event_id = pg_temp.ev()));
   -- rounds: 1, 2, 5, 7 are the finals setup created (D1..D4); 4, 3, 6, 8 are manager-added spare rounds of the same divisions
-  for r, d in select * from (values (1, 1), (2, 2), (5, 3), (7, 4)) v loop
+  for r, d in select * from (values (1, 1), (2, 2), (5, 3), (7, 4), (9, 5)) v loop
     perform pg_temp.put('round' || r, (select id from public.event_competition_rounds where division_id = pg_temp.m('div' || d) order by sequence_number limit 1));
   end loop;
   for r, d in select * from (values (4, 1), (3, 2), (6, 3), (8, 4)) v loop
@@ -168,7 +168,7 @@ begin
     end loop;
   end loop;
   -- one published running order: floor heats numbered in the order they are run
-  for v_order in select * from (values (array[1, 2, 5, 7, 6, 3, 8, 4]), (array[1, 2, 5, 7])) v loop
+  for v_order in select * from (values (array[1, 2, 5, 7, 6, 3, 8, 4, 9]), (array[1, 2, 5, 7, 9])) v loop
     select jsonb_agg(jsonb_build_object('number', o.ord, 'scoringHeats', jsonb_build_array(jsonb_build_object(
              'divisionId', rr.division_id, 'roundId', rr.id, 'heatNumber', o.ord, 'name', 'Heat ' || o.ord, 'danceIds', (select jsonb_agg(distinct dd.dance_id) from public.event_competition_division_dances dd where dd.division_id = rr.division_id),
              'entryIds', (select jsonb_agg(e.id order by e.id) from public.event_competition_entries e where e.division_id = rr.division_id and e.status = 'confirmed')))) order by o.ord)
@@ -177,7 +177,7 @@ begin
     perform pg_temp.step('setup', 'create, plan and publish the running order for rounds ' || array_to_string(v_order, ','), format($q$do $do$ declare v uuid; begin v := public.create_competition_schedule_version(%L, 'P1R11 order', null); perform public.apply_competition_floor_plan(v, jsonb_build_object('floorHeats', %L::jsonb)); perform public.publish_competition_schedule_version(v); perform pg_temp.put('version', v); end $do$ $q$, pg_temp.ev(), v_floor));
     exit when pg_temp.m('version') is not null;
   end loop;
-  foreach r in array array[1, 2, 3, 4, 5, 6, 7, 8] loop
+  foreach r in array array[1, 2, 3, 4, 5, 6, 7, 8, 9] loop
     perform pg_temp.put('heat' || r, (select id from public.event_competition_heats where round_id = pg_temp.rid(r) and schedule_version_id = pg_temp.m('version') limit 1));
     perform pg_temp.put('floor' || r, (select floor_heat_id from public.event_competition_heats where id = pg_temp.hid(r)));
   end loop;
@@ -271,6 +271,45 @@ begin
 end $mv$;
 
 -- ============================================================================
+-- Later steps of the routes on a final that no route touched (round 9, D5), so that they are exercised even where a restriction removes the spare rounds:
+-- a ballot before the heat starts, a manager entering a paper ballot, the calculator approving their own first result, and publication.
+-- On A and B some of these are legitimate (a first result may be self-approved with a reason): the line records what each chain accepts.
+create or replace function pg_temp.late_checks() returns void language plpgsql as $fn$
+declare j text; v_paper boolean; v_self boolean; r uuid := pg_temp.rid(9); h uuid := pg_temp.hid(9); fl uuid := pg_temp.fl(9);
+begin
+  if r is null or h is null then
+    perform pg_temp.note('LATE', 'stopped', 'REFUSED no round 9 or no published heat (see setup)');
+    return;
+  end if;
+  foreach j in array array['1:A', '2:B', '3:C'] loop
+    perform pg_temp.step('LATE', 'assign judge ' || j, format($q$select public.assign_competition_panel_member(%L, %L, %L, gen_random_uuid())$q$, r, pg_temp.off('J' || split_part(j, ':', 1)), split_part(j, ':', 2)));
+  end loop;
+  perform pg_temp.step('LATE', 'schedule round', format('select public.schedule_competition_round(%L, gen_random_uuid())', r));
+  perform pg_temp.step('LATE', 'start round', format('select public.start_competition_round(%L, gen_random_uuid())', r));
+  perform pg_temp.step('LATE', 'ballot before the heat starts', format($q$select public.submit_competition_ballot(%L, %L, %L::jsonb, gen_random_uuid(), null)$q$, r, h, pg_temp.marks(h, '[1,2,3]'::jsonb)), 'J1');
+  perform pg_temp.step('LATE', 'heat staging', format($q$select public.advance_competition_floor_heat(%L, 'staging', gen_random_uuid())$q$, fl));
+  perform pg_temp.step('LATE', 'heat active', format($q$select public.advance_competition_floor_heat(%L, 'active', gen_random_uuid())$q$, fl));
+  v_paper := pg_temp.step('LATE', 'manager enters a paper ballot', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, %L::jsonb, gen_random_uuid())$q$, r, h, pg_temp.off('J2'), pg_temp.marks(h, '[1,3,2]'::jsonb)));
+  if not v_paper then
+    perform pg_temp.step('LATE', 'judge 2 submits', format($q$select public.submit_competition_ballot(%L, %L, %L::jsonb, gen_random_uuid(), null)$q$, r, h, pg_temp.marks(h, '[1,3,2]'::jsonb)), 'J2');
+  end if;
+  -- judge 1 may already have a ballot if the early one was accepted: this refusal is then expected
+  perform pg_temp.step('LATE', 'judge 1 submits', format($q$select public.submit_competition_ballot(%L, %L, %L::jsonb, gen_random_uuid(), null)$q$, r, h, pg_temp.marks(h, '[1,2,3]'::jsonb)), 'J1');
+  perform pg_temp.step('LATE', 'judge 3 submits', format($q$select public.submit_competition_ballot(%L, %L, %L::jsonb, gen_random_uuid(), null)$q$, r, h, pg_temp.marks(h, '[2,1,3]'::jsonb)), 'J3');
+  perform pg_temp.step('LATE', 'heat complete', format($q$select public.advance_competition_floor_heat(%L, 'complete', gen_random_uuid())$q$, fl));
+  perform pg_temp.step('LATE', 'lock heat', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'heat finished on the floor')$q$, h));
+  perform pg_temp.step('LATE', 'lock ballots', format('select public.lock_competition_round_ballots(%L, gen_random_uuid())', r));
+  perform pg_temp.step('LATE', 'calculate', pg_temp.calc_sql(r));
+  v_self := pg_temp.step('LATE', 'calculator approves own first result', pg_temp.approve_sql(r, 'only manager present on the floor today'));
+  if not v_self then
+    perform pg_temp.step('LATE', 'second manager approves', pg_temp.approve_sql(r, null), 'A2');
+  end if;
+  perform pg_temp.step('LATE', 'publish the result', format($q$select public.publish_competition_round_result(%1$L, (select id from public.event_competition_result_versions where round_id = %1$L and status = 'approved'), 'entrants', gen_random_uuid())$q$, r), 'A1', r);
+end $fn$;
+grant execute on all functions in schema pg_temp to authenticated, service_role;
+select pg_temp.late_checks();
+
+-- ============================================================================
 -- Output (then roll everything back)
 -- ============================================================================
 select 'STEP ' || seq || ' [' || route || '] ' || step || ' => ' || outcome from t_probe order by seq;
@@ -309,5 +348,8 @@ from (
   ) v(route, new_round, spare_no, spare_round, spare_heat, corrected_round, corrected_no)
 ) y;
 select 'VERDICT-MOVE: ' || coalesce((select step || ' => ' || outcome from t_probe where route = 'MOVE'), 'not recorded');
+select 'VERDICT-LATER ' || route || ': ' || string_agg(step || ' => ' || left(outcome, 90), ' | ' order by seq)
+from t_probe where route in ('NC', 'CS', 'CA', 'R') and (step ~ '^(cancel|create|move|SELF-approve|publish)' or step like 'manager enters a paper ballot for judge 1%') group by route order by route;
+select 'VERDICT-LATE: ' || coalesce((select string_agg(step || ' => ' || left(outcome, 90), ' | ' order by seq) from t_probe where route = 'LATE' and step ~ '^(stopped|ballot before|manager enters|calculator|second manager|publish)'), 'not recorded');
 select 'P1R11 PROBE COMPLETE';
 rollback;
