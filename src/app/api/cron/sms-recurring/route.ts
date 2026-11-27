@@ -6,7 +6,7 @@ import { runScheduledRecurringCharges } from "@/lib/billing/smsRecurring";
 export const dynamic = "force-dynamic";
 
 /**
- * Recurring SMS service charges. NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds it deliberately. Even when called it does
+ * Recurring SMS service charges. Registered in vercel.json hourly (minute 47) by the TW-4F financial-safety release; DARK. Even when called it does
  * nothing unless BOTH switches are on: the environment (SMS_RECURRING_SCHEDULER=on, answered 404 otherwise) and the database kill switch (default off; the database
  * refuses to start a run). It takes the database's single run lease, so overlapping invocations are harmless, and returns counts only (no business, no amount).
  */

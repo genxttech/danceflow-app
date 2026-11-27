@@ -10,7 +10,7 @@ export const maxDuration = 60;
 /**
  * TW-4F scheduled sender re-verification (senderVerification.ts runScheduledSenderReverify): read-only Twilio reads of each approved sender that is due,
  * judged by the database, so a sender that stopped being valid stops sending and one that stays valid keeps its 24-hour trust.
- * NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds it deliberately (suggested every 15 minutes, "*\/15 * * * *":
+ * Registered in vercel.json every 15 minutes by the TW-4F financial-safety release (DARK until SMS_SENDER_REVERIFY=on; readiness must not lapse because maintenance was unscheduled):
  * every approved sender is then re-read soon after 20 hours, with retries before its 24-hour trust ends). Answered 404 unless SMS_SENDER_REVERIFY=on; then
  * CRON_SECRET is required (Bearer or x-cron-secret). One run at a time (the database lease; an overlapping call answers "busy"), counts only.
  * Reads happen only where SMS_SENDER_VERIFY_READS allows them (production) or in local fake mode, always with the SUBACCOUNT's own token.

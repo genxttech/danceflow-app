@@ -156,9 +156,9 @@ describe("the cron route (not registered anywhere; dark twice over)", () => {
     expect(await boom.json()).toEqual({ ok: false });
   });
 
-  it("is not registered in vercel.json: nothing calls it on a schedule", () => {
-    const vercel = readFileSync(join(process.cwd(), "vercel.json"), "utf8");
-    expect(vercel).not.toContain("sms-recurring");
+  it("is registered hourly by the TW-4F financial-safety release, dark: it answers 404 until SMS_RECURRING_SCHEDULER=on and the database kill switch refuses to start a run", () => {
+    const vercel = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as { crons?: Array<{ path: string; schedule: string }> };
+    expect((vercel.crons ?? []).filter((c) => c.path.includes("sms-recurring"))).toEqual([{ path: "/api/cron/sms-recurring", schedule: "47 * * * *" }]);
   });
 });
 
