@@ -1,0 +1,42 @@
+{
+  "id": "R07-DF-0005",
+  "governing_body": "dance_flow_policy",
+  "format": "Multi-Dance (Studio/Custom)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: an engine run covers exactly one dance; a run covering none or several dances fails closed (COMP_ENGINE_UNSPECIFIED_CASE, multi_dance_unsupported, X-6), so DanceFlow calculates no combined championship placement and never infers an overall winner.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/engines/common.ts",
+      "symbol_or_migration": "multi_dance_unsupported"
+    },
+    {
+      "path": "src/lib/competition/results/engines/studioCallbackTally.ts",
+      "symbol_or_migration": "multi_dance_unsupported"
+    }
+  ],
+  "enforcement_point": "Both Studio engines refuse danceIds.length != 1 (X-6). Verified scope: engine refusal and absence of aggregate fields in engine output. NOT verified here: the database schema and readers (no aggregate column/reader was searched exhaustively); per-dance result storage for multi-dance rounds is not claimed.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "a single-dance run carries no overall, combined or aggregate field"
+    },
+    {
+      "path": "src/lib/competition/results/engines/__tests__/studioOrdinalMajority.f1.test.ts",
+      "name": "X-6 none or several dances → unspecified"
+    },
+    {
+      "path": "src/lib/competition/results/engines/__tests__/studioCallbackTally.f1.test.ts",
+      "name": "X-6 none or several dances → unspecified (also for a round that is not danced)"
+    }
+  ],
+  "verification_status": "verified_compliant",
+  "interpretation_notes": "R-07(6). Status covers engine refusal only (executed vitest). How a multi-dance round yields one result per dance is NOT verified in this slice and is an open Multi-Dance semantics question. Disclosure text (R-07(7)) is specified in R-07-MULTI-DANCE-DISCLOSURE-SPEC.md; it is NOT shown in any UI.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

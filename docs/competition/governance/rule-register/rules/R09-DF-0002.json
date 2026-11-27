@@ -1,0 +1,34 @@
+{
+  "id": "R09-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio callback label 'Semi-final'",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "The not-called-back label 'Semi-final' is persisted engine output compared by PV-1: it is hardcoded in the engine (NOT_CALLED_BACK_LABEL) and twice in the PV-1 SQL port. A wording change must be display-only; changing any one of the three would make every callback round fail with COMP_RESULT_RECOMPUTE_MISMATCH.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/results/engines/studioCallbackTally.ts",
+      "symbol_or_migration": "NOT_CALLED_BACK_LABEL"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270215090000_competition_pv1_result_recompute.sql",
+      "symbol_or_migration": "Semi-final"
+    }
+  ],
+  "enforcement_point": "PV-1 whole-output comparison.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/__tests__/r09.label.static.test.ts",
+      "name": "the SQL recompute port uses exactly the label the TypeScript engine emits"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Executed (static, reads SQL text): the label literal appears exactly twice in the PV-1 SQL and equals the TypeScript constant. NOT verified: that a changed label produces COMP_RESULT_RECOMPUTE_MISMATCH. That follows from the whole-output comparison by inspection only; no executed test tampers the label (needs a scratch database).",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-09 (owner ratification 2026-11-23); R-09 verification (docs/competition/governance/audit/R-09-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

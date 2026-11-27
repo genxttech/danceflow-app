@@ -1,0 +1,50 @@
+{
+  "id": "R07-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom scoring (all events, initial activation)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): studio_callback_tally@1 and studio_ordinal_majority@1 are the ONLY selectable scoring methods. Every other registry method (unavailable, rejected, draft) and every unknown key/version is refused (COMP_METHOD_UNKNOWN / COMP_ENGINE_NOT_AVAILABLE) with no fallback engine.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/scoring/registry.ts",
+      "symbol_or_migration": "SCORING_REGISTRY"
+    },
+    {
+      "path": "src/lib/competition/scoring/registry.ts",
+      "symbol_or_migration": "resolveMethod"
+    },
+    {
+      "path": "src/lib/competition/scoring/registry.ts",
+      "symbol_or_migration": "selectableMethods"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270113090000_competition_scoring_registry.sql",
+      "symbol_or_migration": "guard_competition_scoring_selection"
+    }
+  ],
+  "enforcement_point": "Application: resolveMethod/selectableMethods/resolvePreset. Database: guard_competition_scoring_selection trigger (approved + engine only, unlocked draft only), competition_scoring_methods CHECK, apply_competition_scoring_setup, _compf2_engine_pin (selectable only).",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "selectable set is exactly the two Studio methods"
+    },
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "an explicit unavailable selection never falls back to a lower layer (legacy or division)"
+    },
+    {
+      "path": "src/lib/competition/scoring/__tests__/registry.test.ts",
+      "name": "approves exactly the two studio methods"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "R-07(1). Verified at the application layer by executed tests and by static parity of the SQL seed rows. Application-layer behavior and static SQL parity are verified by EXECUTED tests (r07.failclosed.test.ts); the SQL runtime suites (sql-tests/test_T_competition_scoring_registry.sql, test_T_competition_e2_ballots.sql) were NOT RUN in this slice (heavy-lock queue), so the status stays unverified until their results are attached. Known gap in depth (F-2): the ballot format follows the legacy round.scoring_method while the engine follows the pin (override/division/legacy); SQL does not cross-check them, only the app readiness blocker COMP_SCORING_LEGACY_MISMATCH does.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

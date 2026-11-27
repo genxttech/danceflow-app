@@ -1,0 +1,28 @@
+{
+  "id": "R08-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Teams floor reporting",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Teams_V_1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "7e71fdce55b0eade037c9c6df2a041a3f8a8390b4fc6274a0552e09d25cdb41a",
+    "section": "II.O.2.a (PDF p.11)",
+    "quote_free_summary": "A team competitor who fails to report to the Floor Coordinator on time or fails to answer the calls for a heat is scratched (disqualified) from that dance category."
+  },
+  "rule_class": "mandatory",
+  "requirement": "As R08-UCWDC-0001 for Teams. NOT IMPLEMENTED; Studio No-show is not a substitute.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Section letter taken from the coordinator's reference; the extracted text shows the clause as sub-item 2.a under the floor-reporting heading, PDF p.11.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "R-08 (owner ratification 2026-11-23); R-08 verification (docs/competition/governance/audit/R-08-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

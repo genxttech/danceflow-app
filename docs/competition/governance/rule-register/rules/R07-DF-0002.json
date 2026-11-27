@@ -1,0 +1,42 @@
+{
+  "id": "R07-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio ordinal ballot and engine (ordinal_rank@1)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: ordinal_rank@1 (plain 1..N rank per heat, no medal tiers) and the studio ordinal-majority engine are preserved and are never modified to approximate UCWDC, NDCA or WSDC. A body method needs its own separately versioned ballot format and engine.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/ballots/formats.ts",
+      "symbol_or_migration": "BALLOT_FORMATS"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql",
+      "symbol_or_migration": "_compe2_format_approved"
+    },
+    {
+      "path": "src/lib/competition/results/engines/studioOrdinalMajority.ts",
+      "symbol_or_migration": "runStudioOrdinalMajority"
+    }
+  ],
+  "enforcement_point": "Ballot format registry (formats.ts, _compe2_format_approved, _compe2_guard_ballot_insert) and engine key/version gate in studioOrdinalMajority.ts.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "the approved ballot formats are exactly ordinal_rank@1 and callback_yes@1"
+    },
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "a studio engine refuses an input addressed to another engine key or version"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "R-07(2). No engine, ballot format or registry row exists that claims or approximates medal ballots, the Skating System or Relative Placement. Application-layer behavior and static SQL parity are verified by EXECUTED tests (r07.failclosed.test.ts); the SQL runtime suites (sql-tests/test_T_competition_scoring_registry.sql, test_T_competition_e2_ballots.sql) were NOT RUN in this slice (heavy-lock queue), so the status stays unverified until their results are attached.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

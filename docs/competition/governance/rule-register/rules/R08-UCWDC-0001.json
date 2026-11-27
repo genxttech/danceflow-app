@@ -1,0 +1,28 @@
+{
+  "id": "R08-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples floor reporting",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.P.3.a (PDF p.16; printed page not confirmed)",
+    "quote_free_summary": "A competitor who fails to report to the Floor Coordinator on time or fails to answer the Floor Coordinator's calls for a heat is disqualified from that dance category."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Disqualification from the dance category for a late or unanswered report is NOT IMPLEMENTED for a future UCWDC profile. Studio No-show is not a substitute for UCWDC compliance.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The coordinator cites printed p.39; the extracted text has no printed page numbers, so only PDF p.16 is confirmed.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "R-08 (owner ratification 2026-11-23); R-08 verification (docs/competition/governance/audit/R-08-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

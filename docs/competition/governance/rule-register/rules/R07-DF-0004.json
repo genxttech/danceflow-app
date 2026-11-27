@@ -1,0 +1,46 @@
+{
+  "id": "R07-DF-0004",
+  "governing_body": "dance_flow_policy",
+  "format": "Legacy scoring_method identifiers",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: the legacy key majority_rules is NOT UCWDC Majority Rules and is never silently reinterpreted or migrated into a body-certified method. A legacy identifier maps only through the explicit three-row map (ordinal_majority, callback_tally, proficiency_rating); every other legacy value returns an explicit error (COMP_METHOD_LEGACY_UNMAPPED), never a fallback engine.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/scoring/registry.ts",
+      "symbol_or_migration": "LEGACY_SCORING_MAP"
+    },
+    {
+      "path": "src/lib/competition/scoring/registry.ts",
+      "symbol_or_migration": "resolveLegacyScoringMethod"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270113090000_competition_scoring_registry.sql",
+      "symbol_or_migration": "competition_scoring_legacy_map"
+    }
+  ],
+  "enforcement_point": "resolveLegacyScoringMethod / resolveRoundMethod; SQL competition_scoring_resolve (unmapped resolution), pin_competition_round_scoring, _compf2_engine_pin; apply_competition_scoring_setup refuses a scoring_method that is not the legacy value of an approved method.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "the legacy map holds exactly the three explicit keys"
+    },
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "no legacy mapping targets a UCWDC, NDCA or WSDC method"
+    },
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "competition_scoring_legacy_map inserts exactly the TypeScript LEGACY_SCORING_MAP"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "REGISTER NOTE (R-07(4)): legacy majority_rules is not UCWDC Majority Rules. The rounds/programs CHECK constraints and the legacy create actions still ALLOW storing majority_rules, skating, wsdc_callback, relative_placement, custom and none; storing is permitted, scoring is not (they stay unmapped and fail closed). DEV counts are in the R-07 report. Application-layer behavior and static SQL parity are verified by EXECUTED tests (r07.failclosed.test.ts); the SQL runtime suites (sql-tests/test_T_competition_scoring_registry.sql, test_T_competition_e2_ballots.sql) were NOT RUN in this slice (heavy-lock queue), so the status stays unverified until their results are attached.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

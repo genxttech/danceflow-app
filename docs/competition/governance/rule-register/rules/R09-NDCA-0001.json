@@ -1,0 +1,28 @@
+{
+  "id": "R09-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA recall counts and rounds",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.1.a-c (PDF p.34); III.D.11 (printed p.21)",
+    "quote_free_summary": "The Chairman of Adjudicators determines the number of couples recalled and must ask for at least 50% each round (limited exceptions); the Repechage call-back system is not permitted."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Chairman-owned recall count, the 50% minimum, semi/quarter-finals and the Repechage prohibition are NOT IMPLEMENTED for a future NDCA profile. Studio T is organizer-set. Cross-reference OD09-NDCA-0001/0002 (PR 839).",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "IV.C.1.a read in the pinned PDF (PDF p.34); sub-items b and c and the exceptions were not re-read here.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-09 (owner ratification 2026-11-23); R-09 verification (docs/competition/governance/audit/R-09-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

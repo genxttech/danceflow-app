@@ -1,0 +1,46 @@
+{
+  "id": "R16-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom result publication visibility",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow Studio/Custom policy (not a body rule): publication visibility defaults to entrants; public only by an explicit choice of a verified manager of the round's event, subject to an approved latest version, a matching input hash, no unresolved tie or refund exception and eligibility. Public payloads never expose judge identities, ballots, marks, scores, traces or audit data. Withdrawal and supersession preserve all history.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270122090000_competition_f3_publication.sql",
+      "symbol_or_migration": "publish_competition_round_result"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270122090000_competition_f3_publication.sql",
+      "symbol_or_migration": "_compf3_payload"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270122090000_competition_f3_publication.sql",
+      "symbol_or_migration": "competition_my_results"
+    }
+  ],
+  "enforcement_point": "F3 publish_competition_round_result, _compf3_payload, competition_my_results and the two public readers; column default entrants with a CHECK; server action parseVisibility; UI default radio.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/__tests__/r16.publication.static.test.ts",
+      "name": "the stored visibility defaults to entrants and is limited to entrants or public"
+    },
+    {
+      "path": "src/lib/competition/results/__tests__/r16.publication.static.test.ts",
+      "name": "the shared payload builder names no judge, ballot, hash, calculator or approver field"
+    },
+    {
+      "path": "src/lib/competition/results/__tests__/r16.publication.static.test.ts",
+      "name": "no F3 object is added to the realtime publication, and anon is granted only the two public readers"
+    }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Application and static (executed) verification of defaults, authorization, payload fields, grants and no-realtime; SQL suite test_T_competition_cf1_f3_publication.sql NOT RUN. Open: RF-16.1 no exposure explanation before publishing (spec provided); RF-16.2 public needs no authorization beyond manager + verified email (owner call); RF-16.3 no in-place downgrade; RF-16.4 entrants see all same-round placements.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-16 (owner ratification 2026-11-24); R-16 verification (docs/competition/governance/audit/R-16-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

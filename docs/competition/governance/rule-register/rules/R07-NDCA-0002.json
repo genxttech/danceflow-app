@@ -1,0 +1,33 @@
+{
+  "id": "R07-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA multi-dance recalls and scrutineering",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.44 (printed p.24, PDF p.31); III.C.3.b(1)(d) (printed p.17, PDF p.24); III.D.11 (printed p.21)",
+    "quote_free_summary": "Recalls in multi-dance events use accumulated marks of all dances except in nine- and ten-dance events; the scrutineer computes multi-dance results under the Skating System and then adjusts for penalties; the Skating System is required at NDCA Sanctioned events."
+  },
+  "rule_class": "mandatory",
+  "requirement": "NDCA Skating System scrutineering and multi-dance accumulated-mark recalls are NOT IMPLEMENTED for a future NDCA profile. The Studio callback engine tallies one dance per run and is not an NDCA recall method.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for activating the corresponding future governing-body profile. Studio/Custom behavior is unchanged.",
+  "tests": [
+    {
+      "path": "src/lib/competition/scoring/__tests__/r07.failclosed.test.ts",
+      "name": "selectable set is exactly the two Studio methods"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "R-07(9). Citations re-read in the pinned PDF for this entry: III.D.44 printed p.24; III.C.3.b(1)(d) printed p.17 (in the extracted text it appears directly under an Invigilator sub-item; the sub-item placement is as printed and has not been interpreted). Skating System algorithm NOT SPECIFIED IN PROVIDED SOURCE; the July 2026 NDCA edition is not substituted (OD-30).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "R-07 (owner ratification 2026-11-23, DanceFlow policy); R-07 verification PR (docs/competition/governance/audit/R-07-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

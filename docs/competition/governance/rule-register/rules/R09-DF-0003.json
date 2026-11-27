@@ -1,0 +1,29 @@
+{
+  "id": "R09-DF-0003",
+  "governing_body": "dance_flow_policy",
+  "format": "Callback target guard (A4a)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: for a preliminary round of a promote_callback program with a successor Final, the callback target T must be at least 2 (COMP_CALLBACK_TARGET_BELOW_MINIMUM) and not above the Final's capacity (COMP_CALLBACK_TARGET_EXCEEDS_CAPACITY); T must be set before the round starts (COMPO1_CALLBACK_TARGET_UNSET).",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270120091000_competition_cf1_a4a_callback_target_guard.sql",
+      "symbol_or_migration": "_cf1_callback_target_check"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270120090000_competition_cf1_callback_final_advancement.sql",
+      "symbol_or_migration": "cf1_guard_callback_target_capacity"
+    }
+  ],
+  "enforcement_point": "BEFORE INSERT/UPDATE trigger cf1_guard_callback_target_capacity (all roles); program-lock trigger; reasoned capacity RPC; start_competition_round for unset T; T frozen once the round leaves draft/scheduled (COMP_ROUND_CONFIG_FROZEN).",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Inspected only; SQL suite test_T_competition_cf1_a4a_target_guard.sql exists and was NOT RUN. Out of guard scope: Final-only divisions, non-callback programs, rounds without a successor Final; existing rows are not retro-failed. T >= eligible entries is NOT refused by the database (port returns all advanced with not_danced); only the UI parser and a readiness warning react.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-09 (owner ratification 2026-11-23); R-09 verification (docs/competition/governance/audit/R-09-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

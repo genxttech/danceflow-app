@@ -1,0 +1,28 @@
+{
+  "id": "R11-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC separation of Chief Judge and scoring",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.3 (PDF p.19)",
+    "quote_free_summary": "Chief Judge and Scoring/Tabulation functions and duties must be provided by separate individuals."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Separation of Chief Judge and Scoring/Tabulation duties is NOT IMPLEMENTED for a future WSDC profile; Studio D3 self-approval must be unavailable there.",
+  "implementation": [],
+  "enforcement_point": "Not built. NOT IMPLEMENTED; a blocker for the corresponding future governing-body profile: the Studio D3 self-approval override must be unavailable there.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Text re-read in the pinned PDF (extracted, PDF p.19). Studio approve has no role split between Chief Judge and tabulation.",
+  "applicable_event_versions": [
+    "Version 2026.1C"
+  ],
+  "decision_refs": [
+    "R-11 extension (owner ratification 2026-11-24); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

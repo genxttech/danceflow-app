@@ -1,0 +1,20 @@
+{
+  "id": "R08-SILENT-0001",
+  "governing_body": "silent",
+  "format": "Scratched/no-show entries excluded without placement",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE as a universal rule: the rulebooks do not universally require scratched or no-show entries to be excluded without placement. Exclusion without automatic last place is DanceFlow Studio policy (R08-DF-0001), never presented as a governing-body requirement.",
+  "implementation": [],
+  "enforcement_point": "Documentation and register only.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Bodies differ: UCWDC disqualifies from the dance category (R08-UCWDC-0001/0002); NDCA III.D.30 awards last place for dances not performed after a qualifying withdrawal (OD08-NDCA-0001, PR 840). NDCA V.B.2 (competitor attends one-half hour in advance; organizers need not delay for latecomers; PDF p.38) is context only.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-08 (owner ratification 2026-11-23); R-08 verification (docs/competition/governance/audit/R-08-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}

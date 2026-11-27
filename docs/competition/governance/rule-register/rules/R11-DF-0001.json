@@ -1,0 +1,39 @@
+{
+  "id": "R11-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio result approval controls",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (R-11, ratified 2026-11-24): D3 audited self-approval is retained for INITIAL Studio/Custom result approval ONLY; otherwise approval needs a different manager. No override exists for the minimum-two-couples rule, the withdrawal/exclusion windows, exclusion or withdrawal co-sign separation of duties, or approval of a stale result; approval is manager-only; chair and manager do not override each other.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270114090000_competition_f2_results_lifecycle.sql",
+      "symbol_or_migration": "approve_competition_round_result"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270120094000_competition_cf1_a5_exclusion_action.sql",
+      "symbol_or_migration": "COMP_EXCLUSION_COSIGN_SAME_PERSON"
+    }
+  ],
+  "enforcement_point": "approve_competition_round_result (F2 + A3 roster check + PV-1 re-verify); A5/A6 request and co-sign RPCs.",
+  "tests": [
+    {
+      "path": "src/lib/competition/results/__tests__/r11.approval.static.test.ts",
+      "name": "refuses a stale result BEFORE the override branch, so an override reason can never approve a stale result"
+    },
+    {
+      "path": "src/lib/competition/results/__tests__/r11.approval.static.test.ts",
+      "name": "the override is audited under its own event kind with actor, version, input hash and reason"
+    }
+  ],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "RELEASE BLOCKERS: RB-11.2 the override is reachable for corrected/recalculated versions (approve has no initial-vs-corrected distinction); RB-11.1 the override reason accepts 1 character (not substantive; A6 uses _cf1_reason_is_substantive). Also: service_role not revoked on approve/calculate (not exploitable: auth.uid() null); no verified-email check for the approver. See R-11-VERIFICATION.md section 5. Inspected plus static tests (executed, two it.fails markers); SQL suites NOT RUN.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "R-11 (owner ratification 2026-11-23); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)",
+    "R-11 extension (owner ratification 2026-11-24); R-11 verification (docs/competition/governance/audit/R-11-VERIFICATION.md)"
+  ],
+  "last_reviewed": "2026-11-24"
+}
