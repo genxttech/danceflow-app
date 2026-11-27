@@ -1,0 +1,20 @@
+{
+  "id": "OD11-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Every Competition OS event: judge-confirmed ballot corrections",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): any alteration of a judge's marks needs the original adjudicator's authenticated confirmation bound to the replacement version and a hash of its marks; scorers and managers may only propose; the chair may authorize the workflow but never confirm; an unavailable judge means a hold with no override; scoring errors never change a ballot; originals, versions, reasons, identities and confirmations are immutable evidence.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-11-ballot-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Stricter than NDCA IV.C.7 and stronger than any WSDC or UCWDC text supplied, by owner decision OD-11. Applies to NDCA, UCWDC, WSDC, Studio and Custom events alike. Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-11 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

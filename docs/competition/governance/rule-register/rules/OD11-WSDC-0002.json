@@ -1,0 +1,28 @@
+{
+  "id": "OD11-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, paper score sheet transfer",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.9.b.i (PDF p.20)",
+    "quote_free_summary": "Transfer of judges' paper score sheet results to the computerized system is audited by the Chief Judge and/or an approved scoring team, verified by someone other than the person inputting."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A transcription correction (class a) is staged by the transcriber and verified by a different person against the retained paper original before it can be sent to the judge for confirmation.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-11-ballot-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Does not define a post-entry correction procedure; the Chief Judge role is not mapped to a DanceFlow role (OD-06 designations). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-11 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

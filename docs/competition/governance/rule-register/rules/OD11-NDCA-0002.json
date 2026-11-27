@@ -1,0 +1,28 @@
+{
+  "id": "OD11-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, alterations on score sheets",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.B item 6 (PDF p.33); IV.D.1.c(10) (PDF p.36)",
+    "quote_free_summary": "Adjudicators mark and sign score cards in ink and initial every alteration."
+  },
+  "rule_class": "mandatory",
+  "requirement": "The electronic analogue of initialling: every alteration of a judge's marks is confirmed by that judge's authenticated session, bound to the replacement version and a hash of its marks.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-11-ballot-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "The rule text is for paper; no electronic equivalent is defined, so the confirmation is DanceFlow's analogue, not a quoted requirement. The audit list cited III.D.6 (the text is IV.B item 6) and IV.D.1.c(10) (correct). Design only: nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-11 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
