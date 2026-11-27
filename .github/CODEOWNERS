@@ -1,0 +1,138 @@
+# DanceFlow code owners: changes that need the repository owner's approval before merging into main.
+# Everything NOT listed here is routine engineering: it merges after the required CI checks pass, without an owner review.
+# GitHub reads this file from the base branch, so editing it is itself owner-reviewed (see /.github/ below).
+# Policy: docs/ops/GitHub_Governance_Change_Package.md. Keep entries broad: an unlisted sensitive file is merged without review.
+
+# --- Governance, CI and supply chain (a change here could weaken every other control) ---
+/.github/ @genxttech
+/package.json @genxttech
+/package-lock.json @genxttech
+/.npmrc @genxttech
+/tsconfig.json @genxttech
+/next.config.ts @genxttech
+/vercel.json @genxttech
+/eslint.config.mjs @genxttech
+/vitest.config.mts @genxttech
+/playwright.config.ts @genxttech
+/scripts/package.json @genxttech
+/scripts/qa/package.json @genxttech
+/scripts/release/ @genxttech
+/mobile/*/package.json @genxttech
+/mobile/*/package-lock.json @genxttech
+/mobile/*/app.json @genxttech
+/mobile/*/app.config.* @genxttech
+/mobile/*/eas.json @genxttech
+/.gitleaks.toml @genxttech
+/.gitleaksignore @genxttech
+/scripts/security/ @genxttech
+
+# --- D24 Stripe TEST proof boundary (unchanged from the D24 design) ---
+/scripts/qa/d24-m3d-proof/ @genxttech
+/scripts/qa/d24-gh-proof/ @genxttech
+/scripts/qa/d24-test-provision/ @genxttech
+/docs/billing/D24-GITHUB-ENVIRONMENT-PROOF.md @genxttech
+/docs/billing/D24-TEST-ACCOUNT-PROVISIONING.md @genxttech
+# --- Competition Stripe TEST pin validator (the trust root of the owner-approved Stripe workflows: validator, its tests and the workflow tripwires) ---
+/scripts/qa/cf1-stripe-workflow/ @genxttech
+
+# --- Database: schema, RLS, functions, grants, and the server database clients ---
+/src/lib/supabase/migrations/ @genxttech
+/src/lib/supabase/*.ts @genxttech
+
+# --- Authentication, authorization, session and request boundary ---
+/src/proxy.ts @genxttech
+/src/lib/auth/ @genxttech
+/src/lib/security/ @genxttech
+/src/app/auth/ @genxttech
+/src/app/(auth)/ @genxttech
+
+# --- Money: payments, billing, payouts, payroll, accounting, usage charges ---
+/src/lib/payments/ @genxttech
+/src/lib/billing/ @genxttech
+/src/lib/billing-qa/ @genxttech
+/src/lib/payment-harness/ @genxttech
+/src/lib/commerce/ @genxttech
+/src/lib/accounting/ @genxttech
+/src/lib/payroll/ @genxttech
+/src/lib/usage/ @genxttech
+/src/lib/events/event-order-payment.ts @genxttech
+/src/lib/events/settlement*.ts @genxttech
+/src/app/api/payments/ @genxttech
+/src/app/api/billing/ @genxttech
+/src/app/api/stripe/ @genxttech
+/src/app/api/commerce/ @genxttech
+/src/app/api/webhooks/ @genxttech
+
+# --- Competition: scoring, results, judge authority, publication, registration pricing and refunds, finals flags ---
+/src/lib/competition/ @genxttech
+/src/app/**/competition/ @genxttech
+/docs/competition/ @genxttech
+
+# --- End-to-end regression suites (they pin money and scoring behaviour) ---
+/e2e/ @genxttech
+
+# --- Messaging provider (Twilio), platform administration, credentials and scheduled jobs ---
+/src/lib/sms/ @genxttech
+/src/app/api/sms/ @genxttech
+/src/app/platform/ @genxttech
+/src/app/api/platform/ @genxttech
+/src/app/api/cron/ @genxttech
+/src/lib/integrations/ @genxttech
+/src/app/api/integrations/ @genxttech
+
+# --- Twilio/SMS surfaces outside src/lib/sms (requested by the TWILIO coordinator): studio SMS setup, number selection,
+# credit, limit and recurring panels, client SMS sending and consent, public carrier-compliance consent and legal text ---
+/src/app/app/settings/sms/ @genxttech
+/src/app/app/clients/*/sms-actions.ts @genxttech
+/src/app/app/clients/*/ClientSendSmsCard.tsx @genxttech
+/src/app/app/clients/*/ClientSmsConsentCard.tsx @genxttech
+/src/app/sms-consent/ @genxttech
+/src/app/studios/*/sms-terms/ @genxttech
+/src/app/studios/*/sms-privacy/ @genxttech
+/src/app/studios/*/SmsLegalPage.tsx @genxttech
+/src/components/public/SmsConsentCheckbox.tsx @genxttech
+
+# --- Hosted-database and provider validation tooling (preflight and reset SQL, Twilio validation harness) ---
+/scripts/hosted/ @genxttech
+/scripts/qa/tw4f/ @genxttech
+/scripts/tw4-validation/ @genxttech
+
+# --- Continuity pilot: orchestrator code, policy and owner authorizations (the trust root of the pilot; changes need owner approval) ---
+/docs/ops/continuity-pilot/ @genxttech
+
+# Release line additions: staff and student APIs, account controls, private-lesson access,
+# document signing and AI actions.
+/src/app/api/staff/ @genxttech
+/src/app/api/student/ @genxttech
+/src/lib/staff/ @genxttech
+/src/lib/student-identity/ @genxttech
+/src/app/account/ @genxttech
+/src/app/api/events/ @genxttech
+/src/lib/events/ @genxttech
+/src/app/coach-schedule/ @genxttech
+/src/app/calendar/instructor/ @genxttech
+/src/app/sign/ @genxttech
+/src/lib/documents/ @genxttech
+/src/app/app/documents/sign/ @genxttech
+/src/app/portal/*/documents/ @genxttech
+/src/lib/aria/ @genxttech
+/src/lib/lumi/ @genxttech
+/src/app/app/aria/ @genxttech
+aria-actions.ts @genxttech
+
+# Release line additions: token-based access, roles and money paths.
+/src/app/accountant-delivery/ @genxttech
+/src/lib/accountant-deliveries/ @genxttech
+/src/app/app/client-identity/ @genxttech
+/src/app/invite/ @genxttech
+/src/app/studio-invites/ @genxttech
+/src/app/app/settings/team/ @genxttech
+/src/app/app/settings/integrations/ @genxttech
+/src/app/app/payments/ @genxttech
+/src/app/app/instructor-pay/ @genxttech
+/src/lib/memberships/ @genxttech
+/src/app/api/tickets/ @genxttech
+/src/app/api/appointments/ @genxttech
+
+# Release line additions: marketing consent and send compliance.
+/src/lib/marketing/compliance/ @genxttech
