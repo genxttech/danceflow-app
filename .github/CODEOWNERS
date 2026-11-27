@@ -22,6 +22,9 @@
 /mobile/*/app.json @genxttech
 /mobile/*/app.config.* @genxttech
 /mobile/*/eas.json @genxttech
+/.gitleaks.toml @genxttech
+/.gitleaksignore @genxttech
+/scripts/security/ @genxttech
 
 # --- D24 Stripe TEST proof boundary (unchanged from the D24 design) ---
 /scripts/qa/d24-m3d-proof/ @genxttech

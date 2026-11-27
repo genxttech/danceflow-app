@@ -8,6 +8,7 @@ jest.mock("react-native-safe-area-context", () => {
   return { SafeAreaView: View };
 });
 // auth.tsx builds a Supabase client at import; the screen and the URL filter don't need a live one
+jest.mock("@/lib/pendingSignIn", () => ({ clearPendingSignIn: async () => undefined, markPendingSignIn: async () => undefined, normalizeSignInEmail: (email: string) => email, readPendingSignIn: async () => null }));
 jest.mock("@/lib/supabase", () => ({ supabase: { auth: {} }, clearPersistedSupabaseSessions: jest.fn() }));
 
 beforeEach(() => jest.useFakeTimers());

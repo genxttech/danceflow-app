@@ -194,6 +194,12 @@ function campaignErrorMessage(code?: string) {
       return "Subject line is required.";
     case "missing_body":
       return "Message body is required.";
+    case "invalid_cta_url":
+      return "The button link must be a valid http or https address.";
+    case "unauthorized":
+      return "You do not have permission to create campaigns.";
+    case "marketing_paused":
+      return "Marketing is paused for maintenance. The draft was not created.";
     case "save_failed":
       return "Campaign draft could not be saved. Confirm the marketing tables and RLS policies are in place.";
     default:

@@ -201,7 +201,7 @@ export const ACCOUNT_STATUS: Row[] = [
 
 type Failures = { table?: string; rpc?: string };
 
-class FakeQuery {
+export class FakeQuery {
   private rows: Row[];
   private failure: { message: string } | null;
 
@@ -232,6 +232,35 @@ class FakeQuery {
   }
   gte(column: string, value: string) {
     this.rows = this.rows.filter((row) => String(row[column]) >= value);
+    return this;
+  }
+  lte(column: string, value: string) {
+    this.rows = this.rows.filter((row) => String(row[column]) <= value);
+    return this;
+  }
+  is(column: string, value: null) {
+    this.rows = this.rows.filter((row) => (row[column] ?? null) === value);
+    return this;
+  }
+  not(column: string, _operator: string, value: null) {
+    this.rows = this.rows.filter((row) => (row[column] ?? null) !== value);
+    return this;
+  }
+  /** The two PostgREST or() forms the Pulse cards use: "col.is.null,col.neq.value" and "col.is.null,col.not.ilike.pattern" (ILIKE: _ is one character, % or * any run). */
+  or(expression: string) {
+    const parts = expression.split(",").map((part) => part.split("."));
+    this.rows = this.rows.filter((row) =>
+      parts.some(([column, operator, ...rest]) => {
+        const value = row[column] ?? null;
+        if (operator === "is") return rest[0] === "null" && value === null;
+        if (operator === "neq") return value !== rest.join(".");
+        if (operator === "not" && rest[0] === "ilike") {
+          const source = rest.slice(1).join(".").replace(/[.+?^${}()|[]\]/g, "\$&").replace(/_/g, ".").replace(/[%*]/g, ".*");
+          return value !== null && !new RegExp("^" + source + "$", "i").test(String(value));
+        }
+        return false;
+      }),
+    );
     return this;
   }
   lt(column: string, value: string) {

@@ -51,11 +51,11 @@ Operational packs can be set to:
 - Notify me only
 - Off
 
-Individual rules inherit the pack setting unless the studio creates a stricter exception.
+Click **Save pack** on each pack. Saving a pack applies its setting to most of that pack's rules. In Client Relationships, intro follow-up email can still be sent automatically unless that pack is Off.
 
 ## Financial safety
 
-ARIA can automatically prepare or send certain low-risk communications when the underlying rule explicitly allows it.
+ARIA can automatically prepare or send certain low-risk email communications when the underlying rule explicitly allows it.
 
 ARIA cannot automatically make financial decisions such as charging a payment method, retrying a payment, issuing a refund, waiving a balance, marking a payment paid, creating a payment transaction, or changing financial access/status.
 

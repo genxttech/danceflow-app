@@ -46,7 +46,7 @@ Studios can use DanceFlow to manage:
 - Reports
 - Public discovery listings
 - Now Hiring job postings
-- Event registrations, tickets, and check-in
+- Event registrations, tickets, and check-in (event registration and ticketing require the Organizer Suite)
 - Documents and e-signatures
 - Event waivers and signed-document receipts
 - Wave Accounting connection
@@ -64,14 +64,14 @@ Dancers can use DanceFlow to:
 - Browse events, classes, socials, workshops, and ticketed activities
 - Create a dancer-owned Partner Search profile
 - Search for dance partners by goals, role, level, location, and styles
-- Keep Partner Search conversations inside DanceFlow
 - Hide or pause a Partner Search profile anytime
 - Browse studio job postings
 - Save favorites and return to them later
-- Keep event tickets and QR codes in their wallet
-- Register for events through the student app when available
+- Register for events online and receive QR tickets when the event offers registration
 - Review required event documents during checkout
 - Access studio portals when a studio links them
+- View schedules and lesson recaps, and review and sign documents, in a linked studio portal
+- Request bookings from the studio portal when the studio turns on self-scheduling
 
 ## What makes DanceFlow different
 
@@ -79,6 +79,6 @@ DanceFlow is built around real studio workflows.
 
 Instead of only acting as a calendar or payment system, DanceFlow helps connect the full path:
 
-**Dancer discovers studio, event, partner, or job → connects through DanceFlow → becomes a lead, attendee, partner match, applicant, or client → stays connected through the portal and app**
+**Dancer discovers a studio, event, partner listing, or job → takes the next step → becomes a lead, attendee, or client → stays connected through the portal**
 
 For studios that rent floor space, DanceFlow also supports independent instructor portal access so instructors can book host studio floor space while keeping their own business separate.

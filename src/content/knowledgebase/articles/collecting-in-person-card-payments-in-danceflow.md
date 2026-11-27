@@ -25,19 +25,19 @@ To collect a DanceFlow-controlled in-person card payment, the studio needs:
 - A supported physical Stripe Terminal reader
 - The reader registered in DanceFlow
 - The reader online and available
-- A DanceFlow payment workflow, such as package sale, lesson balance, client balance, or quick charge when available
+- A DanceFlow payment workflow with a card reader option, such as a package sale, a new membership sale, Take Payment, or Quick Charge
 
 ## Linked payment process
 
-Use this process for payments that must attach to a specific client, package, membership, appointment, or balance.
+Use this process for payments that must attach to a specific client, package, new membership sale, or balance. Take Payment does not offer the reader for membership renewals or payment arrangements.
 
 1. Open the payment workflow in DanceFlow.
 2. Confirm the client, amount, and purchase type.
-3. Choose In-person card reader.
+3. Choose Card reader (on a package sale, click Continue to Card Reader).
 4. Select the registered reader, if prompted.
 5. Start card collection.
 6. Ask the customer to tap, insert, or swipe their card on the reader.
-7. Refresh the status after the payment is completed, if needed.
+7. Click Refresh status after the payment is completed, if needed.
 8. Confirm the payment shows as paid in DanceFlow.
 
 For a package sale, the package can become active after payment succeeds.
@@ -46,23 +46,21 @@ For a package sale, the package can become active after payment succeeds.
 
 Quick Charge is intended for fast front desk charges such as group class drop-ins, social party entrances, practice parties, floor fees, and other ad hoc charges.
 
-The intended flow is:
+The flow is:
 
 1. Staff opens Quick Charge.
 2. Staff taps a preset charge such as Group Class or Social Party.
-3. DanceFlow sends the payment to the default registered reader.
+3. DanceFlow sends the payment to the reader selected on the Quick Charge page.
 4. Customer pays on the reader.
 5. DanceFlow records the payment automatically.
 6. Staff is ready for the next person.
 
-Quick Charge may be expanded separately from linked package or membership payments because door-sale payments need fewer steps.
-
 ## Canceling a payment attempt
 
-If the customer changes their mind, the reader is unavailable, or the wrong payment was started, use the cancel option before trying again.
+If the customer changes their mind, the reader is unavailable, or the wrong payment was started, use **Cancel attempt** (**Cancel** on Quick Charge) before trying again.
 
 ## Best practice
 
 Use DanceFlow-controlled reader payments when you want the payment automatically connected to DanceFlow.
 
-Use Stripe Dashboard Tap to Pay only as a fallback when there is no registered reader available, and remember to record the payment in DanceFlow afterward.
+Use Stripe Dashboard Tap to Pay only as a fallback when there is no registered reader available and Stripe has confirmed your account can use it, and remember to record the payment in DanceFlow afterward.

@@ -9,7 +9,7 @@ visibility: public
 
 ## Overview
 
-The Expenses module lets studios and independent instructors record business expenses in DanceFlow.
+The Expenses module lets studio owners and admins (and organizer owners and admins) record business expenses in DanceFlow. Other studio roles, such as front desk, can view expenses but not add them, and independent instructors do not have access to the studio Expenses page.
 
 This helps reports and P&L views show a more truthful picture of business activity.
 

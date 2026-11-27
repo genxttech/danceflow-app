@@ -68,7 +68,7 @@ Examples:
 - Student ticket
 - Couple registration
 - Spectator ticket
-- Performer or competitor registration
+- Performer registration
 
 The available options may depend on the type of event you are creating.
 

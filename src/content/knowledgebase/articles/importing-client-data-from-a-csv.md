@@ -23,16 +23,14 @@ Recommended columns:
 - last_name
 - email
 - phone
-- status
-- is_independent_instructor
 
-The most important fields are first name, last name, and email. If a client does not have an email address, they may not be able to use portal access until one is added.
+First name and last name are required on every row. Email is optional, but if a client does not have an email address, they may not be able to use portal access until one is added.
 
 ## Step 1: Open the import page
 
 From your studio dashboard, go to:
 
-**Settings > Import**
+**Settings > Import existing data**
 
 ## Step 2: Upload your CSV file
 
@@ -40,13 +38,13 @@ Choose the client import option.
 
 Select your CSV file.
 
-Choose the import mode.
+The import mode is under **Advanced import behavior**, in **How should this run?**.
 
-Use **Dry Run** if you want to test the file first without adding clients.
+**Dry Run** is the default. Uploading and reviewing add nothing, but clicking **Execute Client Import** adds and updates clients even on a Dry Run batch, so do not click it until you are ready.
 
 Use **Create or Update** when you are ready to add or update client records.
 
-Click **Upload**.
+Click **Review Clients File**.
 
 ## Step 3: Review the uploaded file
 
@@ -64,7 +62,6 @@ Common issues include:
 
 - Missing required fields
 - Duplicate emails
-- Invalid status values
 - Incorrect column names
 - Blank rows
 - File saved in the wrong format
@@ -75,7 +72,7 @@ After fixing the CSV, upload it again and review it.
 
 Once the file review passes, open the review page.
 
-Click **Execute Import** or **Import Ready Rows**.
+Click **Execute Client Import**.
 
 DanceFlow will add the valid client records to your studio.
 
@@ -83,7 +80,7 @@ DanceFlow will add the valid client records to your studio.
 
 Go to **Clients** and confirm the new clients appear.
 
-Check a few imported client records to make sure names, email addresses, phone numbers, and status values imported correctly.
+Check a few imported client records to make sure names, email addresses, and phone numbers imported correctly.
 
 ## Common troubleshooting
 
@@ -95,7 +92,7 @@ Go to Recent Imports, click **Review Clients File**, then open the review page a
 
 ### The review says the CSV could not be reviewed
 
-The system could not validate the file. This may happen if the file is missing expected columns, cannot be read, or has permission issues.
+The system could not validate the file. This may happen if the file cannot be read or there is a permission problem.
 
 Make sure the file is a CSV, check that the column headers are correct, remove blank header columns, save the file again as CSV, and upload it again.
 
@@ -113,13 +110,11 @@ Use email addresses as the main identifier, remove duplicate rows from the CSV, 
 
 ### Independent instructor clients imported as regular clients
 
-Depending on the current import mapping, independent instructor access may need to be confirmed after import.
-
-After import, open the client record and confirm whether Independent Instructor access should be enabled. If needed, update the client manually and link portal access.
+The client import does not set Independent Instructor access.
 
 ## Best practices
 
-- Run a dry run first.
+- Review the uploaded file before you click **Execute Client Import**.
 - Start with a small test file before importing a large list.
 - Keep a backup of your original CSV.
 - Review imported clients before inviting them to the portal.

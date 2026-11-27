@@ -16,7 +16,7 @@ The app is a client of the staff API only. Without A1 every screen after sign-in
 | A6 | A staff test account at a real studio, role owner, admin, front desk or instructor, with a subscription that allows access, for the candidate verification | Owner | PENDING OWNER |
 | A7 | Firebase project for release. `danceflow-mobile-dev` is a DEV project; Play internal testing needs a decision on the project, the Business `google-services.json`, and the FCM key in Expo. Push is optional: without credentials More says notifications are not available and everything else works | Owner | PENDING OWNER (same decision as Student A5) |
 | A8 | Play upload keystore and Play App Signing (release builds refuse debug signing and a placeholder `google-services.json`, #513) | Owner | PENDING OWNER (same decision as Student A6) |
-| A9 | Push sender: no staff-facing sender exists (which events notify which staff, the `{type, id, studioId}` payload `notificationRoute.ts` expects), and the token is not unbound at sign-out. The token table and the claim function are Student's (`20260626`, `20270213080000`) and must be on the target database if push is turned on | Business plus server | OPEN, optional for a first candidate |
+| A9 | Push sender: no staff-facing sender exists (which events notify which staff, the `{type, id, studioId}` payload `notificationRoute.ts` expects), the token is unbound at sign-out (2026-11-26). The token table and the claim function are Student's (`20260626`, `20270213080000`) and must be on the target database if push is turned on | Business plus server | OPEN, optional for a first candidate |
 
 ## B. Business app items
 

@@ -35,21 +35,17 @@ ARIA surfaces the issue but does not prepare or execute the next step.
 
 ARIA does not create new work from that operational pack.
 
-## Rule-level exceptions
+## Applying a pack setting
 
-Rules inherit the pack setting by default.
-
-A rule exception can make one workflow more restrictive.
-
-A rule cannot be more permissive than its operational pack.
+Click **Save pack** on each pack. Saving a pack applies its setting to most of that pack's rules. In Client Relationships, intro follow-up email can still be sent automatically unless that pack is Off. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
 
 ## External communication is separate
 
 Autonomy and external delivery are separate permissions.
 
-A pack being set to Handle automatically does not give every rule permission to send email or SMS.
+A pack being set to Handle automatically does not give every rule permission to send email.
 
-A communication is sent automatically only when the underlying rule explicitly allows external delivery.
+A communication is sent automatically only when the underlying rule explicitly allows external delivery. ARIA automation sends email only; it does not send text messages.
 
 ## Financial decisions are always staff-controlled
 

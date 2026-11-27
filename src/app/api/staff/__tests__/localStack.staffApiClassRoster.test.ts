@@ -96,6 +96,7 @@ const APP_HEADER = "business/0.2.0/3/android";
 type Handler = (request: Request, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
 let enroll: Handler;
 let remove: Handler;
+let funding: Handler;
 
 const authed = (path: string, user: string, init: RequestInit = {}) =>
   new Request(`https://app.test${path}`, {
@@ -171,6 +172,7 @@ describe.skipIf(!enabled)("staff API class roster against real RLS and the enrol
 
     enroll = (await import("../workspaces/[studioId]/appointments/[appointmentId]/roster/route")).POST as unknown as Handler;
     remove = (await import("../workspaces/[studioId]/appointments/[appointmentId]/roster/[clientId]/route")).DELETE as unknown as Handler;
+    funding = (await import("../workspaces/[studioId]/appointments/[appointmentId]/roster/funding/route")).GET as unknown as Handler;
   });
 
   describe("enroll", () => {
@@ -311,6 +313,56 @@ describe.skipIf(!enabled)("staff API class roster against real RLS and the enrol
       // a never-enrolled dancer: no notice
       await drop(USERS.owner, classId, C3);
       expect(notices.removed).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("funding candidates", () => {
+    const list = (user: string, classId: string, clientId: string, studioId = STUDIO_A) =>
+      funding(authed(`/api/staff/workspaces/${studioId}/appointments/${classId}/roster/funding?clientId=${clientId}`, user), {
+        params: Promise.resolve({ studioId, appointmentId: classId }),
+      });
+    const givePackage = (client: string, remainingCredits: number, name: string, usage = "group_class") => {
+      const pkg = id();
+      psql(`insert into public.client_packages (id, studio_id, client_id, name_snapshot, active, expiration_date, sold_price) values ('${pkg}', '${STUDIO_A}', '${client}', '${name}', true, '${day(60).slice(0, 10)}', 80);
+        insert into public.client_package_items (studio_id, client_package_id, usage_type, quantity_remaining, quantity_total, is_unlimited) values ('${STUDIO_A}', '${pkg}', '${usage}', ${remainingCredits}, 10, false);`);
+      return pkg;
+    };
+
+    it("lists only usable sources, and each listed one is accepted by the enroll route", async () => {
+      const dancer = CLIENTS[8];
+      const good = givePackage(dancer, 3, "Good pack");
+      givePackage(dancer, 0, "Spent pack");
+      givePackage(dancer, 5, "Private only", "private_lesson");
+      const classId = newClass();
+      const response = await list(USERS.frontDesk, classId, dancer);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ candidates: [{ billingType: "package_credit", sourceId: good, label: "Good pack", unlimited: false, remaining: 3 }] });
+      const enrolled = await add(USERS.frontDesk, classId, { clientId: dancer, billingType: "package_credit", clientPackageId: good });
+      expect(enrolled.status).toBe(201);
+    });
+
+    it("keeps to the class's accepted funding types", async () => {
+      const classId = newClass();
+      expect(((await (await list(USERS.owner, classId, C5)).json()) as { candidates: unknown[] }).candidates).toHaveLength(1);
+      psql(`insert into public.group_class_enrollment_policies (studio_id, appointment_id, accepted_funding_types) values ('${STUDIO_A}', '${classId}', array['package']::text[]);`);
+      expect(await (await list(USERS.owner, classId, C5)).json()).toEqual({ candidates: [] });
+    });
+
+    it("lists a membership with allowance, and nothing for a dancer with nothing", async () => {
+      const classId = newClass();
+      const covered = (await (await list(USERS.owner, classId, C5)).json()) as { candidates: { billingType: string; sourceId: string; label: string }[] };
+      expect(covered.candidates).toEqual([expect.objectContaining({ billingType: "membership", sourceId: MEMBERSHIP, label: "Gold" })]);
+      expect(await (await list(USERS.owner, classId, CLIENTS[9])).json()).toEqual({ candidates: [] });
+    });
+
+    it("refuses instructors and independent instructors, and hides other studios' classes and dancers", async () => {
+      const classId = newClass();
+      await expectCode(await list(USERS.instructor, classId, C5), 403, "role_not_permitted");
+      await expectCode(await list(USERS.independent, classId, C5), 403, "role_not_permitted");
+      await expectCode(await list(USERS.ownerB, classId, C5), 403, "not_a_member");
+      await expectCode(await list(USERS.ownerB, classId, OTHER_B, STUDIO_B), 404, "not_found");
+      await expectCode(await list(USERS.owner, classId, OTHER_B), 404, "not_found");
+      await expectCode(await list(USERS.owner, id(), C5), 404, "not_found");
     });
   });
 

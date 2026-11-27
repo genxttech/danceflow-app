@@ -1,28 +1,43 @@
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { ScheduleSkeleton } from "@/components/Skeleton";
 import { StaffErrorState } from "@/components/StaffErrorState";
 import { StateMessage } from "@/components/StateMessage";
-import { formatDayHeading, personName, shiftDate } from "@/lib/format";
+import { formatDayHeading, formatTime, personName, shiftDate } from "@/lib/format";
+import { dateInZone, nextUp } from "@/lib/nextUp";
+import { NextUpCard } from "@/components/NextUpCard";
 import { isStaffFeatureEnabled } from "@/lib/features";
 import { shouldKeepStale } from "@/lib/stale";
 import { useStaffApi, useStaffSession } from "@/lib/staff";
 import { StaleBanner } from "@/components/StaleBanner";
 import type { StaffStudioDay, StudioAppointment } from "@/lib/staffApi";
-import { AppointmentRow } from "@/screens/TodayScreen";
+import { appointmentHeadline, AppointmentRow } from "@/screens/TodayScreen";
 import { colors, radius, space } from "@/theme";
 
 type LoadState =
   | { status: "loading" }
   | { status: "error"; error: unknown }
-  | { status: "ready"; day: StaffStudioDay; loadedAt: number; stale?: boolean };
+  | {
+      status: "ready";
+      day: StaffStudioDay;
+      loadedAt: number;
+      /** When the read was sent, and for which selection: the midnight rule judges a day by the date it was ASKED on, and only for the selection it answers. */
+      askedAt: number;
+      askedDate: string | null;
+      askedStudio: string;
+      stale?: boolean;
+    };
 
 export type DayMode = "mine" | "studio";
+
+/** How far past studio midnight before re-reading (device clocks run a little ahead or behind), and the pause between tries when the read fails. */
+const ROLLOVER_GRACE_MS = 2 * 60_000;
+const ROLLOVER_RETRY_MS = 5 * 60_000;
 
 /** "My day" / "Studio": which schedule the Today tab shows. A radio group with the choice in words and state. */
 export function DayModeSwitch({ mode, onChange }: { mode: DayMode; onChange: (mode: DayMode) => void }) {
@@ -58,7 +73,7 @@ export function DayModeSwitch({ mode, onChange }: { mode: DayMode; onChange: (mo
 /** The whole studio's day, for owner, admin and front desk. Rows open the same appointment detail as Today (broad staff already have access there). */
 export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactNode } = {}) {
   const api = useStaffApi();
-  const { workspace, reload: reloadWorkspaces, signOut } = useStaffSession();
+  const { me, workspace, reload: reloadWorkspaces, signOut } = useStaffSession();
   const studioId = workspace?.studioId ?? null;
 
   // null asks the server for today in the studio's own zone.
@@ -68,18 +83,25 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
   const requestId = useRef(0);
 
   const load = useCallback(
-    async (mode: "initial" | "refresh") => {
+    async (mode: "initial" | "refresh" | "rollover") => {
       if (!studioId) return;
       const id = ++requestId.current;
       if (mode === "initial") setState({ status: "loading" });
       else setRefreshing(true);
+      const askedAt = Date.now();
       try {
         const day = await api.studioSchedule(studioId, date ?? undefined);
-        if (id === requestId.current) setState({ status: "ready", day, loadedAt: Date.now() });
+        if (id === requestId.current) setState({ status: "ready", day, loadedAt: Date.now(), askedAt, askedDate: date, askedStudio: studioId });
       } catch (error) {
         if (id === requestId.current) {
           setState((prev) =>
-            shouldKeepStale({ enabled: isStaffFeatureEnabled("keepStale"), mode, hadData: prev.status === "ready", error }) && prev.status === "ready"
+            // A re-read the screen starts by itself at midnight must never replace a working day with an error because of an outage, whatever the stale-data flag says.
+            shouldKeepStale({
+              enabled: mode === "rollover" || isStaffFeatureEnabled("keepStale"),
+              mode: mode === "initial" ? "initial" : "refresh",
+              hadData: prev.status === "ready",
+              error,
+            }) && prev.status === "ready"
               ? { ...prev, stale: true }
               : { status: "error", error },
           );
@@ -95,6 +117,26 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
     void load("initial");
   }, [load]);
 
+  // Coming back to the screen (after checking someone in) re-reads the day, so "Next up" never shows a lesson that already has its result. The first focus is the
+  // initial load above.
+  // (A stable callback: a changed day must not look like a new focus.)
+  const focusedOnce = useRef(false);
+  const latestLoad = useRef(load);
+  latestLoad.current = load;
+  useFocusEffect(
+    useCallback(() => {
+      if (focusedOnce.current) void latestLoad.current("refresh");
+      focusedOnce.current = true;
+    }, []),
+  );
+
+  // "Next up" depends on the clock (a class that ends moves to "Still to record"): re-evaluate every 30 seconds while the screen is open.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const shownDate = state.status === "ready" ? state.day.date : date;
 
   function goToDay(offset: number) {
@@ -108,6 +150,33 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
   }
 
   const day = state.status === "ready" ? state.day : null;
+  // Studio midnight. A screen showing "today" (no day picked) keeps the earlier day after the studio's calendar date moves on. When the date has moved SINCE THIS DAY
+  // WAS LOADED (the server stays the authority on what "today" was at load time, so a wrong device clock changes nothing then), re-read it. The grace period covers a
+  // device clock slightly ahead of the server; a failed read is tried again no more than every five minutes. Until the new day is here the old one is not called today.
+  const calendarToday = day ? dateInZone(nowMs, day.timeZone) : null;
+  const movedTo = day ? dateInZone(nowMs - ROLLOVER_GRACE_MS, day.timeZone) : null;
+  // The date this day was asked for, with the same grace: an answer that straddles midnight, or a server still a little behind, does not count as "already the new date".
+  const loadedOn = state.status === "ready" ? dateInZone(state.askedAt - ROLLOVER_GRACE_MS, state.day.timeZone) : null;
+  // Only the answer to the current selection (no picked day, this studio) can roll over; the old state is still on screen for one render after either changes.
+  const current = state.status === "ready" && state.askedDate === null && state.askedStudio === studioId;
+  const rolledOver = date === null && current && day !== null && movedTo !== null && loadedOn !== null && movedTo > loadedOn && movedTo > day.date;
+  const lastAttempt = useRef<{ key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!rolledOver) return;
+    const key = `${studioId}:${movedTo}`;
+    const last = lastAttempt.current;
+    if (last && last.key === key && nowMs - last.at < ROLLOVER_RETRY_MS) return;
+    lastAttempt.current = { key, at: nowMs };
+    void load("rollover");
+  }, [rolledOver, movedTo, studioId, nowMs, load]);
+  // The one obvious next action, for today only (a past or future day has no "next"). Today is judged by the calendar date in the studio's zone, so stepping away
+  // and back to today still counts. The role must be able to mark attendance, the same condition the appointment screen needs for its controls.
+  const studio = me?.workspaces.find((w) => w.studioId === studioId);
+  const mayMark = studio?.accessAllowed === true && studio.capabilities?.markAttendance === true;
+  const next =
+    day && mayMark && !rolledOver && (date === null || day.date === calendarToday)
+      ? nextUp(day.appointments, nowMs, { oneToOne: isStaffFeatureEnabled("appointmentAttendance"), classes: isStaffFeatureEnabled("attendance") })
+      : null;
 
   return (
     <Screen refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load("refresh")} tintColor={colors.plum} />}>
@@ -116,9 +185,9 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
           {workspace?.publicName || workspace?.name || "Your studio"}
         </AppText>
         <AppText variant="heading" accessibilityRole="header">
-          {date === null ? "Studio today" : shownDate ? formatDayHeading(shownDate) : "Studio schedule"}
+          {date === null && !rolledOver ? "Studio today" : shownDate ? formatDayHeading(shownDate) : "Studio schedule"}
         </AppText>
-        {date === null && shownDate ? <AppText tone="muted">{formatDayHeading(shownDate)}</AppText> : null}
+        {date === null && !rolledOver && shownDate ? <AppText tone="muted">{formatDayHeading(shownDate)}</AppText> : null}
       </View>
 
       {modeSwitch}
@@ -145,8 +214,18 @@ export function StudioScheduleScreen({ modeSwitch }: { modeSwitch?: React.ReactN
       {day && day.appointments.length === 0 ? (
         <StateMessage
           testID="studio-empty"
-          title={date === null ? "Nothing on the studio schedule today" : "Nothing on the studio schedule"}
+          title={date === null && !rolledOver ? "Nothing on the studio schedule today" : "Nothing on the studio schedule"}
           body="Lessons, classes and rentals at this studio appear here."
+        />
+      ) : null}
+
+      {day && next ? (
+        <NextUpCard
+          kind={next.kind}
+          start={formatTime(next.appointment.startsAt, day.timeZone)}
+          headline={appointmentHeadline(next.appointment)}
+          behind={next.behind}
+          onOpen={() => open(next.appointment, day.timeZone)}
         />
       ) : null}
 
