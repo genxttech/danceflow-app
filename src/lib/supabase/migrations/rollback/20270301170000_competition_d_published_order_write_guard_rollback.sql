@@ -1,5 +1,5 @@
 -- Rollback for 20270301170000_competition_d_published_order_write_guard.sql (Option D). NOT APPLIED ANYWHERE.
--- Drops the six triggers and three functions the migration created, recreates the dropped client insert policy of publication snapshots and restores publish_competition_schedule_version to its exact pinned previous text
+-- Drops the nine triggers and three functions the migration created, recreates the dropped client insert policy of publication snapshots and restores publish_competition_schedule_version to its exact pinned previous text
 -- (md5 9a61cd9bcdbe8557d76cd6ec9e72c82c: security invoker, no row lock). No table or grant was changed. No data is touched. Restoring RE-OPENS direct writes to
 -- published running orders, the publication race and client-inserted publication snapshot rows.
 
@@ -70,6 +70,9 @@ drop trigger if exists aa_compd_lock_heat on public.event_competition_heats;
 drop trigger if exists aa_compd_lock_heat_entry on public.event_competition_heat_entries;
 drop trigger if exists aa_compd_lock_heat_dance on public.event_competition_heat_dances;
 drop trigger if exists aa_compd_lock_floor_heat on public.event_competition_floor_heats;
+drop trigger if exists aa_compd_lock_session on public.event_competition_schedule_sessions;
+drop trigger if exists aa_compd_lock_block on public.event_competition_schedule_blocks;
+drop trigger if exists aa_compd_lock_block_contest on public.event_competition_schedule_block_contests;
 drop function if exists public.compd_lock_draft_order();
 do $$
 begin

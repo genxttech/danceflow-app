@@ -93,7 +93,7 @@ for s in $D_SUITE $SUITES; do run_suite baseline "$s"; done
 races baseline          # commits fixtures: the database is rebuilt afterwards
 start_db && base_chain || { log "BLOCKED: could not rebuild"; echo BLOCKED > "$OUT/result.txt"; exit 4; }
 apply "$CHAIN/new/$MIG" forward || { echo FAIL > "$OUT/result.txt"; exit 1; }
-check "forward: objects installed (triggers/functions)" "$(objs)" "6/3/0"
+check "forward: objects installed (triggers/functions)" "$(objs)" "9/3/0"
 probe after-fix
 check "planted heat does not reproduce with the fix" "$(verdict after-fix)" "NOT REPRODUCED"
 check "with the fix the plant step itself is refused by D" "$(grep -c -E '1\. plant a heat[^|]*-> refused: COMPD_PUBLISHED_ORDER_WRITE_REFUSED' "$OUT/probe-after-fix.txt")" 1
@@ -104,7 +104,7 @@ check "forward: the D suite passes" "$(res_of forward $D_SUITE)" PASS
 for s in $SUITES; do if [ "$(res_of baseline "$s")" = PASS ]; then check "no regression: ${s#test_T_}" "$(res_of forward "$s")" PASS; else log "NOT COVERED (already failing on the base chain): ${s#test_T_}"; fi; done
 apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" rollback || BAD=$((BAD+1)); check "rollback: no D object left" "$(objs)" "0/0/1"
 apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" rollback2 || BAD=$((BAD+1)); check "rollback replay" "$(objs)" "0/0/1"
-apply "$CHAIN/new/$MIG" reapply || BAD=$((BAD+1)); check "re-apply" "$(objs)" "6/3/0"
+apply "$CHAIN/new/$MIG" reapply || BAD=$((BAD+1)); check "re-apply" "$(objs)" "9/3/0"
 run_suite reapply "$D_SUITE"; check "re-apply: the D suite passes" "$(res_of reapply $D_SUITE)" PASS
 races forward
 check "forward: races pass" "$(res_of forward races)" PASS
@@ -116,6 +116,8 @@ check "baseline: races reproduce the gap (R1, R2 and R3 not refused)" "$(grep -m
 # manifest; only the D file is swapped. before = the previously reviewed D (db5c9b876): the new suite and races show what is reachable beside P1.
 P1R=/c/dfr/s5int-out/p1run4; P1M=20270301180000_competition_p1_pilot_restrictions.sql; OLD=db5c9b876
 if [ "$(cd "$P1R/chain" && sha256sum --quiet -c "$P1R/migrations-new.sha256" 2>&1 | grep -v "$MIG" | grep -c FAILED)" = 0 ] && [ -s "$P1R/chain/p1/$P1M" ]; then
+  FPA="$(cut -d" " -f1 "$OUT/base-fingerprint.txt" | tr -d '')"; FPB="$(cut -d" " -f1 "$P1R/base-fingerprint.txt" | tr -d '')"; FPS=differs; [ "$FPA" = "$FPB" ] && FPS=matches
+  log "P1 chain: new/ and p1/ files are the composed run's (manifest checked); the base composed here $FPS its base fingerprint"
   git show "$OLD:$M/$MIG" > "$CHAIN/prefix/old-$MIG"
   p1_chain() { local f; start_db && base_chain || return 1; while read -r f; do f="$(echo "$f" | tr -d '\r')"; [ -n "$f" ] || continue; if [ "$f" = "$MIG" ]; then apply "$1" p1chain || return 1; else apply "$P1R/chain/new/$f" p1chain || return 1; fi; done < "$P1R/order-B.txt"; apply "$P1R/chain/p1/$P1M" p1chain; }
   cp "$CHAIN/prefix/old-$MIG" "$CHAIN/prefix/p1old.sql"
@@ -124,13 +126,14 @@ if [ "$(cd "$P1R/chain" && sha256sum --quiet -c "$P1R/migrations-new.sha256" 2>&
     check "P1 before: a manager can insert a snapshot row (suite refuses to pass)" "$(grep -c 'D: a manager inserts a publication snapshot row \[ACCEPTED' "$OUT/suite-p1-before-$D_SUITE.log")" 1
     check "P1 before: an entry enters an order during its publication (R5)" "$(grep -c '^R5 .*writer=ACCEPTED.*readback=1' "$OUT/races-p1-before.log")" 1
     log "P1 before R6: $(grep -m1 '^R6 ' "$OUT/races-p1-before.log" | cut -c1-300)"
+    log "P1 before R7: $(grep -m1 '^R7 ' "$OUT/races-p1-before.log" | cut -c1-300)"
   else log "BLOCKED: the P1 chain with the previous D did not build"; BAD=$((BAD+1)); fi
   if p1_chain "$CHAIN/new/$MIG"; then
-    check "P1 forward: objects installed" "$(objs)" "6/3/0"
+    check "P1 forward: objects installed" "$(objs)" "9/3/0"
     run_suite p1-forward "$D_SUITE"; check "P1 forward: the D suite passes beside the pilot restrictions" "$(res_of p1-forward $D_SUITE)" PASS
     races p1-forward; check "P1 forward: races pass beside the pilot restrictions" "$(res_of p1-forward races)" PASS
     start_db && p1_chain "$CHAIN/new/$MIG" && apply "$CHAIN/rollback/${MIG%.sql}_rollback.sql" p1rollback || BAD=$((BAD+1))
-    check "P1 rollback of D beside the restrictions" "$(objs)" "0/0/1"; apply "$CHAIN/new/$MIG" p1reapply || BAD=$((BAD+1)); check "P1 re-apply of D after the restrictions" "$(objs)" "6/3/0"
+    check "P1 rollback of D beside the restrictions" "$(objs)" "0/0/1"; apply "$CHAIN/new/$MIG" p1reapply || BAD=$((BAD+1)); check "P1 re-apply of D after the restrictions" "$(objs)" "9/3/0"
   else log "BLOCKED: the P1 chain with this D did not build"; BAD=$((BAD+1)); fi
 else log "BLOCKED: the composed P1 run files are missing or changed"; BAD=$((BAD+1)); fi
 if [ "$BAD" = 0 ]; then log "D STANDALONE: PASS"; echo PASS > "$OUT/result.txt"; exit 0; fi

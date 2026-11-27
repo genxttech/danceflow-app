@@ -83,9 +83,11 @@ select pg_temp.u('00300' || n), pg_temp.u('00e00' || n), pg_temp.u('00100' || n)
 -- event 1: one division per round (rounds 2, 3, 4)
 insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
 select pg_temp.u('0030' || x), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'D1-' || x, 'open' from unnest(array['12', '13', '14']) x;
+insert into public.event_competition_divisions (id, event_id, program_id, contest_id, name, status)
+values (pg_temp.u('003023'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('002003'), 'D3-23', 'open');
 insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
 select pg_temp.u('0060' || lpad(x.r::text, 2, '0')), pg_temp.u('00e00' || x.e), pg_temp.u('00100' || x.e), pg_temp.u(x.d), 'R' || x.r, 'final', x.s, 'draft', 'ordinal_majority'
-from (values (1, 1, 1, '003001'), (2, 1, 1, '003012'), (3, 1, 1, '003013'), (4, 1, 1, '003014'), (5, 3, 1, '003003')) x(r, e, s, d);
+from (values (1, 1, 1, '003001'), (2, 1, 1, '003012'), (3, 1, 1, '003013'), (4, 1, 1, '003014'), (5, 3, 1, '003003'), (6, 3, 1, '003023')) x(r, e, s, d);
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
 select pg_temp.u('0080' || lpad(i::text, 2, '0')), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003003'), 'E' || i, 'confirmed', 'eligible', i::text from generate_series(1, 2) i;
 -- S4 / R-15, when installed: publication needs cleared entries. Established only the authorized way (adult participants, then the lifecycle
@@ -133,7 +135,7 @@ select pg_temp.u('00e003'), pg_temp.u('00d051'), 'waltz', 'Waltz', 1;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status) values (pg_temp.u('00c008'), pg_temp.u('00e003'), 3, 'v8bad', 'draft');
 insert into public.event_competition_floor_heats (id, event_id, schedule_version_id, heat_number) values (pg_temp.u('00f081'), pg_temp.u('00e003'), pg_temp.u('00c008'), 1);
 insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, floor_heat_id, status, name) values
-  (pg_temp.u('00d081'), pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 1, pg_temp.u('002003'), pg_temp.u('00c008'), pg_temp.u('00f081'), 'scheduled', 'h81'),
+  (pg_temp.u('00d081'), pg_temp.u('00e003'), pg_temp.u('003023'), pg_temp.u('006006'), 1, pg_temp.u('002003'), pg_temp.u('00c008'), pg_temp.u('00f081'), 'scheduled', 'h81'),
   (pg_temp.u('00d082'), pg_temp.u('00e003'), pg_temp.u('003003'), pg_temp.u('006005'), 3, pg_temp.u('002003'), null, pg_temp.u('00f081'), 'scheduled', 'h82');
 insert into public.event_competition_schedule_sessions (id, event_id, schedule_version_id, name, session_date, starts_at, ends_at)
 values (pg_temp.u('005e02'), pg_temp.u('00e001'), pg_temp.u('00c002'), 'S', current_date + 30, now() + interval '30 days', now() + interval '30 days 4 hours');
@@ -141,8 +143,8 @@ insert into public.event_competition_schedule_blocks (id, event_id, schedule_ver
 values (pg_temp.u('00b002'), pg_temp.u('00e001'), pg_temp.u('00c002'), pg_temp.u('005e02'), 'B', 'competition', now() + interval '30 days', now() + interval '30 days 1 hour');
 set session_replication_role = origin;
 
-select pg_temp.chk('S: the four order lock triggers are installed ENABLE ALWAYS and their definer function is not callable',
-  (select count(*) = 4 from pg_trigger where tgname like 'aa\_compd\_lock\_%' and tgenabled = 'A' and not tgisinternal)
+select pg_temp.chk('S: the seven order lock triggers are installed ENABLE ALWAYS and their definer function is not callable',
+  (select count(*) = 7 from pg_trigger where tgname like 'aa\_compd\_lock\_%' and tgenabled = 'A' and not tgisinternal)
   and (select count(*) = 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'compd_lock_draft_order' and p.prosecdef and not has_function_privilege('authenticated', p.oid, 'execute')));
 select pg_temp.chk('S: both guards installed, ENABLE ALWAYS, security invoker; publication is security definer',
   (select count(*) = 2 from pg_trigger where tgname in ('zz_compd_guard_published_heat', 'zz_compd_guard_published_version') and tgenabled = 'A' and not tgisinternal)

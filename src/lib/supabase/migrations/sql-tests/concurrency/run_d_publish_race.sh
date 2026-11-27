@@ -6,6 +6,7 @@
 #   R3 publication in flight, then round change of a heat of that version                         -> waits, then refused
 #   R5 publication in flight, then a direct heat ENTRY insert (an entry never cleared)           -> waits, then refused
 #   R6 publication in flight, then move_competition_scoring_heat (SECURITY DEFINER draft writer) -> waits, then refused
+#   R7 publication in flight, then a schedule SESSION insert (advanced-mode order content)     -> waits, then refused
 #   R4 a draft heat write in flight, then publication -> publication waits for it and then succeeds
 # "Waits" is observed in the database (pg_stat_activity wait_event_type = 'Lock'), not from elapsed time: the first connection holds its
 # transaction open until it has seen the second one blocked, or gone. Fixtures keep one round per division (usable beside pilot restrictions).
@@ -90,6 +91,8 @@ if prep 6 R6 && SU -c "insert into public.event_competition_floor_heats (id, eve
   scenario 6 "R6 definer move of a heat in the order being published" yes "editable draft schedule|COMP10D_SCHEDULE_PUBLISHED" \
     "select count(*) from public.event_competition_heats where id='$H2' and floor_heat_id='$FH'" "select public.move_competition_scoring_heat('$H2','$FH')"
 else ok "R6: fixtures" 0; fi
+prep 7 R7 && scenario 7 "R7 session added to the order being published" yes "Only draft schedule versions may be edited" "select count(*) from public.event_competition_schedule_sessions where schedule_version_id='$V'" \
+  "insert into public.event_competition_schedule_sessions (event_id, schedule_version_id, name, session_date, starts_at, ends_at) values ('$EV','$V','late', current_date+30, now() + interval '30 days', now() + interval '30 days 1 hour')"
 # R4: writer first, publication second
 if prep 4 R4; then
   ( { echo "set application_name = 'd_wfirst';"; echo "begin;"; claims true; echo "set local role authenticated;"; echo "update public.event_competition_heats set heat_number = 5 where id = '$H';"; echo "reset role;"; observe "d_pub_4"; echo "commit;"; } | SUN -v ON_ERROR_STOP=1 >/tmp/d_w4.out 2>&1 ) &
