@@ -6,7 +6,83 @@ Heads (base fingerprint `d87e4285`): live `57c331910`, candidate `92a8c17c6`, 84
 
 Phases: A base chain; B base + 12 corrections; C B + restriction (919); D rollback; E re-apply.
 
-## Summary
+## Run of record: p1run6 (2026-11-27 13:54-17:36Z)
+
+Local only; no hosted apply, merge or deploy. Supersedes the two earlier runs below. **P1 is still not shown to be release-ready.**
+
+Heads: base pinned at release line `57c33191` (the line moved to `42db332ae`, one CI workflow file), 844 `ccc084057`, 865 `d5c3bed52`, 864 `b94183a32`, 863 `59bcf8b00`, 866 `d40d1d2d9`, 877 `98ae57a29`, 899 `41cecd3e9` (standalone-unexecuted; superseded since), 919 `beecf8681`. Fingerprint `d87e4285`, 0 composition warnings.
+
+| Step | Result |
+|---|---|
+| Migrations | base 23/23, corrections 12/12, restriction 1/1 |
+| Rollback / re-apply | 13/13 and 13/13; **catalog after rollback identical to base** (the 3 earlier differences are gone); re-apply identical to C |
+| Suites A (45) | 40 pass, 4 fail, 1 output only |
+| Suites B (53) | 27 pass, 25 fail, 1 output only |
+| B autoseed reruns (17) | 12 pass, 5 fail (AUTOSEED: cleared couples only, never a released pass) |
+| Suites C (55) | 10 pass, 44 fail, 1 output only |
+| Concurrency on C (24) | 4 pass, 20 fail; autoseed reruns on C 1 pass, 7 fail |
+| Concurrency on B (re-runs of C failures) | 2 pass released, 9 pass AUTOSEED, 9 fail (4 of them fail on base too) |
+
+C passes: checkin_balance, e1_officials, pv1_recompute, ss1_advancement_freeze, phase10c4, phase10c, phase10c_pricing_parity, od04_event_delete_guard, r15_eligibility_clearance, s5_participant_age_guard; races: od04, the two ss1 scripts and the 899 publish race.
+
+### Route replay
+
+| Route | A: base | B: corrections | C: + restriction |
+|---|---|---|---|
+| NC | **REACHED** | **REACHED** | closed at setup (`compp1_one_round_per_division`) |
+| CS | **REACHED** | **REACHED** | closed at setup; cancel after start refused (`COMP_P1_STRUCTURE_FROZEN`) |
+| CA | **REACHED** | **REACHED** | closed at setup; cancel refused (same) |
+| R | **REACHED** | not reached: heat move refused (899) | closed at setup; cancel and new round refused (same) |
+
+Later steps on a final no route touched:
+
+| Step | A | B | C |
+|---|---|---|---|
+| Ballot before the heat starts | accepted | accepted | refused `COMP_P1_HEAT_NOT_STARTED` |
+| Manager enters a paper ballot | accepted | accepted | refused `COMP_P1_PAPER_BALLOTS_OFF` |
+| Calculator approves own first result | accepted | accepted | refused `COMP_P1_SECOND_APPROVER_REQUIRED` |
+| Second manager approves, publish | not needed, published | not needed, published | both accepted |
+
+The second-contest residual was not tested.
+
+### Non-passing suites on B (25)
+
+| Count | Suites | Cause and owner |
+|---|---|---|
+| 12 | cf1_a0, a2, a4_minimum, a5_u38, a6, a7, od17, u66, cx1, e2_p1fix, f2_results, hl1 | seed no clearance; **pass with AUTOSEED** |
+| 3 | cf1_a1_helpers, cf1_a5_exclusion, cf1_rb3_refund_evidence | still `COMP_R15_ENTRY_NOT_CLEARED` with AUTOSEED (866: unplaced entries need `clear_all()`) |
+| 1 | cf1_callback_final_advancement | AUTOSEED reaches `COMP_R15_PROVISIONAL_ASSIGNMENT` (866) |
+| 1 | phase10a | writes eligibility directly (866 write guard; base also fails on a missing template) |
+| 1 | cf1_rb3r_reconciliation | needs `clear_all()` per 866; not rerun |
+| 3 | phase10d1, ns1_no_show, d_published_order_write_guard | 899 at `41cecd3e9`: its `aa_compd_lock_*` triggers fail the trigger-inventory checks, and its heat-move case meets another refusal; changed in `8e371bd56`, not run here |
+| 2 | u18s original, od31 negative (adapted) | 877 changes the behaviour (expected; the `_with_s6` variant passes) |
+| 2 | r2_entry_refunds, phase10b | fail on base |
+
+### Non-passing on C (44)
+
+38 stop on a restriction refusal in their fixtures, so those guards are **untested on C**. The other 6: `p1_pilot_restrictions` (919: its own rounds have no dance, calculation answers `multi_dance_unsupported`; later checks cascade and prove nothing); phase10d1 and its `_with_p1` copy and the 899 suite (899 triggers as above); od17 (`COMP_R15_ENTRY_NOT_CLEARED`; AUTOSEED then `COMP_OD17_REFUND_GATE`, not examined); rb3r.
+
+### Concurrency not passing anywhere in B
+
+cf1_a3_locks, e2_submit_vs_lock, f2_races, ns1_races (fail on base; with AUTOSEED the last three reach `COMP_HL1_HEAT_NOT_DANCED`, `COMP_RESULT_RECOMPUTE_UNSUPPORTED`, `COMP_BALLOT_UNKNOWN_ENTRY`); a5 and a5_with_s6 (still not cleared); rb3r (determination missing); e2_marks_txn and cf1_a4 (cause not confirmed). cf1_u66 failed on base in the previous run and passed this time: treat as unstable. o1 fails on C only (`COMPO1_BAD_STATE`, not examined).
+
+## Targeted rerun plan (not queued)
+
+Trigger: 899 reviewed head (`2754a4402` pushed; code `8e371bd56`; changes the 170000 migration, its rollback and its suite) plus migration 20270223150000 (PR 888 head `3d0e13cbd`, sorts after 844), and any 919 / 866 suite fixes pushed by then.
+
+| Rerun on B and C | Why |
+|---|---|
+| apply, rollback, re-apply, catalog compare | both migrations |
+| 899 suite, 899 publish race, Option D probe | changed guard |
+| phase10d1 (+ _with_p1), ns1_no_show | trigger inventory |
+| heat, heat-entry and running-order suites: 10d floor, o1 (+ race), hl1, jc1, u18, u18s_with_s6, s6 (+ race), r2 gate, cf1_a3, cf1_f3 (+ race) | lock triggers renamed, so firing order changes |
+| route replay | route R and publication depend on 899 |
+| p1_pilot_restrictions, listed 866 suites | only if their fixes are pushed |
+
+Not affected by the 899 change (carried over from p1run6): suites that do not write heats, heat entries or running-order tables. Needs a suite/race filter in the runner (not yet built); expected 40-60 minutes on the lock (estimate).
+
+## First composed run (p1run4, superseded)
+
 
 | Step | Result |
 |---|---|
