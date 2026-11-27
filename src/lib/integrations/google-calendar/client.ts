@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { deleteGoogleCredentials, loadGoogleCredentials, saveGoogleCredentials } from "@/lib/integrations/google-calendar/credentials";
 import { decryptIntegrationSecret, encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -40,8 +41,8 @@ export function refreshGoogleCalendarAccessToken(refreshToken: string) {
 }
 export async function getValidGoogleCalendarAccessToken(connectionId: string) {
   const admin = createAdminClient();
-  const { data, error } = await admin.from("studio_google_calendar_connections").select("encrypted_access_token, encrypted_refresh_token, token_expires_at").eq("id", connectionId).single();
-  if (error || !data?.encrypted_access_token) throw new Error("Google Calendar credentials are unavailable. Reconnect Google Calendar.");
+  const data = await loadGoogleCredentials(admin, connectionId);
+  if (!data) throw new Error("Google Calendar credentials are unavailable. Reconnect Google Calendar.");
   const expiresAt = data.token_expires_at ? new Date(data.token_expires_at).getTime() : 0;
   if (expiresAt > Date.now() + 60_000) return decryptIntegrationSecret(data.encrypted_access_token);
   if (!data.encrypted_refresh_token) {
@@ -50,22 +51,28 @@ export async function getValidGoogleCalendarAccessToken(connectionId: string) {
   }
   try {
     const tokens = await refreshGoogleCalendarAccessToken(decryptIntegrationSecret(data.encrypted_refresh_token));
-    const { error: saveError } = await admin.from("studio_google_calendar_connections").update({
+    await saveGoogleCredentials(admin, connectionId, {
       encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
+      // a legacy-only connection has no credentials row yet: carry its refresh token over (Google does not return a new one on refresh)
+      encrypted_refresh_token: tokens.refresh_token ? encryptIntegrationSecret(tokens.refresh_token) : data.encrypted_refresh_token,
       token_expires_at: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000).toISOString() : null,
-      status: "connected", last_sync_error: null,
-    }).eq("id", connectionId);
-    if (saveError) throw new Error("Refreshed Google Calendar credentials could not be saved.");
+    });
+    // A disconnect that landed while this refresh was in flight must win: never resurrect tokens or the connected status.
+    const { data: stillActive } = await admin.from("studio_google_calendar_connections").update({ status: "connected", last_sync_error: null }).eq("id", connectionId).neq("status", "disconnected").select("id");
+    if (!stillActive || stillActive.length === 0) {
+      await deleteGoogleCredentials(admin, connectionId);
+      throw new Error("Google Calendar is disconnected.");
+    }
     return tokens.access_token;
   } catch {
-    await admin.from("studio_google_calendar_connections").update({ status: "needs_reauth", last_sync_error: "Google Calendar authorization expired. Reconnect Google Calendar." }).eq("id", connectionId);
+    await admin.from("studio_google_calendar_connections").update({ status: "needs_reauth", last_sync_error: "Google Calendar authorization expired. Reconnect Google Calendar." }).eq("id", connectionId).neq("status", "disconnected");
     throw new Error("Google Calendar authorization expired. Reconnect Google Calendar.");
   }
 }
 async function googleFetch<T>(accessToken: string, url: string, init?: RequestInit) {
   const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...(init?.headers ?? {}) } });
   const text = await response.text();
-  let payload: any = null;
+  let payload: { error?: { message?: string }; error_description?: string } | null = null;
   try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
   if (!response.ok) throw new GoogleCalendarRequestError(payload?.error?.message ?? payload?.error_description ?? "Google Calendar request failed.", response.status);
   return payload as T;
