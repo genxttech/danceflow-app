@@ -936,3 +936,8 @@ Presented: MVP-RELEASE-ASSESSMENT.md section 12 (scope P1 including no self-appr
 ## 22. PR 867 approved and merged (2026-11-26)
 
 Owner approved PR 867 on GitHub (review 6080550225, `genxttech`, APPROVED, commit `6dc6b2d4e5657f27754c9dfc62e977f642ecb04c`, 21:16:27Z) and told the coordinator "i approved it". The coordinator confirmed head, base `49dbaee1b`, passing checks and a clean merge state, marked it ready and squash-merged that head at 21:19:06Z: merge commit `57c33191026c3237b02945da2cbf36802ef39043` on `release/website-embeds`, tree identical to the approved head, 10 files. Only a Preview deployment (`danceflow-app-qfem`, not production) was created. No SQL was applied; production was not promoted.
+
+## 23. PR 877 branch update, and two P1 restriction points checked against existing decisions (2026-11-27 UTC)
+
+* Owner decision, verbatim, on updating PR 877 after its session's force push was refused: "Use a merge commit". Authorizes the branch update by ordinary push only; no PR merge, apply or deploy.
+* **Coordinator determinations, not new owner decisions** (PR 919 as drafted is kept): (a) events declaring `other` sanctioning stay approvable, because OD-01 as decided says `other` stays unblocked without implying verified compliance; (b) a judge may replace their own ballot, with a reason, while the round is active: P1 defers post-publication corrections, and OD-11 requires the original adjudicator to confirm any change to their marks. Both remain reviewable by the owner.
