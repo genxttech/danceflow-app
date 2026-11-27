@@ -6,7 +6,7 @@ Generated from p1run6 with the results of the targeted rerun p1run7 laid over it
 
 (a) passes on B as the original; (b) passes on B only as a labelled copy (adapted copy, _with_s6 variant or AUTOSEED); (c) also fails on base; (d) on C the first refusal is a named pilot restriction: the guard is **untested** on C, not a pass, acceptable only when backed by (a) or (b); (e) unexplained or a defect. "not run" = a script that passed on C, so it was never run on B.
 
-Counts: race B a = 2; race B b = 13; race B c = 4; race B e = 2; race B expected = 1; race C d UNBACKED = 3; race C d backed a = 1; race C d backed b = 11; race C d backed b (the with_s6 copy is the one for this chain) = 1; race C e = 4; race C pass (copy) = 2; suite B a = 16; suite B b = 22; suite B c = 3; suite B e = 3; suite B expected = 1; suite C d UNBACKED = 6; suite C d backed a = 13; suite C d backed b = 19; suite C e = 1; suite C pass (copy) = 6.
+Counts: race B a = 2; race B b = 13; race B c = 4; race B e = 2; race B expected = 1; race C d UNBACKED = 3; race C d backed a = 1; race C d backed b = 11; race C d backed b (the with_s6 copy is the one for this chain) = 1; race C e = 4; race C pass (copy) = 2; suite B a = 16; suite B b = 22; suite B c = 3; suite B e = 3; suite B expected = 1; suite C d UNBACKED = 6; suite C d backed a = 13; suite C d backed b = 19; suite C e = 1; suite C pass (copy) = 6. Counts are as generated, before cf1_od17_enforcement was moved from C (e) to (d) by hand.
 
 ### SQL suites
 
@@ -26,7 +26,7 @@ Counts: race B a = 2; race B b = 13; race B c = 4; race B e = 2; race B expected
 | cf1_callback_final_advancement | pass | b | d, backed b | B: passes as cf1_callback_final_advancement_with_r15; C: COMP_P1_FINAL_ONLY |  |
 | cf1_callback_final_advancement_with_r15 | - | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |
 | cf1_f3_publication | pass | a | d, backed a | C: compp1_one_round_per_division |  |
-| cf1_od17_enforcement | pass | b | e | C: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_OD17_REFUND_GATE | OD-31 (restriction chain) and R-15 |
+| cf1_od17_enforcement | pass | b | d (by reading, OD-31), backed b | C: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_OD17_REFUND_GATE; S09/M3d replica-mode advancement insert refused by always-enabled zz_compp1_advancement (read, not in the log) | |
 | cf1_rb3_refund_evidence | pass | e | d, UNBACKED | B: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_R15_ENTRY_NOT_CLEARED; C: COMP_P1_FINAL_ONLY | R-15: source places an ineligible couple (refused by design); failing, unadapted; copy awaits go-ahead |
 | cf1_rb3r_reconciliation | pass | b | pass (copy) | B: passes as cf1_rb3r_reconciliation_with_r15; C: COMPETITION CF1 RB3R SQL SUITE FAIL: RB3R F15 failed / canceled refunds only (reversed) ->; passes as cf1_rb3r_reconciliation_with_r15 |  |
 | cf1_u66_recovery | pass | b | d, backed b | C: COMP_P1_FINAL_ONLY |  |

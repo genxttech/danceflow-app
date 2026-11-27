@@ -46,7 +46,7 @@ All seven behaved as R-15 stated on B (a5_exclusion, with_s6 race, rb3r suite an
 ### Still open
 
 - `cf1_a1_helpers` (844's version, blob `5f5dd420`), `cf1_rb3_refund_evidence`: **still failing as the source suites, no adaptation**. `COMP_R15_ENTRY_NOT_CLEARED`, reason `entry_ineligible`, entry `…cf1a10008004` into heat `…cf1a1000d201`: the fixtures place an ineligible couple directly into a heat, which 866 refuses by design and its test fixture never clears (not a fixture defect, per R-15). Labelled copies await the coordinator's go-ahead (R-15).
-- `cf1_od17_enforcement` on C: after AUTOSEED, checks S09 and M3d on the advancement-insert refund gate fail; no restriction code in the log (OD-31 reads it as the 866 clearance gate; not confirmed) (OD-31, R-15).
+- `cf1_od17_enforcement` on C: checks S09 and M3d (after AUTOSEED) insert into `event_competition_round_advancements` in replica mode and expect success; the restriction's `zz_compp1_advancement` trigger is always enabled and refuses the insert (OD-31's reason; checked by reading the suite and the C catalog, the probe prints no code). Treated as **unreachable in the pilot**: the refund gate is shown on B only, in the AUTOSEED rerun (59 checks), never on C.
 - `o1_concurrency` on C (OD-31 written reason, not verified) and `od31_guarded_baseline_negative` (OD-31 written reason; no copy).
 - Unassigned: `cf1_a3_locks`, `e2_marks_txn`, `cf1_a4_concurrency`, `e2_submit_vs_lock`, `f2_races`, `ns1_races`, and the missing competition template behind `phase10a` / `phase10b`.
 - Second-contest residual, application end-to-end workflow, production-build browser run and flag-off smoke.
