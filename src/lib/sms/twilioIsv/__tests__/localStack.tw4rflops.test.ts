@@ -400,7 +400,9 @@ commit;`);
       const never = JSON.parse(psql(`begin; set local session_replication_role = replica; truncate public.studio_sms_rfl_runs; set local session_replication_role = origin;
         select public.tw4_rfl_health('${P}')::text; rollback;`)) as Record<string, unknown>;
       expect(never).toMatchObject({ scan_switch: false, delivery_switch: false, last_run_at: null, last_success_at: null, last_status: null, stale: true, runs_failed_24h: 0 });
-      expect(Object.keys(never).sort()).toEqual(["alerts_exhausted", "alerts_failed", "alerts_pending", "delivery_switch", "last_run_at", "last_status", "last_success_at", "oldest_pending_alert_age_seconds",
+      // 20270223090000 adds exactly one count (listed locations with no legal business) when it is applied
+      const fx = psql("select to_regprocedure('public._tw4fx_unattributed_locations()') is not null") === "t";
+      expect(Object.keys(never).sort()).toEqual(["alerts_exhausted", "alerts_failed", "alerts_pending", "delivery_switch", ...(fx ? ["exposure_unattributed_locations"] : []), "last_run_at", "last_status", "last_success_at", "oldest_pending_alert_age_seconds",
         "open_cancel_operations", "open_exposure_count", "runs_failed_24h", "scan_switch", "stale"]);
       setSwitch("scan", true);
       const run = call<{ run_id: string }>("tw4_rfl_scan_begin", "ops-runner", 600);
@@ -1290,7 +1292,9 @@ commit;`);
         expect(dbMd5(n), n).toBe(md5(prosrcOf(evid && n === "tw4_rfl_pilot_cover" ? evidtext : d5replaced ? d5text : replaced ? integration : prev, n)));
       }
       for (const n of ["tw4_rfl_alerts_claim", "tw4_rfl_scan_entity", "tw4_rfl_exposure_dispose", "tw4_rfl_cancel_authorize", "tw4_rfl_admin_overview"]) {
-        expect(dbMd5(n), n).toBe(md5(prosrcOf(ops, n)));
+        // 20270223 (funding-exposure alerts) replaces tw4_rfl_alerts_claim once more (grace warnings sort last): on a database that carries it the body must match THAT text
+        const fx = n === "tw4_rfl_alerts_claim" && psql("select to_regprocedure('public._tw4fx_exposure_rows()') is not null") === "t";
+        expect(dbMd5(n), n).toBe(md5(prosrcOf(fx ? readFileSync(join(dir, "20270223090000_twilio_funding_exposure_alerts.sql"), "utf8") : ops, n)));
         expect(dbMd5(n), n).not.toBe(md5(prosrcOf(prev, n)));
       }
     });

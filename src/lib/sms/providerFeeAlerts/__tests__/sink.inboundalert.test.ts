@@ -90,7 +90,7 @@ describe("the new alert kinds", () => {
 describe("the scheduled pass runs the check in the existing scan", () => {
   const ops = () => ({ scanBegin: vi.fn(async () => ({ ran: true, reason: null, runId: "r1" })), scanFinish: vi.fn(async () => true), escalateDelivery: vi.fn(async () => 0), releaseAlert: vi.fn(async () => true) });
   const store = (inboundAllowanceCheck: () => Promise<number>) =>
-    ({ scanEntities: async () => [], scanEntity: vi.fn(), inboundAllowanceCheck, inventoryGaps: async () => 0, claimAlerts: async () => [], finishAlert: async () => true }) as unknown as ProviderFeeLifecycleStore;
+    ({ scanEntities: async () => [], scanEntity: vi.fn(), inboundAllowanceCheck, fundingExposureCheck: async () => ({ alerts: 0, unattributed: 0 }), inventoryGaps: async () => 0, claimAlerts: async () => [], finishAlert: async () => true }) as unknown as ProviderFeeLifecycleStore;
 
   it("counts the new alerts, runs before escalation, and still runs when delivery is off (no sink)", async () => {
     const order: string[] = [];
