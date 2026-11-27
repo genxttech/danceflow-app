@@ -62,7 +62,8 @@ The composed runner of the PR 863 session, restricted by `run-p1-focused.sh` to 
 | Phase 10D.1: released suite without this migration; adapted `_with_p1` copy with it | PASS (22) both |
 | Phase 10D.1 released suite with this migration | FAIL on its trigger allow-list, as expected |
 | Status guard suite (877), chain without this migration, adapted copy | PASS (127) |
-| Status guard suite, chain with this migration | FAIL at setup, as expected; the `_with_p1` copy was added after this run and is **unexecuted** |
+| Status guard suite, chain with this migration | FAIL at setup, as expected; the `_with_p1` copy was added after this run (see below) |
+| Status guard `_with_p1` copy, composed run p1run7 of the PR 863 session (this PR at `6ef4e4e9f`) | PASS (127 checks) with this migration, and again after rollback and re-apply; the P1 suite PASS (159) there too |
 
 Not covered: concurrency scripts, the route probe, application tests, hosted databases, the busy refusals, advancement, the publication sanction guard, the removal backstop, the refund path, the started-heat addition branch and the one-published-order index.
 
