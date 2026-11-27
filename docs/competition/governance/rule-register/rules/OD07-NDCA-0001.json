@@ -1,0 +1,28 @@
+{
+  "id": "OD07-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, score sheet retention and evaluation errors",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.E item 2, V.B.4, IV.C chairman duties items 5-7 (PDF pp.32, 38, 34)",
+    "quote_free_summary": "Original adjudicator score sheets are retained 30 days for a discrepancy in the scrutineers' final markings; markings are final unless incorrectly evaluated; the chairman checks transcription and refers cards needing correction to the adjudicator."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Original ballots are never altered or auto-deleted; any NDCA correction co-signer mapping to the DanceFlow chair role is not assumed and not equal to WSDC Chief Judge.",
+  "implementation": [],
+  "enforcement_point": "Planned (design only, docs/competition/governance/corrections/OD-07-post-completion-corrections-design.md). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Role mapping is audit row J-01 (OD-06/OD-15); page citations here are PDF page indexes, not printed footer numbers. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-07 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
