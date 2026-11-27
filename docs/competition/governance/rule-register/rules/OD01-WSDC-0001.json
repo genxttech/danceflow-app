@@ -1,0 +1,31 @@
+{
+  "id": "OD01-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Jack and Jill contests at a Registry Event (scoring)",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "Registry Event Rules 3.4.9 (p.20)",
+    "quote_free_summary": "All WSDC Jack and Jill contests must use the WSDC-approved Callback system for preliminaries and the Relative Placement scoring system for finals, calculated by a computerized system (3.4.9.b)."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Results of an event that declares WSDC may be approved or published only through a scoring method verified for WSDC. None exists: wsdc_relative_placement is unavailable with no authoritative algorithm source, and the Studio callback tally is not the WSDC Callback system. Declared WSDC events are blocked at approve and publish.",
+  "implementation": [
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "evaluateSanctionScoringGuard" },
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "guardRoundResultsForSanction" },
+    { "path": "src/app/app/events/[id]/competition/results/actions.ts", "symbol_or_migration": "approveRoundResultAction, publishRoundResultAction" }
+  ],
+  "enforcement_point": "Server actions approveRoundResultAction and publishRoundResultAction call guardRoundResultsForSanction before the database transition and refuse when blocked; the round results page and publicationControls mirror the refusal. App layer only: the database RPCs do not check the declaration (follow-up, needs SQL).",
+  "tests": [
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 guard: every body x method x declaration combination" },
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 server actions" }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Relative Placement is defined on the WSDC website, not in the supplied rules: UNRESOLVED until independently verified. The WSDC-approved Callback standard (Appendix) and computerized-system requirements are not verified against the Studio callback tally. effective_from is the file-name revision date (Jan 17 2026), not a stated effective date. Not verified_compliant. The 3.4.9.f exception never applies to Jack and Jill contests.",
+  "applicable_event_versions": ["Version 2026.1C (page footers; the file name says 2026.1B)"],
+  "decision_refs": ["OD-01 (owner decision 2026-11-23, BLOCK, Option C; retrospective audit PR #795)"],
+  "last_reviewed": "2026-11-23"
+}
