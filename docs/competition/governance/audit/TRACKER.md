@@ -18,3 +18,15 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded: OD-22
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-22 | **Option B for initial Studio/Custom:** a published result may be temporarily hidden during an authorized correction (K0 wording confirmed; never deletion; completed rounds need OD-07 controlled correction; corrected result = new linked version). **Option A for future WSDC support;** UCWDC correction-authority restrictions. | 2026-11-23 | Docs only: [OD-22 record](../publication/OD-22-published-result-visibility-and-corrections.md); register OD22-*; K0 section 4 wording updated. | **"Under review" entrant presentation: design only, NOT IMPLEMENTED.** WSDC 3.1.9 30-day access and corrected-result posting NOT IMPLEMENTED (interim removal not addressed by the text; needs independent verification). NDCA III.D.17 scrutineer-sheet publication NOT IMPLEMENTED. UCWDC II.N.1/II.N.3: manager reversal of official decisions to be prohibited; NOT IMPLEMENTED. Each is a profile-activation blocker. OD-01 (PR 832) preserved. |
+
+## Owner decisions recorded: OD-23
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-23 | **Option B for initial Studio/Custom** (placement-only publication; entrants default, public by explicit choice; judge names hidden publicly; disclosure that Studio reports are not body-certified analyses, scrutineer sheets or awards reports). **Option A required for future body profiles.** | 2026-11-23 | Docs only: [OD-23 record](../publication/OD-23-result-reports-and-judge-visibility.md); register OD23-*. | **NDCA scrutineer sheets (III.D.17; III.D.16 distinction unresolved), UCWDC DSA / judge names in raw-score columns / awards report, WSDC score report and event-level judge anonymity: all NOT IMPLEMENTED, each a profile-activation blocker.** No global judge-identity policy. External reports are not an automatic compliance bypass. OD-24 placeholder. OD-01 (PR 832) preserved. |

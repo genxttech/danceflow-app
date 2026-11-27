@@ -1,0 +1,33 @@
+{
+  "id": "OD22-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, publication of scrutineer sheets",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.17 (p.21)",
+    "quote_free_summary": "Digital copies of the scrutineer sheets must be made publicly accessible online, uploaded at least after each day of competition, and posted only for events that have been completed and results announced."
+  },
+  "rule_class": "mandatory",
+  "requirement": "An NDCA profile must make digital scrutineer sheets publicly accessible after each competition day, only for completed events with results announced. DanceFlow's reading (not in III.D.17): confidentiality (OD-10) and finalization requirements also apply.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "III.D.17 says digital copies 'shall be made publicly accessible', uploaded 'following the conclusion of each day', and posted 'only for events that been completed and results announced' (the source's own wording). The text does not define 'scrutineer sheets' (see OD23-NDCA-0001 for the distinction from original marking sheets) and does not address a correction after posting. Interaction with OD-10 confidentiality and OD-07 corrections is unresolved.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-22 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A for future WSDC support, with UCWDC correction-authority restrictions; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-22-published-result-visibility-and-corrections.md",
+    "OD-04 (PR 844)",
+    "OD-07 (PR 838)",
+    "OD-10 (PR 842)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,33 @@
+{
+  "id": "OD23-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, score reports and judge anonymity",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.1 item 9 (p.12)",
+    "quote_free_summary": "Results include contest rounds, placements and score reports; judges may be listed anonymously (Judge 1, Judge 2, etc.) on the score report at the Event Director / Owner / Chief Judge's discretion."
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "A WSDC profile must treat judge anonymity on the score report as an authorized EVENT-LEVEL choice by the Event Director, Owner or Chief Judge, recorded with who chose and when; it is not a DanceFlow global setting.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Which of the three roles decides when they disagree is not stated; the event-level role designations come from OD-06 (PR 834). The 30-day access and correction duties are in OD22-WSDC-0001.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-23 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A required for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-23-result-reports-and-judge-visibility.md",
+    "OD-22",
+    "OD-10 (PR 842)",
+    "OD-24 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

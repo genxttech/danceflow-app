@@ -1,0 +1,42 @@
+{
+  "id": "OD23-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: placement-only publication and visibility defaults",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: Studio/Custom results show placements (and rating bands where the method has them) only; visibility defaults to 'entrants' and becomes 'public' only by explicit organizer choice at publication; public results hide judge names and letters (owner decision O3, 2026-10-24); published results always reach entrants' portals (P10); unpublished results are readable by result managers (P5; the reader matrix also lists the scorer role, to be verified); public readers also require a published, public event. Preserved by OD-23 Option B for initial activation.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270122090000_competition_f3_publication.sql",
+      "symbol_or_migration": "public.publish_competition_round_result, public.competition_my_results, public.competition_round_results_public"
+    },
+    {
+      "path": "src/lib/competition/results/viewer.ts",
+      "symbol_or_migration": "viewer payload parsing"
+    },
+    {
+      "path": "src/lib/competition/results/publication.ts",
+      "symbol_or_migration": "publication helpers"
+    },
+    {
+      "path": "src/lib/competition/results/contract.ts",
+      "symbol_or_migration": "RESULT_READER_MATRIX"
+    }
+  ],
+  "enforcement_point": "F3 publish_competition_round_result (visibility default), competition_my_results, competition_round_results_public, viewer.ts, publication.ts, RESULT_READER_MATRIX (contract.ts).",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Approved behavior documented in the K0 contract (O3, P5, P10) and implemented in F3; policy label and the report disclosure (OD-23 record section 2) do not exist on any surface yet. Not any body's rule.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-23 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A required for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-23-result-reports-and-judge-visibility.md",
+    "OD-22",
+    "OD-10 (PR 842)",
+    "OD-24 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

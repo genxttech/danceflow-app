@@ -1,0 +1,33 @@
+{
+  "id": "OD22-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples, finality of judging decisions",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.N.1 (p.13)",
+    "quote_free_summary": "All decisions of the contest judges, the Contest Coordinator and the Event Director are final."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A UCWDC profile must PROHIBIT unilateral manager reversal of published official judging decisions; DanceFlow must not offer a manager override of a judging decision.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "'Final' is not defined for clerical or computational errors in the text read. Clerical or computational corrections (the scoring software mis-tabulating recorded marks) must be distinguished from challenges to judging decisions. No UCWDC authority to correct published results is invented; where the sources are silent, any correction authority would be DanceFlow or organizer policy, labelled so.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-22 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A for future WSDC support, with UCWDC correction-authority restrictions; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-22-published-result-visibility-and-corrections.md",
+    "OD-04 (PR 844)",
+    "OD-07 (PR 838)",
+    "OD-10 (PR 842)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,33 @@
+{
+  "id": "OD23-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, Divisional Scoring Analysis access",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Scoring-system paragraphs, Divisional Scoring Analysis (p.8)",
+    "quote_free_summary": "The Divisional Scoring Analysis (DSA) must be available to contestants for divisions they dance, adjudicators for divisions they judge, Contest Coordinators for divisions they coordinate, and to named UCWDC officers for all events."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A UCWDC profile must produce the DSA from authorized scoring records and make it available to the listed roles.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. A PROFILE-ACTIVATION BLOCKER for the named body. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI, report generation.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The DSA format is 'approved' by UCWDC and not supplied in the provided sources; DanceFlow cannot claim an equivalent report. Access by contestants versus judge-name visibility interacts with OD23-UCWDC-0002. No UCWDC-authorized scoring-system designation exists in DanceFlow.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-23 (owner decision 2026-11-23: Option B for initial Studio/Custom; Option A required for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/publication/OD-23-result-reports-and-judge-visibility.md",
+    "OD-22",
+    "OD-10 (PR 842)",
+    "OD-24 (placeholder)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
