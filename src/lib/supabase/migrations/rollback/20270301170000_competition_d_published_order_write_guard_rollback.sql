@@ -66,13 +66,13 @@ begin
   end if;
 end $$;
 
-drop trigger if exists aa_compd_lock_heat on public.event_competition_heats;
-drop trigger if exists aa_compd_lock_heat_entry on public.event_competition_heat_entries;
-drop trigger if exists aa_compd_lock_heat_dance on public.event_competition_heat_dances;
-drop trigger if exists aa_compd_lock_floor_heat on public.event_competition_floor_heats;
-drop trigger if exists aa_compd_lock_session on public.event_competition_schedule_sessions;
-drop trigger if exists aa_compd_lock_block on public.event_competition_schedule_blocks;
-drop trigger if exists aa_compd_lock_block_contest on public.event_competition_schedule_block_contests;
+drop trigger if exists cf1_compd_lock_heat on public.event_competition_heats;
+drop trigger if exists cf1_compd_lock_heat_entry on public.event_competition_heat_entries;
+drop trigger if exists cf1_compd_lock_heat_dance on public.event_competition_heat_dances;
+drop trigger if exists cf1_compd_lock_floor_heat on public.event_competition_floor_heats;
+drop trigger if exists cf1_compd_lock_session on public.event_competition_schedule_sessions;
+drop trigger if exists cf1_compd_lock_block on public.event_competition_schedule_blocks;
+drop trigger if exists cf1_compd_lock_block_contest on public.event_competition_schedule_block_contests;
 drop function if exists public.compd_lock_draft_order();
 do $$
 begin
