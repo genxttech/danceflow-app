@@ -52,6 +52,19 @@ create trigger r15_guard_entry_eligibility_write
   for each row execute function public.r15_guard_entry_eligibility_write();
 
 alter table public.event_competition_entries enable always trigger r15_guard_entry_eligibility_write;
+
+-- Record which client roles hold a DIRECT TRIGGER grant now, so the rollback restores exactly those and nothing else.
+do $$
+declare
+  v_prior text;
+begin
+  select coalesce(string_agg(r.rolname, ',' order by r.rolname), '') into v_prior
+  from pg_class c
+  cross join lateral aclexplode(c.relacl) a
+  join pg_roles r on r.oid = a.grantee
+  where c.oid = 'public.event_competition_entries'::regclass and a.privilege_type = 'TRIGGER' and r.rolname in ('anon', 'authenticated');
+  execute format('comment on function public.r15_guard_entry_eligibility_write() is %L', 'R15-PRIOR-TRIGGER-GRANTEES:' || v_prior);
+end $$;
 revoke trigger on public.event_competition_entries from anon, authenticated;
 
 do $$

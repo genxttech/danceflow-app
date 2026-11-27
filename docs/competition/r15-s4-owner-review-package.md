@@ -138,6 +138,13 @@ Executed: apply, rollback and re-apply 8 of 8; the S5, R-11, R-10 S3 and R-15 su
 
 **Review of this change:** independent static review of the seeding commit: two findings (the runner dependency and the pre-existing R2 refunds failure above); no other problem found.
 
+## P1 composed run (2026-11-27, 866 `3b65f63d`; record `od02-s5-p1-run-record.md`): S4 items
+
+- **Rollback exactness (fixed, not re-run on the chain):** the write guard now records the direct client TRIGGER grants it revokes and the rollback grants exactly those back, refusing if the record is missing. The other two catalog differences belong to PR 877 and PR 864.
+- **Suites stopping at `COMP_R15_ENTRY_NOT_CLEARED`:** the gate is correct in each (couples seeded eligible with no determination). One shared test fixture, `sql-tests/fixtures/r15_clearance_autoseed.sql`, installs on a disposable database (`set r15.install_test_autoseed = on;` after the migrations) and records clearance through the audited function when a suite writes participants or placements for eligible or waived entries; unplaced entries use `select r15_testfixture.clear_all();`. Suites that test eligibility itself (R-15, S5, OD-31 negative) must not have it. Results obtained with it are labelled and prove the scenario for cleared couples only.
+- **The other two stops:** `d_published_order_write_guard` (`COMP_R15_PROVISIONAL_ASSIGNMENT`) is a correct refusal covered by the same fixture. `phase10a` (`COMP_R15_ELIGIBILITY_WRITE_REFUSED`) is a correct refusal of a direct eligibility write: that suite must record the decision through the function (its owner's change; the fixture does not help). **No stop was found to be a guard defect.**
+- **Executed:** stand-in tables only (in-process PostgreSQL): rollback exactness for three prior grant states, refusal without the record, and the fixture (37 of 37). The composed chain, suites and race scripts are PENDING.
+
 ## Known gaps
 
 App changes above; suites not yet adapted; D-R15-4 (authorization semantics), D-R15-5 (waiver categories), whether early ballot-mark refusal is wanted (lock-time refusal is mandatory and present); division label / participant edits during a running round make a determination stale (recoverable by re-determination, not frozen). The blocker stays OPEN until the integrated release candidate passes end-to-end verification (register entry `DFPOL-R15-ELIGIBILITY-ENFORCEMENT`).
