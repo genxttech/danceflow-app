@@ -182,7 +182,7 @@ if [ "$COMPOSE_ONLY" = 1 ]; then echo COMPOSED > "$OUT/result.txt"; exit 0; fi
 
 # ---------------------------------------------------------------- 3. database
 export MSYS_NO_PATHCONV=1
-wait_db(){ for i in $(seq 1 90); do docker exec -e PGPASSWORD=postgres "$1" psql -U supabase_admin -h localhost -d postgres -Atc 'select 1' >/dev/null 2>&1 && return 0; sleep 2; done; return 1; }
+wait_db(){ for i in $(seq 1 90); do docker exec -e PGPASSWORD=postgres "$1" psql -U supabase_admin -d postgres -Atc 'select 1' >/dev/null 2>&1 && return 0; sleep 2; done; return 1; }
 start_db(){ docker run -d --pull=never --name "$1" --label "df.p1int=$RUN_ID" --network none -e POSTGRES_PASSWORD=postgres "$2" >/dev/null && wait_db "$1"; }
 start_db "$NAME" "$IMAGE" || blocked "database not ready"
 PSQL=(docker exec -i -e PGPASSWORD=postgres "$NAME" psql -U supabase_admin -d postgres -X -q -v ON_ERROR_STOP=1)
