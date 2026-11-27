@@ -68,8 +68,8 @@ describe("R-15 (S4) migration order and rollback safety", () => {
   });
 
   it("the write guard rollback restores exactly the recorded client TRIGGER grants and refuses to guess", () => {
-    expect(read()).toContain("R15-PRIOR-TRIGGER-GRANTEES:");
-    const rb = read();
+    expect(read(`${GUARD}.sql`)).toContain("R15-PRIOR-TRIGGER-GRANTEES:");
+    const rb = read(`rollback/${GUARD}_rollback.sql`);
     expect(rb).toContain("grant trigger on public.event_competition_entries to %I");
     expect(rb).toMatch(/refused: the prior TRIGGER grantees were not recorded/);
   });
@@ -79,9 +79,9 @@ describe("R-15 (S4) migration order and rollback safety", () => {
     expect(sql).toContain("r15.install_test_autoseed");
     expect(sql).toContain("public.set_competition_entry_eligibility(");
     expect(sql).toContain("eligibility_status not in ('eligible', 'waived')");
-    expect(sql).not.toMatch(/inserts+intos+public.event_competition_eligibility_determinations/i);
-    expect(sql).not.toMatch(/disables+trigger|drops+trigger|creates+ors+replaces+functions+public./i);
-    expect(sql).not.toMatch(/sets+eligibility_status/i);
+    expect(sql).not.toMatch(/insert\s+into\s+public\.event_competition_eligibility_determinations/i);
+    expect(sql).not.toMatch(/disable\s+trigger|drop\s+trigger|create\s+or\s+replace\s+function\s+public\./i);
+    expect(sql).not.toMatch(/set\s+eligibility_status/i);
   });
 
   it("no migration of this slice converts or deletes existing rows", () => {
