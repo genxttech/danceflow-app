@@ -32,6 +32,14 @@ export function parseAuthLink(url: string): AuthLinkParams {
   }
 }
 
+/** An emailed link this phone did not ask for, or one for a different address than the one it asked for. */
+export class LinkNotRequestedError extends Error {
+  constructor() {
+    super("This sign-in link was not requested on this device.");
+    this.name = "LinkNotRequestedError";
+  }
+}
+
 /** A link without a type is a magic link (the web bridge page defaults it the same way); null means refuse. */
 export function resolveEmailOtpType(type: string | null): EmailOtpType | null {
   if (!type) return "magiclink";
