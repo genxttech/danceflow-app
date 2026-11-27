@@ -7,8 +7,8 @@ Status: **PREPARED, NOT EXECUTED.** Written 2026-11-27 against the release line 
 | # | Precondition | State on 2026-11-27 |
 | --- | --- | --- |
 | 1 | A composed database candidate passes (base + corrections + restriction) | **not met:** the run of record does not show release readiness |
-| 2 | One integration app branch holding the app parts of PRs 835, 837, 846, the eligibility wiring for 866, 925, 865 messages, 878 and restriction messages | **not built** |
-| 3 | A full local stack (auth, REST, database) whose database container is named `supabase_db_cf1c-qa`, loaded with that composed chain, with a mail catcher | **not provisioned**; the harness refuses any other container name |
+| 2 | One integration app branch holding the app parts of PRs 835, 837, 846, the eligibility wiring for 866, 925, 865 messages, 878 and restriction messages | **not built; no owner assigned** |
+| 3 | A full local stack (auth, REST, database) whose database container is named `supabase_db_cf1c-qa`, loaded with that composed chain, with a mail catcher | **not provisioned; no owner assigned**; the harness refuses any other container name |
 | 4 | The heavy lock (`C:\dfr\HEAVY_LOCK_RULES.md`): a local stack and `next build` are heavy | per run |
 
 Use a **disposable** stack and reset it afterwards: the composed chain refuses deleting events that hold scoring evidence, so fixture cleanup can fail by design.
@@ -43,6 +43,8 @@ npx playwright test -c e2e/playwright.p1.config.ts --project=walkthrough
 
 Set `E2E_LOCAL_MAILBOX_URL` if the mail catcher is not at the helper's default.
 
+`E2E_P1_ELIGIBILITY_SHORTCUT="true"` (optional): while no organizer eligibility screen exists, P1-04 records the determinations through the manager's own session so later steps can run. P1-04 is then reported **BLOCKED** with a setup-shortcut note, and the run is not an end-to-end pass.
+
 ## Flag-off smoke (separate build)
 
 Stop the server, remove the three Competition variables, run `npm run build` and `npx next start -p 3100` again, then set `E2E_P1_FLAG_OFF="true"` and run `--project=flag-off`. The `NEXT_PUBLIC_` value is inlined at build time, so the walkthrough build cannot be reused.
@@ -66,4 +68,4 @@ A BLOCKED step is skipped with the missing dependency named, and later steps do 
 
 ## Not covered
 
-Paid checkout and refunds; running-order replacement or cancellation after the start; a second round, heat or division added after judging; paper ballots; a one-couple final; an official-body-declared event (832); frozen names after publication; hosted environments. Several selectors for unmerged parts are unverified and will need adjustment on the first run. The Scratch page and its Registrations link are not behind a Competition flag, so the flag-off smoke does not assert their absence.
+Direct refusals for callbacks, paper ballots and other disabled operations beyond those named above; entrant (non-public) publication view and entry numbers; other-studio and anonymous refusal at every step (only the scratch and results paths); judge pages used for ballot submission are not watched for console errors; server-side finals actions with flags off; a database check for entry-number stability. Paid checkout and refunds; running-order replacement or cancellation after the start; a second round, heat or division added after judging; paper ballots; a one-couple final; an official-body-declared event (832); frozen names after publication; hosted environments. Several selectors for unmerged parts are unverified and will need adjustment on the first run. The Scratch page and its Registrations link are not behind a Competition flag, so the flag-off smoke does not assert their absence.

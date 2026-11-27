@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { test, expect, type Page, type TestInfo } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { loadE2EConfig, type E2EConfig } from "@/lib/e2e/config";
-import { verifyEmailAndBindPassword } from "../helpers/competitionFullEvent";
+import { createCompetitionEvent, verifyEmailAndBindPassword, type CreatedEvent } from "../helpers/competitionFullEvent";
+import { chooseCountryCouples, continueButton, createDraft, startCompetition, wizardStep } from "../helpers/competitionWizard";
 import {
   anonymousPage,
   cleanupScheduleAcceptanceFixture,
@@ -11,7 +12,6 @@ import {
   readEntries,
   readHeatEvidence,
   readResultState,
-  readScratchAudit,
   scenarioStatus,
   signedIn,
   stepShots,
@@ -23,7 +23,6 @@ import {
   buildPanel,
   couple,
   coupleName,
-  createDraftEvent,
   generateAndPublish,
   judgeBallotUrl,
   lockBallots,
@@ -51,7 +50,28 @@ const ACCOUNT = "acct_p1walkthrough"; // fake id: every order in this run is $0,
 const COUPLES = 4;
 const SCRATCHED = 3; // index of the couple scratched before the start
 const ADULT_DOB = "1990-01-15";
+const ELIGIBILITY_SHORTCUT = process.env.E2E_P1_ELIGIBILITY_SHORTCUT === "true";
 const MINOR_DOB = `${new Date().getUTCFullYear() - 12}-01-15`;
+
+/** cf1Acceptance.createDraftEvent with Free pricing: the wizard refuses a "Per entry" price of 0. */
+async function createFreeDraftEvent(config: E2EConfig, page: Page, name: string, date: string): Promise<CreatedEvent> {
+  const event = await createCompetitionEvent(page, config, { name, startDate: date, endDate: date });
+  await startCompetition(page, "Country");
+  await chooseCountryCouples(page);
+  const step = wizardStep(page);
+  const next = async (heading: string) => {
+    await continueButton(page).click();
+    await expect(wizardStep(page).getByRole("heading", { level: 3 }).first()).toHaveText(heading);
+  };
+  await step.getByRole("checkbox", { name: "Competitors need a DanceFlow account to enter the competition" }).setChecked(false);
+  await next("Pricing");
+  await step.getByRole("button", { name: "Free", exact: true }).first().click();
+  await next("Event details & presentation");
+  await step.getByRole("textbox", { name: /^Short summary/ }).fill("P1 restricted pilot walkthrough.");
+  await next("Review");
+  await createDraft(page, event.id);
+  return event;
+}
 
 test.describe.configure({ mode: "serial", timeout: 900_000 });
 
@@ -96,6 +116,11 @@ test.describe("P1 restricted pilot walkthrough", () => {
     page.on("console", (message) => {
       if (message.type() === "error") problems.push(`console ${new URL(page.url()).pathname}: ${message.text().slice(0, 200)}`);
     });
+    page.on("pageerror", (error) => problems.push(`page error ${new URL(page.url()).pathname}: ${error.message.slice(0, 200)}`));
+    page.on("requestfailed", (request) => {
+      const reason = request.failure()?.errorText ?? "";
+      if (!/ERR_ABORTED/.test(reason)) problems.push(`request failed ${new URL(request.url()).pathname}: ${reason}`);
+    });
     page.on("response", (response) => {
       if (response.status() >= 500) problems.push(`HTTP ${response.status()} ${new URL(response.url()).pathname}`);
     });
@@ -121,12 +146,25 @@ test.describe("P1 restricted pilot walkthrough", () => {
     return error?.message ?? null;
   }
 
+  /** Any database function called with a signed-in user's own session (never the service role). */
+  async function rpcAs(account: { email: string; password: string }, name: string, args: Record<string, unknown>) {
+    const client = createClient(config.supabaseUrl, ANON_KEY, { auth: { persistSession: false } });
+    const { error: signInError } = await client.auth.signInWithPassword({ email: account.email, password: account.password });
+    if (signInError) throw new Error(`sign-in for the direct request failed: ${signInError.message}`);
+    const { error } = await client.rpc(name, args);
+    return error?.message ?? null;
+  }
+
   test("P1-00 candidate: the composed database parts are installed", async ({}, testInfo) => {
     const parts = psqlJson<Record<string, boolean>>(`select json_build_object(
       's6_lifecycle_definer', (select prosecdef from pg_proc where oid = to_regprocedure('public.change_competition_entry_lifecycle(uuid,text,text,text)')),
       's4_clearance_gate', to_regprocedure('public.r15_guard_heat_entry_clearance()') is not null,
       's5_age_guard', exists (select 1 from pg_trigger where tgname = 'event_competition_entry_participants_s5_age_guard'),
       'u18s_scratch_guard', exists (select 1 from pg_trigger where tgname = 'cf1_u18s_guard_heat_entry_scratch'),
+      'od04_delete_guard', exists (select 1 from pg_trigger where tgname = 'a00_compod04_events_delete_guard'),
+      'r10_panel_guard', exists (select 1 from pg_trigger where tgname = 'compr10_guard_round_panel_config'),
+      'r11_approval_scope', exists (select 1 from pg_proc where prosrc like '%COMP_CORRECTION_APPROVER_REQUIRED%'),
+      'od_published_order_guard', exists (select 1 from pg_trigger where tgname = 'zz_compd_guard_published_heat'),
       'p1_restriction', exists (select 1 from pg_class where relname like 'compp1\\_%') or exists (select 1 from pg_trigger where tgname like '%compp1%'))`);
     testInfo.annotations.push({ type: "evidence", description: JSON.stringify(parts) });
     const absent = Object.entries(parts).filter(([, present]) => !present).map(([name]) => name);
@@ -144,18 +182,16 @@ test.describe("P1 restricted pilot walkthrough", () => {
   test("P1-02 setup: a $0 final-only competition; the callback setup is refused; publish and open registration", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = await manager(browser);
-    const event = await createDraftEvent(journey, page, `E2E P1 Pilot ${fixture.runId}`, "2027-06-19");
+    const event = await createFreeDraftEvent(config, page, `E2E P1 Pilot ${fixture.runId}`, "2027-06-19");
     scored = { event, callbackRoundId: "", finalRoundId: "", entries: [], names: [] };
     // Disabled operation: a callback setup. The restriction must refuse it, whatever the screen offers.
     await page.goto(`${base()}/advanced`);
     const studio = page.locator("div").filter({ has: page.getByRole("heading", { name: "Studio scoring · all divisions" }) }).last();
-    const callbacks = studio.getByLabel("Scoring setup").locator("option", { hasText: "Callbacks + Final" });
-    if (await callbacks.count()) {
-      await studio.getByLabel("Scoring setup").selectOption({ label: "Callbacks + Final" });
-      await studio.getByRole("button", { name: "Apply to all divisions" }).click();
-      await page.waitForLoadState("networkidle");
-      await shot(page, "callbacks-refused");
-    }
+    await expect(studio.getByLabel("Scoring setup").locator("option", { hasText: "Callbacks + Final" }), "if the option is gone, assert its absence instead").toHaveCount(1);
+    await studio.getByLabel("Scoring setup").selectOption({ label: "Callbacks + Final" });
+    await studio.getByRole("button", { name: "Apply to all divisions" }).click();
+    await expect(page.getByRole("alert").first(), "the refusal is shown").toBeVisible({ timeout: 60_000 });
+    await shot(page, "callbacks-refused");
     const callbackRounds = psqlJson<number>(`select to_json(count(*)::int) from public.event_competition_rounds where event_id = '${event.id}' and scoring_method = 'callback_tally'`);
     expect(callbackRounds, "no callback round can be configured").toBe(0);
     await applyScoring(page, event.id, "Final only (ordinal majority)");
@@ -178,7 +214,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await page.getByPlaceholder("Last name").fill("Orr");
     await dob.fill(MINOR_DOB);
     await page.getByRole("button", { name: "Add to roster" }).click();
-    await expect(page.getByText(/18 or older/i).first()).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "Competitors must be 18 or older" })).toBeVisible();
     await expect(page.getByText("Min Orr")).toHaveCount(0);
     await shot(page, "minor-refused");
     const couples = Array.from({ length: COUPLES }, (_, n) => couple(n));
@@ -199,7 +235,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
       await expect(list.getByText(`${c.leader.firstName} ${c.leader.lastName} · ${c.follower.firstName} ${c.follower.lastName}`)).toBeVisible();
     }
     const sent = page.waitForRequest((request) => request.url().endsWith("/competition/checkout") && request.method() === "POST");
-    await page.getByRole("button", { name: "Continue to checkout" }).click();
+    await page.getByRole("button", { name: "Submit registration" }).click();
     const body = (await sent).postData() ?? "";
     await page.waitForURL(/\/competition\/register\/status/, { timeout: 90_000 });
     await shot(page, "registered");
@@ -210,16 +246,36 @@ test.describe("P1 restricted pilot walkthrough", () => {
     scored.entries = entries;
     // Direct request: the same cart replayed with one under-18 date of birth must create nothing.
     expect(body, "the captured request carries the dates of birth").toContain(ADULT_DOB);
-    const forged = JSON.parse(body.replace(ADULT_DOB, MINOR_DOB)) as Record<string, unknown>;
-    forged.clientRequestId = randomUUID();
-    const refused = await page.request.post(`/api/events/${scored.event.slug}/competition/checkout`, { data: forged });
-    expect(refused.status(), "under-18 direct request is refused").toBeGreaterThanOrEqual(400);
+    for (const [label, payload, code] of [
+      ["under 18", body.replace(ADULT_DOB, MINOR_DOB), "minors_not_permitted"],
+      ["missing date of birth", body.replace(ADULT_DOB, ""), "age_not_established"],
+    ] as const) {
+      const forged = JSON.parse(payload) as Record<string, unknown>;
+      forged.clientRequestId = randomUUID();
+      const refused = await page.request.post(`/api/events/${scored.event.slug}/competition/checkout`, { data: forged });
+      expect(refused.status(), `${label} direct request`).toBe(422);
+      expect(((await refused.json()) as { code?: string }).code, label).toBe(code);
+    }
     expect((await readEntries(config, scored.event.id)).entries).toHaveLength(COUPLES);
     await page.context().close();
   });
 
   test("P1-04 eligibility: the organizer clears every adult entry through the app (a recorded determination, not a bare field write)", async ({ browser }, testInfo) => {
-    const shot = stepShots(testInfo);
+    // The release line only has a bare eligibility select, which the PR 866 guard refuses: an eligible determination needs criteria and a
+    // reason code. Until the organizer screen exists this step is BLOCKED; rewrite its selectors against that screen.
+    const cleared = () =>
+      psqlJson<number>(`select to_json(count(*)::int) from public.event_competition_entries e where e.event_id = '${scored.event.id}' and e.eligibility_status = 'eligible'
+        and exists (select 1 from public.event_competition_eligibility_determinations d where d.entry_id = e.id)`);
+    if (ELIGIBILITY_SHORTCUT) {
+      // SETUP SHORTCUT (reported as BLOCKED for this step): the recorded determination is made by the manager's own session so later steps can run.
+      for (const entryId of entries) {
+        const criteria = psqlJson<string[]>(`select to_json(public._r15_required_criteria('${entryId}'))`);
+        expect(await rpcAs(fixture.owner as never, "set_competition_entry_eligibility", { p_entry_id: entryId, p_outcome: "eligible", p_reason_code: "criteria_verified_by_organizer", p_criteria: criteria, p_request_id: randomUUID() })).toBeNull();
+      }
+      expect(cleared()).toBe(COUPLES);
+      scenarioStatus(testInfo, "SETUP SHORTCUT", "eligibility recorded by direct request: the organizer screen (app part of PR 866) is not exercised");
+      test.skip(true, "BLOCKED: eligibility screen not exercised (setup shortcut used)");
+    }
     const page = await manager(browser);
     await page.goto(`${base()}/registrations`);
     const selects = page.locator('select[name="eligibilityStatus"]');
@@ -228,13 +284,12 @@ test.describe("P1 restricted pilot walkthrough", () => {
       await page.goto(`${base()}/registrations`);
       const select = page.locator('select[name="eligibilityStatus"]').nth(i);
       await select.selectOption("eligible");
+      const saved = page.waitForResponse((response) => response.request().method() === "POST");
       await select.locator("xpath=ancestor::form[1]").getByRole("button").click();
-      await page.waitForLoadState("networkidle");
+      await saved;
     }
-    await shot(page, "eligibility-saved");
-    const cleared = psqlJson<number>(`select to_json(count(*)::int) from public.event_competition_entries e where e.event_id = '${scored.event.id}' and e.eligibility_status = 'eligible'
-      and exists (select 1 from public.event_competition_eligibility_determinations d where d.entry_id = e.id)`);
-    if (cleared !== COUPLES) block(testInfo, `eligibility determinations recorded for ${cleared} of ${COUPLES} entries: the app wiring for PR 866 is missing or incomplete`);
+    await expect.poll(cleared, { timeout: 30_000 }).toBe(COUPLES).catch(() => undefined);
+    if (cleared() !== COUPLES) block(testInfo, `eligibility determinations recorded for ${cleared()} of ${COUPLES} entries: the app wiring for PR 866 is missing or incomplete`);
     await page.context().close();
   });
 
@@ -252,11 +307,17 @@ test.describe("P1 restricted pilot walkthrough", () => {
 
   test("P1-06 scratch screen before the start: one couple is scratched with a reason; non-managers see nothing", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
-    const judge = watch(await signedIn(browser, fixture.judges[0] as never));
+    // Deliberate refusal: this page is not watched (the browser logs the expected 404 as a console error).
+    const judge = await signedIn(browser, fixture.judges[0] as never);
     expect((await visit(judge, scratchUrl(entries[SCRATCHED]))).status).toBe(404);
     await judge.context().close();
-    expect(await directScratch(fixture.judges[0] as never, entries[SCRATCHED]), "a judge cannot scratch directly").not.toBeNull();
+    expect(await directScratch(fixture.judges[0] as never, entries[SCRATCHED]), "a judge cannot scratch directly").toMatch(/cannot be managed/);
     const page = await manager(browser);
+    // The links must be visible before the start, or their absence afterwards proves nothing.
+    await page.goto(`${base()}/registrations`);
+    await expect(page.getByRole("link", { name: "Scratch entry" })).toHaveCount(COUPLES);
+    await page.goto(`${base()}/day-of`);
+    await expect(page.getByRole("link", { name: "Scratch", exact: true }).first()).toBeVisible();
     await page.goto(scratchUrl(entries[SCRATCHED]));
     await expect(page.getByRole("heading", { name: "Scratch entry", level: 1 })).toBeVisible();
     await page.locator('textarea[name="reason"]').fill("P1 walkthrough: couple withdrew before the start");
@@ -266,7 +327,9 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await expect(page.getByRole("button", { name: "Scratch entry" })).toHaveCount(0);
     expect((await readEntries(config, scored.event.id)).entries.find((e) => e.id === entries[SCRATCHED])?.status).toBe("scratched");
     expect(heatEntryStatuses(entries[SCRATCHED])).toEqual(["scratched"]);
-    expect((await readScratchAudit(config, scored.event.id)).filter((row) => row.entry_id === entries[SCRATCHED])).toHaveLength(1);
+    const audit = psqlJson<Array<{ reason: string; performed_by: string }>>(`select coalesce(json_agg(json_build_object('reason', reason, 'performed_by', performed_by)), '[]'::json)
+      from public.event_competition_entry_changes where entry_id = '${entries[SCRATCHED]}' and change_type = 'scratch'`);
+    expect(audit).toEqual([{ reason: "P1 walkthrough: couple withdrew before the start", performed_by: fixture.owner.id }]);
     await page.context().close();
   });
 
@@ -305,17 +368,24 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await page.context().close();
   });
 
-  test("P1-09 a ballot before the heat starts is refused", async ({ browser }, testInfo) => {
+  test("P1-09 a ballot before the heat starts is refused on screen and by a direct request", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
     const page = watch(await signedIn(browser, fixture.judges[0] as never, judgeBallotUrl(scored.event.id, scored.finalRoundId)));
-    const marks = page.locator('select[name^="mark:"]');
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect(page.getByRole("heading", { name: "Final", level: 1 })).toBeVisible();
+    await shot(page, "ballot-before-start-phone");
     const submit = page.getByRole("button", { name: "Submit ballot" });
     if ((await submit.count()) && (await submit.isEnabled())) {
+      const marks = page.locator('select[name^="mark:"]');
       for (let i = 0; i < (await marks.count()); i += 1) await marks.nth(i).selectOption({ index: i + 1 });
       await submit.click();
-      await page.waitForURL(/[?&](saved|error)=/, { timeout: 60_000 });
+      await page.waitForURL(/[?&]error=/, { timeout: 60_000 });
+    } else {
+      await expect(page.getByText(/No heats are ready to judge yet|has not started/)).toBeVisible();
     }
-    await shot(page, "ballot-before-start");
+    const heatId = psqlJson<string>(`select to_json(id) from public.event_competition_heats where round_id = '${scored.finalRoundId}' and status <> 'cancelled' limit 1`);
+    const marks = entries.filter((_, n) => n !== SCRATCHED).map((entry_id, n) => ({ entry_id, value: n + 1 }));
+    expect(await rpcAs(fixture.judges[0] as never, "submit_competition_ballot", { p_round_id: scored.finalRoundId, p_heat_id: heatId, p_marks: marks, p_request_id: randomUUID() })).toMatch(/COMP_P1_HEAT_NOT_STARTED/);
     expect(await readBallotCount(config, scored.finalRoundId), "no ballot exists before the start").toBe(0);
     await page.context().close();
   });
@@ -331,6 +401,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await expect(page.getByRole("link", { name: "Scratch entry" })).toHaveCount(0);
     await expect(page.getByText(/Whole-entry scratch is not available/).first()).toBeVisible();
     await page.goto(scratchUrl(entries[0]));
+    await expect(page.getByText(coupleName(0)).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Scratch entry" })).toHaveCount(0);
     await expect(page.locator("main p.bg-amber-50")).toBeVisible();
     await shot(page, "scratch-page-refused");
@@ -356,15 +427,14 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await expect(table).toContainText(coupleName(0));
     await expect(table).not.toContainText(coupleName(SCRATCHED));
     await shot(page, "calculated");
-    // The calculator approving, with or without an override reason, records nothing (pilot restriction).
-    const reasonBox = page.getByRole("textbox", { name: /reason/i }).first();
-    if (await reasonBox.count()) await reasonBox.fill("P1 walkthrough attempt to approve my own calculation, expected to be refused");
-    const selfApprove = page.getByRole("button", { name: /^Approve/ }).first();
-    if ((await selfApprove.count()) && (await selfApprove.isEnabled())) {
-      await selfApprove.click();
-      await page.waitForLoadState("networkidle");
-    }
+    // The calculator approving, even with a substantive override reason, records nothing (pilot restriction).
+    const substantive = "No other manager is available today, so I checked every result myself before approving";
+    await page.locator('input[name="overrideReason"]').fill(substantive);
+    await page.getByRole("button", { name: "Approve with override" }).click();
+    await expect(page.getByRole("alert").first()).toBeVisible({ timeout: 60_000 });
     await shot(page, "self-approval-refused");
+    const versionId = readResultState(scored.finalRoundId).versions[0].id as string;
+    expect(await rpcAs(fixture.owner as never, "approve_competition_round_result", { p_round_id: scored.finalRoundId, p_result_version_id: versionId, p_override_reason: substantive, p_request_id: randomUUID() })).toMatch(/COMP_P1_SECOND_APPROVER_REQUIRED/);
     expect(readResultState(scored.finalRoundId).approvals).toHaveLength(0);
     await page.context().close();
   });
@@ -378,6 +448,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
     const state = readResultState(scored.finalRoundId);
     expect(state.approvals).toHaveLength(1);
     expect(state.approvals[0]).toMatchObject({ approved_by: fixture.deskAdmin.id, calculated_by: fixture.owner.id, override_reason: null });
+    expect(state.kinds, "approval audit row").toContain("result_approved");
     await shot(page, "approved");
     await page.context().close();
   });
@@ -395,6 +466,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await publication.getByRole("button", { name: "Publish result" }).click();
     await expect(page.getByRole("status")).toContainText("Result published.", { timeout: 60_000 });
     await shot(page, "published");
+    expect(readResultState(scored.finalRoundId).kinds, "publication audit row").toContain("result_published");
     await page.context().close();
     const anon = watch(await anonymousPage(browser));
     await anon.goto(`/events/${scored.event.slug}/competition/results`);
@@ -408,14 +480,14 @@ test.describe("P1 restricted pilot walkthrough", () => {
   });
 
   test("P1-15 after publication: scratch stays refused; another studio and anonymous callers are refused", async ({ browser }) => {
-    expect(await directScratch(fixture.owner as never, entries[1])).not.toBeNull();
-    const other = watch(await signedIn(browser, fixture.otherOwner));
+    expect(await directScratch(fixture.owner as never, entries[1])).toMatch(/locked or certified heat|COMP_ENTRY_LIFECYCLE_PLACED/);
+    const other = await signedIn(browser, fixture.otherOwner);
     for (const path of [scratchUrl(entries[1]), `${base()}/results/${scored.finalRoundId}`]) expect((await visit(other, path)).status, path).toBe(404);
     await other.context().close();
-    expect(await directScratch(fixture.otherOwner as never, entries[1])).not.toBeNull();
+    expect(await directScratch(fixture.otherOwner as never, entries[1])).toMatch(/cannot be managed/);
     const anon = createClient(config.supabaseUrl, ANON_KEY, { auth: { persistSession: false } });
     const { error } = await anon.rpc("change_competition_entry_lifecycle", { selected_entry_id: entries[1], selected_status: "scratched", selected_reason: "anonymous", selected_fee_handling: "not_applicable" });
-    expect(error).not.toBeNull();
+    expect(error?.message).toMatch(/permission denied|cannot be managed/);
     expect((await readEntries(config, scored.event.id)).entries.find((e) => e.id === entries[1])?.status).toBe("confirmed");
   });
 

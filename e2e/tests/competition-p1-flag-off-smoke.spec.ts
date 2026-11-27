@@ -35,7 +35,8 @@ test.describe("P1 flag-off smoke", () => {
     psqlJson<Record<string, number>>(`select json_build_object(
       'carts', (select count(*)::int from public.event_competition_registration_carts where event_id = '${event.id}'),
       'orders', (select count(*)::int from public.event_orders where event_id = '${event.id}'),
-      'entries', (select count(*)::int from public.event_competition_entries where event_id = '${event.id}'))`);
+      'entries', (select count(*)::int from public.event_competition_entries where event_id = '${event.id}'),
+      'publications', (select count(*)::int from public.event_competition_result_publications p join public.event_competition_rounds r on r.id = p.round_id where r.event_id = '${event.id}'))`);
 
   test("P1-F1 the owner can still create and view an ordinary published event", async ({ browser }) => {
     const verify = await anonymousPage(browser);
@@ -55,11 +56,12 @@ test.describe("P1 flag-off smoke", () => {
     for (const path of [`/events/${event.slug}/competition/register`, `/events/${event.slug}/competition/register/status`, `/events/${event.slug}/competition/results`]) {
       expect((await visit(anon, path)).status, path).toBe(404);
     }
-    for (const action of ["checkout", "resume", "release"]) {
-      const response = await anon.request.post(`/api/events/${event.slug}/competition/${action}`, { data: { clientRequestId: randomUUID(), draft: {}, token: randomUUID() } });
-      expect(response.status(), action).toBe(404);
+    const checkout = await anon.request.post(`/api/events/${event.slug}/competition/checkout`, { data: { clientRequestId: randomUUID(), draft: {} } });
+    expect(checkout.status(), "checkout").toBe(404);
+    for (const action of ["resume", "release"]) {
+      expect((await anon.request.get(`/api/events/${event.slug}/competition/${action}?token=${randomUUID()}`)).status(), action).toBe(404);
     }
-    expect(writes()).toEqual({ carts: 0, orders: 0, entries: 0 });
+    expect(writes()).toEqual({ carts: 0, orders: 0, entries: 0, publications: 0 });
     await anon.context().close();
   });
 
