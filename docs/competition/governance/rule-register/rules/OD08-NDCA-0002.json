@@ -1,0 +1,28 @@
+{
+  "id": "OD08-NDCA-0002",
+  "governing_body": "NDCA",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.31 (printed p.23, PDF p.30)",
+    "quote_free_summary": "If a couple withdraws after a round and before the next round begins, the chairman may at discretion replace it with the next eligible couple."
+  },
+  "format": "NDCA Sanctioned events, withdrawal between rounds",
+  "rule_class": "organizer_discretion",
+  "requirement": "Kept separate from OD-08: replacement of a withdrawn couple between rounds is OD-21 and is not designed or built by the OD-08 withdrawal action.",
+  "implementation": [],
+  "enforcement_point": "Not applicable to OD-08; A6 (no replacement, OD-18 A) remains the current behavior.",
+  "tests": [],
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-08 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23",
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Permissive and discretionary; the chairman role mapping is not approved. Decided under OD-21, not here. Design only: no compliance claimed."
+}

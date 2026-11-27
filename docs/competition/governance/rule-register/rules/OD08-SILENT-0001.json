@@ -1,0 +1,21 @@
+{
+  "id": "OD08-SILENT-0001",
+  "governing_body": "silent",
+  "format": "NDCA Final withdrawal: gaps in the rule book",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: ordering or ties among several couples withdrawn for the same dance, withdrawal in the middle of a dance, the moment a final round commences, how a withdrawal last place enters Skating System totals, and the Skating System algorithm itself. No behavior is invented; each needs the source text or an owner-approved labelled policy.",
+  "implementation": [],
+  "enforcement_point": "Not built. The design lists the engine functions that need the verified arithmetic (OD-08 design section 7).",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Blocks any NDCA engine implementation (OD-24). Design only: nothing implemented.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-08 (owner decision 2026-11-23, Option A; retrospective audit PR #795)",
+    "OD-24"
+  ],
+  "last_reviewed": "2026-11-23"
+}

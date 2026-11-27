@@ -47,3 +47,9 @@ A profile version is immutable once a program references it; a correction is pub
 2. If a source is silent, record `NOT SPECIFIED IN PROVIDED SOURCE`; never fill the gap from general knowledge.
 3. If two sections of a source disagree, record a source conflict (`source_conflicts`). A conflict that affects eligibility fails closed: the wizard does not offer the disputed option until the conflict is reviewed.
 4. Studio / Custom conveniences and owner operational knowledge are labelled as such and never presented as governing-body rules.
+
+## Candidate editions (unreviewed; NOT registry rows)
+
+Recorded for owner review only. A candidate is **not authoritative**, is not in the table above, and no register entry or profile may cite it. Adopting an edition is a reviewed owner decision (OD-30): a new table row, a deliberate status change and a new profile version.
+
+- **NDCA Rule Book, July 2026 edition ("Compiled Rule Book Master v3 - reduced size")**, SHA-256 `b52800958d22c8499876dbe14c74b4dd8539a43dff9e686d1a275a698999a32e`, 1,776,097 bytes, retrieved 2026-11-23 from `https://www.ndca.org/pdf/2026%20July%20-%20Compiled%20Rule%20Book%20Master%20v3%20-%20reduced%20size.pdf` (linked as the current rule book from NDCA's own rule-book page). Server `Last-Modified` 2026-07-10. No effective date stated; no July change log published. The June 2026 row above remains `authoritative` and unchanged. Differences from June: [OD-08 design, section 3](governance/withdrawals/OD-08-ndca-final-withdrawal-design.md#3-june-2026-vs-july-2026-edition-item-8).
