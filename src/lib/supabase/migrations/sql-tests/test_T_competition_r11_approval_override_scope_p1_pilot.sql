@@ -6,7 +6,8 @@
 -- transaction, always raises: "COMPETITION R11 P1 PILOT COPY SQL SUITE PASS (<n> checks; ...)" or "... FAIL: <failures>".
 -- Fixture change: each heat is marked complete BEFORE its ballots (the pilot accepts ballots only for a started heat).
 -- Assertion names: original 111, here 93; kept by name 70; dropped 41; added 23.
--- Kept by name but pointed at a different row (4):
+-- Kept by name but changed (5):
+--   * audit: no approved event for a corrected version carries a reason or the override flag (moved after r16; now also requires the two rows of r13 and r15)
 --   * audit: an approvals row cannot be updated (now r2's approval)
 --   * audit: an approvals row cannot be deleted (now r2's approval)
 --   * audit: a result event cannot be updated (the override reason is immutable) (now r2's result_approved event: no override event can exist)
@@ -20,40 +21,40 @@
 --   * r1: the approvals row carries the reason; approver = calculator  [the calculator cannot approve in the pilot (COMP_P1_SECOND_APPROVER_REQUIRED)]
 --   * r3: boundary: exactly 20 characters and four words is accepted  [the calculator cannot approve in the pilot]
 --   * r3: that approval is the audited override with the exact reason  [the calculator cannot approve in the pilot]
---   * r4: version 2 is calculated after a correction by A1 (calculator = opener), version 1 was approved by A2 and is now stale/superseded  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * RB-11.2: the calculator/opener cannot self-approve the corrected version with NO reason  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * RB-11.2: ...nor with a SUBSTANTIVE override reason  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * RB-11.2: ...the refusal text names the independent approver rule  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r4: refusals left the corrected version calculated, no second approval row, no override event for the round  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r4: independent manager A2 approves the corrected version  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r4: replay of the independent approval is idempotent  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r4: audit = result_approved, reason null, refs.initial = false, override false; approvals row without a reason  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * RB-11.2: the person who opened the correction (not the calculator) cannot approve it  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * RB-11.2: ...not even with a substantive reason  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * RB-11.2: the calculator of the corrected version cannot approve it with a substantive reason  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r5: refusals changed nothing  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r5: an independent third manager A3 approves  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r5: approved by A3 as a normal approval with refs.initial = false  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r6: no approval has ever existed for r6, yet a correction cause exists  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * RB-11.2: self-approval of the recalculated version after a correction opened from `calculated` is refused  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * r6: A2 approves  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
+--   * r4: version 2 is calculated after a correction by A1 (calculator = opener), version 1 was approved by A2 and is now stale/superseded  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * RB-11.2: the calculator/opener cannot self-approve the corrected version with NO reason  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * RB-11.2: ...nor with a SUBSTANTIVE override reason  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * RB-11.2: ...the refusal text names the independent approver rule  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r4: refusals left the corrected version calculated, no second approval row, no override event for the round  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r4: independent manager A2 approves the corrected version  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r4: replay of the independent approval is idempotent  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r4: audit = result_approved, reason null, refs.initial = false, override false; approvals row without a reason  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * RB-11.2: the person who opened the correction (not the calculator) cannot approve it  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * RB-11.2: ...not even with a substantive reason  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * RB-11.2: the calculator of the corrected version cannot approve it with a substantive reason  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r5: refusals changed nothing  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r5: an independent third manager A3 approves  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r5: approved by A3 as a normal approval with refs.initial = false  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r6: no approval has ever existed for r6, yet a correction cause exists  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * RB-11.2: self-approval of the recalculated version after a correction opened from `calculated` is refused  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * r6: A2 approves  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
 --   * no-override (stale input hash): self-approval with a SUBSTANTIVE reason is refused COMP_RESULT_STALE  [NOT SHOWN UNREACHABLE (coverage gap): the original makes the input stale by scratching a couple, which is refused on a started heat; other routes to a stale input were not examined]
 --   * no-override (stale input hash): and with no reason  [NOT SHOWN UNREACHABLE (coverage gap): the original makes the input stale by scratching a couple, which is refused on a started heat; other routes to a stale input were not examined]
 --   * r7: nothing approved, no override event  [NOT SHOWN UNREACHABLE (coverage gap): the original makes the input stale by scratching a couple, which is refused on a started heat; other routes to a stale input were not examined]
 --   * no-override (non-latest version): the superseded version 1 with a substantive reason is COMP_RESULT_STALE  [NOT SHOWN UNREACHABLE (coverage gap): the original creates the second version by a correction, which is off; other routes to a second version were not examined]
 --   * no-override (roster): an ineligible couple refuses a self-approval with a substantive reason (COMP_ROSTER_ENTRY_UNAVAILABLE)  [replaced: the self-approval may be refused by either rule; the roster check is asserted through a second manager]
---   * audit: a correction cause cannot be updated (the immutable correction history the new rule reads)  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * audit: a correction cause cannot be deleted  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
+--   * audit: a correction cause cannot be updated (the immutable correction history the new rule reads)  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * audit: a correction cause cannot be deleted  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
 --   * audit: the override kind is distinct: override events exist only for self-approvals and every one has a reason, actor = calculator and refs.initial = true  [no override approval can exist]
---   * audit: every approval of a corrected version (version > 1 of a round with a correction cause) is by someone who is neither its calculator nor a correction opener  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
+--   * audit: every approval of a corrected version (version > 1 of a round with a correction cause) is by someone who is neither its calculator nor a correction opener  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
 --   * r12: now a callback Final with exactly one eligible couple, input hash unchanged  [callbacks are off: a callback Final cannot exist (COMP_P1_FINAL_ONLY)]
 --   * no-override (minimum two couples): a self-approval with a substantive reason cannot bypass COMP_ROSTER_BELOW_MINIMUM  [callbacks are off: a callback Final cannot exist (COMP_P1_FINAL_ONLY)]
 --   * no-override (minimum two couples): nor can an independent second manager approve  [callbacks are off: a callback Final cannot exist (COMP_P1_FINAL_ONLY)]
 --   * r12: both refusals rolled back (version calculated, no approval, no override event)  [callbacks are off: a callback Final cannot exist (COMP_P1_FINAL_ONLY)]
---   * r14: only the cause row exists  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * single source (cause): the calculator cannot self-approve with a substantive reason  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * single source (cause): the opener named only by the cause row cannot approve  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
---   * single source (cause): an independent third manager approves  [corrections are off in the pilot (COMP_P1_CORRECTIONS_OFF): the corrected state cannot be created]
+--   * r14: only the cause row exists  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * single source (cause): the calculator cannot self-approve with a substantive reason  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * single source (cause): the opener named only by the cause row cannot approve  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
+--   * single source (cause): an independent third manager approves  [corrections are off: this state cannot be created through the correction function or a cause row (COMP_P1_CORRECTIONS_OFF); r13 and r15 reach corrected states only by fixture writes]
 -- ============================================================================================================================================
 --
 -- The original header follows.
@@ -483,7 +484,7 @@ select pg_temp.chk('S: none of the exclusion / withdrawal / correction co-sign /
                and (array_to_string(p.proargnames, ',') ~* '(override|force|bypass)' or position('result_approval_override' in p.prosrc) > 0)));
 
 -- ============================================================================
--- r1 INITIAL self-approval with a substantive reason: still works, with its mandatory audit record
+-- r1 PILOT: the calculator cannot approve the initial result, even with a substantive reason
 -- ============================================================================
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_ok('r1: A1 calculates', $q$select pg_temp.calc(1)$q$);
@@ -546,7 +547,7 @@ select pg_temp.chk('pilot r3: that refusal recorded nothing', pg_temp.rstatus(3)
   and pg_temp.nevents(3, 'result_approval_override') = 0 and pg_temp.nevents(3, 'result_approved') = 0);
 
 -- ============================================================================
--- r4 RB-11.2: corrected result, calculator = correction opener (A1). Self-approval refused whatever the reason; independent A2 allowed
+-- r4 PILOT: a second manager approves; opening a correction is refused
 -- ============================================================================
 select pg_temp.as_calc('000001', 4);
 select pg_temp.as_approve('000002', 4, 1);
@@ -558,7 +559,7 @@ select pg_temp.chk('pilot r4: the approved version stands; no correction cause; 
   and (select approved_by = pg_temp.u('000002') and override_reason is null from public.event_competition_result_approvals where result_version_id = pg_temp.vid(4, 1)));
 
 -- ============================================================================
--- r5 RB-11.2: the opener (A2) is NOT the calculator (A1): the opener cannot approve either; a third manager (A3) can
+-- r5 PILOT: a second manager cannot open a correction either
 -- ============================================================================
 select pg_temp.as_calc('000001', 5);
 select pg_temp.as_approve('000002', 5, 1);
@@ -578,15 +579,15 @@ select pg_temp.chk('pilot r6: the result stays calculated with no history', pg_t
   and pg_temp.nevents(6, 'result_approval_override') = 0 and pg_temp.nevents(6, 'result_approved') = 0);
 
 -- ============================================================================
--- r7 stale hash with an override reason: COMP_RESULT_STALE before the override branch (no override event, nothing approved)
+-- r7 PILOT: a couple cannot be scratched from a started heat (stale input is not exercised: coverage gap)
 -- ============================================================================
 select pg_temp.as_calc('000001', 7);
 set session_replication_role = replica;
-select pg_temp.expect_msg2('pilot r7: a couple cannot be scratched from a started heat (the stale-input route the original used)', $q$update public.event_competition_heat_entries set status = 'scratched' where heat_id = pg_temp.hid(7) and entry_id = pg_temp.eid(7, 3)$q$, 'COMP_P1_STARTED_HEAT', 'COMP_S6_');
+select pg_temp.expect_msg('pilot r7: a couple cannot be scratched from a started heat (the stale-input route the original used)', $q$update public.event_competition_heat_entries set status = 'scratched' where heat_id = pg_temp.hid(7) and entry_id = pg_temp.eid(7, 3)$q$, 'COMP_P1_STARTED_HEAT');
 set session_replication_role = origin;
 select pg_temp.chk('pilot r7: nothing approved', pg_temp.rstatus(7) = 'calculated' and pg_temp.vstatus(7, 1) = 'calculated' and pg_temp.napprovals(7) = 0
   and pg_temp.nevents(7, 'result_approval_override') = 0 and pg_temp.nevents(7, 'result_approved') = 0);
--- a non-latest version with an override reason: after a correction + recalculation, version 1 is no longer the latest
+-- r8 PILOT: no correction, so no second version here (non-latest version is not exercised: coverage gap)
 select pg_temp.as_calc('000001', 8);
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('pilot r8: no second version can be created by a correction', $q$select pg_temp.corr(8)$q$, 'COMP_P1_CORRECTIONS_OFF');
@@ -657,13 +658,8 @@ reset role;
 select pg_temp.chk('pilot audit: no override approval exists at all (no override event, no approval row with a reason or by its calculator)',
   not exists (select 1 from public.event_competition_result_events where kind = 'result_approval_override' and event_id = pg_temp.u('00e001'))
   and not exists (select 1 from public.event_competition_result_approvals where event_id = pg_temp.u('00e001') and (override_reason is not null or approved_by = calculated_by)));
-select pg_temp.chk('audit: no approved event for a corrected version carries a reason or the override flag',
-  not exists (select 1 from public.event_competition_result_events e where e.kind in ('result_approved', 'result_approval_override') and e.refs ->> 'initial' = 'false'
-              and (e.reason is not null or e.kind = 'result_approval_override')));
 -- ============================================================================
--- r12 minimum-two callback Final with REAL helpers. One couple: a Final with no earlier round has no minimum, so it calculates. Fixture write
--- (replica) then puts a preliminary round before it in its promote_callback program, which makes it a callback Final without changing the stored
--- evidence (the input hash stays current), so approval reaches the roster check.
+-- r12 PILOT: no callback Final can be built; the pilot's own two-couple minimum refuses the approval
 -- ============================================================================
 select pg_temp.as_calc('000001', 12);
 select pg_temp.chk('r12: calculated with one couple; not yet a callback Final', pg_temp.vstatus(12, 1) = 'calculated' and not public._cf1_is_callback_final(pg_temp.rid(12)));
@@ -702,7 +698,7 @@ reset role;
 select pg_temp.chk('r13: recorded with refs.initial = false', (select count(*) = 1 from public.event_competition_result_events where round_id = pg_temp.rid(13) and kind = 'result_approved' and refs ->> 'initial' = 'false'));
 
 -- ============================================================================
--- r14: an A7 CAUSE row is the only history (superuser insert; opener A2). No approval of another version, no correction event.
+-- r14 PILOT: no correction cause can be recorded
 -- ============================================================================
 select pg_temp.as_calc('000001', 14);
 select pg_temp.expect_msg('pilot r14: no correction cause can be recorded, even by the database owner', $q$insert into public.event_competition_correction_causes (event_id, round_id, cause, excluded_entry_ids, baseline_version_id, opened_by, reason, request_id) values (pg_temp.u('00e001'), pg_temp.rid(14), 'judge_entry_error', '{}'::uuid[], pg_temp.vid(14, 1), pg_temp.u('000002'), 'fixture cause only', gen_random_uuid())$q$, 'COMP_P1_CORRECTIONS_OFF');
@@ -741,6 +737,10 @@ select pg_temp.as_user(pg_temp.u('000002'));
 select pg_temp.expect_msg('no-override (PV-1): nor can a second manager', $q$select pg_temp.approve(16, 1)$q$, 'COMP_RESULT_RECOMPUTE_MISMATCH');
 reset role;
 select pg_temp.chk('r16: nothing approved', pg_temp.vstatus(16, 1) = 'calculated' and pg_temp.napprovals(16) = 0 and pg_temp.nevents(16, 'result_approval_override') = 0);
+select pg_temp.chk('audit: no approved event for a corrected version carries a reason or the override flag',
+  (select count(*) >= 2 and bool_and(reason is null and kind = 'result_approved')
+   from public.event_competition_result_events
+   where event_id = pg_temp.u('00e001') and kind in ('result_approved', 'result_approval_override') and refs ->> 'initial' = 'false'));
 
 -- ============================================================================
 -- Verdict
