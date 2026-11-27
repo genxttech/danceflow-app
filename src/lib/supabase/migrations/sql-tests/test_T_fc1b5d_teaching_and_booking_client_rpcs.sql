@@ -59,9 +59,9 @@ insert into public.profiles (id, email) values
   ('00000000-0000-0000-0000-0000005d1001', 't-fc1b5d-instructor-a1@example.test'),
   ('00000000-0000-0000-0000-0000005d1002', 't-fc1b5d-instructor-a2@example.test');
 
--- Both instructors also hold ordinary studio staff roles at Studio A (the
--- RPCs derive identity from `instructors.user_id`, not user_studio_roles,
--- but a real instructor session always has both).
+-- Both instructors also hold an active instructor role at Studio A: the teaching
+-- RPC needs the instructors row (identity from `instructors.user_id`, capability)
+-- and an allowed studio role.
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('00000000-0000-0000-0000-0000005d1001', '00000000-0000-0000-0000-0000005d0001', 'instructor', true),
   ('00000000-0000-0000-0000-0000005d1002', '00000000-0000-0000-0000-0000005d0001', 'instructor', true);
@@ -170,7 +170,8 @@ insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000005d1008', 't-fc1b5d-inactiverole@example.test'),
   ('00000000-0000-0000-0000-0000005d1009', 't-fc1b5d-independent@example.test'),
   ('00000000-0000-0000-0000-0000005d1010', 't-fc1b5d-otherstudio@example.test'),
-  ('00000000-0000-0000-0000-0000005d1011', 't-fc1b5d-platformadmin@example.test');
+  ('00000000-0000-0000-0000-0000005d1011', 't-fc1b5d-platformadmin@example.test'),
+  ('00000000-0000-0000-0000-0000005d1013', 't-fc1b5d-inactiveinstructor@example.test');
 
 insert into public.profiles (id, email, platform_role) values
   ('00000000-0000-0000-0000-0000005d1003', 't-fc1b5d-owner@example.test', null),
@@ -182,7 +183,8 @@ insert into public.profiles (id, email, platform_role) values
   ('00000000-0000-0000-0000-0000005d1008', 't-fc1b5d-inactiverole@example.test', null),
   ('00000000-0000-0000-0000-0000005d1009', 't-fc1b5d-independent@example.test', null),
   ('00000000-0000-0000-0000-0000005d1010', 't-fc1b5d-otherstudio@example.test', null),
-  ('00000000-0000-0000-0000-0000005d1011', 't-fc1b5d-platformadmin@example.test', 'platform_admin');
+  ('00000000-0000-0000-0000-0000005d1011', 't-fc1b5d-platformadmin@example.test', 'platform_admin'),
+  ('00000000-0000-0000-0000-0000005d1013', 't-fc1b5d-inactiveinstructor@example.test', null);
 
 insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('00000000-0000-0000-0000-0000005d1003', '00000000-0000-0000-0000-0000005d0001', 'studio_owner', true),
@@ -192,7 +194,8 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('00000000-0000-0000-0000-0000005d1006', '00000000-0000-0000-0000-0000005d0001', 'studio_owner', true),
   ('00000000-0000-0000-0000-0000005d1008', '00000000-0000-0000-0000-0000005d0001', 'instructor', false),
   ('00000000-0000-0000-0000-0000005d1009', '00000000-0000-0000-0000-0000005d0001', 'independent_instructor', true),
-  ('00000000-0000-0000-0000-0000005d1010', '00000000-0000-0000-0000-0000005d0002', 'instructor', true);
+  ('00000000-0000-0000-0000-0000005d1010', '00000000-0000-0000-0000-0000005d0002', 'instructor', true),
+  ('00000000-0000-0000-0000-0000005d1013', '00000000-0000-0000-0000-0000005d0001', 'instructor', true);
 
 insert into public.instructors (id, studio_id, user_id, first_name, last_name, active, can_instruct) values
   ('00000000-0000-0000-0000-0000005d2003', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1003', 'Caller', 'owner', true, true),
@@ -204,7 +207,8 @@ insert into public.instructors (id, studio_id, user_id, first_name, last_name, a
   ('00000000-0000-0000-0000-0000005d2008', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1008', 'Caller', 'inactiverole', true, true),
   ('00000000-0000-0000-0000-0000005d2009', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1009', 'Caller', 'independent', true, true),
   ('00000000-0000-0000-0000-0000005d2010', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1010', 'Caller', 'otherstudio', true, true),
-  ('00000000-0000-0000-0000-0000005d2011', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1011', 'Caller', 'platformadmin', true, true);
+  ('00000000-0000-0000-0000-0000005d2011', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1011', 'Caller', 'platformadmin', true, true),
+  ('00000000-0000-0000-0000-0000005d2013', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1013', 'Caller', 'inactiveinstructor', true, true);
 
 insert into public.clients (id, studio_id, first_name, last_name, status) values
   ('00000000-0000-0000-0000-0000005d6003', '00000000-0000-0000-0000-0000005d0001', 'Own', 'owner', 'active'),
@@ -216,7 +220,8 @@ insert into public.clients (id, studio_id, first_name, last_name, status) values
   ('00000000-0000-0000-0000-0000005d6008', '00000000-0000-0000-0000-0000005d0001', 'Own', 'inactiverole', 'active'),
   ('00000000-0000-0000-0000-0000005d6009', '00000000-0000-0000-0000-0000005d0001', 'Own', 'independent', 'active'),
   ('00000000-0000-0000-0000-0000005d6010', '00000000-0000-0000-0000-0000005d0001', 'Own', 'otherstudio', 'active'),
-  ('00000000-0000-0000-0000-0000005d6011', '00000000-0000-0000-0000-0000005d0001', 'Own', 'platformadmin', 'active');
+  ('00000000-0000-0000-0000-0000005d6011', '00000000-0000-0000-0000-0000005d0001', 'Own', 'platformadmin', 'active'),
+  ('00000000-0000-0000-0000-0000005d6013', '00000000-0000-0000-0000-0000005d0001', 'Own', 'inactiveinstructor', 'active');
 
 insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at) values
   ('00000000-0000-0000-0000-0000005d7003', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6003', '00000000-0000-0000-0000-0000005d2003', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
@@ -229,6 +234,12 @@ insert into public.appointments (id, studio_id, client_id, instructor_id, appoin
   ('00000000-0000-0000-0000-0000005d7009', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6009', '00000000-0000-0000-0000-0000005d2009', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
   ('00000000-0000-0000-0000-0000005d7010', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6010', '00000000-0000-0000-0000-0000005d2010', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
   ('00000000-0000-0000-0000-0000005d7011', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6011', '00000000-0000-0000-0000-0000005d2011', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour');
+
+insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000005d7013', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6013', '00000000-0000-0000-0000-0000005d2013', 'private_lesson', 'attended', now() - interval '1 day 1 hour', now() - interval '1 day');
+
+-- Instructor record deactivated after the lesson was taught (no future work remains).
+update public.instructors set active = false where id = '00000000-0000-0000-0000-0000005d2013';
 
 -- Capability removed after the lesson was taught (no future work remains).
 update public.instructors set can_instruct = false where id = '00000000-0000-0000-0000-0000005d2006';
@@ -1064,6 +1075,22 @@ begin
     raise exception 'FAIL T-fc1b5d-deny-platformadmin: expected no rows, got % (and % by client id)', v_count, v_one;
   end if;
   raise notice 'PASS T-fc1b5d-deny-platformadmin: no rows';
+end $$;
+
+do $$
+declare
+  v_count int;
+  v_one int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1013')::text, true);
+  select count(*) into v_count from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  select count(*) into v_one from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid, '00000000-0000-0000-0000-0000005d6013'::uuid);
+  reset role;
+  if v_count <> 0 or v_one <> 0 then
+    raise exception 'FAIL T-fc1b5d-deny-inactiveinstructor: expected no rows, got % (and % by client id)', v_count, v_one;
+  end if;
+  raise notice 'PASS T-fc1b5d-deny-inactiveinstructor: no rows';
 end $$;
 
 do $$

@@ -8,9 +8,11 @@
 
 ## Files, in apply order (SHA-256 of the file content at `main`, LF line endings)
 
+**`20260905160100_fc1b5d_booking_client_search_rpc.sql` (row 2) must not be applied until it has been corrected; leave it out of any apply until then, and expect its preflight row to stay `exists = false`.**
+
 | # | Migration | SHA-256 | Rollback SHA-256 | Gives the instructor |
 | --- | --- | --- | --- | --- |
-| 1 | `20260905160000_fc1b5d_teaching_client_access_rpc.sql` | `ef7ce593a4c5f4eae2835dd62fff4124a464a4a1900bb2cf96926f90c1e733f5` | `63a5e7ba3aea1337188511cc6b652523819ee05ab8e724e98c30f4d0cb8fe180` | their taught clients (dashboard, schedule, staff API) |
+| 1 | `20260905160000_fc1b5d_teaching_client_access_rpc.sql` | `63bcc8cd25c71d5aa9514cbcfe279fe9208c14229578e098da8d229f6c865497` | `63a5e7ba3aea1337188511cc6b652523819ee05ab8e724e98c30f4d0cb8fe180` | their taught clients (dashboard, schedule, staff API) |
 | 2 | `20260905160100_fc1b5d_booking_client_search_rpc.sql` | `5187770af39932b80115ea27b74329d7b725fd2aa8ad4a8b722ca82834bd554e` | `2fab9db225313fe9e8e2b7570385ecbca6eff41c6415256bab037ae89c358a76` | booking client search |
 | 3 | `20270214120000_instructor_class_roster_names_rpc.sql` | `210ca4488c1e70125cccfada22527b6dd31277bef1b86fd312c91deb5658601c` | `a38fb809a475b0a59c220d73ccec7dd02c56bebd34bcc1b65a61f21056c179f2` | names on their own class roster |
 
@@ -18,9 +20,9 @@ Rollback files are under `src/lib/supabase/migrations/rollback/` with the same n
 
 ## Procedure at the release (each step an owner gate)
 
-1. Preflight (read-only): expect `exists = false` for all three and `phase_b_clients_policy_present = true`. Re-compute the hashes from the release commit.
-2. `sb.sh prod-apply <file> <sha256>` for 1, then 2, then 3, each approved in chat.
-3. Postflight (the same read-only file): `exists`, `security_definer` and `authenticated_can_execute` true; `anon_can_execute` false.
+1. Preflight (read-only): expect `exists = false` for all three, `phase_b_clients_policy_present = true`, `teaching_function_columns_present = true` and `teaching_function_checks_capability_and_role = false`. Re-compute the hashes from the release commit.
+2. `sb.sh prod-apply <file> <sha256>` for 1, then 3 (2 is held, see above), each approved in chat.
+3. Postflight (the same read-only file): for each applied function `exists`, `security_definer` and `authenticated_can_execute` true and `anon_can_execute` false; `teaching_function_checks_capability_and_role` true.
 4. Only then create the first `instructor` role (web invite or Business).
 5. Rollback: the rollback files in reverse order; safe while no instructor exists.
 
