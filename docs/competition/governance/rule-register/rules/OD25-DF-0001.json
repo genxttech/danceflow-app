@@ -1,0 +1,45 @@
+{
+  "id": "OD25-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: scoring-heat capacity and the deterministic floor planner",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow product default (not a sanctioning rule): scoring-heat capacity is configurable per round (1..100, default 8 via DEFAULT_SCORING_HEAT_CAPACITY); the 10D floor planner is deterministic: it splits a division by capacity in entry order (first-fit; capacity is read from the division's first round only; 9 entries give heats of 8 and 1, not balanced) without putting one competitor twice in a scoring heat. The callback-Final ledger column target_capacity has a 1..100 CHECK (the guard function itself reads max_entries_per_heat without that range check; a configured value above 100 is not verified). Preserved unchanged by OD-25 Option B.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/floorPlanner.ts",
+      "symbol_or_migration": "DEFAULT_SCORING_HEAT_CAPACITY, scoringHeatCapacity, buildFloorPlan"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20261111090000_phase10d_heats_floor_schedule.sql",
+      "symbol_or_migration": "default scoring-heat capacity 8 (comment: product default, NOT a sanctioning rule)"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270120090000_competition_cf1_callback_final_advancement.sql",
+      "symbol_or_migration": "target_capacity check between 1 and 100"
+    }
+  ],
+  "enforcement_point": "src/lib/competition/floorPlanner.ts buildFloorPlan; apply_competition_floor_plan and integrity triggers in 20261111090000; callback target_capacity check in 20270120090000.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/floorPlanner.phase10d.test.ts",
+      "name": "splits a division into scoring heats by capacity (default 8, editable per round) without double-booking"
+    }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "The label 'DanceFlow product default, NOT a sanctioning rule' exists in code comments, the 10D document and the SQL comment; no user-facing label was verified. Behavior is covered by a floorPlanner test, which was not run for this docs-only entry. Not any body's rule; it differs from UCWDC Heating Rules 2 and 7 (heat sizes within one) and is not an NDCA limit.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

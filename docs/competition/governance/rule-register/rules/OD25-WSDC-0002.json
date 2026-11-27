@@ -1,0 +1,27 @@
+{
+  "id": "OD25-WSDC-0002",
+  "governing_body": "silent",
+  "format": "WSDC Jack and Jill heat size, balance and heat randomization",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: no WSDC rule on heat size, heat balance or randomization of competitors into heats was found in the text read. Heats are a Chief Judge decision (Definitions, p.3: the Raw Score Judge does 'not determine heats / number of callbacks / cuts to finals'). Do not assert that no rule exists.",
+  "implementation": [],
+  "enforcement_point": "Nothing to enforce; any WSDC heating behavior is DanceFlow or organizer policy until a source is found.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Searched the pinned WSDC Registry Event Rules v2026.1C (pdftotext) for: heat, heats, random, rotation, rotate, draw, at the same time, simultaneous, on the floor. Hits: Definitions (Chief Judge decides heats); 3.4 item 8 (random partner rotation and selection, OD25-WSDC-0001); Section 6 items 6-7 (random partner and dance-order assignment by software); Venue 1 (floor of at least 150 square meters, not a couples limit). The search was by keyword, so absence is not proof.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

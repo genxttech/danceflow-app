@@ -1,0 +1,32 @@
+{
+  "id": "OD25-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: the readiness heat-generation planner already uses a recorded random seed",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "As found in the code (not a decision): the 'Generate heats' action (readiness/actions.ts generateHeatPlanAction) creates a random UUID seed per run, stores it with the engine version 'danceflow-heat-planner-0.1.0' and an input snapshot (create_competition_heat_plan_run), and buildHeatPlan (heatPlanner.ts) shuffles each first-round division's entries with a seeded xorshift shuffle (seededShuffle, seed '<run seed>:<job key>') before balancedGroups splits them into the fewest groups of near-equal size (sizes differ by at most one). This conflicts with the OD-25 instruction 'no seeded randomization in Studio/Custom this release' and is escalated for an owner/coordinator decision; it is NOT changed here.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/heatPlanner.ts",
+      "symbol_or_migration": "buildHeatPlan, seededShuffle, balancedGroups, HEAT_PLANNER_VERSION"
+    }
+  ],
+  "enforcement_point": "src/lib/competition/heatPlanner.ts buildHeatPlan, seededShuffle, balancedGroups; src/app/app/events/[id]/competition/readiness/actions.ts generateHeatPlanAction.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "OPEN ESCALATION, now verified by code reading: the readiness planner is reachable by event managers (Competition workspace > Schedule > Advanced scheduling > Schedule Readiness) with no feature flag; its output is a reviewable proposal and does not change operational heats until a later review/apply step; the seed is recorded with the engine version and input snapshot and the plan is reproducible from them; group size comes from the block's floor capacity, not the Studio default of 8; only first-round entries are shuffled. Two planners exist: floorPlanner (deterministic first-fit, schedule page) and heatPlanner (seeded random plus balanced groups, readiness page). Question for the owner: does 'no seeded randomization is introduced' mean none exists or none is added? Choices: keep and label, restrict, or amend the OD-25 wording. The audit evidence for the final order under OD-10/OD-07 was not examined. Randomness here is a DanceFlow behavior, not a body requirement.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

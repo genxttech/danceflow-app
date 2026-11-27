@@ -1,0 +1,35 @@
+{
+  "id": "OD25-UCWDC-0002",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, same-division heats and co-mingling",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Heating Rules items 1, 2, 5 (p.1)",
+    "quote_free_summary": "A heat is made only of the same division 'If space, time, and circumstance allow'; when a division needs more than one heat it 'may' be co-mingled with other divisions; all heats 'may' be co-mingled if space, time and circumstance require."
+  },
+  "rule_class": "permitted_exception",
+  "requirement": "A UCWDC profile must allow co-mingling as a permitted option and may default to same-division heats.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Advisory/conditional language: tracked as a compliance gap, NOT a mandatory hard blocker, and must not be enforced as one. Docs-only record; no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Conditional and permissive wording ('If ... allow', 'may'): not a hard blocker. Studio's planners do not co-mingle divisions in the same way and no equivalence is claimed. Note: source.effective_from is not stated in the source registry; it follows the convention of sibling entries.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-25 (owner decision 2026-11-23: Option B now for Studio/Custom heat planning; Option A for future body profiles; retrospective audit PR #795)",
+    "docs/competition/governance/heating/OD-25-heat-planning-and-body-heating-rules.md",
+    "OD-21 (PR 847)",
+    "OD-24",
+    "OD-26 (placeholder)",
+    "OD-10 (PR 842)",
+    "OD-07 (PR 838)",
+    "OD-01 (PR 832)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
