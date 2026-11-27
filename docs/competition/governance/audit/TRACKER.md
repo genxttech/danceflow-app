@@ -18,3 +18,11 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Studio/Custom release blockers
+
+Blockers stay `OPEN` until the closing evidence listed for each is independently verified. Policy ratified and implementation verified are tracked separately.
+
+| Blocker | Source | Register entry | Design | Policy | Implementation verified | Status | Closing criteria |
+|---|---|---|---|---|---|---|---|
+| Eligibility-status enforcement inconsistency (`unverified`/`needs_review` can be scheduled, called, scored and published; only `ineligible` is blocked) | Owner decision R-15 (2026-11-24); audit row AE-21 | `DFPOL-R15-ELIGIBILITY-ENFORCEMENT` (inconsistent) | [r15-eligibility-enforcement-design.md](../../r15-eligibility-enforcement-design.md) (slice S4, design only) | ratified | no | OPEN | S4 implemented and applied via the approved path; negative and regression suite executed green on an integrated release candidate (with JC1, U18, U18-S, S5, OD-02/03/18); end-to-end acceptance run; independent security review; owner acceptance |

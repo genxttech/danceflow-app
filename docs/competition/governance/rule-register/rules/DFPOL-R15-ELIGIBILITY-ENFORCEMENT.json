@@ -1,0 +1,37 @@
+{
+  "id": "DFPOL-R15-ELIGIBILITY-ENFORCEMENT",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio/Custom (all Competition OS event types)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Provisional, clearly identified internal scheduling may include entries awaiting eligibility review, but such assignments must not become executable or be presented as competition-ready. Official heat participation, floor calls, ballot inclusion, advancement, scoring, placement and result publication require applicable eligibility clearance. Ineligible stays blocked. Waived is accepted only for an explicitly waivable Studio policy with an authorized, audited basis and never overrides the OD-02 under-18 restriction or a mandatory body requirement. Unknown or unverified age fails closed wherever OD-02 eligibility is required.",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270120085000_competition_cf1_a1_eligibility_helpers.sql",
+      "symbol_or_migration": "_cf1_entry_unavailable_reason"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20261112090000_phase10d1_heat_entry_eligibility.sql",
+      "symbol_or_migration": "_comp10d_check_floor_heat_integrity"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/registrations/actions.ts",
+      "symbol_or_migration": "updateCompetitionEntryEligibilityAction"
+    }
+  ],
+  "enforcement_point": "Database: only the ineligible value is blocked, by predicate P and the 10D.1 placement trigger; start of round, floor call, schedule publication and ballot submission have no eligibility check; direct manager writes of eligibility_status are unrestricted. Correction is design-only (docs/competition/r15-eligibility-enforcement-design.md, slice S4, slots 20270301110000..119000); nothing is implemented.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "RELEASE BLOCKER, OPEN (owner decision R-15, 2026-11-24). POLICY RATIFIED; IMPLEMENTATION NOT VERIFIED. This is DanceFlow Studio/Custom policy, never a governing-body rule. Today unverified and needs_review entries can be placed, started, called, balloted, advanced, scored and published because only ineligible is blocked, while check-in readiness counts only eligible and waived (audit row AE-21). Every entry is created unverified, so the gap is the default path. Hosted DEV and PROD held zero competition entries on 2026-11-24. Closing criteria: S4 implemented and applied through the owner-approved path, the negative and regression suite in the design document executed green on an integrated release candidate that includes JC1, U18, U18-S, S5 and the OD-02/03/18 application layer, an end-to-end acceptance run proving unverified and needs_review entries cannot reach floor, ballots, advancement, scoring or publication, independent security review, and owner acceptance. OD-01, OD-02, OD-03 and OD-18 are preserved.",
+  "applicable_event_versions": [
+    "all"
+  ],
+  "decision_refs": [
+    "R-15",
+    "OD-02",
+    "OD-03",
+    "OD-18",
+    "AE-21"
+  ],
+  "last_reviewed": "2026-11-24"
+}
