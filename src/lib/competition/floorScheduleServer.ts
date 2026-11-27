@@ -1,8 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadEntryOperationalGates } from "@/lib/competition/eligibilityGateServer";
 import {
   analyzeFloorSchedule,
   isExclusiveMusic,
   musicKeyFor,
+  type PlannerEntry,
   type PlannerInput,
   type PlannerParticipant,
   type SavedFloorHeat,
@@ -28,6 +30,10 @@ export async function loadPlannerInput(supabase: SupabaseClient, eventId: string
   ]);
   const failed = [contests, rules, divisions, rounds, dances, offerings, entries, entryDances, participants].find((result) => result.error);
   if (failed?.error) throw new Error(`Could not load competition entries: ${failed.error.message}`);
+  // OD-03 / OD-02: an entry is schedulable only when the operational gate clears it (adult-only from stored data;
+  // age-restricted divisions need an organizer determination). Fails closed: a load error throws.
+  const gates = await loadEntryOperationalGates(supabase, eventId);
+  const gatedEntries = ((entries.data ?? []) as PlannerEntry[]).map((entry) => ({ ...entry, age_gate_ok: gates.get(entry.id)?.ready === true }));
   const roundRows = (rounds.data ?? []) as Array<{ id: string; name: string; division_id: string; sequence_number: number; round_type: string; configuration: Record<string, unknown> | null }>;
   return {
     contests: contests.data ?? [],
@@ -36,7 +42,7 @@ export async function loadPlannerInput(supabase: SupabaseClient, eventId: string
     rounds: roundRows,
     dances: dances.data ?? [],
     offerings: offerings.data ?? [],
-    entries: entries.data ?? [],
+    entries: gatedEntries,
     entryDances: entryDances.data ?? [],
     participants: (participants.data ?? []) as PlannerParticipant[],
     roundsById: new Map(roundRows.map((round) => [round.id, { id: round.id, name: round.name, configuration: round.configuration }])),

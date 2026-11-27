@@ -28,7 +28,7 @@ export type PlannerRule = { contest_id: string; dance_selection_mode: string };
 export type PlannerRound = { id: string; division_id: string; sequence_number: number; round_type: string; configuration?: Record<string, unknown> | null };
 export type PlannerDance = { id: string; dance_key: string; name: string };
 export type PlannerOffering = { id: string; division_id: string; dance_id: string; sort_order?: number | null; active?: boolean | null };
-export type PlannerEntry = { id: string; division_id: string; display_name: string; entry_number: string | null; status: string; eligibility_status: string };
+export type PlannerEntry = { id: string; division_id: string; display_name: string; entry_number: string | null; status: string; eligibility_status: string; /** OD-03/OD-02: set by the server loader; false = not cleared by the entry gate. Absent = legacy callers (unchanged). */ age_gate_ok?: boolean };
 export type PlannerEntryDance = { entry_id: string; division_dance_id: string | null; status: string };
 export type PlannerParticipant = { entry_id: string; competitor_id: string; display_name: string };
 
@@ -65,8 +65,8 @@ export type FloorPlan = {
   skippedEntryCount: number;
 };
 
-export function isSchedulableEntry(entry: Pick<PlannerEntry, "status" | "eligibility_status">) {
-  return entry.status === SCHEDULABLE_ENTRY_STATUS && entry.eligibility_status !== "ineligible";
+export function isSchedulableEntry(entry: Pick<PlannerEntry, "status" | "eligibility_status" | "age_gate_ok">) {
+  return entry.status === SCHEDULABLE_ENTRY_STATUS && entry.eligibility_status !== "ineligible" && entry.age_gate_ok !== false;
 }
 
 export function scoringHeatCapacity(round: Pick<PlannerRound, "configuration"> | null | undefined) {

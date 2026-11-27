@@ -1,5 +1,6 @@
 "use server";
 
+import { isNotClearedRefusal, NOT_CLEARED_MESSAGE } from "@/lib/competition/eligibilityRpc";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
@@ -25,6 +26,7 @@ function schedulePath(eventId: string) {
 /** Plain-language message for an organizer; never a raw database error. */
 function friendly(error: { message?: string; code?: string | null } | null | undefined) {
   const message = error?.message ?? "";
+  if (isNotClearedRefusal(message)) return NOT_CLEARED_MESSAGE;
   // CF1: a deadlock (40P01) or refused lock wait (55P03) is not a failure of the request; nothing was saved. The schedule RPCs carry no
   // request id, so they are not repeated automatically: the organizer is told to try again.
   // Competition Finals is dark by default: with the flag off the organizer copy is exactly the live release copy.

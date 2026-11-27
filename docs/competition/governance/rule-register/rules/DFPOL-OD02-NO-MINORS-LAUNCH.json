@@ -1,0 +1,42 @@
+{
+  "id": "DFPOL-OD02-NO-MINORS-LAUNCH",
+  "governing_body": "dance_flow_policy",
+  "format": "All Competition OS event types (including Studio/Custom)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "For initial Competition OS activation no competitor under 18 may be registered. Every entry participant is checked server-side from a required, valid date of birth; a missing or invalid date of birth fails closed; the purchaser is never the subject of the check; no birthdate or age is returned or logged. Temporary launch restriction, not a permanent exclusion.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/minorsGate.ts",
+      "symbol_or_migration": "evaluateCompetitionAdultGate"
+    },
+    {
+      "path": "src/app/api/events/[slug]/competition/checkout/route.ts",
+      "symbol_or_migration": "evaluateCompetitionAdultGate"
+    },
+    {
+      "path": "src/app/events/[slug]/competition/register/CompetitionRegistrationBuilder.tsx",
+      "symbol_or_migration": "evaluateCompetitionAdultGate"
+    }
+  ],
+  "enforcement_point": "Server: POST /api/events/[slug]/competition/checkout, before quote_competition_registration and start_competition_registration. No database-level guard exists (separate SQL approval, see PR description).",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/minorsGate.od02.test.ts",
+      "name": "fails closed when a competitor has no, malformed or impossible date of birth"
+    },
+    {
+      "path": "src/lib/competition/__tests__/minorsGate.paths.od02.test.ts",
+      "name": "the checkout route evaluates the age gate before its first database call (quote, then start)"
+    }
+  ],
+  "verification_status": "verified_compliant",
+  "interpretation_notes": "DanceFlow launch policy by owner decision OD-02 (2026-11-23); never presented as a governing-body requirement. Verified at the app layer only: the database RPCs still accept any date of birth, so a caller who reaches the database directly with the service role bypasses the gate. Reference date is today in UTC-12 (conservative), not the event date: a 17-year-old who turns 18 before the event is still refused. The owner may relax this.",
+  "applicable_event_versions": [
+    "all"
+  ],
+  "decision_refs": [
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

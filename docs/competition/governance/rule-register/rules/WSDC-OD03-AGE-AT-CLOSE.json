@@ -1,0 +1,51 @@
+{
+  "id": "WSDC-OD03-AGE-AT-CLOSE",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events age-based contests (Juniors, Sophisticated, Masters)",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "Definitions, Age-based Contests (PDF p3); 3.1.3 and 3.1.3.a (PDF p10)",
+    "quote_free_summary": "Age-based contests use age at the close of the event: Juniors under 18, Sophisticated 35 or older, Masters 50 or older. Age-based Jack and Jill contests must be open to all skill levels who meet the age requirement."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not calculate or verify this age rule. For initial activation the organizer verifies age-division eligibility and the decision is recorded (who, when, outcome, reason code). WSDC Junior contests cannot be entered through Competition OS while OD-02 prohibits competitors under 18.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/eligibilityGate.ts",
+      "symbol_or_migration": "evaluateEntryOperationalGate"
+    },
+    {
+      "path": "src/lib/competition/eligibilityGateServer.ts",
+      "symbol_or_migration": "loadEntryOperationalGates"
+    },
+    {
+      "path": "src/app/app/events/[id]/competition/registrations/actions.ts",
+      "symbol_or_migration": "validateEligibilityDecision"
+    }
+  ],
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od03.test.ts",
+      "name": "a waiver never clears an age-restricted entry"
+    },
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od03.test.ts",
+      "name": "refuses a waiver on an age-restricted division, a wrong reason, and a missing reason"
+    }
+  ],
+  "decision_refs": [
+    "OD-03",
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23",
+  "enforcement_point": "Organizer action and operational gate as for NDCA. No automated age calculation exists.",
+  "verification_status": "unsupported",
+  "interpretation_notes": "OD-03 Option C. WSDC reference date is the close of the event, unlike UCWDC and NDCA. A WSDC Junior contest conflicts with OD-02 (Juniors are under 18 by definition); the owner decided OD-02 applies to all event types. Whether an 18-or-older minimum is compatible with a Registry Event being open to everyone is an owner/organizer question (see WSDC-OD02-MIN-AGE-PUBLISHED).",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ]
+}
