@@ -941,3 +941,17 @@ Owner approved PR 867 on GitHub (review 6080550225, `genxttech`, APPROVED, commi
 
 * Owner decision, verbatim, on updating PR 877 after its session's force push was refused: "Use a merge commit". Authorizes the branch update by ordinary push only; no PR merge, apply or deploy.
 * **Coordinator determinations, not new owner decisions** (PR 919 as drafted is kept): (a) events declaring `other` sanctioning stay approvable, because OD-01 as decided says `other` stays unblocked without implying verified compliance; (b) a judge may replace their own ballot, with a reason, while the round is active: P1 defers post-publication corrections, and OD-11 requires the original adjudicator to confirm any change to their marks. Both remain reviewable by the owner.
+
+## 24. Composed run p1run6 finished; test-acceptance rule (coordinator determination, 2026-11-27 UTC)
+
+Local only. Run 13:54Z to 17:36Z at base `57c33191`, with PR 899 pinned at `41cecd3e9`. Record: PR 863 at `122aa5851`. Migrations applied and re-applied; rollback returned the catalog to the base state with 0 differing lines. Suites: corrections chain 27 pass, 25 fail; restriction chain 10 pass, 44 fail (plus one comparison-only suite each). Concurrency on the restriction chain: 4 of 24 scripts pass. Bypass replay: all four routes reached on base, three still reached with corrections only, all four closed at setup by the restriction (later steps and the second-contest case not exercised). **P1 is not shown to be release-ready.**
+
+**Coordinator determination, not an owner decision**, reviewable by the owner:
+
+* Original suites stay unchanged. Labelled copies are allowed; each states what changed and why and lists dropped assertions. A copy is never reported as a pass of the original.
+* A legacy suite stopped on the restriction chain by a named pilot restriction is recorded as untested under the restriction, not as a pass. It is acceptable only if the suite, or a labelled copy, passes on the corrections chain.
+* Each P1 correction's own suite, original or labelled pilot copy, must pass on the composed restriction chain, or carry a written reason that the path is unreachable in the pilot.
+* Unexplained failures and real defects block P1.
+* Known limit: guards exercised only on the corrections chain are not demonstrated under the restriction triggers.
+
+Next: one targeted rerun (PR 899 `2754a4402`, PR 919 `58e27945921e`, PR 866 `5577708bc`, migration `20270223150000`, and the labelled copies pushed by then). Not yet queued or run.
