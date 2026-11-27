@@ -64,7 +64,7 @@ Counts: race B a = 2; race B b = 13; race B c = 4; race B e = 2; race B expected
 |---|---|---|---|---|---|
 | cf1_a2_lock_vs_lifecycle | pass | b | d, backed b | C: COMP_P1_HEAT_NOT_STARTED (after AUTOSEED) |  |
 | cf1_a3_locks | fail | c | e |  | UNASSIGNED |
-| e2_marks_txn | pass | e | e | B: E2 MARKS-TXN FAIL:; fixture: chain v1 and v3 exist; later transaction cannot add a mark to; C: E2 MARKS-TXN FAIL:; fixture: chain v1 and v3 exist; later transaction cannot add a mark to | UNASSIGNED |
+| e2_marks_txn | pass | e | e | B: E2 MARKS-TXN FAIL:; fixture: chain v1 and v3 exist; later transaction cannot add a mark to; C: E2 MARKS-TXN FAIL:; fixture: chain v1 and v3 exist; later transaction cannot add a mark to | R-11: stale fixture (helper setup refused by 866 gate; C also by the restriction). Labelled copy `run_e2_marks_txn_chain_copy.sh` at 5d06d019; R-11 reports 9 checks passing on A, B, C locally; not run by the composed runner; the original stays failing. `e2_submit_vs_lock` is not covered |
 | e2_submit_vs_lock | fail | c | d, UNBACKED | B: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_HL1_HEAT_NOT_DANCED; C: COMP_P1_HEAT_NOT_STARTED (after AUTOSEED) | UNASSIGNED |
 | f2_races | fail | c | d, UNBACKED | B: COMP_R15_ENTRY_NOT_CLEARED; AUTOSEED: COMP_RESULT_RECOMPUTE_UNSUPPORTED; C: COMP_P1_HEAT_NOT_STARTED (after AUTOSEED) | UNASSIGNED |
 | hl1_reopen_vs_lock_ballots | pass | b | d, backed b | C: COMP_P1_HEAT_NOT_STARTED (after AUTOSEED) |  |
