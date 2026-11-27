@@ -19,7 +19,7 @@ It found no source assertion removed. Changed afterwards: the A3 verdict copy no
 ## What stays untested
 
 - Until the copies run, nothing passes behind these four races on any chain.
-- Chain B needs eligibility clearance seeding for the renamed copies; `cf1_a3_locks` never loads the clearance helper and is expected to fail there.
+- Chain B needs eligibility clearance seeding for the renamed copies; `cf1_a3_locks` never loads the clearance helper, so its first run there is expected to fail; the printed refusal should trigger the runner's seeded rerun (not verified).
 - On the P1 restriction chain `f2`, `ns1` and `cf1_a3_locks` cannot run: their fixtures need things the pilot forbids (ballots before a start, corrections, a second heat after a start, non-final rounds). `e2_submit_vs_lock` appears compatible. So the F2, NS1 and A3 race guarantees are **untested** with the restriction.
 
 ## Live product and the starter template
