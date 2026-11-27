@@ -189,6 +189,10 @@ Same migrations as run 3 (same fingerprint), with the corrected runner. `result.
 
 This closes the two suites run 3 left unverified. Still not covered: the refund suite past its existing failure, the two Phase 10A template checks, the other concurrency scripts, application tests and hosted databases. The other 24 suites ran in run 3 only.
 
+### Rollback exactness correction (2026-11-27; **not yet executed**)
+
+The P1 composed run (another session, 2026-11-27) found that after all rollbacks `change_competition_entry_lifecycle` differed from the base. Cause, by reading: the 140000 rollback re-created the June text from this repository, while that database held a body that is not byte-identical to it (the rollback header already noted that hosted bodies carry CR characters), and this PR's own rollback proof compared the body with CR removed, which hid it. The migration now saves the installed definition, its body md5 and its comment in the function comment, and the rollback restores exactly that. The proof now compares the raw body md5 and the comment. All S6 results above predate this change to `20270301140000` and its rollback.
+
 ## 11. Independent review
 
 Two reviewers that had not seen these conclusions reviewed the work. The first found: service_role reach through the internal R2 definers; indirect transitions through registration links; delete and re-create; an unsafe re-grant against SC1; the optional lifecycle rules being necessary; the repeat-call branch skipping checks; missing heat locks; test defects; rollback ACL order, TRIGGER re-grant and missing rollback preflights. The second reviewed the fixes and found: the delete rule breaking two behaviours the 10A and callback-final suites assert; the link rule refusing referential SET NULL actions (AFTER trigger); locks taken before refusals (CF1 U55); assertions made in the same statement as the action (vacuous or failing) and other suite defects; an incomplete rollback proof; unrecorded prior privileges; client-changeable `id`/`event_id`; stale references. All were addressed in the current version except the items in section 8 and the narrow concurrency window in section 5. 
