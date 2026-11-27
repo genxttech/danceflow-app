@@ -174,7 +174,12 @@ export async function askKnowledgebaseAssistantAction(
     (article) => normalize(article.title) === normalize(question),
   );
 
-  if (process.env.AI_FEATURES_ENABLED !== "true" || !process.env.OPENAI_API_KEY) {
+  // The anonymous model answer is off unless explicitly opted in; without it visitors still get the article links.
+  if (
+    process.env.KB_PUBLIC_ASSISTANT_MODEL_ENABLED !== "true" ||
+    process.env.AI_FEATURES_ENABLED !== "true" ||
+    !process.env.OPENAI_API_KEY
+  ) {
     const top = exactTitle ?? relevantArticles[0];
     return {
       ok: true,
