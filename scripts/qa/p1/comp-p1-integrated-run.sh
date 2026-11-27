@@ -70,6 +70,7 @@ R844="${P_844:-origin/claude/od04-event-delete-guard-c68a8f}"; R866="${P_866:-or
 LAYERS="844:$R844 865:${P_865:-origin/claude/r11-correction-migration} 864:${P_864:-origin/claude/r10-s3-panel-readiness}
 863:${P_S5:-origin/od02-s5-db-guard} 866:$R866 877:${P_S6:-origin/claude/od31-s6-entry-status-guard} 899:${P_899:-origin/claude/comp-d-published-order-guard}"
 [ -n "${P_P1:-}" ] && LAYERS="$LAYERS P1:$P_P1"
+[ -n "${EXTRA_LAYERS:-}" ] && LAYERS="$LAYERS $EXTRA_LAYERS"   # further heads as label:ref, composed after the listed ones
 # a pinned head that its branch has since left is reported; the pin is what runs
 for pin in "${P_844:-}:od04-event-delete-guard-c68a8f" "${P_865:-}:r11-correction-migration" "${P_864:-}:r10-s3-panel-readiness" "${P_866:-}:r15-s4-eligibility-clearance" "${P_S6:-}:od31-s6-entry-status-guard" "${P_899:-}:comp-d-published-order-guard" "${P_P1:-}:od31-p1-pilot-restrictions" "${P_S5:-}:od02-s5-db-guard"; do
   want="${pin%%:*}"; br="origin/claude/${pin#*:}"; [ "${pin#*:}" = od02-s5-db-guard ] && br=origin/od02-s5-db-guard
