@@ -1,0 +1,28 @@
+{
+  "id": "OD17-NDCA-0004",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: officials and panels (change control)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.B.6 (p.17)",
+    "quote_free_summary": "If no substitute can be found the remaining officials act and the organizer sends a written explanation to the Ballroom Department within ten days."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Record the incident and track the organizer's written-explanation obligation; DanceFlow never claims to submit it.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6D): _compoc_blockers_panel_change and panel-change records for NDCA-declared events. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "No tracking exists. Calendar-day interpretation and start instant of \"ten days\" are open (design Q17). The remaining panel must still meet the OD-16 panel rule. NOT IMPLEMENTED (design only, PR-A section 6D): a BLOCKER to activating an NDCA profile; no test; no compliance claimed. Organizer-entered references are attested, not verified by DanceFlow or NDCA.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-17 (owner decision 2026-11-23: Option B now, Option A required for a future NDCA profile; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,20 @@
+{
+  "id": "OD15-UCWDC-0003",
+  "governing_body": "silent",
+  "format": "UCWDC judge certification (Judge Certification Code of Conduct)",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. The Judge Certification Code of Conduct (www.ucwdc.org/judge-certification, referenced by UCWDC-C II.N.3, p.13) is not provided; no UCWDC judge-certification tier is designed.",
+  "implementation": [],
+  "enforcement_point": "None. Open source gap listed in the registry; requesting the document is the owner's decision and nobody has been contacted.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Open source gap (also OD05-UCWDC-0002). Until supplied any UCWDC judge qualification handling is organizer policy and is labelled so. Design only (PR-A, section 6B): no credential model, no attestation table, no test; no compliance claimed. Organizer attestation never clears this requirement and is never shown as governing-body certification. UCWDC-C I.A.4 (p.1) says UCWDC certifies and evaluates judges into a pool; it states no event requirement.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-15 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

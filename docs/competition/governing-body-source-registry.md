@@ -41,6 +41,27 @@ A profile version is immutable once a program references it; a correction is pub
 - **Undefined algorithms.** The NDCA rule book requires the Skating System but does not define the algorithm, and the WSDC rules refer to their website for Relative Placement. Scoring engines (10F) need authoritative specifications for both.
 - **No NASDE source.** None was supplied, so WCS Classic / Showcase routine divisions have no source-grounded metadata.
 
+- **Missing UCWDC Judge Certification Code of Conduct** (website, `www.ucwdc.org/judge-certification`; referenced by UCWDC-C II.N.3, p.13, and the UCWDC-PA/-L/-T equivalents). Not provided. UCWDC has no general judge conflict-of-interest rule in the supplied rules, so any UCWDC conflict behavior is organizer policy until it is supplied. Whether to request it is the owner's decision; nobody has been contacted (OD-05, OD-15).
+
+- **Body panel-size and chair rules are NOT IMPLEMENTED** (OD-16): NDCA III.B.1.a-d, XII.N.1; WSDC 3.4.7; UCWDC states no minimum (Scoring Format Rule #3.4). Each mandatory provision is a blocker to activating that body's profile; advisory ones (NDCA III.B.4 non-voting chair, WSDC five per role in Tier 5-6 preliminaries) are warnings. Register entries `OD16-*`.
+
+- **NDCA officials-list publication, change control and emergency substitution are NOT IMPLEMENTED** (OD-17): III.B.6 (30-day posting, NDCA approval of changes, Observer-approved substitute, ten-day written explanation), III.D.1, IV.C.8, III.C.6. Each is a blocker to activating an NDCA profile. UCWDC and WSDC: rulebook-silent in the supplied text (searched 2026-11-23). Register entries `OD17-*`.
+
+- **Judging devices and location (OD-29):** NDCA IV.B.9, IV.D.1.a(3), IV.A.12 restrict "unauthorized" electronic devices but define no authorized device or approval path; WSDC 3.4.7.d forbids virtual judging while 3.4.9.a permits electronic scoring; UCWDC: no text found. Compatibility of the DanceFlow browser ballot with NDCA is UNVERIFIED and a blocker to an NDCA profile. The WSDC Appendix (computerized scoring system requirements, referenced by 3.4.9.d-e) is not in the supplied PDF. Register entries `OD29-*`.
+
+## Source conflicts
+
+Recorded per rule 3 below. Each one that affects eligibility or integrity fails closed until the owner resolves it.
+
+| Body | Sections in conflict | Subject | Effect until resolved | Register entries |
+|---|---|---|---|---|
+| NDCA | Rule Book IV.A.1 (p.25) versus IV.D.1.a(2) (p.28) | Definition of "immediate family" for the excuse-yourself duty: IV.A.1 enumerates (spouse, children, parent, sibling, grand-parent, grand-child, niece, nephew, in-law, first cousin); IV.D.1.a(2) says "first cousin or above" (open-ended, undefined) | No NDCA family/household definition is implemented or claimed; automatic checks cover accounts only (OD-05) | `OD05-NDCA-0001`, `OD05-NDCA-0002`, `OD05-NDCA-0003` |
+| NDCA | Rule Book III.B.4 (p.16) versus III.B.5 (p.16) and III.B.6 (p.16-17) | III.B.4 sends "substitute adjudicator" to III.B.5, which is the World Dance Council non-resident rule; substitution is in III.B.6 | Cross-reference not relied on; no NDCA substitution rule derived from it (OD-17) | `OD17-NDCA-0008` |
+
+## Page-number convention
+
+Citations use the **printed** page number of the document (NDCA and WSDC printed footers; UCWDC Couples "Page N of 17"). Printed and PDF page numbers differ for some files (for example UCWDC Couples II.B.1.b is printed p.3 and PDF page 5). The UCWDC Scoring Format text cited as p.3 is on PDF page 3; its printed page number was not extracted (neighbouring pages carry footers 2 and 4), so confirm visually before relying on the number.
+
 ## Rules for using a source
 
 1. Read the rule in the document itself. A summary or extraction can point to a section, but the citation is only valid once the section text has been read.

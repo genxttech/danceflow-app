@@ -1,0 +1,28 @@
+{
+  "id": "OD05-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned Championships: Open Adult Amateur \"A\" events and all Professional events (panel composition)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.A.2 (p.25)",
+    "quote_free_summary": "Two members of an immediate family and/or household may not be on the same panel of those events."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Panel-lock validation against organizer-entered panel relatedness for the named classes.",
+  "implementation": [],
+  "enforcement_point": "Planned (slice 4 design). Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Depends on the unresolved family definition (OD05-NDCA-0001/0002) and on a source-grounded mapping from DanceFlow divisions to the named classes, which does not exist. Unevaluable until both exist. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

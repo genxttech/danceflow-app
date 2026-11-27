@@ -1,0 +1,28 @@
+{
+  "id": "OD17-NDCA-0008",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: officials and panels (change control)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.B.4 (p.16) with III.B.5 (p.16) and III.B.6 (p.16-17)",
+    "quote_free_summary": "A Scrutineer may serve only as a substitute adjudicator \"as per Rule III.B.5\"; III.B.5 is the World Dance Council non-resident rule while the substitution text is in III.B.6."
+  },
+  "rule_class": "mandatory",
+  "requirement": "No requirement derived from the cross-reference; recorded only as a source inconsistency.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6D): _compoc_blockers_panel_change and panel-change records for NDCA-declared events. Not built.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "SOURCE INCONSISTENCY: the cross-reference looks mis-numbered. Unresolved; not relied on. NOT IMPLEMENTED (design only, PR-A section 6D): a BLOCKER to activating an NDCA profile; no test; no compliance claimed. Organizer-entered references are attested, not verified by DanceFlow or NDCA.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-17 (owner decision 2026-11-23: Option B now, Option A required for a future NDCA profile; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

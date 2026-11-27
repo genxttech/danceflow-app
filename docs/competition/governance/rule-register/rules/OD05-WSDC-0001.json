@@ -1,0 +1,28 @@
+{
+  "id": "OD05-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, judging panels",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.6, 3.4.6.a, 3.4.6.b (p.19)",
+    "quote_free_summary": "Conflicts (judging an immediate family member, current spouse/significant other, established dance partner or current business partner) must be identified and avoided; judges and chief judges recuse. Exceptions (i) Pro-Am Jack and Jill/Strictly Swing judging Amateurs when the conflict is with the Pro, (ii) opposite role in Jack and Jill preliminaries, (iii) self-judging in Champions/invitational contests; (iv) is a chief-judge substitution."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Judge-declared conflicts and identity checks block; exceptions i-iii only through a documented resolution (slice 3), not in slice 1.",
+  "implementation": [],
+  "enforcement_point": "Planned (design). Not built.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "No conflict mechanism exists today (audit J-16W). The pinned text lists four exception sub-items; the audit said three. WSDC enforces only the 3.4.6.a definition (3.4.6.a.i). Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "OD06-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events: owners and directors",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.1, 3.4.1.a (p.18); Definitions Event Director(s) and/or Owner(s) (p.1)",
+    "quote_free_summary": "Event directors and owners must not perform chief judge, judge or scoring duties; their spouses and immediate family may not perform chief judge or scoring duties. Director means anyone involved in hiring judges or scoring staff, or named director; owner means anyone with a vested financial interest."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Explicit event-level designations of owners, directors and family; block judge/chair/scorer assignment, chief judge and scoring-operator designation for them; fail closed without a valid attestation.",
+  "implementation": [],
+  "enforcement_point": "Planned (design: docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6A): database triggers on officials, designations and result versions. Not built.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Today any manager can be added as judge or chair (audit J-08W). DanceFlow account roles are not WSDC roles; the director definition is functional, so only an attestation can cover it. Design only (PR-A): nothing implemented, no test, no compliance claimed. Applies only to WSDC-declared events; never imposed on NDCA, UCWDC or Studio/Custom.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-06 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

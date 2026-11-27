@@ -1,0 +1,20 @@
+{
+  "id": "OD17-UCWDC-0001",
+  "governing_body": "silent",
+  "format": "UCWDC events: officials list publication, panel changes, judge substitution",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE. Searched UCWDC Couples, Pro/Pro-Pro/Am, Line Dance, Teams and the Scoring Format (2026) on 2026-11-23: no publication, change-control or substitution rule; only post-event panel complaints (UCWDC-C II.N.3, p.13). NDCA procedures are not applied.",
+  "implementation": [],
+  "enforcement_point": "None (unchanged Studio behavior).",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "The Judge Certification Code of Conduct (not provided) may govern; open source gap. Any UCWDC handling is organizer policy and labelled so. Design only.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-17 (owner decision 2026-11-23: Option B now, Option A required for a future NDCA profile; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

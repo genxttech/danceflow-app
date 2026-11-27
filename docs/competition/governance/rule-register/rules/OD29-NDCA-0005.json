@@ -1,0 +1,28 @@
+{
+  "id": "OD29-NDCA-0005",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: score cards",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.12 (p.21), IV.B.6 (p.26), IV.D.1.a(10) (p.29), III.E.2 (p.25)",
+    "quote_free_summary": "Each adjudicator marks and signs a score card per heat judged, in ink; a steward collects the cards for the Scrutineer; the organizer keeps the original score sheets for thirty days."
+  },
+  "rule_class": "mandatory",
+  "requirement": "The text assumes paper score cards; the paper path (scorer entry, OD-12 transcription verification) is the best-supported alternative.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6E): judging-arrangement declaration and _compoc_blockers_judging_arrangement for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "No electronic ballot or scoring-tablet allowance exists in the text read (NOT SPECIFIED IN PROVIDED SOURCE; terms searched in design section 6E.1). Whether electronic marking can satisfy these items is an owner interpretation. NOT IMPLEMENTED (design only, PR-A section 6E): a BLOCKER to activating this body profile; no test; no compliance claimed. A declaration is a self-attestation, never a verification.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-29 (owner decision 2026-11-23: Option A, body-specific judging-device and location attestation, design only; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

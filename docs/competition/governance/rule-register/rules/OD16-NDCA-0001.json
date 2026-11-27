@@ -1,0 +1,28 @@
+{
+  "id": "OD16-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events: minimum adjudicators",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.B.1.a, III.B.1.c, III.B.1.d (p.14)",
+    "quote_free_summary": "Non-Championship: at least three adjudicators, five if the first-place professional prize is $1,000 or more; Professional and Adult Amateur Championships: at least seven; open multiple-dance Pro/Am Championships: at least five."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Hard blocker for NDCA-declared events once classification and prize inputs exist.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6C): _compoc_blockers_panel_size / _compoc_panel_rules for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Needs event classification, prize money and chair-counting interpretation, none of which DanceFlow records (audit J-03N/W, J-21N/W). Mapping \"adjudicator\" to a voting judge is an interpretation. NOT IMPLEMENTED (design only, PR-A section 6C): a BLOCKER to activating this body profile; no test; no compliance claimed. Hard blocker if mandatory, warning if advisory.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-16 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

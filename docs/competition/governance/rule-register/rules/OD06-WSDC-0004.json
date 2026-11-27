@@ -1,0 +1,28 @@
+{
+  "id": "OD06-WSDC-0004",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events: other roles during a contest",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.5, 3.4.5.a (p.19)",
+    "quote_free_summary": "Judges and scorekeepers may not take other roles (MC, DJ, contest team, photographer) during their contest; self-judged champion or invitational divisions are the stated exception."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Not detectable by the platform: covered by a signed attestation statement; the self-judging exception only through a documented resolution with evidence.",
+  "implementation": [],
+  "enforcement_point": "Planned (design: docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6A): database triggers on officials, designations and result versions. Not built.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Division type champion/invitational has no source-grounded attribute today; exception never inferred. Design only (PR-A): nothing implemented, no test, no compliance claimed. Applies only to WSDC-declared events; never imposed on NDCA, UCWDC or Studio/Custom.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-06 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

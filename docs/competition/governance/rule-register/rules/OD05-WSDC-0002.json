@@ -1,0 +1,28 @@
+{
+  "id": "OD05-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC swing contests: event director/owner, chief judge, secondary chief judge, score person",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.2 (p.18-19), with 3.4.1 and 3.4.1.a (p.18)",
+    "quote_free_summary": "The named functionaries (and director/owner spouses and children) must not compete in any swing contest at the event, with exceptions for non-judged contests and certain separate-organization contests; directors/owners and their immediate family may not perform chief judge or scoring duties."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Tier-2 check for designated owners, directors, family, chief judge, secondary chief judge and score person (OD-06 designations) in WSDC-declared events.",
+  "implementation": [],
+  "enforcement_point": "Planned (design). Not built.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "Exceptions not modelled in slice 1 (fail closed, no override). \"Event director/owner\" has no DanceFlow role; OD-06 (decided 2026-11-23) supplies explicit event-level designations. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

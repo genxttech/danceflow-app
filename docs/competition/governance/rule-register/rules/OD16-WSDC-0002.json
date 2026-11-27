@@ -1,0 +1,28 @@
+{
+  "id": "OD16-WSDC-0002",
+  "governing_body": "WSDC",
+  "format": "WSDC Jack and Jill: Chief Judge on the panel; virtual judging",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.7.c, 3.4.7.d (p.20)",
+    "quote_free_summary": "The Chief Judge may join the general panel only on an unforeseen or unavoidable shortage; virtual judging is not permitted."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Shortage exception only by a documented resolution with reason; judging mode recorded and in-person required.",
+  "implementation": [],
+  "enforcement_point": "Planned (docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6C): _compoc_blockers_panel_size / _compoc_panel_rules for the declared body. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Whether the Chief Judge counts toward the minimum is open (design Q16). No judging-mode attribute exists. NOT IMPLEMENTED (design only, PR-A section 6C): a BLOCKER to activating this body profile; no test; no compliance claimed. Hard blocker if mandatory, warning if advisory.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-16 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

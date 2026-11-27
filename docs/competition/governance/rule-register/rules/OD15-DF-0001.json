@@ -1,0 +1,20 @@
+{
+  "id": "OD15-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom and pre-profile declared events: officials' qualifications",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): the organizer or a designated authorized administrator may attest to an official's qualifications; the record shows actor, event, official, role, time and declaration. Copy: \"Attested by organizer, not verified by DanceFlow or any governing body.\" Studio/Custom carry no certification obligation.",
+  "implementation": [],
+  "enforcement_point": "Planned (design section 6B.3). Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-15 Option B. DanceFlow policy: never presented as governing-body certification. Design only (PR-A, section 6B): not built, no test.",
+  "applicable_event_versions": [
+    "DanceFlow policy"
+  ],
+  "decision_refs": [
+    "OD-15 (owner decision 2026-11-23: Option B now, Option A for future body profiles; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "OD06-WSDC-0003",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events: finalist review",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.4.4 (p.19); 2.3 (p.9)",
+    "quote_free_summary": "The chief judge must review all finalists before posting or starting finals; the event director and/or chief judge verify results. Neither is a scoring or tabulation function."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Chief judge and event director may review and verify without being blocked as scorers; finalist review recorded before finals start.",
+  "implementation": [],
+  "enforcement_point": "Planned (design: docs/competition/governance/judging-integrity/OD-05-conflicts-design.md section 6A): database triggers on officials, designations and result versions. Not built.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "No finalist-review step exists today. Whether it is a hard start blocker is an open question (Q8). Design only (PR-A): nothing implemented, no test, no compliance claimed. Applies only to WSDC-declared events; never imposed on NDCA, UCWDC or Studio/Custom.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-06 (owner decision 2026-11-23, Option A; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "OD05-UCWDC-0001",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Couples: Classic Open I and Showcase Open (Crown competitors)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.F.6.e (p.5)",
+    "quote_free_summary": "Crown competitors entering Classic Open I or Showcase Open may not judge that Dance Type while dancing it."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Narrow tier-2 check scoped to Dance Type, once Dance Type is a modelled attribute.",
+  "implementation": [],
+  "enforcement_point": "Planned (design). Not built.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "No check exists today (audit J-10U). The Line Dance equivalent (UCWDC-L II.F.5.d) was carried from the audit and not re-read in this pass. Design only (PR-A): nothing implemented, no test, no compliance claimed.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-05 (owner decision 2026-11-23, Option D BLOCK; retrospective audit PR #795)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
