@@ -12,7 +12,8 @@ import {
   submitOnboarding,
 } from "@/lib/sms/onboarding/client";
 import { EinCryptoError, einEncryptionConfigured, encryptEin } from "@/lib/sms/onboarding/ein";
-import { DRAFT_FIELD_KEYS, FIELD_LABELS, normalizeEin, validateDraftFields, type DraftFieldKey, type WizardFieldKey } from "@/lib/sms/onboarding/fields";
+import { describeProblems } from "@/lib/sms/onboarding/wizardState";
+import { DRAFT_FIELD_KEYS, normalizeEin, validateDraftFields, type DraftFieldKey, type WizardFieldKey } from "@/lib/sms/onboarding/fields";
 
 /**
  * TW-4A server actions for Settings -> Texting. Owner only (the database re-checks the role and the pilot flag on every call).
@@ -25,7 +26,7 @@ export type SmsSetupState = {
   error?: string;
   notice?: string;
   fieldErrors?: Partial<Record<WizardFieldKey, string>>;
-  /** The submitted NON-SECRET field values, returned on a failed save so the form keeps what the owner typed. Never the EIN. */
+  /** NON-SECRET field values: what was typed (a failed save) or what was written (a successful one), so the form shows it. Never the EIN. */
   values?: Partial<Record<DraftFieldKey, string>>;
   warnings?: Partial<Record<WizardFieldKey, string>>;
   missing?: string[];
@@ -42,7 +43,10 @@ async function ownerContext() {
 }
 
 function failure(error: unknown): SmsSetupState {
-  if (error instanceof OnboardingRpcError) return { ok: false, error: error.friendly };
+  if (error instanceof OnboardingRpcError) {
+    if (!error.field) return { ok: false, error: error.friendly };
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: { [error.field]: "This value was not accepted. Correct it and click Save draft." } };
+  }
   if (error instanceof EinCryptoError) {
     // Operational problem on our side; the code is safe to log, the studio gets a neutral message.
     console.warn(`sms_onboarding_ein_${error.code}`);
@@ -85,18 +89,29 @@ export async function saveSmsSetupAction(_previous: SmsSetupState, formData: For
     const saved = await saveOnboardingDraft(ctx.supabase, ctx.studioId, posted);
     let missing = saved.missing;
     if (ein && ein.ok) {
-      const encrypted = encryptEin(ctx.studioId, { digits: ein.digits, last4: ein.last4 });
-      await storeEinCiphertext(createAdminClient(), {
-        studioId: ctx.studioId,
-        actorUserId: ctx.user.id,
-        ciphertext: encrypted.ciphertext,
-        keyId: encrypted.keyId,
-        last4: encrypted.last4,
-      });
+      try {
+        const encrypted = encryptEin(ctx.studioId, { digits: ein.digits, last4: ein.last4 });
+        await storeEinCiphertext(createAdminClient(), {
+          studioId: ctx.studioId,
+          actorUserId: ctx.user.id,
+          ciphertext: encrypted.ciphertext,
+          keyId: encrypted.keyId,
+          last4: encrypted.last4,
+        });
+      } catch (error) {
+        failure(error); // logs the safe code for an encryption problem
+        revalidatePath(PATH);
+        return {
+          ok: false,
+          error: "Your other details were saved, but the EIN was not. If it fails again, contact DanceFlow support and do not send your EIN.",
+          fieldErrors: { ein: "Not saved. Type the EIN again and click Save draft." },
+          values,
+        };
+      }
       missing = missing.filter((key) => key !== "ein");
     }
     revalidatePath(PATH);
-    return { ok: true, notice: "Saved.", warnings, missing };
+    return { ok: true, notice: "Saved.", warnings, missing, values: posted };
   } catch (error) {
     return { ...failure(error), values };
   }
@@ -116,8 +131,7 @@ export async function submitSmsSetupAction(_previous: SmsSetupState, formData: F
     }
     const result = await submitOnboarding(ctx.supabase, ctx.studioId, attestation);
     if (!result.submitted) {
-      const labels = result.missing.map((key) => FIELD_LABELS[key as WizardFieldKey] ?? key);
-      return { ok: false, error: `Finish the form first. Still needed: ${labels.join(", ")}.`, missing: result.missing };
+      return { ok: false, error: `Nothing was submitted. Still needed: ${describeProblems(result.missing)}`, missing: result.missing };
     }
     revalidatePath(PATH);
     return { ok: true, notice: "Submitted. We have your information and will take it from here." };

@@ -24,6 +24,7 @@ const render = (props: Partial<Parameters<typeof SmsSetupWizard>[0]> = {}) =>
   renderToStaticMarkup(
     createElement(SmsSetupWizard, {
       initial: { ...emptyDraft(), legal_name: "Harbor Dance Studio LLC", industry: "EDUCATION", website_choice: "danceflow" },
+      hasSavedDraft: true,
       einOnFile: false,
       einLast4: null,
       canEdit: true,

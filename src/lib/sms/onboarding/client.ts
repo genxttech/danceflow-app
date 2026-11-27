@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { DraftFieldKey } from "./fields";
+import { FIELD_LABELS, type DraftFieldKey, type WizardFieldKey } from "./fields";
 import type { OnboardingDisplayState } from "./stateMachine";
 
 /**
@@ -13,10 +13,19 @@ type Rpc = { data: unknown; error: { message?: string; code?: string } | null };
 type Client = Pick<SupabaseClient, "rpc">;
 
 export class OnboardingRpcError extends Error {
-  constructor(public readonly code: string, public readonly friendly: string) {
+  constructor(public readonly code: string, public readonly friendly: string, public readonly field?: WizardFieldKey) {
     super(`sms onboarding rpc failed (${code})`);
     this.name = "OnboardingRpcError";
   }
+}
+
+/** The database names the failed check ("invalid value (studio_sms_onboarding_rep_email_check)"); that name, never a value, identifies the field. */
+function fieldForCheck(message: string): WizardFieldKey | undefined {
+  const name = /studio_sms_onboarding_([a-z0-9_]+?)(?:_check)?(?![a-z0-9_])/.exec(message)?.[1];
+  if (!name) return undefined;
+  if (name.startsWith("ein")) return "ein";
+  if (name === "website_pair") return "website_url";
+  return Object.hasOwn(FIELD_LABELS, name) ? (name as WizardFieldKey) : undefined;
 }
 
 /** Database refusals are written for staff; anything unexpected stays generic and carries no raw text. */
@@ -27,8 +36,16 @@ export function friendlyOnboardingError(error: { message?: string; code?: string
   if (code === "22023" && /already submitted|cannot be edited|locked/i.test(message)) {
     return new OnboardingRpcError(code, "This setup has been submitted and can no longer be edited.");
   }
-  if (code === "22023") return new OnboardingRpcError(code, "Some information was not accepted. Check the highlighted fields and try again.");
-  if (code === "23514") return new OnboardingRpcError(code, "A value is not in an accepted format. Check the highlighted fields.");
+  if (code === "22023" && /no setup to submit/i.test(message)) {
+    return new OnboardingRpcError(code, "Nothing has been saved yet, so there is nothing to submit. Click Save draft, check your details, then submit again.");
+  }
+  // No field is named here, so the message must not point at highlighted fields.
+  if (code === "22023") return new OnboardingRpcError(code, "This request was not accepted. If it happens again, contact DanceFlow support and do not send your EIN.");
+  if (code === "23514") {
+    const field = fieldForCheck(message);
+    if (field) return new OnboardingRpcError(code, "A value is not in an accepted format. Check the highlighted fields.", field);
+    return new OnboardingRpcError(code, "A value is not in an accepted format and was not saved. Contact DanceFlow support and do not send your EIN.");
+  }
   return new OnboardingRpcError(code, "Something went wrong. Nothing was changed.");
 }
 
