@@ -122,12 +122,15 @@ begin
 end $$;
 
 -- running order: new draft version with one numbered floor heat per round (all confirmed couples), through the real functions. p_dance_round gets p_dances.
+-- Rounds of the judged divisions (1-4, 21) carry their one offered dance: the engine refuses to calculate a heat without exactly one (multi_dance_unsupported).
 create function pg_temp.mkorder(p_key text, p_event int, p_rounds int[], p_dance_round int default null, p_dances uuid[] default '{}') returns void language plpgsql as $$
 declare v_floor jsonb; v_id uuid; v text;
 begin
   select jsonb_agg(jsonb_build_object('number', x.o, 'scoringHeats', jsonb_build_array(jsonb_build_object(
            'divisionId', pg_temp.did(x.n), 'roundId', pg_temp.rid(x.n), 'heatNumber', 1, 'name', 'P1 heat ' || x.n,
-           'danceIds', case when x.n = p_dance_round then to_jsonb(p_dances) else '[]'::jsonb end,
+           'danceIds', case when x.n = p_dance_round then to_jsonb(p_dances)
+                            when x.n in (1, 2, 3, 4, 21) then (select jsonb_agg(dd.dance_id) from public.event_competition_division_dances dd where dd.division_id = pg_temp.did(x.n))
+                            else '[]'::jsonb end,
            'entryIds', (select jsonb_agg(e.id order by e.id) from public.event_competition_entries e where e.division_id = pg_temp.did(x.n) and e.status = 'confirmed')))) order by x.o)
     into v_floor from unnest(p_rounds) with ordinality x(n, o);
   begin
@@ -248,6 +251,17 @@ select pg_temp.eid(d.id_n, i), d.event_id, d.program_id, d.id, 'Couple ' || d.id
 from (select dv.*, x.n as id_n, x.c from (values (1, 4), (2, 3), (3, 1), (4, 4), (5, 2), (21, 3), (31, 2), (32, 2)) x(n, c)
       join public.event_competition_divisions dv on dv.id = pg_temp.did(x.n)) d
 cross join lateral generate_series(1, d.c) i;
+-- one dance for each judged division, and every one of its couples registered for it (event 2 needs its own dance)
+insert into public.event_competition_dances (id, event_id, program_id, dance_key, name, category_label, sort_order)
+values (pg_temp.u('00d021'), pg_temp.ev(2), pg_temp.u('001003'), 'waltz', 'Waltz', 'Smooth', 10);
+insert into public.event_competition_division_dances (event_id, program_id, division_id, dance_id, entry_fee, currency, required, sort_order)
+select dv.event_id, dv.program_id, dv.id, case when x.n = 21 then pg_temp.u('00d021') else pg_temp.u('00d001') end, 0, 'USD', false, 10
+from (values (1), (2), (3), (4), (21)) x(n) join public.event_competition_divisions dv on dv.id = pg_temp.did(x.n);
+insert into public.event_competition_entry_dances (event_id, entry_id, division_dance_id, dance_key, dance_label)
+select e.event_id, e.id, dd.id, 'waltz', 'Waltz'
+from public.event_competition_entries e
+join public.event_competition_division_dances dd on dd.division_id = e.division_id and dd.event_id = e.event_id
+where e.division_id in (select pg_temp.did(n) from unnest(array[1, 2, 3, 4, 21]) n);
 -- S4/R-15: running orders are published and rounds started, so the seeded couples need clearance before that. Clearance is recorded through
 -- set_competition_entry_eligibility (fixtures/r15_clear_entries.sql, prepended by the runner; it also gives each couple an adult participant, S5). This
 -- suite's three events only. Inert without R-15.
