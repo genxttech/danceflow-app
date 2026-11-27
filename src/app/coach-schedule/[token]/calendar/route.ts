@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolveGuestCoachAccess } from "@/lib/events/privateLessonAccess";
 import { normalizePublicToken } from "@/lib/security/tokens";
 
 type Params = Promise<{
@@ -135,19 +136,13 @@ export async function GET(
 
   const supabase = await createClient();
 
-  const { data: coach, error: coachError } = await supabase
-    .from("event_guest_coaches")
-    .select("id, event_id, name, schedule_token_enabled, active")
-    .eq("schedule_token", normalizedToken)
-    .eq("active", true)
-    .eq("schedule_token_enabled", true)
-    .single();
+  const access = await resolveGuestCoachAccess(normalizedToken, supabase);
 
-  if (coachError || !coach) {
+  if (!access) {
     notFound();
   }
 
-  const typedCoach = coach as CoachRow;
+  const typedCoach: CoachRow = access.coach;
   const nowIso = new Date().toISOString();
 
   await supabase
@@ -178,12 +173,13 @@ export async function GET(
         .select("id, name, slug, venue_name, city, state, timezone")
         .eq("id", typedCoach.event_id)
         .single(),
-      supabase
+      access.db
         .from("event_private_lesson_slots")
         .select(
           "id, starts_at, ends_at, location_label, status, buyer_name, buyer_email, buyer_phone, buyer_notes, held_until, updated_at",
         )
         .eq("coach_id", typedCoach.id)
+        .eq("event_id", typedCoach.event_id)
         .or("status.eq.booked,and(status.eq.held,held_until.is.null)")
         .order("starts_at", { ascending: true }),
     ]);
