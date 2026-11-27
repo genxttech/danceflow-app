@@ -101,7 +101,7 @@ insert into public.verified_email_identities (user_id, email, first_verified_at,
 select id, lower(email), now(), now(), 'otp', 'web_callback', 'bound', now() from auth.users where id::text like '00000000-0000-0000-0000-9a1b0b%';
 insert into public.studios (id, name, slug) values (pg_temp.u('00a001'), 'P1R11 Studio', 't-p1r11-studio');
 insert into public.user_studio_roles (user_id, studio_id, role, active)
-select pg_temp.uid(a), pg_temp.u('00a001'), case when a like 'A%' then 'studio_owner' else 'instructor' end, true from unnest(array['A1', 'A2', 'J1', 'J2', 'J3']) a;
+select pg_temp.uid(a), pg_temp.u('00a001'), (case when a like 'A%' then 'studio_owner' else 'instructor' end)::public.app_role, true from unnest(array['A1', 'A2', 'J1', 'J2', 'J3']) a;
 
 -- ============================================================================
 -- Setup through application paths
@@ -122,7 +122,7 @@ begin
     perform pg_temp.put('div' || d, v_div);
     select jsonb_agg(jsonb_build_object('clientId', 'p' || g, 'firstName', 'Adult' || d || g, 'lastName', 'Tester', 'personType', 'dancer', 'dateOfBirth', '1990-01-0' || g) order by g),
            jsonb_agg(jsonb_build_object('clientId', 'e' || g, 'programId', v_prog, 'contestId', (select contest_id from public.event_competition_divisions where id = v_div), 'divisionId', v_div,
-             'participantIds', jsonb_build_array('p' || g), 'participantRoles', jsonb_build_object('p' || g, 'dancer'), 'selectedOfferingIds', '[]'::jsonb) order by g)
+             'participantIds', jsonb_build_array('p' || g), 'participantRoles', jsonb_build_object('p' || g, 'dancer'), 'selectedOfferingIds', '[]'::jsonb, 'routineTitle', 'Routine ' || d || '-' || g, 'musicTitle', 'Music ' || d || '-' || g, 'routineDurationSeconds', '90') order by g)
     into v_people, v_entries from generate_series(1, 3) g;
     perform pg_temp.step('setup', 'register three adults in D' || d, format($q$select public.start_competition_registration(%L, %L, %L::jsonb, %L)$q$, pg_temp.ev(), pg_temp.u('00f00' || d),
       jsonb_build_object('registrationMode', 'individual', 'buyerName', 'Bea Buyer', 'buyerEmail', 'buyer@example.test', 'people', v_people, 'entries', v_entries), pg_temp.uid('A1')), 'SVC');
@@ -246,7 +246,7 @@ begin
     update public.event_competition_heats set round_id = pg_temp.rid(7) where id = pg_temp.hid(5);
     get diagnostics v_n = row_count;
     execute 'set constraints all immediate';
-    raise exception 'ROLLBACK_PROBE ACCEPTED (rows %)', v_n;
+    raise exception 'ROLLBACK_PROBE %', case when v_n = 0 then 'NOT TESTED (no such published heat)' else 'ACCEPTED (rows ' || v_n || ')' end;
   exception when others then
     v_msg := case when sqlerrm like 'ROLLBACK_PROBE %' then substr(sqlerrm, 16) else 'REFUSED ' || sqlstate || ' ' || left(replace(sqlerrm, chr(10), ' '), 220) end;
   end;

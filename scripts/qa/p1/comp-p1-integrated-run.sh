@@ -196,7 +196,7 @@ PSQL=(docker exec -i -e PGPASSWORD=postgres "$NAME" psql -U supabase_admin -d po
 docker image inspect "$IMAGE" --format '{{.Id}}' > "$OUT/image-id.txt"; "${PSQL[@]}" -Atc "select 'pg '||version()" > "$OUT/db-version.txt"
 : > "$OUT/steps.txt"
 apply(){ if "${PSQL[@]}" -1 < "$1" > "$OUT/$2-$(basename "$1").log" 2>&1; then echo "OK   $2 $(basename "$1")" >> "$OUT/steps.txt"; else echo "FAIL $2 $(basename "$1")" >> "$OUT/steps.txt"; log "FAILED: $2 $(basename "$1"): $(grep -m1 -E 'ERROR|FATAL' "$OUT/$2-$(basename "$1").log")"; return 1; fi; }
-snapshot(){ local img="df-p1int-snap-$RUN_ID-$1"; "${PSQL[@]}" -c checkpoint >/dev/null 2>&1; docker commit "$NAME" "$img" >/dev/null && SNAPS="$SNAPS $img" && wait_db "$NAME" || log "snapshot $1 failed: race scripts of that phase will be reported as not run"; }
+snapshot(){ local img="df-p1int-snap-$RUN_ID-${1,,}"; "${PSQL[@]}" -c checkpoint >/dev/null 2>&1; docker commit "$NAME" "$img" >/dev/null && SNAPS="$SNAPS $img" && wait_db "$NAME" || log "snapshot $1 failed: race scripts of that phase will be reported as not run"; }
 # catalog of schema public: functions (body, owner, grants), triggers, policies, table grants, constraints, columns, indexes
 catalog(){ "${PSQL[@]}" -At > "$OUT/catalog-$1.txt" <<'SQL'
 select 'fn ' || p.oid::regprocedure::text || ' owner=' || p.proowner::regrole::text || ' acl=' || coalesce(p.proacl::text, 'default') || ' def=' || md5(pg_get_functiondef(p.oid)) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prokind in ('f', 'p') order by 1;
@@ -235,7 +235,7 @@ probe(){ # <phase>
   log "[$1] bypass probe: reached $(grep -c ': REACHED' "$OUT/bypass-$1.txt"), not reached $(grep -c ': NOT REACHED' "$OUT/bypass-$1.txt"), closed at setup $(grep -c ': CLOSED AT SETUP' "$OUT/bypass-$1.txt"), inconclusive $(grep -c ': INCONCLUSIVE' "$OUT/bypass-$1.txt") (read bypass-$1.txt)"
 }
 race(){ # <phase> <snapshot phase> <script>
-  local ph="$1" img="df-p1int-snap-$RUN_ID-$2" sc="$3" c rc line res tag
+  local ph="$1" img="df-p1int-snap-$RUN_ID-${2,,}" sc="$3" c rc line res tag
   tag="$(basename "$sc" .sh)"; c="df-p1int-r-$RUN_ID-$ph-$tag"
   start_db "$c" "$img" || { printf '%s\t%s\tNOT RUN\tcontainer from %s not ready\n' "$ph" "$sc" "$img" >> "$OUT/races.tsv"; docker rm -f -v "$c" >/dev/null 2>&1; return 1; }
   ( cd "$CHAIN/tests-$2" && CONTAINER="$c" DBUSER=supabase_admin timeout 600 bash "$sc" "$c" ) > "$OUT/race-$ph-$tag.log" 2>&1; rc=$?
