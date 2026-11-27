@@ -22,8 +22,9 @@ Common audiences may include:
 - Inactive clients
 - Clients with no upcoming lesson
 - Clients with low package credits
-- Event registrants
-- Checked-in event attendees
+- All event registrants
+- Specific event registrants
+- Specific event checked-in attendees
 
 Some audiences may depend on your subscription tier or the features currently enabled in your workspace.
 

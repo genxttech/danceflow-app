@@ -23,12 +23,12 @@ Review registrations before event day:
 - Review unpaid, pending, or refunded registrations
 - Confirm required waivers or documents are signed when applicable
 
-## Check in with QR scan mode
+## Check in with a QR scan
 
 At the event:
 
 1. Open the event check-in page.
-2. Choose scan mode when available.
+2. Use the scanner at the top of the page (or the manual ticket-code field).
 3. Scan the attendee QR code.
 4. Confirm the attendee details.
 5. Mark the attendee checked in.
@@ -37,9 +37,9 @@ At the event:
 
 If a QR code cannot be scanned, staff can search by attendee name, email, phone, or ticket code.
 
-## Duplicate check-in protection
+## Duplicate check-ins
 
-If an attendee is already checked in, DanceFlow should help prevent duplicate attendance records.
+If a ticket was already checked in, DanceFlow shows a warning that it was already checked in. Verify the attendee before admitting a duplicate ticket.
 
 ## Best practice
 

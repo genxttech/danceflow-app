@@ -17,11 +17,10 @@ ARIA has two related workspaces with different jobs.
 
 ## Use Automation Center for configuration
 
-Open Automation Center when you want to change:
+Open **Automations** (the ARIA Automation Center) when you want to change:
 
 - Operational pack autonomy
 - Whether an operational area is on or off
-- A stricter rule exception
 - Communication and automation boundaries
 
 The normal studio workflow is to set each operational pack once and only return when your preferences change.
@@ -46,15 +45,13 @@ ARIA Operations shows the work produced inside those boundaries.
 
 For example:
 
-**Front Desk pack = Handle automatically**
+**Sales and Retention pack = Handle automatically**
 
-ARIA can automatically perform the safe parts of supported Front Desk workflows. A cancellation or schedule conflict that still requires judgment appears in Operations for review instead of being changed automatically.
+ARIA can queue email for supported rules in that pack, such as low package balance outreach. Promotional email is held while marketing sending is paused. Front Desk items, such as a cancellation or an unconfirmed appointment, are surfaced in Operations for staff to handle; ARIA does not act on them automatically.
 
-## Rule exceptions
+## Applying a pack setting
 
-Individual rules normally inherit the pack setting.
-
-Use a rule exception only when one workflow should be more restrictive than the rest of the operational area.
+Click **Save pack** on each pack. Saving a pack applies its setting to most of that pack's rules. In Client Relationships, intro follow-up email can still be sent automatically unless that pack is Off. Until Billing and Payments is saved, past-due membership email can still be sent automatically.
 
 ## Best practice
 

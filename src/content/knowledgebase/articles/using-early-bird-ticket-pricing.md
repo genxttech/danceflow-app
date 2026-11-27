@@ -21,7 +21,7 @@ Early bird pricing works well for:
 - Social dance weekends
 - Guest coach events
 - Camps and intensives
-- Competitions and showcases
+- Showcases
 - Events where you need earlier registration commitments
 
 ## How early bird pricing works

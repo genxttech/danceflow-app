@@ -17,7 +17,7 @@ No software platform can eliminate every possible risk, but DanceFlow is activel
 
 ## Secure sign-in and account access
 
-DanceFlow uses authenticated access for studio workspaces, organizer tools, student portals, and mobile app features.
+DanceFlow uses authenticated access for studio workspaces, organizer tools, and student portals.
 
 **What this helps protect against:** People accessing private studio, client, student, event, billing, or schedule information without signing in.
 
@@ -43,17 +43,11 @@ DanceFlow checks that clients, appointments, payments, packages, memberships, do
 
 DanceFlow verifies that a signed-in student is connected to the correct client record, portal, schedule item, document, ticket, payment request, or event order.
 
-**What this helps protect against:** A student viewing or changing another student's schedule, documents, tickets, wallet items, or portal information.
-
-## Mobile app ownership checks
-
-DanceFlow mobile app routes validate the signed-in user before returning schedule, wallet, ticket, event order, partner message, or self-service booking information.
-
-**What this helps protect against:** Mobile users accessing records that do not belong to them.
+**What this helps protect against:** A student viewing or changing another student's schedule, documents, tickets, or portal information.
 
 ## Public data minimization
 
-DanceFlow public pages, public discovery, website embeds, and public calendar feeds are designed to show only information intended for public viewing.
+We aim for DanceFlow public pages, public discovery, website embeds, and public calendar feeds to show only information intended for public viewing. This is an area of ongoing security work.
 
 **What this helps protect against:** Internal notes, draft content, private listings, unpublished events, inactive listings, or non-public descriptions appearing publicly.
 
@@ -65,7 +59,7 @@ DanceFlow website calendar feeds and embed tools only include eligible public ev
 
 ## Secure payment processing
 
-DanceFlow uses Stripe for online payments, in-app payments, subscriptions, event tickets, and in-person card reader workflows. DanceFlow verifies payment results before marking related records as paid or complete.
+DanceFlow uses Stripe for online payments, subscriptions, event tickets, and in-person card reader workflows. DanceFlow verifies payment results before marking related records as paid or complete.
 
 **What this helps protect against:** Fake payment confirmations, unpaid access being granted by mistake, mismatched payment amounts, or incorrect payment status updates.
 
@@ -95,7 +89,7 @@ DanceFlow stores signed document details such as signer name, signer email, time
 
 ## File upload validation
 
-DanceFlow validates uploaded files by type, size, extension, and expected content patterns.
+DanceFlow checks uploaded files before accepting them. Many uploads are checked by type, size, extension, and expected content; some checks are narrower.
 
 **What this helps protect against:** Unsafe or unexpected files being uploaded as client photos, instructor photos, event images, public profile images, imports, or other assets.
 
@@ -107,19 +101,19 @@ DanceFlow validates important form inputs such as names, emails, phone numbers, 
 
 ## Bot and spam protection
 
-DanceFlow uses rate limits, form validation, honeypot fields, timing checks, and abuse checks on public forms and messaging surfaces.
+DanceFlow uses measures such as form validation, honeypot fields, timing checks, and rate limits on some public forms and actions. Not every form has every check.
 
 **What this helps protect against:** Spam submissions, automated form abuse, fake leads, message flooding, and public form attacks.
 
 ## Rate limiting on high-risk actions
 
-DanceFlow limits repeated attempts on sensitive actions such as login, checkout, billing, SMS, student app requests, partner messages, AI actions, and public forms.
+DanceFlow limits repeated attempts on some sensitive actions, such as sign-in, checkout, billing, and text messaging requests. Rate limits are one layer of protection. They do not cover every action or stop all abuse.
 
 **What this helps protect against:** Brute-force attempts, repeated checkout abuse, message spam, and automated abuse.
 
 ## Safer error messages
 
-DanceFlow avoids showing sensitive system, database, payment provider, SMS provider, OAuth, or webhook details in user-facing error messages.
+DanceFlow aims to keep technical and sensitive details out of user-facing error messages, but not every message meets that standard yet. If an error shows technical details, send it to DanceFlow support instead of sharing it publicly.
 
 **What this helps protect against:** Attackers learning internal system details from public error messages.
 
@@ -149,10 +143,9 @@ DanceFlow checks SMS opt-in status before sending text messages and protects del
 
 ## Public partner and job listing controls
 
-DanceFlow public Partner Search and Now Hiring areas use published/active listing rules and controlled public fields.
+DanceFlow public Partner Search and Now Hiring areas use published/active listing rules.
 
-**What this helps protect against:** Hidden, disabled, or inappropriate listings appearing publicly.
-
+**What this helps protect against:** Hidden or disabled listings appearing publicly.
 
 ## Secure accountant report delivery
 
@@ -164,13 +157,13 @@ Access tokens are stored in protected form, links expire, canceled deliveries st
 
 ## Safer spreadsheet exports
 
-DanceFlow’s CSV exports (accountant reports, financial and event reports, and instructor pay files) use one shared routine that neutralizes text a spreadsheet could interpret as a formula, including text that begins with spaces or tabs. Cells that could be read as formulas are prefixed with an apostrophe so they open as plain text. Client file imports are not CSV exports and are not covered by this protection.
+DanceFlow’s CSV exports (accountant reports, financial and event reports, and instructor pay files) use one shared routine that neutralizes text a spreadsheet could interpret as a formula, including text that begins with spaces or tabs. Cells that could be read as formulas are prefixed with an apostrophe so they open as plain text. Not every downloadable file is covered by this protection.
 
 **What this helps protect against:** Studio-entered text being interpreted as a formula or command when a report is opened in spreadsheet software.
 
 ## AI and automation safeguards
 
-DanceFlow uses role checks, rate limits, and review-oriented workflows around AI-assisted business tools.
+DanceFlow builds review-oriented workflows around AI-assisted business tools and applies role checks and rate limits to many of them.
 
 **What this helps protect against:** Uncontrolled automation, excessive AI requests, or AI tools acting outside allowed workspace context.
 
@@ -180,10 +173,10 @@ Security is not a one-time project. DanceFlow continues to improve protections a
 
 Planned security maturity improvements include:
 
-- Stronger distributed rate limiting across production infrastructure.
+- Continued strengthening of abuse protections.
 - Additional security audit logging for sensitive business actions.
 - Pen-test style reviews of high-risk routes and workflows.
-- Continued review of public pages, exports, payments, documents, integrations, and mobile APIs.
+- Continued review of public pages, exports, payments, documents, and integrations.
 
 ## What this means for your studio
 
