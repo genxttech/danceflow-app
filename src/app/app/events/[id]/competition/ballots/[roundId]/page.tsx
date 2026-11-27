@@ -14,7 +14,7 @@ export default async function CompetitionRoundBallotsPage({
   searchParams,
 }: {
   params: Promise<{ id: string; roundId: string }>;
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; confirmJudge?: string }>;
 }) {
   requireCompetitionFinals();
   const { id, roundId } = await params;
@@ -46,7 +46,7 @@ export default async function CompetitionRoundBallotsPage({
       </Link>
       {query.saved ? <p role="status" className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">{query.saved}</p> : null}
       {query.error ? <p role="alert" className="rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-950">{query.error}</p> : null}
-      <BallotDesk board={board} heatFloor={heatFloor} returnTo={`/app/events/${id}/competition/ballots/${roundId}`} />
+      <BallotDesk board={board} heatFloor={heatFloor} returnTo={`/app/events/${id}/competition/ballots/${roundId}`} confirmBreakOfficialId={query.confirmJudge} />
     </div>
   );
 }
