@@ -4,7 +4,7 @@
  * These rules (mirrored by the server actions) are the only guard.
  *
  * "Danced" follows SC1's database rule: the heat is on the floor or finished (status active/complete), or one of its
- * placements is marked danced/disqualified. A locked, not-yet-danced heat still allows an official scratch (SC1).
+ * placements is marked danced/disqualified. A whole-entry scratch is refused while a heat is locked (SC1).
  */
 
 export type HeatFloorInfo = { status: string; lock_state: string; has_danced_entry?: boolean };
@@ -63,7 +63,7 @@ export function lockHeatHint(input: HeatLockInput): string | null {
 
 export function lockHeatConfirm(heatNumber: number, kind: LockKind = "danced"): string {
   return kind === "early"
-    ? `Lock heat ${heatNumber}? It has not been danced. The floor can't start or change it until it is reopened. Officials can still scratch entries with a reason.`
+    ? `Lock heat ${heatNumber}? It has not been danced. The floor can't start or change it until it is reopened. Entries in it cannot be scratched while it is locked.`
     : `Lock heat ${heatNumber}? Floor changes to this heat will be refused once locked.`;
 }
 
