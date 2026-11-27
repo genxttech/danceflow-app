@@ -11,6 +11,9 @@
 #   P_S6=<ref or sha>     PR 877 head (pin it once its rebased head is reported; default: the branch tip)
 #   P1_STACK=<sha>        877 commit the restriction is stacked on, kept out of the restriction's own files
 #   LIVE_PIN=<sha>        release line the base chain is taken from
+#   EXTRA_FILES="<ref>:<path> ..."   single migration / rollback files outside the layers (e.g. one file of a branch based on another line)
+#   Targeted rerun: SUITE_RE / RACE_RE (extended regex on the listed name) select what runs; a file that is new or differs from <PRIOR_RUN>/chain/tests-<phase>
+#   (e.g. a labelled copy pushed since) always runs. RACES_BOTH=1 also runs the selected scripts on B. A skipped name is listed in skipped-<kind>-<phase>.txt.
 #
 # Phases: A base chain (released suites) | B base + corrections without the restriction (control) | C B + restriction (only when it exists)
 #         D rollback of every new migration in reverse order, catalog compared with A | E re-apply, the corrections' own suites again.
@@ -180,6 +183,11 @@ if [ -f "$src" ]; then
   if ( cd "$W" && git -c core.autocrlf=false apply -p1 --include="$x" "$ADIR/hook.patch" ) 2>>"$OUT/runner.log" && ! cmp -s "$src" "$W/$x"; then rel="$(blob "$src")"; cp "$W/$x" "$src"; echo "$n source=$rel adapted=$(blob "$src")" >> "$OUT/adapted-copies.txt"
   else log "ADAPTED: S4 hook did not apply to the S6 variant of U18-S; running it unhooked"; fi
 fi
+for x in ${EXTRA_FILES:-}; do
+  ref="${x%%:*}"; p="${x#*:}"; n="${p##*/}"; case "$p" in */rollback/*) dest="$CHAIN/rollback";; *) dest="$CHAIN/new";; esac
+  [ -f "$dest/$n" ] || [ -f "$CHAIN/base/$n" ] && blocked "extra file collides with a composed one: $n"
+  git show "$ref:$p" > "$dest/$n" || blocked "missing extra file $x"; echo "extra $(git rev-parse "$ref") $p $(git rev-parse "$ref:$p")" >> "$OUT/heads.txt"
+done
 # phase C test tree = B plus the restriction's own files (never adapted here)
 cp -r "$CHAIN/tests-B" "$CHAIN/tests-C"
 if [ -n "${P_P1:-}" ]; then
@@ -198,6 +206,22 @@ for f in $(cat "$OUT/order-B.txt" "$OUT/order-C.txt"); do [ -f "$CHAIN/rollback/
 suites_in(){ ( cd "$1" && ls test_T_competition_*.sql test_T_phase10*.sql test_T_od31*.sql 2>/dev/null | sed 's/\.sql$//' ); }
 conc_in(){ ( cd "$1" && ls concurrency/*.sh test_T_competition_*.sh 2>/dev/null | grep -E '(concurrency|_races?|_vs_|_locks|_marks_txn)[^/]*\.sh$' | grep -E 'cf1|e2_|f2_|hl1|ns1|ss1|od04|d_publish|competition|r10|r11|r15|p1' | grep -vE 'rollback|verify_' ); }
 for p in A B C; do suites_in "$CHAIN/tests-$p" > "$OUT/list-suites-$p.txt"; conc_in "$CHAIN/tests-$p" > "$OUT/list-races-$p.txt"; done
+select_list(){ # <kind> <phase> <regex> <file suffix>
+  local list="$OUT/list-$1-$2.txt" kept="$OUT/kept.tmp" n f old
+  : > "$kept"; : > "$OUT/skipped-$1-$2.txt"
+  for n in $(cat "$list"); do
+    f="$CHAIN/tests-$2/$n$4"; old="${PRIOR_RUN:-/nonexistent}/chain/tests-$2/$n$4"
+    if echo "$n" | grep -qE "$3" || { [ -n "${PRIOR_RUN:-}" ] && ! cmp -s "$f" "$old"; }; then echo "$n" >> "$kept"; else echo "$n" >> "$OUT/skipped-$1-$2.txt"; fi
+  done
+  mv "$kept" "$list"
+}
+if [ -n "${SUITE_RE:-}" ]; then
+  [ -z "${PRIOR_RUN:-}" ] || [ -d "$PRIOR_RUN/chain/tests-C" ] || blocked "PRIOR_RUN has no composed tests: $PRIOR_RUN"
+  for p in B C; do select_list suites "$p" "$SUITE_RE" .sql; select_list races "$p" "${RACE_RE:-^$}" ""; done
+  # the base chain is applied for the chains above it; only the selected suites that exist there run on it (attribution)
+  grep -E "$SUITE_RE" "$OUT/list-suites-A.txt" > "$OUT/kept.tmp"; mv "$OUT/kept.tmp" "$OUT/list-suites-A.txt"
+  log "TARGETED: suites A/B/C $(wc -l < "$OUT/list-suites-A.txt")/$(wc -l < "$OUT/list-suites-B.txt")/$(wc -l < "$OUT/list-suites-C.txt"), races B/C $(wc -l < "$OUT/list-races-B.txt")/$(wc -l < "$OUT/list-races-C.txt")"
+fi
 log "composed: base $(wc -l < "$OUT/migrations-base.sha256") (fingerprint $(cat "$OUT/base-fingerprint.txt")), corrections $(wc -l < "$OUT/order-B.txt"), restriction $(wc -l < "$OUT/order-C.txt") (${P_P1:-NOT FOUND}), warnings $(wc -l < "$OUT/compose-warnings.txt")"
 log "suites A/B/C: $(wc -l < "$OUT/list-suites-A.txt")/$(wc -l < "$OUT/list-suites-B.txt")/$(wc -l < "$OUT/list-suites-C.txt"); race scripts A/B/C: $(wc -l < "$OUT/list-races-A.txt")/$(wc -l < "$OUT/list-races-B.txt")/$(wc -l < "$OUT/list-races-C.txt")"
 if [ "$COMPOSE_ONLY" = 1 ]; then echo COMPOSED > "$OUT/result.txt"; exit 0; fi
@@ -286,10 +310,16 @@ race_autoseed(){ # <phase> <script> <log label of the failed run>
   case "$tag" in *_r15_*|*_s5_*) return 0;; esac
   [ -f "$CHAIN/tests-$ph/fixtures/r15_clearance_autoseed.sql" ] && grep -qE "$R15_RE" "$OUT/race-$3-$tag.log" 2>/dev/null && race "$ph-autoseed" "$ph" "$sc" autoseed
   return 0; }
+# every selected script on B in its own right (with the clearance rerun and base attribution), when RACES_BOTH=1
+run_races_b(){ local sc; for sc in $(cat "$OUT/list-races-B.txt"); do
+  race B B "$sc" && continue
+  race_autoseed B "$sc" B
+  [ -f "$CHAIN/tests-A/$sc" ] && race "A-attribution" A "$sc"
+done; }
 run_phase_races(){ local ph="$1" sc; for sc in $(cat "$OUT/list-races-$ph.txt"); do
   race "$ph" "$ph" "$sc" && continue
   race_autoseed "$ph" "$sc" "$ph"
-  if [ "$ph" = C ] && [ -f "$CHAIN/tests-B/$sc" ] && ! race "B-attribution" B "$sc"; then race_autoseed B "$sc" "B-attribution"; fi
+  if [ "$ph" = C ] && [ "${RACES_BOTH:-0}" != 1 ] && [ -f "$CHAIN/tests-B/$sc" ] && ! race "B-attribution" B "$sc"; then race_autoseed B "$sc" "B-attribution"; fi
   [ -f "$CHAIN/tests-A/$sc" ] && race "A-attribution" A "$sc"
 done; }
 # Option D's own planted-heat probe (observation only), when that head carries it
@@ -304,7 +334,7 @@ grep -q '^FAIL A' "$OUT/steps.txt" && blocked "the base chain did not apply"
 catalog A; guards A; snapshot A; run_phase_suites A; probe A
 # B: corrections in timestamp order. A correction that does not apply is recorded and the chain continues without it.
 for f in $(cat "$OUT/order-B.txt"); do apply "$CHAIN/new/$f" B; done
-catalog B; guards B; snapshot B; run_phase_suites B; autoseed_suites B; probe B; probe_d B
+catalog B; guards B; snapshot B; run_phase_suites B; autoseed_suites B; probe B; probe_d B; [ "${RACES_BOTH:-0}" != 1 ] || run_races_b
 # C
 if [ -s "$OUT/order-C.txt" ]; then
   for f in $(cat "$OUT/order-C.txt"); do apply "$CHAIN/p1/$f" C; done
@@ -333,6 +363,6 @@ last=B; [ "${C_OK:-0}" = 1 ] && last=C
 catalog E; diff "$OUT/catalog-$last.txt" "$OUT/catalog-E.txt" > "$OUT/catalog-$last-vs-E.diff"
 log "re-apply: $(grep -c '^OK' "$OUT/reapply-steps.txt") ok, $(grep -c '^FAIL' "$OUT/reapply-steps.txt") failed; catalog lines differing from $last: $(grep -c '^[<>]' "$OUT/catalog-$last-vs-E.diff")"
 for s in $(awk '{print $1}' "$OUT/suite-sources.txt" | grep -E '^test_T_(competition|od31|phase10)[a-z0-9_]*.sql$' | sed 's/.sql$//' | sort -u); do
-  [ -f "$CHAIN/tests-$last/$s.sql" ] && run_suite E "$CHAIN/tests-$last" "$s"
+  [ -f "$CHAIN/tests-$last/$s.sql" ] && grep -qxF "$s" "$OUT/list-suites-$last.txt" && run_suite E "$CHAIN/tests-$last" "$s"
 done
 log "done"; echo DONE > "$OUT/result.txt"
