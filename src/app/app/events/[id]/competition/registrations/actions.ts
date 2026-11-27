@@ -50,7 +50,7 @@ export async function updateCompetitionEntryEligibilityAction(formData: FormData
   const { supabase } = await requireEventManager(eventId);
   // OD-03 / OD-18 / R-15: the decision is recorded by the audited database function (actor, role, time, outcome, reason, criteria). No direct table write.
   // OD-02: eligible/waived is refused unless every competitor's STORED date of birth shows 18 or older (fails closed).
-  const { data: entry, error: entryError } = await (supabase as any).from("event_competition_entries").select("id").eq("id", entryId).eq("event_id", eventId).maybeSingle();
+  const { data: entry, error: entryError } = await supabase.from("event_competition_entries").select("id").eq("id", entryId).eq("event_id", eventId).maybeSingle();
   if (entryError || !entry) throw new Error("Competition entry not found.");
   // OD-18: which criteria apply is derived from STORED division labels and participant roles, never from the form.
   const classification = await loadEntryRequiredCriteria(supabase, eventId, entryId);
@@ -78,7 +78,7 @@ export async function assignCompetitionEntryNumberAction(formData: FormData): Pr
   const entryNumber = text(formData, "entryNumber");
   if (!eventId || !entryId) throw new Error("Competition entry is required.");
   const { supabase } = await requireEventManager(eventId);
-  const { error } = await (supabase as any).from("event_competition_entries").update({ entry_number: entryNumber || null }).eq("id", entryId).eq("event_id", eventId);
+  const { error } = await supabase.from("event_competition_entries").update({ entry_number: entryNumber || null }).eq("id", entryId).eq("event_id", eventId);
   if (error) throw new Error(`Could not assign entry number: ${error.message}`);
   refresh(eventId);
 }
