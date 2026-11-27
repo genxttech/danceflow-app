@@ -62,10 +62,34 @@ export async function getValidGoogleCalendarAccessToken(connectionId: string) {
     throw new Error("Google Calendar authorization expired. Reconnect Google Calendar.");
   }
 }
+/** Google signals per-user/project rate limits as 429, or 403 with reason rateLimitExceeded/userRateLimitExceeded (Calendar API error docs). Not processed, so a retry is safe. */
+export const GOOGLE_RATE_LIMIT_REASONS = ["rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded"];
+const GOOGLE_MAX_RETRIES = 2;
+const GOOGLE_MAX_BACKOFF_MS = 5_000;
+export function googleBackoffDelayMs(attempt: number, retryAfter: string | null) {
+  const seconds = retryAfter ? Number(retryAfter) : NaN;
+  const base = Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : 1000 * 2 ** attempt;
+  return Math.min(base, GOOGLE_MAX_BACKOFF_MS);
+}
+async function isGoogleRateLimited(response: Response) {
+  if (response.status === 429) return true;
+  if (response.status !== 403) return false;
+  try {
+    const payload = await response.clone().json() as { error?: { errors?: Array<{ reason?: string }>; status?: string } };
+    return (payload.error?.errors ?? []).some((e) => GOOGLE_RATE_LIMIT_REASONS.includes(e.reason ?? ""));
+  } catch { return false; }
+}
+async function fetchWithBackoff(url: string, init: RequestInit) {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(url, init);
+    if (attempt >= GOOGLE_MAX_RETRIES || !(await isGoogleRateLimited(response))) return response;
+    await new Promise((resolve) => setTimeout(resolve, googleBackoffDelayMs(attempt, response.headers.get("Retry-After"))));
+  }
+}
 async function googleFetch<T>(accessToken: string, url: string, init?: RequestInit) {
-  const response = await fetch(url, { ...init, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...(init?.headers ?? {}) } });
+  const response = await fetchWithBackoff(url, { ...init, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...(init?.headers ?? {}) } });
   const text = await response.text();
-  let payload: any = null;
+  let payload: { error?: { message?: string }; error_description?: string } | null = null;
   try { payload = text ? JSON.parse(text) : null; } catch { payload = null; }
   if (!response.ok) throw new GoogleCalendarRequestError(payload?.error?.message ?? payload?.error_description ?? "Google Calendar request failed.", response.status);
   return payload as T;
@@ -88,7 +112,7 @@ export async function upsertGoogleCalendarEvent(args: { accessToken: string; cal
   }
 }
 export async function deleteGoogleCalendarEvent(args: { accessToken: string; calendarId: string; eventId: string }) {
-  const response = await fetch(`${GOOGLE_CALENDAR_BASE_URL}/calendars/${encodeURIComponent(args.calendarId)}/events/${encodeURIComponent(args.eventId)}`, { method: "DELETE", headers: { Authorization: `Bearer ${args.accessToken}` } });
+  const response = await fetchWithBackoff(`${GOOGLE_CALENDAR_BASE_URL}/calendars/${encodeURIComponent(args.calendarId)}/events/${encodeURIComponent(args.eventId)}`, { method: "DELETE", headers: { Authorization: `Bearer ${args.accessToken}` } });
   if ([404, 410].includes(response.status)) return { deleted: true, missing: true };
   if (!response.ok) {
     const text = await response.text();
