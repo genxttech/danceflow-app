@@ -101,6 +101,11 @@ $(as_user "$J2")
 select public.submit_competition_ballot('$(U 8$i)','$(U d$i)',$(marks $i 1 3 2),'$(U 1b$i)');
 $(as_user "$J3")
 select public.submit_competition_ballot('$(U 8$i)','$(U d$i)',$(marks $i 2 1 3),'$(U 1c$i)');
+-- HL1 (20270119090000): ballots lock only when every ballot heat has been danced. Fixture shortcut (superuser, replica mode): mark the heat complete.
+reset role;
+set session_replication_role = replica;
+update public.event_competition_heats set status = 'complete' where id = '$(U d$i)';
+set session_replication_role = origin;
 $(as_user "$MGR1")
 select public.set_competition_heat_lock_state('$(U d$i)','locked','race');
 select public.lock_competition_round_ballots('$(U 8$i)','$(U 1d$i)');
