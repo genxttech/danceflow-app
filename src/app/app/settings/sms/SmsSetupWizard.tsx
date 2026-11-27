@@ -13,8 +13,8 @@ import {
   type DraftFields,
   type WizardFieldKey,
 } from "@/lib/sms/onboarding/fields";
-import { problemsByStep, submitBlockReason } from "@/lib/sms/onboarding/wizardState";
-import { saveSmsSetupAction, submitSmsSetupAction, type SmsSetupState } from "./actions";
+import { problemsByStep } from "@/lib/sms/onboarding/wizardState";
+import { smsSetupAction, type SmsSetupState } from "./actions";
 
 const input =
   "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 disabled:bg-slate-50";
@@ -23,7 +23,6 @@ const secondary = "rounded-xl border border-violet-300 bg-white px-4 py-2 text-s
 const initialState: SmsSetupState = {};
 
 const STEPS = ["Business", "Representative", "Texting number", "Review"] as const;
-const DRAFT_FORM_ID = "sms-setup-draft";
 const invalidRing = "border-rose-500 ring-2 ring-rose-200";
 
 // Each save result gets a new id. The form is re-created with it, because React resets uncontrolled fields after a form action
@@ -49,11 +48,12 @@ export type WizardCampaignPreview = {
 
 type WizardProps = {
   initial: DraftFields;
-  /** A draft exists in the database (the thing "Submit for review" sends). */
+  /** A draft exists in the database. When it disappears (cancelled) the form starts clean. */
   hasSavedDraft: boolean;
   einOnFile: boolean;
   einLast4: string | null;
   canEdit: boolean;
+  isOwner: boolean;
   highlightFields: string[];
   campaign: WizardCampaignPreview;
 };
@@ -69,49 +69,27 @@ export default function SmsSetupWizard(props: WizardProps) {
   return <WizardForm key={generation} {...props} />;
 }
 
-function WizardForm({ initial, hasSavedDraft, einOnFile, einLast4, canEdit, highlightFields, campaign }: WizardProps) {
+function WizardForm({ initial, einOnFile, einLast4, canEdit, isOwner, highlightFields, campaign }: WizardProps) {
   const [step, setStep] = useState(0);
-  const [unsaved, setUnsaved] = useState(false);
-  /** Required fields the database last reported as empty (from a save or a refused submit). */
-  const [needed, setNeeded] = useState<string[]>([]);
-  /** The latest result was a submit the database refused for empty fields. */
-  const [refused, setRefused] = useState(false);
+  const [pressed, setPressed] = useState<"save" | "submit">("save");
   const [website, setWebsite] = useState(initial.website_choice || "danceflow");
-  const [saveState, saveAction, saving] = useActionState(saveSmsSetupAction, initialState);
-  const [submitState, submitAction, submitting] = useActionState(submitSmsSetupAction, initialState);
-  // A save returns what was typed or written (never the EIN) so the form keeps it; loaded values are the fallback.
-  const value = (key: DraftFieldKey) => saveState.values?.[key] ?? initial[key];
+  const [state, action, pending] = useActionState(smsSetupAction, initialState);
+  // A result returns what was typed or written (never the EIN) so the form keeps it; loaded values are the fallback.
+  const value = (key: DraftFieldKey) => state.values?.[key] ?? initial[key];
 
-  // Jump to the first step that has a problem, so an error is never hidden on another step.
-  const errorKeys = Object.keys(saveState.fieldErrors ?? {});
-  const submitMissing = submitState.missing ?? [];
+  // Jump to the first screen that has a problem, so an error is never hidden on another screen.
+  const errorKeys = Object.keys(state.fieldErrors ?? {});
+  const needed = state.missing ?? [];
   const problems = problemsByStep([...errorKeys, ...needed]);
   const errorSteps = new Set<number>(problems.map((group) => group.step));
-  const blockReason = submitBlockReason({ hasSavedDraft, unsaved });
   useEffect(() => {
-    if (saveState.ok !== undefined) setRefused(false);
-    if (saveState.ok === true) {
-      setUnsaved(false);
-      setNeeded(saveState.missing ?? []);
-    } else if (saveState.ok === false) {
-      setUnsaved(true);
-    }
-    const target = firstStepWith(errorKeys);
+    const target = firstStepWith(errorKeys.length > 0 ? errorKeys : state.intent === "submit" ? needed : []);
     if (target !== null) setStep(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saveState]);
-  useEffect(() => {
-    if (submitMissing.length > 0) {
-      setNeeded(submitMissing);
-      setRefused(true);
-    }
-    const target = firstStepWith(submitMissing);
-    if (target !== null) setStep(target);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitState]);
+  }, [state]);
 
-  const error = (key: WizardFieldKey) => saveState.fieldErrors?.[key] ?? (needed.includes(key) ? "Required before you can submit." : undefined);
-  const warning = (key: WizardFieldKey) => saveState.warnings?.[key];
+  const error = (key: WizardFieldKey) => state.fieldErrors?.[key] ?? (needed.includes(key) ? "Required before you can submit." : undefined);
+  const warning = (key: WizardFieldKey) => state.warnings?.[key];
   const flagged = (key: WizardFieldKey) => highlightFields.includes(key);
 
   const field = (key: DraftFieldKey, extra?: { type?: string; placeholder?: string; autoComplete?: string }) => (
@@ -164,7 +142,7 @@ function WizardForm({ initial, hasSavedDraft, einOnFile, einLast4, canEdit, high
 
       {problems.length > 0 ? (
         <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-          <p className="font-semibold">{errorKeys.length > 0 ? "These need attention:" : refused ? "Nothing was submitted. Still needed:" : saveState.ok ? "Saved. Still needed before you can submit:" : "Still needed before you can submit:"}</p>
+          <p className="font-semibold">{errorKeys.length > 0 ? "These need attention:" : state.intent === "submit" ? "Nothing was submitted. Your details are saved. Still needed:" : "Saved. Still needed before you can submit:"}</p>
           <ul className="mt-1 space-y-1">
             {problems.map((group) => (
               <li key={group.step}>
@@ -178,11 +156,14 @@ function WizardForm({ initial, hasSavedDraft, einOnFile, einLast4, canEdit, high
 
       {/* noValidate: the browser's own validation cannot focus a bad value on a hidden step and would block the save silently;
           the server validates every field, and this page jumps to the step with the problem. */}
-      <form key={resultId(saveState)} id={DRAFT_FORM_ID} action={saveAction} onChange={() => setUnsaved(true)} noValidate className="space-y-5">
+      {/* One form: whichever button is pressed, what is on screen is what gets saved or submitted. "Save draft" is the first submit
+          button in the form, so pressing Enter in a field only saves. */}
+      <form key={resultId(state)} action={action} noValidate className="space-y-5">
         <section hidden={step !== 0} className="space-y-4 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm" aria-label="Business identity">
           <div>
             <h3 className="text-lg font-semibold text-slate-950">Business identity</h3>
             <p className="mt-1 text-sm text-slate-600">These details must match your IRS records. Carriers check them.</p>
+            <p className="mt-1 text-sm text-slate-600">Registration needs an LLC, corporation, partnership, non-profit or co-op with its own EIN, including a one-person business. Sole proprietors cannot register yet.</p>
           </div>
           <div>
             {field("legal_name")}
@@ -205,7 +186,7 @@ function WizardForm({ initial, hasSavedDraft, einOnFile, einLast4, canEdit, high
             />
             {error("ein") ? <span role="alert" className="mt-1 block text-xs text-rose-700">{error("ein")}</span> : null}
             <span className="mt-1 block text-xs text-slate-500">Stored encrypted and used only for business verification. DanceFlow never shows it again; only the last four digits.</span>
-            {saveState.ok === false && !error("ein") ? (
+            {state.ok === false && !error("ein") && !einOnFile ? (
               <span className="mt-1 block text-xs text-amber-700">For your security the EIN is never sent back to this page. Please type it again before saving.</span>
             ) : null}
           </label>
@@ -261,19 +242,6 @@ function WizardForm({ initial, hasSavedDraft, einOnFile, einLast4, canEdit, high
           <div className="max-w-xs">{field("preferred_area_code", { placeholder: "503" })}</div>
         </section>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {canEdit ? (
-            <button type="submit" className={secondary} disabled={saving}>{saving ? "Saving…" : "Save draft"}</button>
-          ) : null}
-          {step < STEPS.length - 1 ? (
-            <button type="button" className={primary} onClick={() => setStep(step + 1)}>Next</button>
-          ) : null}
-          {saveState.error ? <span role="alert" className="text-sm font-medium text-rose-700">{saveState.error}</span> : null}
-          {saveState.ok && saveState.notice && !unsaved ? <span role="status" className="text-sm font-medium text-emerald-700">{saveState.notice}</span> : null}
-        </div>
-        {canEdit ? <p className="text-xs text-slate-500">Next does not save. Click Save draft to keep your details.</p> : null}
-      </form>
-
       <section hidden={step !== 3} className="space-y-4 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm" aria-label="Review and submit">
         <div>
           <h3 className="text-lg font-semibold text-slate-950">Review and submit</h3>
@@ -294,7 +262,8 @@ function WizardForm({ initial, hasSavedDraft, einOnFile, einLast4, canEdit, high
           <a className="font-semibold text-violet-700 underline" href={campaign.optInPageUrl}>Opt-in form</a>
         </p>
         {canEdit ? (
-          <form action={submitAction} className="space-y-3">
+          <fieldset className="space-y-3">
+            <legend className="sr-only">Statements</legend>
             {([
               ["attest_authorized", "I am authorized to register this business for text messaging."],
               ["attest_accurate", "The information is accurate and matches my business records."],
@@ -306,23 +275,28 @@ function WizardForm({ initial, hasSavedDraft, einOnFile, einLast4, canEdit, high
                 <span>{label}</span>
               </label>
             ))}
-            {blockReason ? (
-              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
-                <span role="status" className="text-sm font-medium text-amber-800">{blockReason}</span>
-                <button type="submit" form={DRAFT_FORM_ID} className={secondary} disabled={saving}>{saving ? "Saving…" : "Save draft now"}</button>
-              </div>
-            ) : null}
-            <p className="text-sm text-slate-600">Submitting sends your saved details. They cannot be edited afterwards.</p>
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" className={primary} disabled={submitting || blockReason !== null}>{submitting ? "Submitting…" : "Submit for review"}</button>
-              {submitState.error ? <span role="alert" className="text-sm font-medium text-rose-700">{submitState.error}</span> : null}
-              {submitState.ok && submitState.notice ? <span role="status" className="text-sm font-medium text-emerald-700">{submitState.notice}</span> : null}
-            </div>
-          </form>
+            <p className="text-sm text-slate-600">Submit saves what you entered and sends it to DanceFlow. It cannot be edited afterwards. Nothing is charged.</p>
+          </fieldset>
         ) : (
-          <p className="text-sm text-slate-600">Only the studio owner can submit this setup.</p>
+          <p className="text-sm text-slate-600">{isOwner ? "This information can no longer be edited here." : "Only the studio owner can submit this setup."}</p>
         )}
       </section>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {canEdit ? (
+            <button type="submit" name="intent" value="save" className={secondary} disabled={pending} onClick={() => setPressed("save")}>{pending && pressed === "save" ? "Saving…" : "Save draft"}</button>
+          ) : null}
+          {step < STEPS.length - 1 ? (
+            <button type="button" className={primary} onClick={() => setStep(step + 1)}>Next</button>
+          ) : null}
+          {canEdit ? (
+            <button type="submit" name="intent" value="submit" hidden={step !== STEPS.length - 1} className={primary} disabled={pending} onClick={() => setPressed("submit")}>{pending && pressed === "submit" ? "Submitting…" : "Submit for review"}</button>
+          ) : null}
+          {state.error ? <span role="alert" className="text-sm font-medium text-rose-700">{state.error}</span> : null}
+          {state.ok && state.notice ? <span role="status" className="text-sm font-medium text-emerald-700">{state.notice}</span> : null}
+        </div>
+        {canEdit ? <p className="text-xs text-slate-500">Save draft is optional: use it to finish later.</p> : null}
+      </form>
 
     </div>
   );

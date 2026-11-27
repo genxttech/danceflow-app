@@ -19,6 +19,8 @@ export class OnboardingRpcError extends Error {
   }
 }
 
+export const ALREADY_SUBMITTED = "This setup has been submitted and can no longer be edited.";
+
 /** The database names the failed check ("invalid value (studio_sms_onboarding_rep_email_check)"); that name, never a value, identifies the field. */
 function fieldForCheck(message: string): WizardFieldKey | undefined {
   const name = /studio_sms_onboarding_([a-z0-9_]+?)(?:_check)?(?![a-z0-9_])/.exec(message)?.[1];
@@ -34,7 +36,7 @@ export function friendlyOnboardingError(error: { message?: string; code?: string
   const message = String(error?.message ?? "");
   if (code === "42501") return new OnboardingRpcError(code, "You do not have access to this setup.");
   if (code === "22023" && /already submitted|cannot be edited|locked/i.test(message)) {
-    return new OnboardingRpcError(code, "This setup has been submitted and can no longer be edited.");
+    return new OnboardingRpcError(code, ALREADY_SUBMITTED);
   }
   if (code === "22023" && /no setup to submit/i.test(message)) {
     return new OnboardingRpcError(code, "Nothing has been saved yet, so there is nothing to submit. Click Save draft, check your details, then submit again.");

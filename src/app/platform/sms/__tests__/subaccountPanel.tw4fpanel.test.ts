@@ -154,3 +154,24 @@ describe("rendered panel", () => {
     expect(out).not.toContain("<script>x</script>");
   });
 });
+
+describe("a submitted setup without a business record is the administrator's to act on", () => {
+  const waiting = parsePanelOverview({
+    entities: [], requests: [], audit: [], prices: {},
+    onboardings: [{ studio_id: STUDIO, studio_name: "Synthetic Studio", onboarding_id: "b6000000-0000-4000-8000-0000000000b1", state: "submitted_for_checks", tier: null, legal_entity_id: null, legal_name: "Synthetic LLC", ein_last4: "1234" }],
+  });
+  const render = (overview: typeof waiting) => renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview, panels: buildStudioPanels(overview), unavailable: false, notice: null, error: null, now: Date.now(), requestKeys: {} }));
+
+  it("is listed first, with a link to the studio and the create form", () => {
+    const html = render(waiting);
+    expect(html).toContain("Submitted setups waiting for you (1)");
+    expect(html).toContain(`href="/platform/sms?studio=${STUDIO}#studio-${STUDIO}"`);
+    expect(html).toContain(`id="studio-${STUDIO}"`);
+    expect(html).toContain("Create legal business");
+  });
+
+  it("is not listed while the owner is still drafting", () => {
+    const draft = parsePanelOverview({ entities: [], requests: [], audit: [], prices: {}, onboardings: [{ studio_id: STUDIO, studio_name: "Synthetic Studio", state: "draft", legal_name: "Synthetic LLC" }] });
+    expect(render(draft)).not.toContain("Submitted setups waiting for you");
+  });
+});

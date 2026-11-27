@@ -1,8 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -20,10 +18,9 @@ vi.mock("@/lib/auth/serverRoleGuard", () => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc: async () => adminResult }) }));
 
 import { saveSmsSetupAction, submitSmsSetupAction } from "../actions";
-import SmsSetupWizard from "../SmsSetupWizard";
 import { friendlyOnboardingError } from "@/lib/sms/onboarding/client";
-import { emptyDraft, validateDraftFields } from "@/lib/sms/onboarding/fields";
-import { problemsByStep, submitBlockReason, wizardKey } from "@/lib/sms/onboarding/wizardState";
+import { validateDraftFields } from "@/lib/sms/onboarding/fields";
+import { problemsByStep } from "@/lib/sms/onboarding/wizardState";
 
 const MIGRATION = readFileSync(join(process.cwd(), "src/lib/supabase/migrations/20261119090000_twilio_tw4a_sms_onboarding.sql"), "utf8").replace(/\r/g, "");
 const ATTESTED = { attest_authorized: "on", attest_accurate: "on", attest_opt_in_only: "on", attest_fees_terms: "on" };
@@ -103,31 +100,6 @@ describe("problems on earlier screens", () => {
   });
   it("group in screen order and ignore unknown or repeated keys", () => {
     expect(problemsByStep(["preferred_area_code", "city", "city", "nope"]).map((group) => [group.step, group.fields.map((field) => field.key)])).toEqual([[0, ["city"]], [2, ["preferred_area_code"]]]);
-  });
-});
-
-describe("submitting only what is saved", () => {
-  const campaign = { description: "d", samples: ["s"], termsUrl: "/t", privacyUrl: "/p", optInPageUrl: "/o" };
-  const render = (hasSavedDraft: boolean) => renderToStaticMarkup(createElement(SmsSetupWizard, { initial: emptyDraft(), hasSavedDraft, einOnFile: false, einLast4: null, canEdit: true, highlightFields: [], campaign }));
-  const submitButton = (html: string) => html.match(/<button[^>]*>Submit for review<\/button>/)?.[0] ?? "";
-
-  it("is blocked with a reason until a draft exists, with a save button wired to the draft form", () => {
-    const html = render(false);
-    expect(submitButton(html)).toContain('disabled=""');
-    expect(html).toContain("Nothing is saved yet");
-    expect(html).toContain('form="sms-setup-draft"');
-    expect(html).toContain('id="sms-setup-draft"');
-  });
-  it("is available once a draft is saved", () => {
-    expect(submitButton(render(true))).not.toContain('disabled=""');
-  });
-  it("is blocked again by unsaved changes", () => {
-    expect(submitBlockReason({ hasSavedDraft: true, unsaved: true })).toMatch(/not saved/);
-    expect(submitBlockReason({ hasSavedDraft: true, unsaved: false })).toBeNull();
-  });
-  it("the first save does not remount the wizard", () => {
-    expect(wizardKey("not_started")).toBe(wizardKey("draft"));
-    expect(wizardKey("needs_info")).not.toBe(wizardKey("draft"));
   });
 });
 
