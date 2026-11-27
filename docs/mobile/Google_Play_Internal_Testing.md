@@ -31,6 +31,8 @@ Before the first release also complete the *App content* tasks in the Console da
 
 ## 3. Privacy policy and account deletion
 
+> Sections 3-10 are drafts. Read the factual corrections in section 12 before copying anything into Play Console.
+
 | Requirement | What the repo provides today | Status |
 |---|---|---|
 | Privacy policy URL | `https://idanceflow.com/privacy` (also `/privacy-policy`, which redirects to it). Page `src/app/privacy/page.tsx`, version 2026-07-17. Contact `support@idanceflow.com`. | Exists. **OWNER INPUT:** confirm the production domain serves it publicly, and have the policy reviewed for mobile specifics: it mentions push messages and a general "location" rights clause but does not explicitly say the app reads device location for nearby search or collects Expo push tokens. |
@@ -165,3 +167,25 @@ Owner-confirmed 2026-11-20: **DanceFlow (Student) 0.1.0, version code 1 is ACTIV
 | Tester steps | `Student_Internal_Tester_Smoke.md` (message to forward, 8-step smoke, what we watch server-side, housekeeping) |
 
 Still UNVERIFIED: device behavior of this exact production-valued AAB (only the QA build of the same inputs was smoke-tested), push delivery (DEV Firebase project), and the Play pre-launch report. Business was not uploaded on 2026-11-20 when this was written; superseded: a read-only Console check on 2026-11-22 showed Business **version code 1 (0.1.0) Available to internal testers**, released Nov 20 4:47 PM (`Business_Release_Package_Internal_Testing.md`, 2026-11-23 status).
+
+## 12. Factual verification of the drafts (2026-11-26, main `b758fe072`): these corrections override sections 3-10
+
+Checked against the repository and the 2026-11-20 AAB checks. Drafts stay **pending**; nothing was submitted (H10). "Code" means verified by reading or searching the source, not by observing traffic.
+
+| Section | Draft says | Verified fact | Effect on the form |
+|---|---|---|---|
+| 3 | No public deletion page; recommends writing one | The page exists on main (`src/app/account-deletion/page.tsx`) but `https://www.idanceflow.com/account-deletion` returns **404** (2026-11-26); `/privacy` returns 200 | Blocker until released (H2) |
+| 3 | Privacy policy gap on location and push tokens | Confirmed: the policy (2026-07-17) mentions push communications but not device location or push tokens | Policy wording still needed |
+| 4, location | Owner to confirm whether coordinates reach the server | Code: studios, events, jobs and partner search compare distance **on the device**; no write or query sends the coordinates; requested from a user action | Declare location as used in the app and **not collected off the device**, after the owner accepts that reading of Play's definition |
+| 4, LUMI | Owner to confirm a third-party AI processor | Code: the shipped LUMI screen builds answers from the dancer's own data on the device; no AI request. "Report" stores the prompt and answer (`lumi_response_reports`). The new assistant is flag-off and a local stub | Declare the report text as user content; no AI sharing for current builds. Re-check if the assistant gets a backend |
+| 4, partner profile | (not listed) | Display name, headline, bio, city, state (typed), styles, goals, availability and photo are saved to the partner profile; no coordinates | Include under user content and profile info |
+| 4, diagnostics | "the apps ... Expo Updates reports update checks" | Student ships `expo-updates` (checks `u.expo.dev` at launch); **Business does not**. Neither ships a crash SDK | Answer per app |
+| 4, payments | Card data handled by Stripe SDK / Google Pay | Release builds bake no Stripe publishable key, so event registration uses **hosted checkout in the browser**; the in-app payment sheet is used only when a key is built in. Wallet "Pay Now" opens a server checkout link | Card data still never reaches DanceFlow; do not describe an in-app Google Pay flow for these builds |
+| 5 | "Digital purchases: yes (event tickets, packages through Stripe)" | The app starts checkout for **event registrations** (real-world events) and opens payment links; no in-app package or digital-content purchase was found (the marketplace checkout functions are unused) | The "digital purchases" answer is likely **No**; confirm against Google's definition before submitting |
+| 6 | Policy not directed to children under 13 | Confirmed (policy section 13). The 18+ choice stays an owner decision | None |
+| 7 | No ads SDK | Confirmed for both `package.json` files | None |
+| 8 | Reviewer signs in with a password | **Wrong for Student:** its sign-in screen offers only an emailed link; there is no password sign-in. Business has password sign-in | Student reviewer access is **unsolved**: needs a mailbox the reviewer can use or a reviewed code change. Blocks any review that requires sign-in |
+| 9 | `POST_NOTIFICATIONS`, `VIBRATE` listed for DanceFlow only | The Business AAB also declares both | Declare for both |
+| 10 | Business has no icon asset | Business icon assets now exist (`mobile/business/assets/`) | Only the 512 px store icon export and graphics remain |
+
+Related: the owner disposition G5 calls public text claiming in-app ticket purchasing false. The code does contain an event-registration checkout (hosted, in the browser, in release builds). Whoever words that correction should check it against this fact.
