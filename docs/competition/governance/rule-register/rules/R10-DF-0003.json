@@ -1,0 +1,16 @@
+{
+  "id": "R10-DF-0003",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: judging panel readiness and recovery",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy: an outside guest judge must first receive authorized team membership and verified identity before being assigned to a panel; OJ-1 least-privilege access is preserved and team membership must not grant unrelated studio-management permissions.",
+  "implementation": [{"path": "src/lib/supabase/migrations/20270215091000_competition_oj1_official_team_member.sql", "symbol_or_migration": "OJ-1 official team-member requirement"}, {"path": "src/lib/supabase/migrations/20270101090000_competition_e1_officials.sql", "symbol_or_migration": "add_competition_official, guard_competition_panel_assignment, _comp_e1_is_team_member"}],
+  "enforcement_point": "Database: E1 add_competition_official and assignment guard (active, verified email, team member).",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Part 2 of R-10 is ratified. Existing enforcement is inspected, not re-verified in this slice; the claim that team membership grants no unrelated studio-management permission needs its own permission-matrix test (R10 negative test N-AUTH-3) before this entry can be verified_compliant.",
+  "applicable_event_versions": ["DanceFlow policy"],
+  "decision_refs": ["R-10 (owner decision 2026-11-23: parts 1-2 ratified; part 3 mandatory Studio/Custom release blocker, open)", "docs/competition/governance/judging-integrity/R10-studio-panel-readiness-correction.md"],
+  "last_reviewed": "2026-11-23"
+}

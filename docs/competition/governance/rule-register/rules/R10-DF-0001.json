@@ -1,0 +1,16 @@
+{
+  "id": "R10-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: judging panel readiness and recovery",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): the Studio ballot lock needs at least three present, eligible judges and an odd panel for ordinal_majority and callback_tally (at least one for proficiency_rating); panel readiness shown to organizers and enforced at round start must agree with that rule and with the scoring engines, and a panel that cannot progress must not display READY. Safeguards are never weakened to make readiness pass.",
+  "implementation": [{"path": "src/lib/supabase/migrations/20270101090000_competition_e1_officials.sql", "symbol_or_migration": "competition_round_panel_status (readiness: default minimum 1, no parity or scoring-method rule)"}, {"path": "src/lib/supabase/migrations/20270102090000_competition_e2_ballots.sql", "symbol_or_migration": "_compe2_panel_rule / _compe2_round_blockers / lock_competition_round_ballots (the lock rule)"}, {"path": "src/lib/competition/results/engines/common.ts", "symbol_or_migration": "X-3 panel check (odd and at least 3)"}],
+  "enforcement_point": "Database: E1 competition_round_panel_status consumed by O1 start_competition_round; E2 lock; engines. Correction is designed, not built.",
+  "tests": [],
+  "verification_status": "inconsistent",
+  "interpretation_notes": "INCONSISTENT and a mandatory Studio/Custom release blocker (owner R-10 part 3): readiness accepts 1, 2 or an even panel and any unsupported scoring method, ignores absence, and silently falls back to a minimum of 1; the lock and engines refuse those panels. Design only; DEV and PROD currently hold no misleading or stuck round (read-only counts 2026-11-24). Closes only when corrected AND independently verified.",
+  "applicable_event_versions": ["DanceFlow policy"],
+  "decision_refs": ["R-10 (owner decision 2026-11-23: parts 1-2 ratified; part 3 mandatory Studio/Custom release blocker, open)", "docs/competition/governance/judging-integrity/R10-studio-panel-readiness-correction.md"],
+  "last_reviewed": "2026-11-23"
+}

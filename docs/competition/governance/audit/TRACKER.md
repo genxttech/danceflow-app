@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Mandatory release blockers (owner decisions)
+
+| Id | Scope | Blocker | Status | Closing criteria | Document |
+|---|---|---|---|---|---|
+| R-10 part 3 | Studio/Custom release (separate from future governing-body profile gates) | Panel readiness (default minimum 1, no parity or scoring-method rule, absence ignored) accepts panels the ballot lock and engines refuse; no recovery except cancellation | **OPEN** (design drafted 2026-11-24; nothing implemented) | Enforcement corrected AND independently verified; negative tests pass; DEV/PROD counts re-run (2026-11-24: 0 misleading, 0 stuck); current-behavior reproduction executed (PENDING, heavy lock); recovery class A shipped and B1/B2 decided. A display-label correction alone does not close it. | [R10-studio-panel-readiness-correction.md](../judging-integrity/R10-studio-panel-readiness-correction.md); register `R10-DF-0001/0002/0003` |
