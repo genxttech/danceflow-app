@@ -88,6 +88,14 @@ create or replace function pg_temp.marks(p_heat uuid, p_vals jsonb) returns json
   from (select he.entry_id, row_number() over (order by he.entry_id)::int rn from public.event_competition_heat_entries he where he.heat_id = p_heat) x $$;
 create or replace function pg_temp.calc_sql(p_round uuid) returns text language sql stable as $$
   select format($q$select public.calculate_competition_round(%1$L, x.i ->> 'engine_key', x.i ->> 'engine_version', x.i ->> 'input_hash', pg_temp.th(), '[{"step":1}]'::jsonb, pg_temp.engine(x.i -> 'evidence') -> 'rows', coalesce(pg_temp.engine(x.i -> 'evidence') -> 'warnings', '[]'::jsonb), gen_random_uuid()) from (select public.competition_round_calculation_input(%1$L) i) x$q$, p_round) $$;
+-- Diagnostic only: what the database engine answers for a round (a refusal by calculate_competition_round names the symptom, not the engine's reason).
+create or replace function pg_temp.engine_note(p_route text, p_round uuid) returns void language plpgsql as $d$
+declare v_in jsonb; v_out jsonb;
+begin
+  v_in := public.competition_round_calculation_input(p_round);
+  v_out := pg_temp.engine(v_in -> 'evidence');
+  perform pg_temp.note(p_route, '  engine', 'ok=' || coalesce(v_out ->> 'ok', '?') || ' reason=' || coalesce(v_out ->> 'reason', '-') || ' rows=' || coalesce(jsonb_array_length(case when jsonb_typeof(v_out -> 'rows') = 'array' then v_out -> 'rows' end)::text, 'none') || ' input=' || coalesce(v_in ->> 'engine_key', '?') || ' evidence=' || left((v_in -> 'evidence')::text, 700));
+end $d$;
 create or replace function pg_temp.approve_sql(p_round uuid, p_reason text) returns text language sql stable as $$
   select format($q$select public.approve_competition_round_result(%1$L, (select id from public.event_competition_result_versions where round_id = %1$L order by version desc limit 1), %2$L, gen_random_uuid())$q$, p_round, p_reason) $$;
 grant execute on all functions in schema pg_temp to authenticated, service_role;
@@ -180,6 +188,7 @@ begin
     perform pg_temp.step('setup', 'heat ' || r || ' complete', format($q$select public.advance_competition_floor_heat(%L, 'complete', gen_random_uuid())$q$, pg_temp.fl(r)));
     perform pg_temp.step('setup', 'lock heat ' || r, format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'heat finished on the floor')$q$, pg_temp.hid(r)));
     perform pg_temp.step('setup', 'lock ballots ' || r, format('select public.lock_competition_round_ballots(%L, gen_random_uuid())', pg_temp.rid(r)));
+    perform pg_temp.step('setup', 'control: engine check ' || r, format('select pg_temp.engine_note(%L, %L)', 'setup', pg_temp.rid(r)));
     perform pg_temp.step('setup', 'calculate ' || r, pg_temp.calc_sql(pg_temp.rid(r)));
     perform pg_temp.step('setup', 'approve ' || r || ' v1 by the second manager', pg_temp.approve_sql(pg_temp.rid(r), null), 'A2');
   end loop;
@@ -220,6 +229,7 @@ begin
   perform pg_temp.step(p_route, 'heat complete', format($q$select public.advance_competition_floor_heat(%L, 'complete', gen_random_uuid())$q$, p_floor));
   perform pg_temp.step(p_route, 'lock heat', format($q$select public.set_competition_heat_lock_state(%L, 'locked', 'probe run of another round')$q$, p_heat));
   perform pg_temp.step(p_route, 'lock ballots', format('select public.lock_competition_round_ballots(%L, gen_random_uuid())', p_round));
+  perform pg_temp.step(p_route, 'engine check', format('select pg_temp.engine_note(%L, %L)', p_route, p_round));
   perform pg_temp.step(p_route, 'calculate', pg_temp.calc_sql(p_round));
   perform pg_temp.step(p_route, 'SELF-approve', pg_temp.approve_sql(p_round, 'only manager present on the floor today'));
   perform pg_temp.step(p_route, 'publish the result', format($q$select public.publish_competition_round_result(%1$L, (select id from public.event_competition_result_versions where round_id = %1$L and status = 'approved'), 'entrants', gen_random_uuid())$q$, p_round), 'A1', p_round);
