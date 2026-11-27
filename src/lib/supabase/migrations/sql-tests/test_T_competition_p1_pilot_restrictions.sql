@@ -370,6 +370,9 @@ select pg_temp.neg('H-D3b planner: add a heat', 1, pg_temp.a1(),
   format('select public.apply_competition_floor_plan(%L, %L::jsonb)', pg_temp.v('V3'), jsonb_build_object('floorHeats', jsonb_build_array(jsonb_build_object('number', 1,
     'scoringHeats', jsonb_build_array(jsonb_build_object('divisionId', pg_temp.did(5), 'roundId', pg_temp.rid(5), 'heatNumber', 1,
       'danceIds', '[]'::jsonb, 'entryIds', jsonb_build_array(pg_temp.eid(5, 1)))))))), array['P0001 COMP_P1_ORDER_FROZEN%']);
+-- the day-of race script's last step: a replacement order copied from the running one cannot be created once the event has started
+select pg_temp.neg('H-D3c copy the running order into a new draft after the start', 1, pg_temp.a1(),
+  format('select public.create_competition_schedule_version(%L, %L, %L)', pg_temp.ev(1), 'P1 V-copy', pg_temp.v('V1')), array['P0001 COMP_P1_ORDER_FROZEN%']);
 -- heats by direct write
 select pg_temp.neg('H-W1 insert a heat', 1, pg_temp.a1(),
   format('insert into public.event_competition_heats (event_id, division_id, round_id, heat_number, contest_id, status) values (%L, %L, %L, 91, %L, %L)',
