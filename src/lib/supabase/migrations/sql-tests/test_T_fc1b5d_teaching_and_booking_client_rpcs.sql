@@ -19,9 +19,23 @@
 --      teaching client, never their own floor-rental "client" identity,
 --      never an unrelated instructor's roster).
 --
+--   6. caller conditions: an active instructors row with can_instruct, plus
+--      an active studio_owner / studio_admin / front_desk / instructor role in
+--      the requested studio; every other combination returns no rows.
+--
+-- The booking-search cases (companion migration 20260905160100) run only when
+-- that function is installed; otherwise each prints SKIP.
+--
+-- Fixtures are inserted by the privileged session and satisfy the current
+-- database rules (studio plan and instructor seats, instructor capability, the
+-- shared group class shape). No trigger or row level security is switched off.
+-- Every function call is made under the authenticated or anon role with JWT
+-- claims.
+--
 -- Entire script runs in one transaction and is rolled back at the end --
--- nothing persists. Run via `supabase db query --linked --file <this
--- file>` against DEV.
+-- nothing persists. Run with `psql -v ON_ERROR_STOP=1 -f <this file>` against a
+-- disposable database, or `supabase db query --linked --file <this file>`
+-- against DEV.
 --
 -- Deterministic UUID block reserved for this harness:
 -- 00000000-0000-0000-0000-0000005dXXXX.
@@ -32,9 +46,10 @@ begin;
 -- Fixtures
 -- ============================================================================
 
-insert into public.studios (id, name, slug) values
-  ('00000000-0000-0000-0000-0000005d0001', 'FC-1B5D Harness Studio A', 't-fc1b5d-studio-a'),
-  ('00000000-0000-0000-0000-0000005d0002', 'FC-1B5D Harness Studio B', 't-fc1b5d-studio-b');
+-- An active plan with instructor seats (the owner never counts against them).
+insert into public.studios (id, name, slug, subscription_status, billing_plan) values
+  ('00000000-0000-0000-0000-0000005d0001', 'FC-1B5D Harness Studio A', 't-fc1b5d-studio-a', 'active', 'pro'),
+  ('00000000-0000-0000-0000-0000005d0002', 'FC-1B5D Harness Studio B', 't-fc1b5d-studio-b', 'active', 'pro');
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000005d1001', 't-fc1b5d-instructor-a1@example.test'),
@@ -51,9 +66,9 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('00000000-0000-0000-0000-0000005d1001', '00000000-0000-0000-0000-0000005d0001', 'instructor', true),
   ('00000000-0000-0000-0000-0000005d1002', '00000000-0000-0000-0000-0000005d0001', 'instructor', true);
 
-insert into public.instructors (id, studio_id, user_id, first_name, last_name, active) values
-  ('00000000-0000-0000-0000-0000005d2001', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1001', 'InstructorA1', 'Test', true),
-  ('00000000-0000-0000-0000-0000005d2002', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1002', 'InstructorA2', 'Test', true);
+insert into public.instructors (id, studio_id, user_id, first_name, last_name, active, can_instruct) values
+  ('00000000-0000-0000-0000-0000005d2001', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1001', 'InstructorA1', 'Test', true, true),
+  ('00000000-0000-0000-0000-0000005d2002', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1002', 'InstructorA2', 'Test', true, true);
 
 insert into public.clients (
   id, studio_id, first_name, last_name, status, dance_goals, skill_level, photo_url,
@@ -119,10 +134,6 @@ insert into public.appointments (
   -- gap the effective_end_at design closes).
   ('00000000-0000-0000-0000-0000005d4010', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d3009', '00000000-0000-0000-0000-0000005d2001', 'private_lesson', 'scheduled', now() - interval '10 days 1 hour', now() - interval '10 days'),
 
-  -- Case: group class -- one appointments row for this client, same
-  -- predicate as a private lesson, future/scheduled -> qualifies.
-  ('00000000-0000-0000-0000-0000005d4011', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d3010', '00000000-0000-0000-0000-0000005d2001', 'group_class', 'scheduled', now() + interval '1 day', now() + interval '1 day 1 hour'),
-
   -- Case: substitute reassignment -- this row's instructor_id is CURRENTLY
   -- A1 (as if A1 covered/was reassigned this session); qualifies for A1,
   -- and by construction cannot also qualify for A2 (single instructor_id
@@ -144,6 +155,83 @@ insert into public.appointments (
   -- renter IS the instructor) -- proves this can never satisfy ANY
   -- instructor's teaching predicate regardless of who rents.
   ('00000000-0000-0000-0000-0000005d4016', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d3016', null, 'floor_space_rental', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour');
+
+-- ============================================================================
+-- Caller-condition fixtures: one person per combination, each an instructor of
+-- Studio A with one client of their own.
+-- ============================================================================
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000005d1003', 't-fc1b5d-owner@example.test'),
+  ('00000000-0000-0000-0000-0000005d1004', 't-fc1b5d-admin@example.test'),
+  ('00000000-0000-0000-0000-0000005d1005', 't-fc1b5d-frontdesk@example.test'),
+  ('00000000-0000-0000-0000-0000005d1012', 't-fc1b5d-instructor@example.test'),
+  ('00000000-0000-0000-0000-0000005d1006', 't-fc1b5d-nocapability@example.test'),
+  ('00000000-0000-0000-0000-0000005d1007', 't-fc1b5d-norole@example.test'),
+  ('00000000-0000-0000-0000-0000005d1008', 't-fc1b5d-inactiverole@example.test'),
+  ('00000000-0000-0000-0000-0000005d1009', 't-fc1b5d-independent@example.test'),
+  ('00000000-0000-0000-0000-0000005d1010', 't-fc1b5d-otherstudio@example.test'),
+  ('00000000-0000-0000-0000-0000005d1011', 't-fc1b5d-platformadmin@example.test');
+
+insert into public.profiles (id, email, platform_role) values
+  ('00000000-0000-0000-0000-0000005d1003', 't-fc1b5d-owner@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1004', 't-fc1b5d-admin@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1005', 't-fc1b5d-frontdesk@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1012', 't-fc1b5d-instructor@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1006', 't-fc1b5d-nocapability@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1007', 't-fc1b5d-norole@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1008', 't-fc1b5d-inactiverole@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1009', 't-fc1b5d-independent@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1010', 't-fc1b5d-otherstudio@example.test', null),
+  ('00000000-0000-0000-0000-0000005d1011', 't-fc1b5d-platformadmin@example.test', 'platform_admin');
+
+insert into public.user_studio_roles (user_id, studio_id, role, active) values
+  ('00000000-0000-0000-0000-0000005d1003', '00000000-0000-0000-0000-0000005d0001', 'studio_owner', true),
+  ('00000000-0000-0000-0000-0000005d1004', '00000000-0000-0000-0000-0000005d0001', 'studio_admin', true),
+  ('00000000-0000-0000-0000-0000005d1005', '00000000-0000-0000-0000-0000005d0001', 'front_desk', true),
+  ('00000000-0000-0000-0000-0000005d1012', '00000000-0000-0000-0000-0000005d0001', 'instructor', true),
+  ('00000000-0000-0000-0000-0000005d1006', '00000000-0000-0000-0000-0000005d0001', 'studio_owner', true),
+  ('00000000-0000-0000-0000-0000005d1008', '00000000-0000-0000-0000-0000005d0001', 'instructor', false),
+  ('00000000-0000-0000-0000-0000005d1009', '00000000-0000-0000-0000-0000005d0001', 'independent_instructor', true),
+  ('00000000-0000-0000-0000-0000005d1010', '00000000-0000-0000-0000-0000005d0002', 'instructor', true);
+
+insert into public.instructors (id, studio_id, user_id, first_name, last_name, active, can_instruct) values
+  ('00000000-0000-0000-0000-0000005d2003', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1003', 'Caller', 'owner', true, true),
+  ('00000000-0000-0000-0000-0000005d2004', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1004', 'Caller', 'admin', true, true),
+  ('00000000-0000-0000-0000-0000005d2005', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1005', 'Caller', 'frontdesk', true, true),
+  ('00000000-0000-0000-0000-0000005d2012', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1012', 'Caller', 'instructor', true, true),
+  ('00000000-0000-0000-0000-0000005d2006', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1006', 'Caller', 'nocapability', true, true),
+  ('00000000-0000-0000-0000-0000005d2007', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1007', 'Caller', 'norole', true, true),
+  ('00000000-0000-0000-0000-0000005d2008', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1008', 'Caller', 'inactiverole', true, true),
+  ('00000000-0000-0000-0000-0000005d2009', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1009', 'Caller', 'independent', true, true),
+  ('00000000-0000-0000-0000-0000005d2010', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1010', 'Caller', 'otherstudio', true, true),
+  ('00000000-0000-0000-0000-0000005d2011', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d1011', 'Caller', 'platformadmin', true, true);
+
+insert into public.clients (id, studio_id, first_name, last_name, status) values
+  ('00000000-0000-0000-0000-0000005d6003', '00000000-0000-0000-0000-0000005d0001', 'Own', 'owner', 'active'),
+  ('00000000-0000-0000-0000-0000005d6004', '00000000-0000-0000-0000-0000005d0001', 'Own', 'admin', 'active'),
+  ('00000000-0000-0000-0000-0000005d6005', '00000000-0000-0000-0000-0000005d0001', 'Own', 'frontdesk', 'active'),
+  ('00000000-0000-0000-0000-0000005d6012', '00000000-0000-0000-0000-0000005d0001', 'Own', 'instructor', 'active'),
+  ('00000000-0000-0000-0000-0000005d6006', '00000000-0000-0000-0000-0000005d0001', 'Own', 'nocapability', 'active'),
+  ('00000000-0000-0000-0000-0000005d6007', '00000000-0000-0000-0000-0000005d0001', 'Own', 'norole', 'active'),
+  ('00000000-0000-0000-0000-0000005d6008', '00000000-0000-0000-0000-0000005d0001', 'Own', 'inactiverole', 'active'),
+  ('00000000-0000-0000-0000-0000005d6009', '00000000-0000-0000-0000-0000005d0001', 'Own', 'independent', 'active'),
+  ('00000000-0000-0000-0000-0000005d6010', '00000000-0000-0000-0000-0000005d0001', 'Own', 'otherstudio', 'active'),
+  ('00000000-0000-0000-0000-0000005d6011', '00000000-0000-0000-0000-0000005d0001', 'Own', 'platformadmin', 'active');
+
+insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at) values
+  ('00000000-0000-0000-0000-0000005d7003', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6003', '00000000-0000-0000-0000-0000005d2003', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7004', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6004', '00000000-0000-0000-0000-0000005d2004', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7005', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6005', '00000000-0000-0000-0000-0000005d2005', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7012', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6012', '00000000-0000-0000-0000-0000005d2012', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7006', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6006', '00000000-0000-0000-0000-0000005d2006', 'private_lesson', 'attended', now() - interval '1 day 1 hour', now() - interval '1 day'),
+  ('00000000-0000-0000-0000-0000005d7007', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6007', '00000000-0000-0000-0000-0000005d2007', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7008', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6008', '00000000-0000-0000-0000-0000005d2008', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7009', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6009', '00000000-0000-0000-0000-0000005d2009', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7010', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6010', '00000000-0000-0000-0000-0000005d2010', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour'),
+  ('00000000-0000-0000-0000-0000005d7011', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d6011', '00000000-0000-0000-0000-0000005d2011', 'private_lesson', 'scheduled', now() + interval '2 days', now() + interval '2 days 1 hour');
+
+-- Capability removed after the lesson was taught (no future work remains).
+update public.instructors set can_instruct = false where id = '00000000-0000-0000-0000-0000005d2006';
 
 -- ============================================================================
 -- TEACHING RPC -- CASE 1: assigned future client returned, with only the
@@ -385,13 +473,33 @@ begin
 end $$;
 
 -- ============================================================================
--- TEACHING RPC -- CASE 12: group class behaves identically to a private
--- lesson.
+-- TEACHING RPC -- CASE 12: a group class is shared. It cannot carry a client_id,
+-- and being on its roster does not make a dancer a teaching client.
 -- ============================================================================
 do $$
 declare
+  v_refused boolean := false;
   v_found boolean;
 begin
+  begin
+    insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at) values
+      ('00000000-0000-0000-0000-0000005d4018', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d3010', '00000000-0000-0000-0000-0000005d2001', 'group_class', 'scheduled', now() + interval '1 day', now() + interval '1 day 1 hour');
+  exception when raise_exception then
+    if sqlerrm not like '%shared group class%' then
+      raise;
+    end if;
+    v_refused := true;
+  end;
+
+  if not v_refused then
+    raise exception 'FAIL T-fc1b5d-teach12: a group class with a client_id was accepted';
+  end if;
+
+  insert into public.appointments (id, studio_id, instructor_id, appointment_type, status, starts_at, ends_at, roster_capacity) values
+    ('00000000-0000-0000-0000-0000005d4011', '00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d2001', 'group_class', 'scheduled', now() + interval '1 day', now() + interval '1 day 1 hour', 12);
+  insert into public.appointment_attendees (studio_id, appointment_id, client_id, source, status) values
+    ('00000000-0000-0000-0000-0000005d0001', '00000000-0000-0000-0000-0000005d4011', '00000000-0000-0000-0000-0000005d3010', 'staff', 'booked');
+
   set local role authenticated;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1001')::text, true);
 
@@ -399,11 +507,11 @@ begin
 
   reset role;
 
-  if not v_found then
-    raise exception 'FAIL T-fc1b5d-teach12: group class appointment should qualify identically to a private lesson';
+  if v_found then
+    raise exception 'FAIL T-fc1b5d-teach12: a group class roster entry granted teaching access';
   end if;
 
-  raise notice 'PASS T-fc1b5d-teach12: group class row qualifies via the same predicate';
+  raise notice 'PASS T-fc1b5d-teach12: a group class cannot carry a client_id and its roster grants no teaching access';
 end $$;
 
 -- ============================================================================
@@ -484,16 +592,17 @@ begin
 end $$;
 
 -- ============================================================================
--- BOOKING SEARCH RPC -- CASE 16/17/18: first-time client discoverable via
--- search, NOT teaching-visible before an appointment exists, and becomes
--- teaching-visible once a qualifying future appointment is created.
+-- BOOKING SEARCH RPC -- CASE 16: first-time client discoverable via search.
 -- ============================================================================
 do $$
 declare
   v_search_found boolean;
-  v_teach_found_before boolean;
-  v_teach_found_after boolean;
 begin
+  if to_regprocedure('public.search_bookable_clients_for_instructor(uuid,text,integer)') is null then
+    raise notice 'SKIP T-fc1b5d-book16: booking search is not installed';
+    return;
+  end if;
+
   set local role authenticated;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1001')::text, true);
 
@@ -502,6 +611,27 @@ begin
     where id = '00000000-0000-0000-0000-0000005d3013'
   ) into v_search_found;
 
+  reset role;
+
+  if not v_search_found then
+    raise exception 'FAIL T-fc1b5d-book16: first-time client not discoverable via booking search';
+  end if;
+
+  raise notice 'PASS T-fc1b5d-book16: first-time client discoverable via booking search';
+end $$;
+
+-- ============================================================================
+-- TEACHING RPC -- CASE 17/18: a client is NOT teaching-visible before an
+-- appointment exists, and becomes visible once a qualifying one is created.
+-- ============================================================================
+do $$
+declare
+  v_teach_found_before boolean;
+  v_teach_found_after boolean;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1001')::text, true);
+
   select exists (
     select 1 from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid)
     where id = '00000000-0000-0000-0000-0000005d3013'
@@ -509,11 +639,8 @@ begin
 
   reset role;
 
-  if not v_search_found then
-    raise exception 'FAIL T-fc1b5d-book16: first-time client not discoverable via booking search';
-  end if;
   if v_teach_found_before then
-    raise exception 'FAIL T-fc1b5d-book17: first-time client should not be teaching-visible before any appointment exists';
+    raise exception 'FAIL T-fc1b5d-teach17: first-time client should not be teaching-visible before any appointment exists';
   end if;
 
   insert into public.appointments (id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at) values
@@ -530,10 +657,10 @@ begin
   reset role;
 
   if not v_teach_found_after then
-    raise exception 'FAIL T-fc1b5d-book18: client should become teaching-visible once a qualifying future appointment exists';
+    raise exception 'FAIL T-fc1b5d-teach18: client should become teaching-visible once a qualifying future appointment exists';
   end if;
 
-  raise notice 'PASS T-fc1b5d-book16/17/18: booking-discovery does not itself grant teaching access; creating a qualifying appointment does';
+  raise notice 'PASS T-fc1b5d-teach17/18: only a qualifying appointment makes a client teaching-visible';
 end $$;
 
 -- ============================================================================
@@ -545,6 +672,11 @@ declare
   v_blank_count int;
   v_one_char_count int;
 begin
+  if to_regprocedure('public.search_bookable_clients_for_instructor(uuid,text,integer)') is null then
+    raise notice 'SKIP booking case block 1: booking search is not installed';
+    return;
+  end if;
+
   set local role authenticated;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1001')::text, true);
 
@@ -572,6 +704,11 @@ declare
   v_underscore_count int;
   v_percent_count int;
 begin
+  if to_regprocedure('public.search_bookable_clients_for_instructor(uuid,text,integer)') is null then
+    raise notice 'SKIP booking case block 2: booking search is not installed';
+    return;
+  end if;
+
   set local role authenticated;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1001')::text, true);
 
@@ -604,6 +741,11 @@ declare
   v_arr text[];
   v_sorted_arr text[];
 begin
+  if to_regprocedure('public.search_bookable_clients_for_instructor(uuid,text,integer)') is null then
+    raise notice 'SKIP booking case block 3: booking search is not installed';
+    return;
+  end if;
+
   -- Insert 25 clients sharing a common searchable token, request a huge
   -- limit_count, and confirm the server-side ceiling (20) still applies.
   insert into public.clients (id, studio_id, first_name, last_name, status)
@@ -644,6 +786,11 @@ do $$
 declare
   v_count int;
 begin
+  if to_regprocedure('public.search_bookable_clients_for_instructor(uuid,text,integer)') is null then
+    raise notice 'SKIP booking case block 4: booking search is not installed';
+    return;
+  end if;
+
   set local role authenticated;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1001')::text, true);
 
@@ -665,6 +812,11 @@ do $$
 declare
   v_found boolean;
 begin
+  if to_regprocedure('public.search_bookable_clients_for_instructor(uuid,text,integer)') is null then
+    raise notice 'SKIP booking case block 5: booking search is not installed';
+    return;
+  end if;
+
   set local role authenticated;
   perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1001')::text, true);
 
@@ -690,6 +842,11 @@ do $$
 declare
   v_returns text;
 begin
+  if to_regprocedure('public.search_bookable_clients_for_instructor(uuid,text,integer)') is null then
+    raise notice 'SKIP booking case block 6: booking search is not installed';
+    return;
+  end if;
+
   select pg_get_function_result(p.oid) into v_returns
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
@@ -752,5 +909,175 @@ end $$;
 -- above used the ordinary "instructor" role/identity for a user who also
 -- happens to have an is_independent_instructor=true clients row; no
 -- distinct role string was ever needed).
+
+-- ============================================================================
+-- CALLER CONDITIONS: an active, capable instructors row AND an active studio
+-- role of an allowed kind in the requested studio.
+-- ============================================================================
+do $$
+declare
+  v_ids uuid[];
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1003')::text, true);
+  select array_agg(id) into v_ids from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  reset role;
+  if v_ids is distinct from array['00000000-0000-0000-0000-0000005d6003'::uuid] then
+    raise exception 'FAIL T-fc1b5d-allow-owner: expected exactly the caller''s own client, got %', v_ids;
+  end if;
+  raise notice 'PASS T-fc1b5d-allow-owner: gets exactly their own client';
+end $$;
+
+do $$
+declare
+  v_ids uuid[];
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1004')::text, true);
+  select array_agg(id) into v_ids from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  reset role;
+  if v_ids is distinct from array['00000000-0000-0000-0000-0000005d6004'::uuid] then
+    raise exception 'FAIL T-fc1b5d-allow-admin: expected exactly the caller''s own client, got %', v_ids;
+  end if;
+  raise notice 'PASS T-fc1b5d-allow-admin: gets exactly their own client';
+end $$;
+
+do $$
+declare
+  v_ids uuid[];
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1005')::text, true);
+  select array_agg(id) into v_ids from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  reset role;
+  if v_ids is distinct from array['00000000-0000-0000-0000-0000005d6005'::uuid] then
+    raise exception 'FAIL T-fc1b5d-allow-frontdesk: expected exactly the caller''s own client, got %', v_ids;
+  end if;
+  raise notice 'PASS T-fc1b5d-allow-frontdesk: gets exactly their own client';
+end $$;
+
+do $$
+declare
+  v_ids uuid[];
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1012')::text, true);
+  select array_agg(id) into v_ids from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  reset role;
+  if v_ids is distinct from array['00000000-0000-0000-0000-0000005d6012'::uuid] then
+    raise exception 'FAIL T-fc1b5d-allow-instructor: expected exactly the caller''s own client, got %', v_ids;
+  end if;
+  raise notice 'PASS T-fc1b5d-allow-instructor: gets exactly their own client';
+end $$;
+
+do $$
+declare
+  v_count int;
+  v_one int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1006')::text, true);
+  select count(*) into v_count from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  select count(*) into v_one from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid, '00000000-0000-0000-0000-0000005d6006'::uuid);
+  reset role;
+  if v_count <> 0 or v_one <> 0 then
+    raise exception 'FAIL T-fc1b5d-deny-nocapability: expected no rows, got % (and % by client id)', v_count, v_one;
+  end if;
+  raise notice 'PASS T-fc1b5d-deny-nocapability: no rows';
+end $$;
+
+do $$
+declare
+  v_count int;
+  v_one int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1007')::text, true);
+  select count(*) into v_count from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  select count(*) into v_one from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid, '00000000-0000-0000-0000-0000005d6007'::uuid);
+  reset role;
+  if v_count <> 0 or v_one <> 0 then
+    raise exception 'FAIL T-fc1b5d-deny-norole: expected no rows, got % (and % by client id)', v_count, v_one;
+  end if;
+  raise notice 'PASS T-fc1b5d-deny-norole: no rows';
+end $$;
+
+do $$
+declare
+  v_count int;
+  v_one int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1008')::text, true);
+  select count(*) into v_count from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  select count(*) into v_one from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid, '00000000-0000-0000-0000-0000005d6008'::uuid);
+  reset role;
+  if v_count <> 0 or v_one <> 0 then
+    raise exception 'FAIL T-fc1b5d-deny-inactiverole: expected no rows, got % (and % by client id)', v_count, v_one;
+  end if;
+  raise notice 'PASS T-fc1b5d-deny-inactiverole: no rows';
+end $$;
+
+do $$
+declare
+  v_count int;
+  v_one int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1009')::text, true);
+  select count(*) into v_count from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  select count(*) into v_one from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid, '00000000-0000-0000-0000-0000005d6009'::uuid);
+  reset role;
+  if v_count <> 0 or v_one <> 0 then
+    raise exception 'FAIL T-fc1b5d-deny-independent: expected no rows, got % (and % by client id)', v_count, v_one;
+  end if;
+  raise notice 'PASS T-fc1b5d-deny-independent: no rows';
+end $$;
+
+do $$
+declare
+  v_count int;
+  v_one int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1010')::text, true);
+  select count(*) into v_count from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  select count(*) into v_one from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid, '00000000-0000-0000-0000-0000005d6010'::uuid);
+  reset role;
+  if v_count <> 0 or v_one <> 0 then
+    raise exception 'FAIL T-fc1b5d-deny-otherstudio: expected no rows, got % (and % by client id)', v_count, v_one;
+  end if;
+  raise notice 'PASS T-fc1b5d-deny-otherstudio: no rows';
+end $$;
+
+do $$
+declare
+  v_count int;
+  v_one int;
+begin
+  set local role authenticated;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1011')::text, true);
+  select count(*) into v_count from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+  select count(*) into v_one from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid, '00000000-0000-0000-0000-0000005d6011'::uuid);
+  reset role;
+  if v_count <> 0 or v_one <> 0 then
+    raise exception 'FAIL T-fc1b5d-deny-platformadmin: expected no rows, got % (and % by client id)', v_count, v_one;
+  end if;
+  raise notice 'PASS T-fc1b5d-deny-platformadmin: no rows';
+end $$;
+
+do $$
+begin
+  set local role anon;
+  perform set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-0000-0000-0000005d1003', 'role', 'anon')::text, true);
+  begin
+    perform 1 from public.get_teaching_clients_for_instructor('00000000-0000-0000-0000-0000005d0001'::uuid);
+    raise exception 'FAIL T-fc1b5d-deny-anon: the anon role was allowed to call the function';
+  exception when insufficient_privilege then
+    null;
+  end;
+  reset role;
+  raise notice 'PASS T-fc1b5d-deny-anon: refused';
+end $$;
 
 rollback;
