@@ -1,0 +1,29 @@
+{
+  "id": "OD09-NDCA-0005",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, chairman consultation and semi-final heat splitting",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.1.d, IV.C.1.e (p.27)",
+    "quote_free_summary": "The Chairman should consult the organizer on recall questions and decides when a semi-final splits into two heats, with all couples dancing together at least 30 seconds first; both are advisory."
+  },
+  "rule_class": "recommended",
+  "requirement": "Record the consultation and any semi-final split decision when the Chairman role exists; advisory only, never a hard block.",
+  "implementation": [],
+  "enforcement_point": "Not built. NDCA advancement support is NOT IMPLEMENTED and a BLOCKER to NDCA scoring-profile activation (OD-09). Docs-only record: nothing implemented, no test, no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Recommended, not mandatory. Depends on semi-final support (OD09-NDCA-0003) and the Chairman role (OD09-NDCA-0001).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-09 (owner decision 2026-11-23, Option C now / Option A required for a future NDCA scoring profile; retrospective audit PR #795)",
+    "docs/competition/governance/audit/ADVANCEMENT-GAPS-OD09.md"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,29 @@
+{
+  "id": "OD09-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, recall minimum",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "IV.C.1.a (p.27)",
+    "quote_free_summary": "Each round recalls at least half the couples; fewer is allowed only when the actual recall would force an extra round; a 50% second-round recall carries forward to the third round."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Enforce the 50% minimum recall in every round including the verified exceptions and the carry-forward, and record which exception applied.",
+  "implementation": [],
+  "enforcement_point": "Not built. NDCA advancement support is NOT IMPLEMENTED and a BLOCKER to NDCA scoring-profile activation (OD-09). Docs-only record: nothing implemented, no test, no compliance claimed.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Today only target >= 2 and <= round capacity (<=100) is enforced; no percentage rule, no exception handling, no carry-forward. The exact exception semantics (what counts as requiring an additional round) must be re-read and confirmed in the engine design before implementation.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-09 (owner decision 2026-11-23, Option C now / Option A required for a future NDCA scoring profile; retrospective audit PR #795)",
+    "docs/competition/governance/audit/ADVANCEMENT-GAPS-OD09.md"
+  ],
+  "last_reviewed": "2026-11-23"
+}

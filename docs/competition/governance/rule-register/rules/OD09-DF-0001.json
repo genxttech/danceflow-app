@@ -1,0 +1,21 @@
+{
+  "id": "OD09-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: advancement",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not a body rule): Studio/Custom advancement is an organizer-set callback target T (>= 2, <= round capacity), one callback round then a Final. Unchanged for initial activation by OD-09 Option C.",
+  "implementation": [],
+  "enforcement_point": "Not built. NDCA advancement support is NOT IMPLEMENTED and a BLOCKER to NDCA scoring-profile activation (OD-09). Docs-only record: nothing implemented, no test, no compliance claimed.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Existing behavior preserved by owner decision. No automated test is mapped in this docs-only entry; the audit domain 6 inventory remains the place for the proof. Must never be presented as any governing body's advancement rule; OD-01 keeps body-declared events from publishing unverified body-compliant results.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-09 (owner decision 2026-11-23, Option C now / Option A required for a future NDCA scoring profile; retrospective audit PR #795)",
+    "docs/competition/governance/audit/ADVANCEMENT-GAPS-OD09.md"
+  ],
+  "last_reviewed": "2026-11-23"
+}

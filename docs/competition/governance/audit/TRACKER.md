@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded: OD-09
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-09 | **Option C now; Option A required for a future NDCA scoring profile.** Studio/Custom advancement unchanged for initial activation. Eight mandatory prerequisites before any NDCA scoring profile is enabled; see [ADVANCEMENT-GAPS-OD09.md](ADVANCEMENT-GAPS-OD09.md). | 2026-11-23 | Docs only: register `OD09-NDCA-0001`..`0005`, `OD09-WSDC-0001`, `OD09-UCWDC-0001`, `OD09-DF-0001`. No code, SQL or engine. | **NDCA advancement support NOT IMPLEMENTED; BLOCKER to NDCA profile activation.** Source conflict (IV.C.1.f vs IV.C.2) open. |
