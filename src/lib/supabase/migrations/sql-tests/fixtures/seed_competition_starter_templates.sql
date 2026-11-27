@@ -110,3 +110,55 @@ do update set
   blueprint = excluded.blueprint,
   status = 'active',
   updated_at = now();
+
+-- Verbatim lines 274-323 of 20260622_west_coast_swing_foundation_v1.sql (West Coast Swing).
+insert into public.competition_configuration_templates (
+  template_key, name, discipline_family, version, description, blueprint
+) values (
+  'west_coast_swing_starter',
+  'West Coast Swing Starter',
+  'west_coast_swing',
+  1,
+  'Editable West Coast Swing Jack and Jill shells with role-based registration and WSDC 2026 scoring metadata.',
+  '{
+    "program": {
+      "name": "West Coast Swing Competition",
+      "competition_mode": "relative",
+      "scoring_method": "round_specific",
+      "advancement_method": "promote_callback",
+      "feedback_policy": "none",
+      "rules_edition": "WSDC 2026.1C",
+      "wsdc_profile": {"registry_status":"not_declared","results_reporting_required":false}
+    },
+    "dances": [
+      {"key":"west_coast_swing","name":"West Coast Swing","category":"Swing"}
+    ],
+    "contests": [
+      {
+        "name":"WSDC Jack and Jill",
+        "type":"jack_and_jill",
+        "entry_format":"random_partner",
+        "dance_keys":["west_coast_swing"],
+        "configuration":{"registry_points_contest":true,"registration_unit":"individual","roles":["leader","follower"]},
+        "divisions":[
+          {"name":"Newcomer Jack and Jill","code":"WSDC-NC","category_type":"skill","skill_level":"newcomer","skill_label":"Newcomer","sort_order":10},
+          {"name":"Novice Jack and Jill","code":"WSDC-NOV","category_type":"skill","skill_level":"novice","skill_label":"Novice","sort_order":20},
+          {"name":"Intermediate Jack and Jill","code":"WSDC-INT","category_type":"skill","skill_level":"intermediate","skill_label":"Intermediate","sort_order":30},
+          {"name":"Advanced Jack and Jill","code":"WSDC-ADV","category_type":"skill","skill_level":"advanced","skill_label":"Advanced","sort_order":40},
+          {"name":"All Star Jack and Jill","code":"WSDC-AS","category_type":"skill","skill_level":"all_star","skill_label":"All Star","sort_order":50},
+          {"name":"Champions Jack and Jill","code":"WSDC-CH","category_type":"skill","skill_level":"champions","skill_label":"Champions","sort_order":60},
+          {"name":"Juniors Jack and Jill","code":"WSDC-JR","category_type":"age","age_label":"Juniors","maximum_age":17,"sort_order":70},
+          {"name":"Sophisticated Jack and Jill","code":"WSDC-SOPH","category_type":"age","age_label":"Sophisticated","minimum_age":35,"sort_order":80},
+          {"name":"Masters Jack and Jill","code":"WSDC-MAST","category_type":"age","age_label":"Masters","minimum_age":50,"sort_order":90}
+        ]
+      }
+    ]
+  }'::jsonb
+)
+on conflict (template_key, version) do update set
+  name = excluded.name,
+  discipline_family = excluded.discipline_family,
+  description = excluded.description,
+  blueprint = excluded.blueprint,
+  status = 'active',
+  updated_at = now();

@@ -5,7 +5,8 @@
 # Exact changes: (1) this header; (2) HL1 (20270119090000): heats d3 and d4 only are set 'complete' (superuser replica mode) after
 #   scenario B and before C; (3) helper `clean`; (4) added checks: the in-flight call of A, B, C and D succeeded, and A's refusal is
 #   COMP_BALLOT_UNKNOWN_ENTRY (the source's looser COMP_ check is kept). No source check or timing changed.
-# Check count: before 12, after 17.
+#   (5) after review: scenario B also samples pg_stat_activity and requires an observed lock waiter.
+# Check count: before 12, after 18.
 # =====================================================================================================================================
 # Competition NS1 -- no-show vs ballot submit / lock races, with a REAL second database connection per actor.
 #
@@ -120,6 +121,14 @@ SQL
 ) > "$OUTDIR/ns1c_b_submit.out" 2>&1 &
 PID=$!
 sleep 1.5
+# added check: sample for a session waiting on a lock while the mark is in flight
+rm -f "$OUTDIR/ns1c_b_waiter"
+( for _ in 1 2 3 4 5 6 7 8; do
+    n=$(SU -tAc "select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'" < /dev/null 2>/dev/null | tr -d '[:space:]')
+    [ "${n:-0}" -ge 1 ] 2>/dev/null && { echo "$n" > "$OUTDIR/ns1c_b_waiter"; break; }
+    sleep 0.2
+  done ) &
+SAMPLER=$!
 T0=$(now_ms)
 OUT=$(SU <<SQL 2>&1
 $(as_user "$MGR")
@@ -129,6 +138,8 @@ SQL
 T1=$(now_ms); wait $PID; EL=$((T1-T0))
 echo "B: mark took ${EL}ms -> $OUT"
 ok "B: mark waited for the in-flight submit (>=1800ms, was ${EL}ms)" $([ "$EL" -ge 1800 ] && echo 1 || echo 0)
+wait $SAMPLER
+ok "B: a session was observed waiting on a lock" $([ -s "$OUTDIR/ns1c_b_waiter" ] && echo 1 || echo 0)
 ok "B: the in-flight submit succeeded" $(clean "$OUTDIR/ns1c_b_submit.out" '"version": 1' && echo 1 || echo 0)
 ok "B: mark succeeded" $(echo "$OUT" | grep -q '"no_show_id"' && echo 1 || echo 0)
 ok "B: the earlier 3-mark ballot is now stale (fail closed)" $([ "$(stale_count 2)" = "1" ] && echo 1 || echo 0)

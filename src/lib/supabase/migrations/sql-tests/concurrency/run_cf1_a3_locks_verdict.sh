@@ -1,5 +1,6 @@
 #!/bin/bash
 # =====================================================================================================================================
+# ADAPTED COPY (after review: session errors are printed on failure)
 # ADAPTED COPY, not a released script and never counted as a pass of one. NOT EXECUTED.
 # Source: concurrency/run_cf1_a3_locks.sh (identical in p1run6 chain tests-A and tests-B), git blob 57af360695382ee0a7b031734e3a2b89d0c29d3e.
 # Exact changes: (1) this header; (2) the "cannot create a3probe" exit also prints a FAIL line (still exit 2); (3) a verdict block appended
@@ -132,4 +133,6 @@ ok "p2_approve succeeded (approved)" $([ "$(col p2_approve)" = "approved" ] && e
 ok "no ERROR line in any session output" $([ -s "$W/s1.out" ] && ! grep -qE '^(psql:[^ ]* )?(ERROR|FATAL):' "$W/s1.out" "$W/p1.out" "$W/p2.out" "$W/p3.out" && echo 1 || echo 0)
 
 if [ -z "$FAILS" ]; then echo "CF1 A3 LOCKS CONCURRENCY PASS ($CHECKS checks)"; exit 0; fi
+# the cause must reach the race log (the runner decides on a clearance-seeded rerun from the error codes it finds there)
+grep -hE '(ERROR|FATAL):' "$W"/*.out 2>/dev/null | head -5
 echo "CF1 A3 LOCKS CONCURRENCY FAIL:$FAILS"; exit 1

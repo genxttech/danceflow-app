@@ -1,6 +1,6 @@
 -- ADAPTED COPY for a chain that carries PR 877 (S6). NOT a released suite and never counted as a pass of one. NOT EXECUTED in this form.
 -- Source blob: 7ad6269c2c0de911e9c88ca62341b1f738a5c76e (the PR 863 run's copy with the eligibility-clearance hook); released blob d72eee3687648257488252f4fcb590eaf4f357b1.
--- Expected change from PR 877: findings F1 and F3 are closed. C1, C1b and C3 now assert the refusal and unchanged state; same number of checks; nothing else changed.
+-- Expected change from PR 877: findings F1 and F3 are closed. C1, C1b and C3 now assert the refusal and unchanged state; before C1c an owner write sets the parent status to disqualified (as the released flow did through the client); same number of checks; nothing else changed.
 -- OD-31 guarded-baseline NEGATIVE suite for the heat-entry integrity guards (U18 20270215093000, U18-S 20270215094000).
 -- Adds cases the shipped suites (test_T_competition_u18_* / u18s_*) do not cover. NO new SQL objects: this file only exercises existing ones and creates TEMP helpers.
 -- Run as a SUPERUSER on a database carrying the Competition chain through 20270215094000. One transaction, synthetic fixtures (UUID block ...-cf1031XXXXXX), rolled back.
@@ -145,6 +145,8 @@ select pg_temp.chk('C1 S6: a manager CANNOT set event_competition_entries.status
 select pg_temp.chk('C1b S6: the refused write leaves no status_change audit row and the heat entry untouched (still scheduled)',
   (select count(*) from public.event_competition_entry_changes where entry_id = '00000000-0000-0000-0000-cf1031800002' and change_type = 'status_change') = 0
   and pg_temp.hes('002') = 'scheduled');
+-- after review: the client can no longer disqualify (C1), so an owner write sets the status and C1c keeps testing what it names
+update public.event_competition_entries set status = 'disqualified' where id = '00000000-0000-0000-0000-cf1031800002';
 select pg_temp.chk('C1c ... and the entry still counts in the ballot/results heat set (scoring unaffected by the parent status)',
   '00000000-0000-0000-0000-cf1031800002'::uuid = any (public._compe2_heat_entries('00000000-0000-0000-0000-cf1031d00001'::uuid)));
 -- C2 FINDING OD31-F2: the parent entry TRIGGER privilege is still granted to clients (only the heat-entry table was revoked by U18)
