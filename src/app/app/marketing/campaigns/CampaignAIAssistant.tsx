@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Sparkles } from "lucide-react";
 import {
+  applyCampaignAiSuggestionToDraftAction,
   generateCampaignDraftAssistantAction,
   type CampaignAIAssistantState,
 } from "./ai-actions";
@@ -17,6 +18,8 @@ type CampaignAIAssistantProps = {
   ctaLabel?: string | null;
   ctaUrl?: string | null;
   compact?: boolean;
+  /** Studio draft only: when set, generated copy can be applied to this draft after an explicit confirmation. */
+  applyToCampaignId?: string;
 };
 
 const initialState: CampaignAIAssistantState = {
@@ -42,11 +45,16 @@ export default function CampaignAIAssistant({
   ctaLabel,
   ctaUrl,
   compact = false,
+  applyToCampaignId,
 }: CampaignAIAssistantProps) {
   const [state, setState] = useState<CampaignAIAssistantState>(initialState);
   const [task, setTask] = useState(currentBodyText ? "improve" : "generate");
   const [goal, setGoal] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [confirming, setConfirming] = useState(false);
+  const [chosenSubject, setChosenSubject] = useState("");
+  const [applyPreview, setApplyPreview] = useState(true);
+  const [applyBody, setApplyBody] = useState(true);
 
   function handleGenerate() {
     startTransition(async () => {
@@ -69,6 +77,8 @@ export default function CampaignAIAssistant({
       );
 
       setState(result);
+      setConfirming(false);
+      setChosenSubject("");
     });
   }
 
@@ -177,6 +187,66 @@ export default function CampaignAIAssistant({
                 Copy the parts you want to use into your campaign, then edit
                 before sending.
               </p>
+            </div>
+          ) : null}
+
+          {applyToCampaignId && (state.subjectIdeas?.length || state.previewText || state.bodyText) ? (
+            <div className="border-t border-[var(--brand-border)] pt-3">
+              {!confirming ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirming(true)}
+                  className="inline-flex items-center justify-center rounded-2xl border border-[#4D1F47] px-4 py-2 text-sm font-bold text-[#4D1F47] transition hover:bg-[#F8F1FB]"
+                >
+                  Apply to draft...
+                </button>
+              ) : (
+                <form action={applyCampaignAiSuggestionToDraftAction} className="space-y-3">
+                  <input type="hidden" name="campaignId" value={applyToCampaignId} />
+                  <input type="hidden" name="confirmApply" value="yes" />
+                  <p className="text-sm font-semibold text-[var(--brand-text)]">
+                    This replaces the selected parts of the draft. Nothing is sent.
+                  </p>
+                  {state.subjectIdeas?.length ? (
+                    <fieldset className="space-y-1 text-sm">
+                      <legend className="font-semibold">Subject</legend>
+                      <label className="flex items-center gap-2">
+                        <input type="radio" checked={chosenSubject === ""} onChange={() => setChosenSubject("")} />
+                        Keep the current subject
+                      </label>
+                      {state.subjectIdeas.map((subject) => (
+                        <label key={subject} className="flex items-center gap-2">
+                          <input type="radio" checked={chosenSubject === subject} onChange={() => setChosenSubject(subject)} />
+                          {subject}
+                        </label>
+                      ))}
+                      <input type="hidden" name="subject" value={chosenSubject} />
+                    </fieldset>
+                  ) : null}
+                  {state.previewText ? (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={applyPreview} onChange={(event) => setApplyPreview(event.target.checked)} />
+                      Replace the preview text
+                      <input type="hidden" name="previewText" value={applyPreview ? state.previewText : ""} />
+                    </label>
+                  ) : null}
+                  {state.bodyText ? (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={applyBody} onChange={(event) => setApplyBody(event.target.checked)} />
+                      Replace the message
+                      <input type="hidden" name="bodyText" value={applyBody ? state.bodyText : ""} />
+                    </label>
+                  ) : null}
+                  <div className="flex gap-2">
+                    <button type="submit" className="inline-flex items-center justify-center rounded-2xl bg-[#4D1F47] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#3D1839]">
+                      Confirm and apply
+                    </button>
+                    <button type="button" onClick={() => setConfirming(false)} className="inline-flex items-center justify-center rounded-2xl border border-[var(--brand-border)] px-4 py-2 text-sm font-semibold">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           ) : null}
         </div>
