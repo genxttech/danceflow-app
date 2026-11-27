@@ -11,6 +11,10 @@ export type CreditOverview = {
   balanceCents: number;
   reservedCents: number;
   availableCents: number;
+  /** DanceFlow test credit inside availableCents (texting only; never purchasable, refundable or usable for fees); excludes test credit already held for texts in flight. 0 without a test grant. */
+  testCreditCents: number;
+  /** What setup and monthly fees may use: available credit minus unused test credit that is not already held for a text in flight. */
+  feeAvailableCents: number;
   onHold: boolean;
   lowBalance: boolean;
   lowBalanceThresholdCents: number;
@@ -20,7 +24,7 @@ export type CreditOverview = {
   pilotUsedCents: number;
 };
 
-export type CreditLedgerKind = "topup_settled" | "topup_reversed" | "reserve" | "release" | "capture" | "usage_charge" | "usage_refund" | "adjustment";
+export type CreditLedgerKind = "topup_settled" | "topup_reversed" | "reserve" | "release" | "capture" | "usage_charge" | "usage_refund" | "adjustment" | "test_grant" | "test_grant_reversed";
 export type CreditActivity = { seq: number; createdAt: string; kind: CreditLedgerKind; balanceDeltaCents: number; thisLocation: boolean; hasLocation: boolean };
 export type CreditPurchaseStatus = "pending" | "settled" | "failed" | "expired";
 export type CreditPurchase = { createdAt: string; amountCents: number; refundedCents: number; disputedCents: number; status: CreditPurchaseStatus; thisLocation: boolean };
@@ -29,7 +33,7 @@ export type CreditPrice = { kind: string; customerPriceCents: number; descriptio
 /** purchases is null when the list could not be read (for example the read function is not installed yet), so the screen never claims "no purchases". */
 export type CreditView = { overview: CreditOverview; activity: CreditActivity[]; purchases: CreditPurchase[] | null; prices: CreditPrice[] };
 
-const KINDS = new Set<string>(["topup_settled", "topup_reversed", "reserve", "release", "capture", "usage_charge", "usage_refund", "adjustment"]);
+const KINDS = new Set<string>(["topup_settled", "topup_reversed", "reserve", "release", "capture", "usage_charge", "usage_refund", "adjustment", "test_grant", "test_grant_reversed"]);
 const PURCHASE_STATUS = new Set<string>(["pending", "settled", "failed", "expired"]);
 
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -43,6 +47,9 @@ export function parseOverview(data: unknown): CreditOverview {
     balanceCents: num(o.balance_cents),
     reservedCents: num(o.reserved_cents),
     availableCents: num(o.available_cents),
+    testCreditCents: Math.max(num(o.test_credit_cents), 0),
+    // a database without the test-credit migration does not send the field: everything available is then usable for fees
+    feeAvailableCents: o.fee_available_cents == null ? num(o.available_cents) : num(o.fee_available_cents),
     onHold: o.on_hold === true,
     lowBalance: o.low_balance === true,
     lowBalanceThresholdCents: num(o.low_balance_threshold_cents),
@@ -109,9 +116,12 @@ export function deriveCreditState(o: CreditOverview): CreditState {
 export const CREDIT_MAX_BALANCE_CENTS = 50_000;
 export const CREDIT_PACKS_CENTS = [2500, 5000, 10000] as const;
 
-/** A pack is offered only if the business could receive it: balance plus live pending plus the pack must stay within the ceiling (the database re-checks under a lock). */
+/**
+ * A pack is offered only if the business could receive it: its OWN balance (DanceFlow test credit does not count) plus live pending plus the pack must stay within the
+ * ceiling (the database re-checks under a lock, with the same rule).
+ */
 export function packFits(o: CreditOverview, packCents: number): boolean {
-  return Math.max(o.balanceCents, 0) + o.pendingCents + packCents <= CREDIT_MAX_BALANCE_CENTS;
+  return Math.max(o.balanceCents - o.testCreditCents, 0) + o.pendingCents + packCents <= CREDIT_MAX_BALANCE_CENTS;
 }
 
 export const ACTIVITY_LABEL: Record<CreditLedgerKind, string> = {
@@ -123,6 +133,8 @@ export const ACTIVITY_LABEL: Record<CreditLedgerKind, string> = {
   usage_charge: "Texting usage",
   usage_refund: "Usage refunded",
   adjustment: "Adjustment by DanceFlow",
+  test_grant: "Test credit from DanceFlow (texting only)",
+  test_grant_reversed: "Unused test credit returned to DanceFlow",
 };
 
 export const PURCHASE_LABEL: Record<CreditPurchaseStatus, string> = {
