@@ -326,6 +326,16 @@ insert into public.event_competition_entries (id, event_id, program_id, division
 select pg_temp.eid(f.n, i), pg_temp.u('00e001'), pg_temp.pid(f.prog), pg_temp.dvid(f.n), 'E' || f.n || '-' || i, 'confirmed', 'eligible', (f.n * 10 + i)::text
 from t_fix f cross join lateral generate_series(1, f.k) i;
 
+-- S4/R-15 composed chains: seeded eligible couples get an organizer determination through set_competition_entry_eligibility before they are placed.
+-- Inert unless the runner prepends sql-tests/fixtures/r15_clear_entries.sql (PR 866), which defines the helper; that helper does nothing without S4.
+-- Note: on a chain with S4 but without S5 the helper plants a stand-in age predicate, so such a run is no evidence about the age gate.
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at)
 values (pg_temp.u('00c001'), pg_temp.u('00e001'), 1, 'v1', 'published', now());
@@ -389,8 +399,8 @@ select pg_temp.chk('U79: the ten redefined functions match the post-A3 md5 pins 
     ('public.competition_judge_ballot_sheet(uuid)', '2506cb2f466d1738fb1a8f298e805b5f|8e129175282c88ed3590e3d162fbb47c'),
     ('public._compf2_evidence(uuid,text,text)', '415a823b4a689cae26b8a20187af58e7'), ('public.competition_round_results_review(uuid)', 'c9d747907caad0a88b75da1c53862f43'),
     ('public.calculate_competition_round(uuid,text,text,text,text,jsonb,jsonb,jsonb,uuid)', 'bc3cc4397e740444a4d4a53d93b499cc|167529bada8ca5a4dd98e22d4d0a3252'),
-    ('public.approve_competition_round_result(uuid,uuid,text,uuid)', 'ac33e456925e64665db1ea0547bae18b|3cf63c3bb00a78142ea2c8e70a8b4a0c')) t(sig, pin)
-    -- A pin may list the post-A3 text and its pinned successor (PV-1 20270215090000 / OJ-1 20270215091000), separated by |.
+    ('public.approve_competition_round_result(uuid,uuid,text,uuid)', 'ac33e456925e64665db1ea0547bae18b|3cf63c3bb00a78142ea2c8e70a8b4a0c|2d178c29177ebf2ec14a46bf510ccc12')) t(sig, pin)
+    -- A pin may list the post-A3 text and its pinned successors (PV-1 20270215090000 / OJ-1 20270215091000 / R-11 20270301090000), separated by |.
     where md5(replace(pg_get_functiondef(t.sig::regprocedure), E'\r', '')) = any (string_to_array(t.pin, '|'))));
 select pg_temp.chk('U61: lock_competition_round_ballots is NOT touched by A3 (still the HL1 text 6e417534...; A2 owns it)',
   md5(replace(pg_get_functiondef('public.lock_competition_round_ballots(uuid,uuid)'::regprocedure), E'\r', '')) in ('6e4175342d51ffe274d70ce413bae8c3')
@@ -833,6 +843,49 @@ declare
 
   update public.event_competition_rounds set status = 'approved', updated_at = now() where id = p_round_id;$n$;
 begin
+  -- R-11 (20270301090000) replaced three fragments of approve after PV-1; reverse them first (a no-op when R-11 is absent) so the reconstruction continues down to the pre-A3 text.
+  v_appr := replace(v_appr, $r3n$'override', v_override, 'initial', v_initial));$r3n$, $r3o$'override', v_override));$r3o$);
+  v_appr := replace(v_appr, $r2n$  -- R-11 (owner 2026-11-24): the single-staff override exists for the INITIAL approval of a round only. Initial or corrected comes from append-only
+  -- history (an approval of another version, an A7 correction cause, an F2 correction audit event), read under the round lock held since the top.
+  v_initial := not exists (select 1 from public.event_competition_result_approvals a
+                           join public.event_competition_result_versions pv on pv.id = a.result_version_id and pv.event_id = a.event_id
+                           where pv.round_id = p_round_id and a.result_version_id <> v_ver.id)
+           and not exists (select 1 from public.event_competition_correction_causes c where c.round_id = p_round_id and c.event_id = v_round.event_id)
+           and not exists (select 1 from public.event_competition_result_events e
+                           where e.round_id = p_round_id and e.event_id = v_round.event_id and e.kind = 'round_state_changed'
+                             and e.to_state = 'ballots_locked' and e.refs ->> 'correction' = 'true');
+  v_override := v_ver.calculated_by = v_uid;
+  if not v_initial then
+    -- A corrected result needs an independent approver: neither its calculator nor anyone who opened a correction of the round. No override.
+    v_opener := exists (select 1 from public.event_competition_correction_causes c where c.round_id = p_round_id and c.event_id = v_round.event_id and c.opened_by = v_uid)
+             or exists (select 1 from public.event_competition_result_events e
+                        where e.round_id = p_round_id and e.event_id = v_round.event_id and e.kind = 'round_state_changed'
+                          and e.to_state = 'ballots_locked' and e.refs ->> 'correction' = 'true' and e.actor_user_id = v_uid);
+    if v_override or v_opener then
+      raise exception 'COMP_CORRECTION_APPROVER_REQUIRED: a corrected result must be approved by an independent manager: not its calculator and not the person who opened the correction. The single-staff override applies to the initial approval only.'
+        using errcode = 'P0001';
+    end if;
+  elsif v_override and (not public._cf1_reason_is_substantive(v_reason)
+                        -- review hardening: padding (NBSP, zero-width, punctuation) cannot satisfy the length or word rules. Only letters and digits count:
+                        -- at least 12 of them, at least four words holding one, and at least three DIFFERENT such words (punctuation and case ignored).
+                        or length(regexp_replace(v_reason, '[^[:alnum:]]', '', 'g')) < 12
+                        or (select count(*) from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 4
+                        or (select count(distinct lower(regexp_replace(w, '[^[:alnum:]]', '', 'g')))
+                              from regexp_split_to_table(v_reason, '[[:space:]]+') w where w ~ '[[:alnum:]]') < 3) then
+    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve an initial result only with a substantive override reason (20-500 characters, at least four words, three of them different).'
+      using errcode = 'P0001';
+  end if;
+$r2n$, $r2o$  v_override := v_ver.calculated_by = v_uid;
+  if v_override and (v_reason is null or length(v_reason) > 500) then
+    raise exception 'COMP_SECOND_APPROVER_REQUIRED: a second manager must approve; the calculator may approve only with an override reason (1-500 characters).'
+      using errcode = 'P0001';
+  end if;
+$r2o$);
+  v_appr := replace(v_appr, $r1n$  v_override boolean;
+  v_initial boolean;
+  v_opener boolean;
+$r1n$, $r1o$  v_override boolean;
+$r1o$);
   -- PV-1 (20270215090000) inserts its verify call into both texts after A3; take it out first so the reconstruction is the pre-A3 text again.
   v_calc := replace(v_calc, $p$  -- PV-1 (owner decision 2026-11-10): the database recomputes the result from its own evidence (the same document the input hash covers) and
   -- refuses rows, placements, advancement, tie status or warnings that differ from its own calculation. Fingerprints alone are not proof.
