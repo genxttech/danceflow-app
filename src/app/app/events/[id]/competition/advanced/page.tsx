@@ -6,6 +6,7 @@ import { isCallbackRound } from "@/lib/competition/callbackTarget";
 import { loadStudioScoringReadiness } from "@/lib/competition/scoring/studioReadinessServer";
 import { STUDIO_METHOD_DISCLOSURE, selectablePresets } from "@/lib/competition/scoring/studioSetup";
 import { methodId, sanctioningDisclosure } from "@/lib/competition/scoring/registry";
+import { evaluateSanctionScoringGuard } from "@/lib/competition/scoring/sanctionGuard";
 import { competitionFinalsEnabled } from "@/lib/competition/finalsGate";
 import StudioScoringForm from "./StudioScoringForm";
 import {
@@ -89,7 +90,9 @@ export default async function CompetitionPage({ params }: { params: Promise<{ id
   const scoringReadiness = finalsEnabled ? await loadStudioScoringReadiness(supabase, id) : { blockers: [], notices: [], configuredRounds: 0 };
   const presets = !finalsEnabled ? [] : selectablePresets().map((preset) => ({ key: preset.key, label: preset.label, description: preset.description }));
   const sanctioning = sanctioningDisclosure((event as { competition_sanctioning?: string }).competition_sanctioning);
-  const scoringDisclosure = `${STUDIO_METHOD_DISCLOSURE} ${sanctioning.text}`;
+  // OD-01: a declared body whose scoring is not implemented and verified blocks result approval and publication (nothing else).
+  const sanctionGuard = evaluateSanctionScoringGuard({ sanctioning: (event as { competition_sanctioning?: string }).competition_sanctioning });
+  const scoringDisclosure = `${STUDIO_METHOD_DISCLOSURE} ${sanctioning.text}${sanctionGuard.allowed ? (sanctionGuard.code === "SANCTION_OTHER_UNVERIFIED" ? " " + sanctionGuard.reason : "") : " " + sanctionGuard.reason}`;
 
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">

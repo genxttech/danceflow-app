@@ -10,6 +10,7 @@ import { calculateRound } from "@/lib/competition/results/calculate";
 import { lookupRegisteredEngine } from "@/lib/competition/results/engineAdapter";
 import { resultErrorMessage } from "@/lib/competition/results/messages";
 import { parseVisibility } from "@/lib/competition/results/publication";
+import { guardRoundResultsForSanction } from "@/lib/competition/scoring/sanctionGuard";
 import {
   errorText,
   parseExclusionReasonKind,
@@ -34,7 +35,7 @@ function back(returnTo: string, params: Record<string, string>): never {
   redirect(`${returnTo}?${new URLSearchParams(params).toString()}`);
 }
 
-type Session = { rpc: RpcCall; returnTo: string };
+type Session = { rpc: RpcCall; returnTo: string; supabase: Awaited<ReturnType<typeof createClient>> };
 
 /**
  * Every action is one database transition. The RPC is the authority (who, round state, hash binding); a refusal is shown as plain text.
@@ -48,7 +49,7 @@ async function session(formData: FormData): Promise<Session> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  return { rpc: withRetryOnce((name, args) => supabase.rpc(name, args)), returnTo };
+  return { rpc: withRetryOnce((name, args) => supabase.rpc(name, args)), returnTo, supabase };
 }
 
 /** Loads the locked ballots, runs the round's pinned engine through the narrow interface and records a new result version. */
@@ -70,8 +71,11 @@ export async function approveRoundResultAction(formData: FormData): Promise<void
   const roundId = uuid(formData, "roundId");
   const versionId = uuid(formData, "versionId");
   const requestId = uuid(formData, "requestId");
-  const { rpc, returnTo } = await session(formData);
+  const { rpc, returnTo, supabase } = await session(formData);
   if (!roundId || !versionId || !requestId) back(returnTo, { error: resultErrorMessage("COMP_REQUEST_ID_REQUIRED") });
+  // OD-01: fail closed server-side before the database transition is requested (not a UI-only block).
+  const sanction = await guardRoundResultsForSanction(supabase, roundId);
+  if (!sanction.allowed) back(returnTo, { error: sanction.reason });
   const { error } = await rpc("approve_competition_round_result", {
     p_round_id: roundId,
     p_result_version_id: versionId,
@@ -94,9 +98,12 @@ export async function publishRoundResultAction(formData: FormData): Promise<void
   const versionId = uuid(formData, "versionId");
   const requestId = uuid(formData, "requestId");
   const visibility = parseVisibility(text(formData, "visibility"));
-  const { rpc, returnTo } = await session(formData);
+  const { rpc, returnTo, supabase } = await session(formData);
   if (!roundId || !versionId || !requestId) back(returnTo, { error: resultErrorMessage("COMP_REQUEST_ID_REQUIRED") });
   if (!visibility) back(returnTo, { error: resultErrorMessage("COMP_PUBLICATION_VISIBILITY") });
+  // OD-01: fail closed server-side before the database transition is requested (not a UI-only block).
+  const sanction = await guardRoundResultsForSanction(supabase, roundId);
+  if (!sanction.allowed) back(returnTo, { error: sanction.reason });
   const { data, error } = await rpc("publish_competition_round_result", {
     p_round_id: roundId,
     p_result_version_id: versionId,

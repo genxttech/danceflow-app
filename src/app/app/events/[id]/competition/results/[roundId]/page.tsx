@@ -9,6 +9,7 @@ import { parseReviewExcluded } from "@/lib/competition/results/reviewTypes";
 import { correctionCosignPanel, parseCorrectionState } from "@/lib/competition/results/correction";
 import { approveRoundResultAction, cosignCorrectionAction, calculateRoundResultAction, completeRoundAction, openRoundCorrectionAction, publishRoundResultAction, withdrawRoundResultAction } from "../actions";
 import { parsePublications, publicationControls } from "@/lib/competition/results/publication";
+import { guardRoundResultsForSanction } from "@/lib/competition/scoring/sanctionGuard";
 import { deriveUnresolvedTie, type UnresolvedTie } from "@/lib/competition/results/unresolvedTie";
 import { AdvancementSection, UnresolvedTiePanel, ExcludedSection, ExclusionPanel, WithdrawalPanel, type Candidate } from "./CallbackPanels";
 
@@ -152,11 +153,15 @@ export default async function CompetitionRoundResultsPage({
       finalCapacity: (evidenceRow as { finalCapacity?: unknown } | null)?.finalCapacity ?? null,
     });
   }
+  // OD-01: the same guard the server actions enforce; the UI only mirrors it so the organizer sees why approve/publish are unavailable.
+  const sanction = isManager ? await guardRoundResultsForSanction(supabase, roundId) : null;
+  const sanctionBlock = sanction && !sanction.allowed ? sanction : null;
   const publication = publicationControls({
     isManager,
     roundStatus: status,
     latestVersion: latest ? { id: latest.id, status: latest.status, stale: latest.stale } : null,
     unresolvedTie: !!unresolvedTie,
+    sanctionBlockedReason: sanctionBlock?.reason ?? null,
     publications,
   });
   const approvedVersion = review.versions.find((version) => version.status === "approved") ?? null;
@@ -168,6 +173,7 @@ export default async function CompetitionRoundResultsPage({
       </Link>
       {query.saved ? <p role="status" className="rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">{query.saved}</p> : null}
       {query.error ? <p role="alert" className="rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-950">{query.error}</p> : null}
+      {sanctionBlock ? <p role="alert" className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">{sanctionBlock.reason}</p> : sanction?.code === "SANCTION_OTHER_UNVERIFIED" ? <p role="note" className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">{sanction.reason}</p> : null}
 
       <div>
         <h2 className="text-lg font-semibold text-slate-950">{review.round.name}</h2>
@@ -197,7 +203,7 @@ export default async function CompetitionRoundResultsPage({
         <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-700">No result has been calculated for this round yet.</p>
       ) : (
         review.versions.map((version, index) => {
-          const canApprove = isManager && index === 0 && !(unresolvedTie && version.id === latest?.id) && status === "calculated" && version.status === "calculated" && !version.stale;
+          const canApprove = isManager && index === 0 && !(unresolvedTie && version.id === latest?.id) && status === "calculated" && version.status === "calculated" && !version.stale && !sanctionBlock;
           const isCalculator = version.calculated_by === review.viewer_id;
           return (
             <section key={version.id} className="space-y-3 rounded border border-slate-200 bg-white p-4">
