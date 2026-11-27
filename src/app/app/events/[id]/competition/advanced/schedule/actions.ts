@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { pilotErrorMessage } from "@/lib/competition/pilotMessages";
 
 const BLOCK_TYPES = ["competition", "awards", "break", "meal", "showcase", "workshop", "practice", "registration", "other"];
 const ROUND_TYPES = ["qualifying", "preliminary", "quarterfinal", "semifinal", "final", "proficiency", "feedback", "exhibition", "all", "custom"];
@@ -184,6 +185,6 @@ export async function publishScheduleVersionAction(formData: FormData): Promise<
   if (!eventId || !versionId) throw new Error("Schedule version is required.");
   const { supabase } = await requireEventManager(eventId);
   const { error } = await supabase.rpc("publish_competition_schedule_version", { selected_version_id: versionId });
-  if (error) throw new Error(`Could not publish schedule: ${error.message}`);
+  if (error) throw new Error(`Could not publish schedule: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId);
 }

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { pilotErrorMessage } from "@/lib/competition/pilotMessages";
 
 function text(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -68,6 +69,6 @@ export async function applyHeatPlanAction(formData: FormData): Promise<void> {
   if (!eventId || !runId) throw new Error("Approved heat plan is required.");
   const supabase = await requireEventManager(eventId);
   const { error } = await supabase.rpc("apply_competition_heat_plan", { selected_run_id: runId });
-  if (error) throw new Error(`Could not apply heat plan: ${error.message}`);
+  if (error) throw new Error(`Could not apply heat plan: ${pilotErrorMessage(error.message) ?? error.message}`);
   refresh(eventId, runId);
 }

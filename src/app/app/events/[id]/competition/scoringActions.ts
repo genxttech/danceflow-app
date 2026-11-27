@@ -5,6 +5,7 @@ import { requireCompetitionFinals } from "@/lib/competition/finalsGate";
 import { revalidatePath } from "next/cache";
 import { requireCompetitionManager } from "@/lib/competition/workspaceServer";
 import { planStudioScoring, type SetupOp, type SetupRound } from "@/lib/competition/scoring/studioSetup";
+import { pilotErrorMessage } from "@/lib/competition/pilotMessages";
 
 export type ScoringActionState = { ok: boolean; error?: string; message?: string };
 
@@ -18,6 +19,8 @@ function text(formData: FormData, key: string) {
 /** Database guards (REG) raise plain messages with 42501; anything else is not shown to organizers. */
 function friendly(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return GENERIC_ERROR;
+  const pilot = pilotErrorMessage(error.message);
+  if (pilot) return pilot;
   if (error.code === "42501" || error.code === "P0001" || error.code === "22023") return (error.message || GENERIC_ERROR).replace(/^COMP_[A-Z_]+:\s*/, "");
   return GENERIC_ERROR;
 }
