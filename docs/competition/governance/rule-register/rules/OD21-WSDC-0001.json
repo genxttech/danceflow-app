@@ -1,0 +1,34 @@
+{
+  "id": "OD21-WSDC-0001",
+  "governing_body": "WSDC",
+  "format": "WSDC Registry Events, Jack and Jill points",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.1 item 4 (p.10)",
+    "quote_free_summary": "Jack and Jill competitions need at least five unique Leaders and five unique Followers in finals for points to be awarded and the results to be included in the Points Registry."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A WSDC profile must treat the five-Leaders/five-Followers finalist minimum as a mandatory condition for awarding points and Points Registry inclusion, not as an advisory warning; permission to conduct the Final is a separate question.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The text conditions points and Points Registry inclusion only. In the sections read (1.2, 3.1, 3.3.2 round chart, 3.1 item 7.a) nothing says the contest may not run with fewer finalists; 3.1 item 7.a lets the Event Director combine or cancel a division that misses the Tier 1 requirement at registration close, which is an event decision, not a ban on running. Absence in the text read is not proof of absence elsewhere in the rules.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-21 (owner decision 2026-11-23, Option A: preserve Studio/Custom minimum-participation and withdrawal rules for initial activation; retrospective audit PR #795)",
+    "docs/competition/governance/participation/OD-21-minimum-participation-and-withdrawal.md",
+    "OD-15 A and OD-18 A (2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-07 (PR 838)",
+    "OD-08 (PR 840)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

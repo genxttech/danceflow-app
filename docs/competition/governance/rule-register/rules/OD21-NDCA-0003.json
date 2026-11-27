@@ -1,0 +1,34 @@
+{
+  "id": "OD21-NDCA-0003",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, Championship Competitions",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.6, second sentence (p.20)",
+    "quote_free_summary": "For Championship Competitions, at least six couples must participate."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Track the six-couple Championship requirement as its own rule; enforce it only after event classifications ('Championship Competitions') and interpretations are verified.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Docs-only record; no compliance claimed. Not authorized: engine, SQL, UI.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Not implemented. Depends on mapping DanceFlow divisions to the rulebook's championship classifications (audit domain 1) and on the III.D.6 scope question (OD21-NDCA-0001). No Championship minimum exists in DanceFlow.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-21 (owner decision 2026-11-23, Option A: preserve Studio/Custom minimum-participation and withdrawal rules for initial activation; retrospective audit PR #795)",
+    "docs/competition/governance/participation/OD-21-minimum-participation-and-withdrawal.md",
+    "OD-15 A and OD-18 A (2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-07 (PR 838)",
+    "OD-08 (PR 840)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

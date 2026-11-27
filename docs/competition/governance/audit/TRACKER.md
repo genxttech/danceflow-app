@@ -18,3 +18,9 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded: OD-21
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-21 | **Option A: preserve Studio/Custom minimum-participation and withdrawal rules** (two eligible couples for a scored callback Final; COMP_ADVANCEMENT_BELOW_MINIMUM; no finalist replacement; no single-couple scored Final this release) as DanceFlow policy (OD-15 A, OD-18 A). | 2026-11-23 | Docs only: [OD-21 record](../participation/OD-21-minimum-participation-and-withdrawal.md); register OD21-DF-0001/0002, OD21-NDCA-0001..0004, OD21-WSDC-0001/0002, OD21-SILENT-0001. | **NDCA III.D.6/III.D.8: requires_interpretation (not a source conflict). NDCA six-couple Championship rule and III.D.31 Chairman-discretion replacement: NOT IMPLEMENTED. WSDC 3.1.4 five-and-five finals minimum: NOT IMPLEMENTED, mandatory points-award condition (does not itself bar running the contest); WSDC 1.2.6 event minimums NOT IMPLEMENTED. UCWDC: NOT SPECIFIED IN PROVIDED SOURCE.** June vs July NDCA differences for III.D.6/8 UNVERIFIED. OD-01 (PR 832) preserved. |

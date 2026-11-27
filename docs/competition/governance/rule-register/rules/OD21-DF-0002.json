@@ -1,0 +1,26 @@
+{
+  "id": "OD21-DF-0002",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: optional future uncontested-division capability",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "FOR PRODUCT EVALUATION ONLY: an optional future capability to let an organizer run a labelled uncontested division (one couple) without a scored Final. Nothing is designed, approved or implemented.",
+  "implementation": [],
+  "enforcement_point": "None. No implementation authorized.",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "Recorded so the idea is not lost; it is not a rule and carries no compliance claim. Any such capability would need an owner decision, labelling, and OD-01 review, and must not be presented as satisfying NDCA III.D.8.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-21 (owner decision 2026-11-23, Option A: preserve Studio/Custom minimum-participation and withdrawal rules for initial activation; retrospective audit PR #795)",
+    "docs/competition/governance/participation/OD-21-minimum-participation-and-withdrawal.md",
+    "OD-15 A and OD-18 A (2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-07 (PR 838)",
+    "OD-08 (PR 840)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

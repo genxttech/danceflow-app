@@ -1,0 +1,40 @@
+{
+  "id": "OD21-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "Studio / Custom events: callback-plus-Final minimum participation and withdrawal",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "DanceFlow policy (not any governing body's rule): a callback-plus-Final program needs at least two eligible couples to start and to apply advancement; a withdrawal that would leave fewer than two is refused with COMP_ADVANCEMENT_BELOW_MINIMUM; a withdrawn finalist is never replaced; apply never inserts a heat entry for a withdrawn pair. No single-couple scored callback Final in this release (the callback-plus-Final path only). Preserved by OD-21 Option A (owner decisions OD-15 A and OD-18 A, 2026-10-30).",
+  "implementation": [
+    {
+      "path": "src/lib/supabase/migrations/20270120090000_competition_cf1_callback_final_advancement.sql",
+      "symbol_or_migration": "COMP_ADVANCEMENT_BELOW_MINIMUM (start guard and apply)"
+    },
+    {
+      "path": "src/lib/supabase/migrations/20270120095000_competition_cf1_a6_withdrawal.sql",
+      "symbol_or_migration": "withdrawal below-minimum refusal; no heat entry inserted"
+    }
+  ],
+  "enforcement_point": "Callback advancement start guard and apply (A4/A4a/A0) and withdrawal function (A6) in the database; CF1 advancement SQL.",
+  "tests": [
+    {
+      "path": "src/lib/supabase/migrations/sql-tests/test_T_competition_cf1_a6_withdrawal.sql",
+      "name": "OD-15 A: a withdrawal that would leave fewer than two is COMP_ADVANCEMENT_BELOW_MINIMUM and changes nothing"
+    }
+  ],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Approved and covered by SQL tests as written, but: (a) the scope is the callback-plus-Final path; whether other program types can run a scored Final with one couple was not audited here; (b) no policy label or disclosure exists on any surface; (c) SQL tests were not run for this docs-only entry. Never to be described as an NDCA, UCWDC or WSDC rule. OD-01 (PR 832) restrictions stand.",
+  "applicable_event_versions": [
+    "studio_simple@3"
+  ],
+  "decision_refs": [
+    "OD-21 (owner decision 2026-11-23, Option A: preserve Studio/Custom minimum-participation and withdrawal rules for initial activation; retrospective audit PR #795)",
+    "docs/competition/governance/participation/OD-21-minimum-participation-and-withdrawal.md",
+    "OD-15 A and OD-18 A (2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-07 (PR 838)",
+    "OD-08 (PR 840)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

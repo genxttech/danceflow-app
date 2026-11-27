@@ -1,0 +1,27 @@
+{
+  "id": "OD21-SILENT-0001",
+  "governing_body": "silent",
+  "format": "UCWDC contests, minimum entries, couples or contestants",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: no verified UCWDC minimum-participation rule was found. Studio's two-couple floor must not be presented as a UCWDC rule.",
+  "implementation": [],
+  "enforcement_point": "Nothing to enforce. Any UCWDC minimum is DanceFlow or organizer policy, labelled as such.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Searched the pinned UCWDC Couples, ProPro/ProAm, Teams, Line Dance rules and the Scoring Format v16.9b (pdftotext) for: minimum, at least (two..six), fewer than, only one couple/contestant/entry, a single contestant, sole, insufficient, not enough, uncontested, unopposed, by default, walkover, cancel, combine/merge. No rule sets a minimum number of entrants for a contest to run. Hits that are NOT minimums: Couples/ProPro-ProAm/Line Dance section L (Graduation Requirements) counts a win toward graduation differently when fewer than three competitors compete for Overall (an eligibility-credit rule); Scoring Format Rule #9 item 1 mentions 'a single contestant' only for scoring points. The rules were searched by keyword, not read end to end; absence is not proof.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)",
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-21 (owner decision 2026-11-23, Option A: preserve Studio/Custom minimum-participation and withdrawal rules for initial activation; retrospective audit PR #795)",
+    "docs/competition/governance/participation/OD-21-minimum-participation-and-withdrawal.md",
+    "OD-15 A and OD-18 A (2026-10-30)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-07 (PR 838)",
+    "OD-08 (PR 840)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
