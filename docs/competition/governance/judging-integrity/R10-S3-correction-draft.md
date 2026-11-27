@@ -10,7 +10,8 @@ UCWDC Rule #3) stay in PR #834. Design history: PR #858. **This PR does not clos
 | Item | State |
 |---|---|
 | Base | branched from `release/website-embeds` `49dbaee1b`. The base is now `57c331910` (PR #867 landed JC1, U18 and U18-S): this branch is 1 behind and merges cleanly. The 37 Competition migration files of the run 2 / run 3 chain are byte-identical to `57c331910` |
-| Migration files (the three `20270301100000/101000/102000` files and rollbacks) | **byte-identical since `9d3dad169ebd6dd682ef762fcc886b6fce3b087f`**; later commits change only tests and this document |
+| Migration files | the three forward files and the `100000`/`101000` rollbacks are **byte-identical since `9d3dad169ebd6dd682ef762fcc886b6fce3b087f`**. The **`102000` rollback changed** in the P1 recovery update (owner and grants, section 3) |
+| **P1 recovery run** (2026-11-27 11:08-11:15Z) | **EXECUTED**: E1 passes on the composed P1 chain; the `102000` rollback restores owner and grants when applied as `supabase_admin` or `postgres` (section 5) |
 | Composed run (run4, S5 runner, all 8 correction migrations, head `9d3dad16`) | **EXECUTED**: S3 suite PASS 88 checks forward and after re-apply; reverse rollback of all 8 OK; re-apply OK. **13 of 20 forward suites FAILED** (7 passed, S3 included; 10 of the failures passed before apply): see section 5. Hashes in `run4/migrations-new.sha256` match `9d3dad16` |
 | STANDALONE run 1 (S3 as the only correction PR; chain in section 5) | EXECUTED 2026-11-26 13:22-13:26Z, S3 head `9d3dad16`: apply, suite (88), rollback and re-apply OK; schema comparison incomplete and showed a rollback ownership difference (section 5). Superseded by run 2 |
 | **STANDALONE run 2** (head `cde6b1225`) | **EXECUTED 2026-11-26 19:09-19:14Z**: S3 suite PASS 92 checks after apply and after re-apply; schema comparison after rollback IDENTICAL to before apply (object types in section 5); four races, no deadlock. Two committed suites still fail with and without S3 |
@@ -38,14 +39,14 @@ At S4 (R-15) request, the E2 suite later gained a clearance call that does nothi
 | `100000` | `_comp_r10_panel_check` and readiness v2 (`competition_round_panel_status` redefined; same signature, grants and old keys). Default minimum = the method rule (3, odd); configured values only raise it before start; malformed config fails closed; only `ordinal_majority` and `callback_tally` can be ready; an absent judge does not count, so absence blocks when it leaves the panel too small or even; an even panel, or (before and after start) an ineligible present judge, makes it not ready; `meets_configured_minimum` reported separately. `competition_round_panel_ready`, O1 start, the lock, `_compe2_panel_rule`, blockers and engines are unchanged |
 | `101000` | Trigger validating `min_panel_judges` (1-99; ordinal/callback at least 3 and odd), re-validating on a scoring-method change, freezing the key after start. `minimum_panel_size` is listed in the trigger columns but is neither validated nor frozen |
 | `102000` | Case table (managers read, no direct writes, immutable); six-argument attendance function (five-argument dropped) with per-round lock and confirmation; official-status trigger. A case closes automatically when an attendance or official-status change makes the panel valid |
-| Rollbacks | Restore the E1 status and E2 attendance bodies byte for byte; drop triggers and helper; **102000 refuses once any case exists, and 100000's rollback requires 102000 rolled back first**, so after the first case readiness v2 is forward-fix only. **Run rollbacks as role `postgres`**: `102000` recreates the five-argument function, which takes the executing role as owner. App first, then SQL |
+| Rollbacks | Restore the E1 status and E2 attendance bodies byte for byte; drop triggers and helper; **102000 refuses once any case exists, and 100000's rollback requires 102000 rolled back first**, so after the first case readiness v2 is forward-fix only. The `102000` rollback **restores owner `postgres` and EXECUTE for the owner, `authenticated` and `service_role` only, whichever role applies it**, and otherwise fails changing nothing; apply it with `ON_ERROR_STOP=1` (psql exits 0 on a refusal without it). It restores that fixed state, not a captured one. App first, then SQL |
 
 Authority (unchanged): assign/unassign = event manager, draft/scheduled only; attendance = manager or the event chair (OJ-1 team condition); readiness and cases = managers; `min_panel_judges` = manager, draft/scheduled only.
 
 ## 4. Dependencies and merge safety
 
 - **Merge alone:** yes, mechanically, as Git-only dark code. Nothing in CI applies or executes these files.
-- **Apply order (later, separate approval):** requires CF1 and **JC1 in the database** (hosted DBs have both; JC1 is on the base since PR #867). Without JC1 the official-status trigger never opens a case. The apply is not preflighted for JC1.
+- **Apply order (later, separate approval):** requires CF1 and **JC1 in the database** (hosted DBs have both; JC1 is on the base since PR #867). Apply the forward files as role `postgres` (as another superuser the new six-argument function would be owned by it, and a rollback run as `postgres` would be refused), and read the current owner and grants of the five-argument function first: the rollback assumes the state above. Without JC1 the official-status trigger never opens a case. The apply is not preflighted for JC1.
 - **App change is a PREREQUISITE of hosted apply** (correction of an earlier "SQL-before-app is safe" claim): the current app sends five arguments, so after apply any change that turns a valid panel invalid is refused with a generic error. **Drafted separately in #925** (base `release/website-embeds`). Order per environment: merge and deploy #925 (safe on today's database), then apply this SQL; reload the PostgREST schema cache after apply (`notify pgrst, 'reload schema';`, which `102000` does not send); do not roll the app back while the SQL is applied.
   Example: 5 judges, 2 absent after start: the first absence (4, even) cannot be recorded without the flag, so the valid 3-judge panel is never reached and the lock stays blocked. The app change with the confirmation must be deployed first.
   Not in #925: `officials/contract.ts` copy (with absences `judge_count` includes absent judges, so "Panel ready (5 judges)" can show with 3 present), copy for the new `missing` codes and `COMP_PANEL_MIN_*`, and a distinct message for the reused `COMP_ROUND_CONFIG_FROZEN`.
@@ -96,7 +97,20 @@ Authority (unchanged): assign/unassign = event manager, draft/scheduled only; at
 | E1 suite **as committed**, with the fix ported from `176058570` (round 1 is activated through the O1 functions; the raised-minimum check is unconditional again, before activation; the S3 freeze check is kept) | EXECUTED: PASS without S3 (109), with S3 (110), after rollback (109) |
 | R2 refunds suite with the one-statement fixture fix (#926, not part of this PR) | EXECUTED: PASS (158) without S3, with S3, after rollback |
 | Apply (3) and rollback (3) as `postgres` | EXECUTED, all OK; schema comparison not repeated (run 2) |
-| E1 and R2 on a chain with the other correction PRs | PENDING. E1 will likely need an adult date of birth for its seeded competitor and the R-15 clearance helper there |
+| E1 on a chain with the other correction PRs | EXECUTED in the P1 recovery run (below). R2 on such a chain is not covered here |
+
+**P1 recovery run** (same image and isolation; ticket `20261127T102146Z-comp-r10s3-p1fix`; two fresh databases). The earlier combined P1 run (`p1run4`, S3 head `4d6d692cb`) showed E1 stopped by the under-18 guard (`COMP_S5_AGE_BLOCKED`, unknown age) and the rolled-back attendance function owned by `supabase_admin`. E1 now seeds an adult date of birth and obtains clearance through S4's shared fixture `r15_clear_entries.sql` (inert when not loaded or without R-15). The composed chain used the `p1run4` files, with only the `102000` rollback replaced.
+
+| Item | Status |
+|---|---|
+| Steps (apply, rollback, re-apply) | EXECUTED, 54 OK, 0 failed |
+| E1, standalone chain | PASS without S3 (109), with S3 (110), after rollback (109) |
+| E1, composed chain | PASS with the 12 correction migrations (110), with the P1 restrictions added (110), after full rollback and re-apply (110) |
+| S3 suite, standalone | PASS (92) |
+| S3 rollback applied as `supabase_admin` and, separately, as `postgres` | Schema fingerprint (functions with owner and grants, triggers, relations, constraints, policies) **identical** to before apply, both times |
+| Composed rollback applied as `supabase_admin` | The attendance function matches the pre-apply state. **Two other differences remain, from no S3 file**: the definition of `change_competition_entry_lifecycle` and the grants on `event_competition_entries` (their owners' PRs) |
+| Rollback by a role without rights | Refused, nothing changed (it stops at the first table read, before the new code) |
+| QA-only copies of the rollback with one grant, or the owner statement, removed | Both refused by the end-state check, nothing changed; also unchanged without `ON_ERROR_STOP` |
 
 ## 6. Independent review of head `9d3dad16` (subagent, read-only, waited for)
 
@@ -148,6 +162,17 @@ Verdict: **each acceptable as a draft; no blocker.** It did not run anything, ch
 | Minor: the moved E1 minimum check has no "ready before raising" control, and tests a draft round | OPEN (same as the ported commit; on this chain activation then requires readiness) |
 
 The fixes made after this review (listed above) have not been re-reviewed.
+
+### Fourth independent review: P1 recovery changes (subagent, read-only, 2026-11-27, before the run)
+
+Verdict: **no blocker, no major.** It predicted by reading that E1 would pass on the composed chain, and set the acceptance points for the run (all met above).
+
+| Finding (minor) | Disposition |
+|---|---|
+| The rollback restores a fixed state, so a database that differed before apply would gain `service_role` EXECUTE or lose extra grants (the restored body still refuses callers without a signed-in user) | Pre-apply read added to the apply order |
+| Without `ON_ERROR_STOP`, a refused rollback exits 0 | Stated in section 3 |
+| A default grant option for `postgres` would cause a false refusal | OPEN; fails closed |
+| Forward `102000` takes owner from the applying role | Added to the apply order |
 
 ## 7. Recovery design gaps (why the blocker stays open)
 

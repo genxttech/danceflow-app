@@ -1,6 +1,8 @@
 -- Rollback of 20270301102000_competition_r10_s3_attendance_panel_break.sql.
--- Restores the E2 record_competition_judge_attendance text byte for byte (copied from 20270102090000_competition_e2_ballots.sql) and its grants,
--- then drops the case table ONLY if it is empty: recovery cases are evidence and are never destroyed (forward-fix instead).
+-- Restores the E2 record_competition_judge_attendance text byte for byte (copied from 20270102090000_competition_e2_ballots.sql), its owner (postgres)
+-- and its grants (EXECUTE for the owner, authenticated and service_role only), whichever role applies this file; if that end state cannot be reached the
+-- whole rollback fails and changes nothing. It then drops the case table ONLY if it is empty: recovery cases are evidence and are never destroyed
+-- (forward-fix instead).
 begin;
 do $$
 begin
@@ -75,8 +77,38 @@ begin
 end;
 $$;
 
+-- A recreated function belongs to the applying role and receives that role's default privileges. Restore the original owner and grants explicitly.
+alter function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid) owner to postgres;
+do $$
+declare
+  v_fn constant regprocedure := 'public.record_competition_judge_attendance(uuid,uuid,text,text,uuid)'::regprocedure;
+  v_grantee oid;
+begin
+  for v_grantee in
+    select distinct a.grantee from pg_proc p, aclexplode(p.proacl) a where p.oid = v_fn and a.grantee <> p.proowner
+  loop
+    execute format('revoke all on function %s from %s', v_fn,
+                   case when v_grantee = 0 then 'public' else quote_ident(pg_get_userbyid(v_grantee)) end);
+  end loop;
+end $$;
 revoke all on function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid) from public, anon;
-grant execute on function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid) to authenticated;
+grant execute on function public.record_competition_judge_attendance(uuid, uuid, text, text, uuid) to authenticated, service_role;
+do $$
+declare
+  v_fn constant regprocedure := 'public.record_competition_judge_attendance(uuid,uuid,text,text,uuid)'::regprocedure;
+  v_owner text;
+  v_acl text[];
+begin
+  select pg_get_userbyid(p.proowner) into v_owner from pg_proc p where p.oid = v_fn;
+  select array_agg(x.item order by x.item) into v_acl from (
+    select (case when a.grantee = 0 then 'public' else pg_get_userbyid(a.grantee) end)::text || ':' || a.privilege_type || ':'
+           || pg_get_userbyid(a.grantor)::text || ':' || a.is_grantable::text as item
+    from pg_proc p, aclexplode(p.proacl) a where p.oid = v_fn) x;
+  if v_owner is distinct from 'postgres' or v_acl is distinct from array[
+       'authenticated:EXECUTE:postgres:false', 'postgres:EXECUTE:postgres:false', 'service_role:EXECUTE:postgres:false'] then
+    raise exception 'R10-S3 rollback: record_competition_judge_attendance would be left with owner % and grants %; nothing was changed.', v_owner, v_acl;
+  end if;
+end $$;
 
 drop table if exists public.event_competition_panel_recovery_cases;
 drop function if exists public._comp_r10_guard_recovery_case();
