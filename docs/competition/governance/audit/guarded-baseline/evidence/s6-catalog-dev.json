@@ -1,0 +1,275 @@
+{
+ "tables": {
+  "event_competition_entries": {
+   "owner": "postgres",
+   "policies": [
+    {
+     "check": "can_manage_event_competition(event_id)",
+     "cmd": "*",
+     "n": "competition_manage",
+     "qual": "can_manage_event_competition(event_id)",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "privs": {
+    "anon": [
+     "delete",
+     "insert",
+     "references",
+     "select",
+     "trigger",
+     "truncate",
+     "update"
+    ],
+    "authenticated": [
+     "delete",
+     "insert",
+     "references",
+     "select",
+     "trigger",
+     "truncate",
+     "update"
+    ],
+    "service_role": [
+     "delete",
+     "insert",
+     "references",
+     "select",
+     "trigger",
+     "truncate",
+     "update"
+    ]
+   },
+   "relacl": [
+    "anon=arwdDxtm/postgres",
+    "authenticated=arwdDxtm/postgres",
+    "postgres=arwdDxtm/postgres",
+    "service_role=arwdDxtm/postgres"
+   ],
+   "rls": {
+    "enabled": true,
+    "forced": false
+   },
+   "status_check": [
+    "CHECK ((eligibility_status = ANY (ARRAY['unverified'::text, 'eligible'::text, 'needs_review'::text, 'ineligible'::text, 'waived'::text])))",
+    "CHECK ((status = ANY (ARRAY['pending'::text, 'confirmed'::text, 'waitlisted'::text, 'scratched'::text, 'withdrawn'::text, 'disqualified'::text, 'complete'::text])))",
+    "CHECK ((verification_status = ANY (ARRAY['unverified'::text, 'verified'::text, 'disputed'::text, 'corrected'::text])))"
+   ],
+   "triggers": [
+    {
+     "def": "CREATE TRIGGER audit_competition_entry_change AFTER DELETE OR UPDATE ON public.event_competition_entries FOR EACH ROW EXECUTE FUNCTION audit_competition_entry_change()",
+     "enabled": "O",
+     "fn": "audit_competition_entry_change",
+     "fn_acl": "{postgres=X/postgres,service_role=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "31caa2246c0e9ae52e09efe44eb00b68",
+     "fn_owner": "postgres",
+     "name": "audit_competition_entry_change",
+     "secdef": true
+    },
+    {
+     "def": "CREATE TRIGGER set_event_competition_updated_at BEFORE UPDATE ON public.event_competition_entries FOR EACH ROW EXECUTE FUNCTION set_event_competition_updated_at()",
+     "enabled": "O",
+     "fn": "set_event_competition_updated_at",
+     "fn_acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "204b9b9355e61b7541bc0633bbc9294c",
+     "fn_owner": "postgres",
+     "name": "set_event_competition_updated_at",
+     "secdef": false
+    },
+    {
+     "def": "CREATE TRIGGER validate_competition_entry_registration_links BEFORE INSERT OR UPDATE OF event_id, registration_id, order_id, order_item_id ON public.event_competition_entries FOR EACH ROW EXECUTE FUNCTION validate_competition_entry_registration_links()",
+     "enabled": "O",
+     "fn": "validate_competition_entry_registration_links",
+     "fn_acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "9a4f86018e01e837d26a688665f15a69",
+     "fn_owner": "postgres",
+     "name": "validate_competition_entry_registration_links",
+     "secdef": false
+    }
+   ]
+  },
+  "event_competition_heat_entries": {
+   "owner": "postgres",
+   "policies": [
+    {
+     "check": "can_manage_event_competition(event_id)",
+     "cmd": "*",
+     "n": "competition_manage",
+     "qual": "can_manage_event_competition(event_id)",
+     "roles": [
+      "authenticated"
+     ]
+    }
+   ],
+   "privs": {
+    "anon": [
+     "delete",
+     "insert",
+     "references",
+     "select",
+     "truncate",
+     "update"
+    ],
+    "authenticated": [
+     "delete",
+     "insert",
+     "references",
+     "select",
+     "truncate",
+     "update"
+    ],
+    "service_role": [
+     "delete",
+     "insert",
+     "references",
+     "select",
+     "truncate",
+     "update"
+    ]
+   },
+   "relacl": [
+    "anon=arwdDxm/postgres",
+    "authenticated=arwdDxm/postgres",
+    "postgres=arwdDxtm/postgres",
+    "service_role=arwdDxm/postgres"
+   ],
+   "rls": {
+    "enabled": true,
+    "forced": false
+   },
+   "status_check": [
+    "CHECK ((status = ANY (ARRAY['scheduled'::text, 'checked_in'::text, 'scratched'::text, 'danced'::text, 'disqualified'::text])))"
+   ],
+   "triggers": [
+    {
+     "def": "CREATE TRIGGER cf1_guard_final_heat_entry BEFORE INSERT OR DELETE OR UPDATE OF heat_id, entry_id ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION cf1_guard_final_heat_entry()",
+     "enabled": "A",
+     "fn": "cf1_guard_final_heat_entry",
+     "fn_acl": "{postgres=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "047fa0009d4c99eae0b9e9c89bd6a4ed",
+     "fn_owner": "postgres",
+     "name": "cf1_guard_final_heat_entry",
+     "secdef": true
+    },
+    {
+     "def": "CREATE TRIGGER cf1_guard_withdrawn_heat_entry BEFORE INSERT OR DELETE OR UPDATE OF status, entry_id, heat_id ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION cf1_guard_withdrawn_heat_entry()",
+     "enabled": "A",
+     "fn": "cf1_guard_withdrawn_heat_entry",
+     "fn_acl": "{postgres=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "e30181802ff07db08ae766f8b65137a1",
+     "fn_owner": "postgres",
+     "name": "cf1_guard_withdrawn_heat_entry",
+     "secdef": true
+    },
+    {
+     "def": "CREATE TRIGGER cf1_od17_guard_heat_entry BEFORE INSERT OR UPDATE OF entry_id, heat_id, status ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION cf1_od17_guard_heat_entry()",
+     "enabled": "A",
+     "fn": "cf1_od17_guard_heat_entry",
+     "fn_acl": "{postgres=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "8450cdc26accc79a729267681b0fdf7e",
+     "fn_owner": "postgres",
+     "name": "cf1_od17_guard_heat_entry",
+     "secdef": true
+    },
+    {
+     "def": "CREATE TRIGGER cf1_u18_guard_heat_entry_status AFTER INSERT OR UPDATE ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION cf1_u18_guard_heat_entry_status()",
+     "enabled": "A",
+     "fn": "cf1_u18_guard_heat_entry_status",
+     "fn_acl": "{postgres=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "e47914edb361e22c3b091263b4e317f7",
+     "fn_owner": "postgres",
+     "name": "cf1_u18_guard_heat_entry_status",
+     "secdef": false
+    },
+    {
+     "def": "CREATE TRIGGER cf1_u18s_guard_heat_entry_scratch AFTER INSERT OR UPDATE ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION cf1_u18s_guard_heat_entry_scratch()",
+     "enabled": "A",
+     "fn": "cf1_u18s_guard_heat_entry_scratch",
+     "fn_acl": "{postgres=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "322afa75104f8acbdccc762ebad86276",
+     "fn_owner": "postgres",
+     "name": "cf1_u18s_guard_heat_entry_scratch",
+     "secdef": false
+    },
+    {
+     "def": "CREATE TRIGGER comp10d_guard_heat_entry BEFORE INSERT OR DELETE OR UPDATE ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION _comp10d_guard_heat_child()",
+     "enabled": "O",
+     "fn": "_comp10d_guard_heat_child",
+     "fn_acl": "{postgres=X/postgres,service_role=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "0f53177c5ffaa27362bc93ed8f514d2a",
+     "fn_owner": "postgres",
+     "name": "comp10d_guard_heat_entry",
+     "secdef": true
+    },
+    {
+     "def": "CREATE CONSTRAINT TRIGGER comp10d_heat_entry_floor_integrity AFTER INSERT OR UPDATE ON public.event_competition_heat_entries DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION _comp10d_check_floor_heat_integrity()",
+     "enabled": "O",
+     "fn": "_comp10d_check_floor_heat_integrity",
+     "fn_acl": "{postgres=X/postgres,service_role=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "b945559467ab2214cf9248ef2128b9fb",
+     "fn_owner": "postgres",
+     "name": "comp10d_heat_entry_floor_integrity",
+     "secdef": true
+    },
+    {
+     "def": "CREATE TRIGGER protect_locked_competition_heat_entry BEFORE INSERT OR DELETE OR UPDATE ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION protect_locked_competition_heat_children()",
+     "enabled": "O",
+     "fn": "protect_locked_competition_heat_children",
+     "fn_acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "7997313d6effc4af94caf5fe4fd055c9",
+     "fn_owner": "postgres",
+     "name": "protect_locked_competition_heat_entry",
+     "secdef": false
+    },
+    {
+     "def": "CREATE TRIGGER set_event_competition_updated_at BEFORE UPDATE ON public.event_competition_heat_entries FOR EACH ROW EXECUTE FUNCTION set_event_competition_updated_at()",
+     "enabled": "O",
+     "fn": "set_event_competition_updated_at",
+     "fn_acl": "{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+     "fn_config": [
+      "search_path=public, pg_temp"
+     ],
+     "fn_md5": "204b9b9355e61b7541bc0633bbc9294c",
+     "fn_owner": "postgres",
+     "name": "set_event_competition_updated_at",
+     "secdef": false
+    }
+   ]
+  }
+ }
+}
