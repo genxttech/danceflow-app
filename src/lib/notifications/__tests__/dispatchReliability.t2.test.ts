@@ -28,6 +28,7 @@ vi.mock("@/lib/aria/outcome-verification", () => ({
 vi.mock("resend", () => ({ Resend: class { emails = { send: sendMock }; } }));
 
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 const CLIENT_ID = "33333333-3333-4333-8333-333333333333";
@@ -1214,3 +1215,5 @@ describe("T2 re-review MINOR: a skip after a possibly-accepted attempt does not 
     expect(String(action().review_note)).toMatch(/not eligible for marketing email/);
   });
 });
+
+declareLiveSendEnvironment();
