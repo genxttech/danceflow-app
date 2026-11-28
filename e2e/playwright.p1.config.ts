@@ -30,7 +30,8 @@ export default defineConfig({
     ["json", { outputFile: `${runDir}/results.json` }],
     ["html", { outputFolder: `${runDir}/html`, open: "never" }],
   ],
-  use: { baseURL: baseUrl, trace: "on", screenshot: "on", video: "off" },
+  // E2E_BROWSER_CHANNEL (for example "chrome") drives a browser already installed on this machine instead of Playwright's own download.
+  use: { baseURL: baseUrl, trace: "on", screenshot: "on", video: "off", ...(process.env.E2E_BROWSER_CHANNEL ? { channel: process.env.E2E_BROWSER_CHANNEL } : {}) },
   projects: [
     { name: "walkthrough", testMatch: /competition-p1-pilot-walkthrough\.spec\.ts/, use: { ...devices["Desktop Chrome"] } },
     { name: "flag-off", testMatch: /competition-p1-flag-off-smoke\.spec\.ts/, use: { ...devices["Desktop Chrome"] } },
