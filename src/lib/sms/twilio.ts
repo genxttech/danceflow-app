@@ -68,6 +68,15 @@ export function estimateSmsSegments(message: string) {
   return Math.ceil(text.length / multipartLimit);
 }
 
+/**
+ * This sender has no simulated mode, so it calls Twilio only from a production build of the production deployment. A preview, local or test
+ * process that holds the account credentials sends nothing. (The billed sender applies the same rule, see usageProvider.ts.) Fails closed:
+ * an unset or unknown VERCEL_ENV is not production.
+ */
+export function legacySendEnvironmentAllowed(env: Record<string, string | undefined> = process.env) {
+  return String(env.VERCEL_ENV ?? "").toLowerCase() === "production" && env.NODE_ENV === "production";
+}
+
 export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSendSmsResult> {
   const config = getTwilioConfig();
   const missingConfigKeys = getTwilioMissingConfigKeys();
@@ -116,6 +125,10 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
   }
   if (suppression === "unknown") {
     return { ok: false, error: "SMS consent could not be verified.", errorCode: "sms_consent_check_failed" };
+  }
+
+  if (!legacySendEnvironmentAllowed()) {
+    return { ok: false, error: "Text messages are sent only from the live site.", errorCode: "sms_environment_blocked" };
   }
 
   const params = new URLSearchParams();
