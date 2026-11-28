@@ -15,7 +15,7 @@ import { IsvApiError, type IsvAdapter } from "../types";
 import { MemoryRunnerStore } from "./memoryStore";
 
 /**
- * TW-4F provider integration (Twilio ticket #29647095 answers). Synthetic fixtures and injected fetch only: nothing here can reach Twilio.
+ * TW-4F provider integration (Twilio ticket [PROVIDER-TICKET-A] answers). Synthetic fixtures and injected fetch only: nothing here can reach Twilio.
  */
 
 const STUDIO = "a5800000-0000-4000-8000-00000000000a";

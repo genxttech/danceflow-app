@@ -64,7 +64,7 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('d1f27487-656a-4085-8552-94ddd47f8e4d'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, 100, v_admin);
 end $b$;
 $q$; v_res := v_res || jsonb_build_object('entity_no_onboarding', 'NOT_REFUSED'); exception when others then v_res := v_res || jsonb_build_object('entity_no_onboarding', sqlerrm); end;
   set local session_replication_role = replica;
@@ -87,7 +87,7 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('d1f27487-656a-4085-8552-94ddd47f8e4d'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, 100, v_admin);
 end $b$;
 $q$; v_res := v_res || jsonb_build_object('entity_draft', 'NOT_REFUSED'); exception when others then v_res := v_res || jsonb_build_object('entity_draft', sqlerrm); end;
   set local session_replication_role = replica;
@@ -110,7 +110,7 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('d1f27487-656a-4085-8552-94ddd47f8e4d'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, 100, v_admin);
 end $b$;
 $q$; v_res := v_res || jsonb_build_object('entity_attested_by_non_owner', 'NOT_REFUSED'); exception when others then v_res := v_res || jsonb_build_object('entity_attested_by_non_owner', sqlerrm); end;
   set local session_replication_role = replica; update public.studio_sms_onboarding set attested_by = v_owner where studio_id='d1f27487-656a-4085-8552-94ddd47f8e4d'; set local session_replication_role = origin;
@@ -131,7 +131,7 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('d1f27487-656a-4085-8552-94ddd47f8e4d'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, 100, v_admin);
 end $b$;
 $q$; v_res := v_res || jsonb_build_object('entity_wrong_legal', 'NOT_REFUSED'); exception when others then v_res := v_res || jsonb_build_object('entity_wrong_legal', sqlerrm); end;
   begin execute $q$do $b$
@@ -151,7 +151,7 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('d1f27487-656a-4085-8552-94ddd47f8e4d'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, 100, v_admin);
 end $b$;
 $q$; v_res := v_res || jsonb_build_object('entity_ok', (select e.spend_cap_cents from public.studio_sms_legal_entities e join public.studio_sms_entity_studios s on s.legal_entity_id=e.id where s.studio_id='d1f27487-656a-4085-8552-94ddd47f8e4d')::text); exception when others then v_res := v_res || jsonb_build_object('entity_ok', sqlerrm); end;
   begin execute $q$do $b$
@@ -171,7 +171,7 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('d1f27487-656a-4085-8552-94ddd47f8e4d'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, 100, v_admin);
 end $b$;
 $q$; v_res := v_res || jsonb_build_object('entity_replay', 'NOT_REFUSED'); exception when others then v_res := v_res || jsonb_build_object('entity_replay', sqlerrm); end;
   set local session_replication_role = replica; update public.studio_sms_onboarding set legal_name='GenX TotalTech LLC' where studio_id='d1f27487-656a-4085-8552-94ddd47f8e4d'; set local session_replication_role = origin;
@@ -192,7 +192,7 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('d1f27487-656a-4085-8552-94ddd47f8e4d'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, 100, v_admin);
 end $b$;
 $q$; v_res := v_res || jsonb_build_object('genx_subject', 'NOT_REFUSED'); exception when others then v_res := v_res || jsonb_build_object('genx_subject', sqlerrm); end;
   v_res := v_res || jsonb_build_object('twilio_account_rows', (select count(*) from public.studio_sms_twilio_accounts), 'audit', (select jsonb_agg(action order by created_at) from public.studio_sms_onboarding_audit where studio_id='d1f27487-656a-4085-8552-94ddd47f8e4d'));

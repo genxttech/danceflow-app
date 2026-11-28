@@ -10,7 +10,7 @@ In: legal-entity and subaccount tables, account-scoped adapter and fake, step P2
 - `studio_sms_entity_studios(studio_id pk, legal_entity_id)`: explicit multi-location link. A studio belongs to exactly one entity; many studios may share one. Linking a second studio is a platform action that requires matching legal name and EIN last four (checked server-side against the first studio's onboarding).
 - `studio_sms_twilio_accounts(legal_entity_id pk, twilio_account_sid unique check ~ '^AC[0-9a-f]{32}$', environment, status in ('active','suspended','closed'), friendly_name, created_by, created_at)`. **No token column.** One row per legal entity (database-enforced).
 - `twilio_account_sid` (nullable until P2) added to `studio_sms_onboarding`, `studio_sms_provisioning_steps`, `studio_sms_onboarding_audit`, `studio_sms_registrations`. Trigger/check: when a step or registration records a SID, `twilio_account_sid` must equal the entity's `studio_sms_twilio_accounts` row for that studio's entity; steps after P2 are refused without it.
-- `studio_sms_spend_events(id, legal_entity_id, kind in ('brand','campaign_vetting','number','monthly'), amount_cents, status in ('authorized','incurred','void'), approval_ref text not null, authorized_by, created_at)` and a function `tw4_runner_spend_check(entity, kind, amount)` that refuses when `sum(authorized/incurred) + amount > spend_cap_cents` or no approval row exists. ConfiDance cap: 15000, set by a platform-admin action, never by default.
+- `studio_sms_spend_events(id, legal_entity_id, kind in ('brand','campaign_vetting','number','monthly'), amount_cents, status in ('authorized','incurred','void'), approval_ref text not null, authorized_by, created_at)` and a function `tw4_runner_spend_check(entity, kind, amount)` that refuses when `sum(authorized/incurred) + amount > spend_cap_cents` or no approval row exists. The pilot studio cap: [PILOT-CAP-CENTS], set by a platform-admin action, never by default.
 - Audit action `runner_subaccount_created` and `runner_spend_authorized`; ledger step key `P2`.
 - Rollback file with the same guard pattern as 4F-1b (refuses once subaccount or spend rows exist).
 
@@ -48,7 +48,7 @@ Built in this slice (all local, fake adapters only): migration `20261121090000_t
 
 Not built (next slices): the platform panel for entities, links, spend cap and "Create subaccount" (the library, SQL and tests exist; no UI calls them yet, so a studio cannot be provisioned from the panel until that lands); owner-facing attestation UI/wording; webhook mapping by AccountSid (blocked on Q1c); registration-row account SID; the Stage B/C harness is parent-account by design and is no longer usable against the production runner (it would stop with `needs_subaccount`); Messaging Service, campaign and number (4F-3b, 4F-4).
 
-Update 2026-10-19: **Q1b** and **Q1c** are answered by Twilio (ticket #29647095) and implemented locally; see `TW-4F_Provider_Integration.md`. Real Twilio activity still needs its own authorization per operation.
+Update 2026-10-19: **Q1b** and **Q1c** are answered by Twilio (ticket [PROVIDER-TICKET-A]) and implemented locally; see `TW-4F_Provider_Integration.md`. Real Twilio activity still needs its own authorization per operation.
 
 ## 7. Findings from implementation
 

@@ -28,7 +28,7 @@ Operations for `20261209090000_twilio_recurring_fee_lifecycle.sql` (design: `TW-
 
 1. Identify the reason in the overview: `authorization_expired` / `_revoked` / `no_authorization` (owner), `charge_unfunded` (credit), `charge_held` (hold or spending cap), `charge_refused` (limit or price changed), `awaiting_charge` (scheduler did not run), `no_pilot_approval` (pilot).
 2. DanceFlow sending is already suspended once the period is 7 days old. To suspend sooner, or to also hold credit: `tw4_rfl_suspend_df(studio, actor, reason, hold)`. This changes nothing at Twilio and its result says how many provider fees continue. A credit HOLD is per legal business: `hold_affects_other_locations` in the result says how many other locations' recurring charges it stops (they become uncovered after their own grace), so prefer suspension without a hold unless funds are the cause.
-3. Tell the owner (the alert says what ends and how to renew). **Renewal is always the owner's own act** through their texting settings (`tw4_recurring_authorize`) at the then-current published price; the platform never renews, extends or charges on their behalf. For the pilot business, record a written approval for the period: `tw4_rfl_pilot_cover(resource, period, approval_ref, actor)` (current or next period only, inside the cumulative $150 ceiling, each approval reference single use).
+3. Tell the owner (the alert says what ends and how to renew). **Renewal is always the owner's own act** through their texting settings (`tw4_recurring_authorize`) at the then-current published price; the platform never renews, extends or charges on their behalf. For the pilot business, record a written approval for the period: `tw4_rfl_pilot_cover(resource, period, approval_ref, actor)` (current or next period only, inside the cumulative [PILOT-CAP] ceiling, each approval reference single use).
 4. After renewal the NEW period is covered and sending resumes. A fully uncovered EARLIER month remains an exposure and keeps sending suspended until you record the disposition in section 4.
 
 ## 4. Recording what Twilio actually billed, and disposing of exposure
@@ -53,9 +53,9 @@ Only with the owner's or the founder's written decision, except a lapse (below).
 
 Numbers are never released as a side effect of anything else: not by suspension, not by expiry, not by a scan.
 
-## 6. ConfiDance month two and later
+## 6. The pilot studio month two and later
 
-Each paid month of the pilot's campaign and number needs its own written approval (`tw4_rfl_pilot_cover`), inside the cumulative $150 ceiling that already includes every pilot reservation. The scan alerts both owner and administrators for the NEXT period (`pilot_approval_needed`). Without an approval the period is exposure from day 8 and sending is suspended; the lapse procedure in section 5 applies only after 14 days of exposure and never to the number.
+Each paid month of the pilot's campaign and number needs its own written approval (`tw4_rfl_pilot_cover`), inside the cumulative [PILOT-CAP] ceiling that already includes every pilot reservation. The scan alerts both owner and administrators for the NEXT period (`pilot_approval_needed`). Without an approval the period is exposure from day 8 and sending is suspended; the lapse procedure in section 5 applies only after 14 days of exposure and never to the number.
 
 ## 7. Rollback
 

@@ -21,7 +21,7 @@ SECURITY DEFINER RPCs with pinned `search_path`; no API privileges on the tables
 ## Release order (when separately authorized)
 1. SQL to DEV (needs explicit authorization), DEV-safe suite, then PROD SQL later.
 2. App deploy. Set `SMS_EIN_ENCRYPTION_KEY` and `SMS_EIN_ENCRYPTION_KEY_ID` first; without them the wizard refuses to store an EIN.
-3. Flip pilot flag for ConfiDance only via the platform panel.
+3. Flip pilot flag for the pilot studio only via the platform panel.
 Rollback: app first, then SQL rollback (valid only while no onboarding data exists).
 
 ## Not done / deferred
@@ -53,4 +53,4 @@ Scope: finish the application integration and prepare registration readiness. No
 - Run it: `TW4A_LOCAL_URL=http://127.0.0.1:55321 TW4A_LOCAL_DB_CONTAINER=supabase_db_danceflow-e2e-qa TW4A_LOCAL_JWT_SECRET=<stack secret> npx vitest run src/lib/sms/onboarding/__tests__/localStack.tw4a.test.ts` (loopback only; skipped otherwise; fixtures are synthetic and removed afterwards).
 - Not validated against real DEV data: no pilot grant and no onboarding record was created on DEV (not authorized). DEV schema vs application: the 4A function contract matches; the new `paused`/`can_cancel` keys exist only after 4A.1.
 
-**Known gaps / not done:** no two-session concurrency test (advisory lock + FOR UPDATE only); no right-side detail panel (progressive disclosure via the collapsed summary instead); the EIN purge cron is registered in vercel.json by the release PR (it was POST-only before, which Vercel Cron cannot call); exception/needs_info/submitted EINs have no TTL until the 4C brand-approved purge; submission itself (TW-4B/4C) is not built. See TW-4A_Registration_Readiness.md for the Twilio message, the ConfiDance package and the checklist.
+**Known gaps / not done:** no two-session concurrency test (advisory lock + FOR UPDATE only); no right-side detail panel (progressive disclosure via the collapsed summary instead); the EIN purge cron is registered in vercel.json by the release PR (it was POST-only before, which Vercel Cron cannot call); exception/needs_info/submitted EINs have no TTL until the 4C brand-approved purge; submission itself (TW-4B/4C) is not built. See TW-4A_Registration_Readiness.md for the Twilio message, the pilot-studio package and the checklist.

@@ -32,7 +32,7 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 
 ## 3. Genuine pilot-blocking cost exposure not already mitigated
 
-1. **Uncapped absorbed inbound for the ConfiDance pilot business** (ceiling 0, no inbound debt). It is not a pricing defect and not a blocker for the code review; it is a **budget gap**: the $150 pilot ceiling "never funds texting", and the messaging test budget is a separate owner approval. Exposure is small in realistic use (about $0.01 per received segment; a 5,000-segment flood is about $50-$60) but has no automatic ceiling. Smallest mitigation that needs no new code is procedural and is now recorded in B-2 and section 6: a $20 absorbed-inbound allowance carved out of the $150 cap (planning only, not enforced in code) and a named person who checks the inbound flag and Twilio usage daily during the pilot. (Supersedes the earlier wording that pointed at E-1, which is the optional automatic-hold enhancement.) Closing it in code (automatic hold or alert) is optional and belongs to the hardening owner, not this PR.
+1. **Uncapped absorbed inbound for the pilot business** (ceiling 0, no inbound debt). It is not a pricing defect and not a blocker for the code review; it is a **budget gap**: the [PILOT-CAP] pilot ceiling "never funds texting", and the messaging test budget is a separate owner approval. Exposure is small in realistic use (about $0.01 per received segment; a 5,000-segment flood is about $50-$60) but has no automatic ceiling. Smallest mitigation that needs no new code is procedural and is now recorded in B-2 and section 6: a [PILOT-INBOUND-ALLOWANCE] absorbed-inbound allowance carved out of the [PILOT-CAP] cap (planning only, not enforced in code) and a named person who checks the inbound flag and Twilio usage daily during the pilot. (Supersedes the earlier wording that pointed at E-1, which is the optional automatic-hold enhancement.) Closing it in code (automatic hold or alert) is optional and belongs to the hardening owner, not this PR.
 2. No other uncovered pilot-blocking exposure found. Pilot spend (fees) is already covered by Blocker 9 hardening (PR 330).
 
 ## 4. Pilot-readiness checklist
@@ -42,7 +42,7 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 | # | Item | Owner | State |
 |---|---|---|---|
 | B-1 | Stage B draft handled (U-10, tracker blocker 4): verify, preserve evidence, written deletion authorization, owner Console deletion | owner; tracker/coordinator tracks it | runbook written (`TW-4F_StageB_Draft_Cleanup_Runbook.md`); **nothing deleted; nothing authorized**; coordinator confirmed the ownership split (section 5) |
-| B-2 | Absorbed-inbound allowance and pilot preconditions (section 6) | owner | **allocation DECIDED** ($20 absorbed inbound + $130 setup fees, within the $150 cumulative cap; owner, 2026-10-30). Allocations are planning only and authorize no spending. Preconditions below remain open; any other messaging test budget still needs its own approval |
+| B-2 | Absorbed-inbound allowance and pilot preconditions (section 6) | owner | **allocation DECIDED** ([PILOT-INBOUND-ALLOWANCE] absorbed inbound + [PILOT-SETUP-ALLOWANCE] setup fees, within the [PILOT-CAP] cumulative cap; owner, 2026-10-30). Allocations are planning only and authorize no spending. Preconditions below remain open; any other messaging test budget still needs its own approval |
 | B-3 | Final retail price approval after D7 pilot cycle and invoice evidence (V-1) | owner | open (needs V-1 invoice evidence after the D7 pilot cycle) |
 | B-4 | Stripe written answer on closed-loop prepaid credit | owner submits drafted request | unsent |
 | B-5 | Counsel/CPA review (credit terms, tax, refunds, closure, unclaimed property) | owner | not started |
@@ -56,7 +56,7 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 | V-1 | Actual Twilio invoice lines: carrier fees by direction (Verizon and "all other" inbound blank on the public page) |
 | V-2 | Whether carrier fees and the $0.001 fee apply to undelivered/failed texts |
 | V-3 | A2P brand, vetting and campaign fees (Twilio article unreadable to my tool; search extractions only) |
-| V-4 | ConfiDance brand/campaign tier eligibility (Low Volume vs Standard), confirmed with Twilio before registration |
+| V-4 | The pilot studio brand/campaign tier eligibility (Low Volume vs Standard), confirmed with Twilio before registration |
 | V-5 | `num_segments` reporting for UCS-2 edge cases |
 | V-6 | Whether Twilio Advanced Opt-Out answers and blocks repeated STOP so the app never answers them |
 
@@ -73,15 +73,15 @@ Not found in the code reviewed: any automatic per-number or per-sender inbound c
 
 The tracker keeps U-10 / blocker 4 as an owner-authorized action; the coordinator session ("TW-4F pilot readiness coordination") owns the tracker rows. The coordinator **confirmed the split** (2026-10-30): the **owner verifies and does the Console deletion**, under separate written authorization naming the SIDs; the **coordinator records the result** in the tracker (blocker 4 / U-10 / Q-dup) through slice D once the owner's PR hold lifts. This PR only supplies the runbook and does not edit the tracker. Nothing was deleted or authorized.
 
-## 6. ConfiDance absorbed-inbound allowance and pilot preconditions (owner decision relayed by the TW-4F coordinator, 2026-10-30)
+## 6. The pilot studio absorbed-inbound allowance and pilot preconditions (owner decision relayed by the TW-4F coordinator, 2026-10-30)
 
-**Allowance:** $20 for absorbed inbound, carved out of the existing $150 cumulative pilot cap; it is not an additional budget. Procedurally the pilot exception's setup-fee ceiling becomes **$130**, with $20 held for absorbed inbound. **Not enforced in code today:** pilot usage sums count only setup kinds, so nothing stops absorbed inbound or setup fees from passing these figures. This is a procedural limit only.
+**Allowance:** [PILOT-INBOUND-ALLOWANCE] for absorbed inbound, carved out of the existing [PILOT-CAP] cumulative pilot cap; it is not an additional budget. Procedurally the pilot exception's setup-fee ceiling becomes **[PILOT-SETUP-ALLOWANCE]**, with [PILOT-INBOUND-ALLOWANCE] held for absorbed inbound. **Not enforced in code today:** pilot usage sums count only setup kinds, so nothing stops absorbed inbound or setup fees from passing these figures. This is a procedural limit only.
 
 **Automatic notification (migration 20261231140000, dark, Git-only; not applied anywhere):** the scheduled provider-fee lifecycle scan calls `tw4_rfl_inbound_allowance_check()`, which raises an administrator-only alert when the pilot business's absorbed inbound cost since its pilot exception began reaches 80% (warning) and 100% (critical) of the allowance (one SQL constant, `_tw4ia_allowance_cents()` = 2000; one alert per threshold per period), and a daily-volume alert when any business receives over 200 segments in 24 hours (once per business per day). Absorbed cost is the estimated provider cost not charged to the studio plus reply cost (definition in the migration header). It is a notification only: it blocks nothing, releases nothing and changes no ceiling. Delivery uses the existing alert outbox, sink and `alert_delivery_exhausted` escalation, and still needs the delivery switch and the delivery flag. It replaces the "No alert delivery / no automatic notification" gap for this condition once applied and activated, but not the stop action below, which stays a human decision.
 
 **Pilot preconditions (all open; none done by this PR):**
 1. A named person checks `sms_inbound_admin_overview` and Twilio usage daily.
-2. Pre-agreed stop action when daily checks show absorbed inbound near the $20 allowance or abnormal volume: pause pilot outbound sends and escalate to the owner. Number release is NOT a cost-control mechanism: never automatic, never routine (it interrupts STOP/HELP handling). Any release is a separate, explicit owner decision.
+2. Pre-agreed stop action when daily checks show absorbed inbound near the [PILOT-INBOUND-ALLOWANCE] allowance or abnormal volume: pause pilot outbound sends and escalate to the owner. Number release is NOT a cost-control mechanism: never automatic, never routine (it interrupts STOP/HELP handling). Any release is a separate, explicit owner decision.
 3. `SMS_INBOUND_RECORDING=on` with an inbound price published (publishing needs its own owner approval; Option A stays provisional).
 4. Advanced Opt-Out verified (V-6).
 5. U-10 closed (B-1).

@@ -7,7 +7,7 @@ Status 2026-10-19. **Nothing here is approved or published.** Owner decision 2 a
 | Item | Cost | Frequency | Source / confidence |
 |---|---|---|---|
 | Standard brand registration (includes secondary vetting of $41.50) | $46.00 | one time | Twilio pricing and fees help article ([support.twilio.com](https://support.twilio.com/hc/en-us/articles/1260803965530-Pricing-and-Fees-for-A2P-10DLC-Service)); an older marketing page shows $44, so treat $46 as current. Confirm on the invoice. |
-| Low-Volume Standard brand registration (no automatic secondary vetting) | $4.50 (to verify) | one time | Brand registration fee without the $41.50 secondary vetting (Twilio pricing article above; Low-Volume Standard brands skip automatic secondary vetting, ticket #29647095 answer 6). **Must be confirmed on the Twilio invoice before pricing.** |
+| Low-Volume Standard brand registration (no automatic secondary vetting) | $4.50 (to verify) | one time | Brand registration fee without the $41.50 secondary vetting (Twilio pricing article above; Low-Volume Standard brands skip automatic secondary vetting, ticket [PROVIDER-TICKET-A] answer 6). **Must be confirmed on the Twilio invoice before pricing.** |
 | Campaign vetting | $15.00 | one time per campaign, non-refundable | Campaign vetting FAQ ([help.twilio.com](https://help.twilio.com/articles/11587910480155-A2P-10DLC-Campaign-Vetting-FAQ)) |
 | Campaign monthly fee, MIXED, low-volume | $1.50 | monthly, billed at approval then each month | same pricing article |
 | Campaign monthly fee, MIXED, standard | $10.00 | monthly | same article. **Which tier a Standard-brand MIXED campaign falls into must be confirmed with Twilio before pricing**; the table below uses $10 (conservative). The FAQ gives a $1.50 to $10 range by use case. |
@@ -36,7 +36,7 @@ Every fee is shown to the studio as its own line (decision 2). The margin column
 
 Notes for the decision:
 - Setup total for a studio under Option A with a standard campaign: $58 + $19 + first month $12.50 + number $1.50 = **$91.00** (cost $72.15). Option B: $101.65 (cost $72.15).
-- The ConfiDance founder pilot ($150 cumulative cap) covers Option A setup ($91.00) and leaves about $59 for messaging (roughly 3,700 segments at $0.016); each fee-bearing action still needs its own explicit authorization.
+- The pilot-studio founder pilot ([PILOT-CAP] cumulative cap) covers Option A setup ($91.00) and leaves the remainder for messaging; each fee-bearing action still needs its own explicit authorization.
 - Per-segment pricing should be quoted per *segment* (160 GSM-7 characters; fewer with emoji or accents); the studio-facing page needs a plain explanation.
 - Taxes: whether prepaid communications credit is taxable, and in which states, is a question for the owner's accountant before launch (not decided here).
 - Fixed published prices mean the studio is never re-charged for a Twilio price change mid-flight (decision 7); DanceFlow absorbs ordinary variances, with a review threshold (section 3).

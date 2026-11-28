@@ -50,7 +50,7 @@ superseded by the written approval.
 
 ## Residual notes
 
-* The superseded cross-month reservation can still be `captured`: its money stays held and counts toward the cumulative $150 ceiling (never replenished automatically); the new approval needs ceiling headroom (TW007 otherwise). This is the intended D4 behaviour.
+* The superseded cross-month reservation can still be `captured`: its money stays held and counts toward the cumulative [PILOT-CAP] ceiling (never replenished automatically); the new approval needs ceiling headroom (TW007 otherwise). This is the intended D4 behaviour.
 * F1 (`_tw4act_pilot_funding`) reads cover rows directly with the same month predicate and does not filter `superseded_at`; a superseded row is by definition non-counting under that same predicate (released or cross-month), so F1's verdict is identical. A later F1 edit may add `superseded_at is null` for clarity.
 * The rollback refuses while any superseded row exists (permanent evidence; the restored constraint could not hold both rows) and restores the four bodies byte for byte (fingerprint-verified); registrations made without cover while the migration was live stay valid rows.
 
@@ -71,7 +71,7 @@ Registration still refuses (TW040) a reservation of another business, another fe
 * The rollback now takes `lock table public.studio_sms_provider_cover in share row exclusive mode` before its refusal check, so no cover can be superseded between the check and the restore.
 * Reverse-order requirement: the 20261211 and 20261217 rollbacks restore bodies this migration replaced (`_tw4rfl_guard`, `_tw4rfl_register_core`, `_tw4rfl_cover`, `tw4_rfl_pilot_cover` predecessors). Roll back 20261225 FIRST; those older rollbacks must not be run while 20261225 is applied (documentation only; those files are not edited here).
 * Not done (P3-2): a database check that `superseded_by_cover_id` points to a live approval cover of the same resource and period. The supersede mark is written before the approval row exists (the live-period unique index forces that order), and the pointer is a pre-generated id used by the same function; adding a deferred check was judged not worth risking the fingerprinted predecessor logic.
-* OPEN OWNER DECISION (P2-2, tracked under KI-1, owner re-decision before ConfiDance activation): D5 keys on the reservation's `cr.created_at`, not on the month Twilio first bills the fee, so the $150 pilot ceiling can be used twice across months (a still-captured cross-month reservation keeps counting while the new approval reserves again). The rule is unchanged here.
+* OPEN OWNER DECISION (P2-2, tracked under KI-1, owner re-decision before the pilot studio activation): D5 keys on the reservation's `cr.created_at`, not on the month Twilio first bills the fee, so the [PILOT-CAP] pilot ceiling can be used twice across months (a still-captured cross-month reservation keeps counting while the new approval reserves again). The rule is unchanged here.
 
 ## Verification status
 

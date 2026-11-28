@@ -167,8 +167,8 @@ Send me: Account ID, whether Live mode is on, the publishable-key prefix, and th
 
 ### Step 0 evidence received (2026-10-24, owner, Stripe Dashboard)
 
-- Production Stripe account: `acct_1TKgL3EY0sTayNiS` (live).
-- Live publishable key prefix `pk_live_51TKgL3EY0sTayNiS…` (full key intentionally not recorded). Its embedded account
+- Production Stripe account: `[STRIPE-LIVE-ACCOUNT-ID]` (live).
+- Live publishable key prefix `pk_live_[ACCOUNT]…` (full key intentionally not recorded). Its embedded account
   identifier matches the Dashboard Account ID.
 - Webhook endpoint: `https://www.idanceflow.com/api/payments/webhook`.
 - Different from the DEV sandbox `acct_1TKgLCEYYNmPuFIX` (account IDs differ; the sandbox is not production).
@@ -182,7 +182,7 @@ Proven by me (read-only, 2026-10-24):
 
 Not provable without the Dashboard (the Production publishable key and secret key are not readable from Vercel — the
 Production value does not reveal in the UI — and the app does not expose the publishable key in client code):
-- that the deployed `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` belong to `acct_1TKgL3EY0sTayNiS`.
+- that the deployed `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` belong to `[STRIPE-LIVE-ACCOUNT-ID]`.
 
 Owner checks (no secrets leave the Dashboard) that close this gap:
 1. Live mode → Developers → Webhooks → the `https://www.idanceflow.com/api/payments/webhook` endpoint → status **Enabled**;
@@ -197,7 +197,7 @@ Send me the endpoint status, latest delivery date and HTTP code, and whether API
 ## Step 1 — Prices (owner, Stripe Dashboard, Live mode)
 
 Before touching anything: confirm the **Live mode** toggle is on (no "Test data" banner) and the account is
-`acct_1TKgL3EY0sTayNiS`. Open the Price detail page for each of the three current Founder Prices and write down, before
+`[STRIPE-LIVE-ACCOUNT-ID]`. Open the Price detail page for each of the three current Founder Prices and write down, before
 editing: Price ID, Product name and ID, amount, currency, interval, and the number of subscriptions/payments (the Price page
 shows "Subscriptions" and "Payments"). Starter and Growth must show **0** subscriptions and 0 payments. If either is nonzero,
 **stop and report.**
@@ -241,7 +241,7 @@ Each of Starter, Growth, Pro must satisfy:
 Plus: the original Pro Price is still active and still $129; the existing Pro subscription is unchanged (same Price ID,
 amount, status, renewal date, `planCode=pro` metadata); no other subscription, customer, coupon or invoice changed.
 
-## Production Founder Price IDs (supplied by owner, Live account `acct_1TKgL3EY0sTayNiS`)
+## Production Founder Price IDs (supplied by owner, Live account `[STRIPE-LIVE-ACCOUNT-ID]`)
 
 | Role | Amount | Price ID |
 |---|---|---|
@@ -251,7 +251,7 @@ amount, status, renewal date, `planCode=pro` metadata); no other subscription, c
 | Pro Founder (grandfathered) | $129 / month | `price_1TdDHwEY0sTayNiSIe1nD3Lg` |
 
 Owner: there are no existing legacy Growth subscribers. Consistency check (read-only): all four IDs carry the production account's
-object-ID suffix (`…EY0sTayNiS…`, matching `acct_1TKgL3EY0sTayNiS`), not the DEV sandbox's (`…EYYNmPuFIX…`). The Growth ID
+object-ID suffix (`…EY0sTayNiS…`, matching `[STRIPE-LIVE-ACCOUNT-ID]`), not the DEV sandbox's (`…EYYNmPuFIX…`). The Growth ID
 (`price_1UUG7u…`) is newer than the Starter and grandfathered-Pro IDs (`price_1TdDH…`), so Growth is a new Price object rather than the
 original Price edited in place; the Growth item in the Step 1 checklist therefore also confirms the original Growth Founder Price is
 untouched or archived and has no subscriptions. Everything else in the Step 1 verification checklist still applies to these exact IDs.
@@ -490,7 +490,7 @@ Purpose: preserve the deployment and rollback IDs that the PRICING-P1 Current St
 
 ## Remaining gates (all open)
 
-- [x] Step 0 account identity: `acct_1TKgL3EY0sTayNiS` live, publishable-key prefix matches (owner evidence)
+- [x] Step 0 account identity: `[STRIPE-LIVE-ACCOUNT-ID]` live, publishable-key prefix matches (owner evidence)
 - [ ] Deployed app confirmed on that account: webhook delivery 200s and API key last-used (owner checks 1–3 above)
 - [ ] Dashboard confirms Starter and Growth edits keep their Price IDs (else stop)
 - [ ] Step 1 Founder verification checklist passed

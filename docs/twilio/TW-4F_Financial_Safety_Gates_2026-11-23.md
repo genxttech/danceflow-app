@@ -2,11 +2,11 @@
 
 Status: governance document. Verified against origin/main (read-only audit, spot-checked). Nothing here authorizes spending, activation, price changes or new studio fees.
 
-## 1. The $150 setup ceiling is not the provider-billing exposure
+## 1. The [PILOT-CAP] setup ceiling is not the provider-billing exposure
 
 | | What it is | What it counts | What it does NOT count or stop |
 | --- | --- | --- | --- |
-| **ConfiDance $150 setup ceiling** | DanceFlow application limit on pilot setup reservations (`spend_cap_cents`; the pilot ceiling trigger) | pilot reservations in state reserved, captured or burned, at customer prices (brand, vetting, number, campaign monthly as approved) | outbound texting (needs credit), inbound cost DanceFlow absorbs, recurring fees beyond approved periods, Twilio's own charges to the parent account, disputes. Twilio does not enforce it. |
+| **pilot-studio [PILOT-CAP] setup ceiling** | DanceFlow application limit on pilot setup reservations (`spend_cap_cents`; the pilot ceiling trigger) | pilot reservations in state reserved, captured or burned, at customer prices (brand, vetting, number, campaign monthly as approved) | outbound texting (needs credit), inbound cost DanceFlow absorbs, recurring fees beyond approved periods, Twilio's own charges to the parent account, disputes. Twilio does not enforce it. |
 | **Overall provider-billing exposure** | everything Twilio bills DanceFlow's parent account for all subaccounts | setup fees, monthly number and campaign fees, outbound and inbound segments, carrier surcharges, resubmission vetting | bounded only by: studio credit for outbound; the inbound ceiling (default -$10 per business, pilot $0); recurring-fee authorizations and monthly spending limits; reconciler readiness; the owner's Twilio Console balance, auto-recharge and alert settings. |
 
 Rule: the ceiling is a limit, never an authorization, and never a statement about total spend.

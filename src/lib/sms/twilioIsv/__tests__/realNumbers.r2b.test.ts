@@ -182,7 +182,7 @@ describe("real number adapter request shapes (no live Twilio)", () => {
   });
 });
 
-describe("credential rotation (Twilio ticket #29647095: no overlap window)", () => {
+describe("credential rotation (Twilio ticket [PROVIDER-TICKET-A]: no overlap window)", () => {
   const token = (value: string) => ({ reveal: () => value }) as never;
 
   it("a 401 after a rotation re-reads the subaccount token ONCE and repeats that one request; a number is never bought twice", async () => {

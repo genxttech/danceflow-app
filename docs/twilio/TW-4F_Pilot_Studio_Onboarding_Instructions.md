@@ -1,9 +1,11 @@
-# ConfiDance texting setup: instructions for the authorized representative
+# The pilot studio texting setup: instructions for the authorized representative
+
+> Names are shown as placeholders in square brackets; fill them in on the private copy before sharing.
 
 Status: DRAFT for the DanceFlow owner to share. Nothing has been sent to anyone. Nothing here is collected or entered by DanceFlow engineering or by Claude.
 
 ## Who does this
-One person who has authority to act for ConfiDance Unlimited, LLC (for example an owner, director or general manager) and who signs in to the DanceFlow app as the **studio owner of ConfiDance Studio**. Only the studio owner can submit this form. Do not hand the EIN or any of these details to anyone else to type in for you.
+One person who has authority to act for [PILOT-LEGAL-NAME] (for example an owner, director or general manager) and who signs in to the DanceFlow app as the **studio owner of the pilot studio**. Only the studio owner can submit this form. Do not hand the EIN or any of these details to anyone else to type in for you.
 
 ## Before you start (about 10 minutes)
 - Your IRS EIN letter (CP 575 or 147C) in front of you. The legal business name must match it exactly; it is often different from the studio's display name.
@@ -35,4 +37,4 @@ One person who has authority to act for ConfiDance Unlimited, LLC (for example a
 Note what the page says (without the EIN) and tell DanceFlow support. Do not retry repeatedly.
 
 ## For the DanceFlow owner (not part of the representative's text)
-Access to the wizard was enabled for ConfiDance Studio only (production, 2026-11-23, owner-authorized). The next gates, each separate, are: the entity-and-limit script after genuine onboarding, the Production environment change, then G-SUB.
+Access to the wizard was enabled for the pilot studio only (production, 2026-11-23, owner-authorized). The next gates, each separate, are: the entity-and-limit script after genuine onboarding, the Production environment change, then G-SUB.

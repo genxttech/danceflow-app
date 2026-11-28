@@ -37,7 +37,7 @@ Every provider figure is a **public list price, to verify on the Twilio invoice/
 | Standard brand incl. secondary vetting | $46.00 one time (vetting $41.50) | one time | [A2P fee article](https://support.twilio.com/hc/en-us/articles/1260803965530-Pricing-and-Fees-for-A2P-10DLC-Service) | **not directly readable (403); search extraction only; verify in Console** |
 | Low Volume Standard brand | $4.50 one time (was $4.00 until 2025-08-01) | one time | same extraction; the 2022 [changelog](https://www.twilio.com/en-us/changelog/us-a2p-10dlc-low-volume-standard-brand-registration-available-in-twilio-console) (read directly) still says $4 and is stale; it gives eligibility: EIN, under 6,000 segments/day | as above |
 | Campaign vetting | $15.00 per campaign | one time | same extraction; [Campaign vetting FAQ](https://help.twilio.com/articles/11587910480155-A2P-10DLC-Campaign-Vetting-FAQ) returned a title only | as above; refundability unconfirmed |
-| Campaign monthly, Low Volume Mixed / Standard | $1.50 / $10.00 | monthly | same extraction; which tier ConfiDance's MIXED campaign falls into is unconfirmed | as above |
+| Campaign monthly, Low Volume Mixed / Standard | $1.50 / $10.00 | monthly | same extraction; which tier the pilot studio's MIXED campaign falls into is unconfirmed | as above |
 
 **Carrier fees, long code SMS: ambiguity resolved from the page's own HTML.** The earlier text extraction flattened empty cells. I downloaded the page HTML and read the table cell by cell (5 value columns incl. carrier name):
 
@@ -57,7 +57,7 @@ Blank means **no fee is listed**, not proof of $0. Supporting evidence: the same
 
 **Stripe** ([stripe.com/pricing](https://stripe.com/pricing), read directly 2026-10-23): 2.9% + $0.30 per successful domestic card payment; dispute $15 per dispute; refunds have no fee but the original fees are not returned; no minimum charge stated.
 
-**Evidence still needed from the provider's own billing** (nothing contacted here): the first invoice lines for carrier fees by carrier and direction; the Console A2P fee table; whether carrier fees are billed on `undelivered`/`failed` messages; the ConfiDance tier and campaign monthly fee (pre-review ticket #29647095).
+**Evidence still needed from the provider's own billing** (nothing contacted here): the first invoice lines for carrier fees by carrier and direction; the Console A2P fee table; whether carrier fees are billed on `undelivered`/`failed` messages; the pilot-studio tier and campaign monthly fee (pre-review ticket [PROVIDER-TICKET-A]).
 
 ## 3. Stripe effect on top-ups and net credit
 
@@ -227,7 +227,7 @@ Forward-only file (no edits to the merged `20261201`/`20261203`, whose hashes ar
 
 ### 9.2 Not changed (direction 7)
 
-Prepaid controls (funds check, holds, kill switch, monthly limit, negative-balance blocking), the separate inbound and outbound tracking, compliance-critical STOP/START/HELP processing (free, never refused, never touches the carry), the no-auto-top-up rule, the $150 pilot ceiling.
+Prepaid controls (funds check, holds, kill switch, monthly limit, negative-balance blocking), the separate inbound and outbound tracking, compliance-critical STOP/START/HELP processing (free, never refused, never touches the carry), the no-auto-top-up rule, the [PILOT-CAP] pilot ceiling.
 
 ### 9.3 Migration risk
 
@@ -275,7 +275,7 @@ Setup totals (brand + vetting + first month + number): Low Volume $31.90, Standa
 
 ## 12. Needs the Twilio invoice/Console or the accountant before publishing
 
-**Twilio** (nothing contacted): first invoice lines by carrier/direction; Console A2P fee table and vetting refundability; ConfiDance tier and campaign monthly fee; carrier-fee billing on undelivered/failed; actual per-message price vs list; any ISV discount; any tax charged to DanceFlow.
+**Twilio** (nothing contacted): first invoice lines by carrier/direction; Console A2P fee table and vetting refundability; the pilot studio tier and campaign monthly fee; carrier-fee billing on undelivered/failed; actual per-message price vs list; any ISV discount; any tax charged to DanceFlow.
 
 **Stripe**: the written clarification is drafted and unsent; actual account fee.
 
@@ -363,7 +363,7 @@ The unbounded one is the flood case (S9). **Correction (2026-10-30, after readin
 
 ### 14.7 Remaining approval gates (all still closed)
 
-1. Verify costs against the first Twilio invoice/Console (carrier fees by direction, undelivered/failed billing, A2P fees, ConfiDance tier). Nothing is authorized to obtain them.
+1. Verify costs against the first Twilio invoice/Console (carrier fees by direction, undelivered/failed billing, A2P fees, the pilot studio tier). Nothing is authorized to obtain them.
 2. D7 pilot cycle, then owner approval of exact prices.
 3. Dual-control (or documented single-admin) decision for `tw4_price_set`, then publication. No pricing activation.
 4. Counsel/CPA review of credit terms, sales tax, refunds, closure and unclaimed property.

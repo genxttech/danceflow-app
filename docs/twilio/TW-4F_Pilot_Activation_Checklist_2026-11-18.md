@@ -1,6 +1,6 @@
 # TW-4F minimal SMS pilot activation checklist (2026-11-18)
 
-Scope: one studio (ConfiDance Studio, legal entity ConfiDance Unlimited, LLC; never GenX), one subaccount, Low Volume Standard brand and Low Volume Mixed campaign, one local number, a few named consenting recipients, manual activation. DRAFT: nothing here is authorized. Each row marked OWNER is its own written approval. The $150 ceiling is a limit, not authorization. Holds: #445, #326, price publication until row 3, SMS activation until row 12.
+Scope: one studio (the pilot studio, legal entity [PILOT-LEGAL-NAME]; never GenX), one subaccount, Low Volume Standard brand and Low Volume Mixed campaign, one local number, a few named consenting recipients, manual activation. DRAFT: nothing here is authorized. Each row marked OWNER is its own written approval. The [PILOT-CAP] ceiling is a limit, not authorization. Holds: #445, #326, price publication until row 3, SMS activation until row 12.
 
 State at 2026-11-18: SQL on PROD through 20270219; live www = dpl_EJ968dkDy (6ba31295); price list 0 rows; 0 subaccounts/brands/campaigns/numbers/credit accounts.
 
@@ -13,7 +13,7 @@ State at 2026-11-18: SQL on PROD through 20270219; live www = dpl_EJ968dkDy (6ba
 | 4 | Release the consent hardening: apply 20270215100000 + set SMS_PENDING_OPT_OUT_REQUIRED in one step, then app build/promote (staged P1/P2 pattern) | OWNER gate per step | PROD object checks; app promoted | after #668 approval |
 | 5 | Fixture capture against real Twilio (about $1.30, cap $5) | OWNER | captured shapes match documentedShapes fixtures | held (activation gate) |
 | 6 | Pilot access, runner window, daily checker named, stop action = pause outbound and escalate | OWNER | recorded names and window | owner |
-| 7 | G-SUB: create the ConfiDance subaccount | OWNER | subaccount SID, one per legal entity | held |
+| 7 | G-SUB: create the pilot-studio subaccount | OWNER | subaccount SID, one per legal entity | held |
 | 8 | G1/G1b attestations; G2 submit profile/trust product | OWNER | submission recorded | held |
 | 9 | G3 brand fee ($4.50 conservative); wait for Twilio brand approval | OWNER; Twilio | brand approved | held |
 | 10 | G4 number purchase (TW4_NUMBER_REAL_CALLS only at this step; reads use TW4_NUMBER_READS) | OWNER | number active; sender readiness ok | held |

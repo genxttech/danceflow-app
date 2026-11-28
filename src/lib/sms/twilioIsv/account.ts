@@ -106,7 +106,7 @@ export class SubaccountTokenProvider {
   }
 
   /**
-   * TW-4F provider integration (Twilio ticket #29647095, answer 5: Auth Token rotation has NO overlap window). When a token is rejected (a 401 from
+   * TW-4F provider integration (Twilio ticket [PROVIDER-TICKET-A], answer 5: Auth Token rotation has NO overlap window). When a token is rejected (a 401 from
    * the subaccount, or a webhook signature that does not verify with the cached token), the token may simply have been rotated: read it again and
    * report whether it changed. Parent reads of one account are spaced by the refresh interval and shared while in flight, so a flood of forged
    * webhooks naming a real subaccount costs at most one parent request per interval: inside it the cached token is the answer, and with nothing

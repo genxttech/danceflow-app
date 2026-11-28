@@ -42,7 +42,7 @@ The provider cost difference between directions is only the carrier fee (about $
 2. **Monthly limit semantics.** Recommended: inbound charges **count toward** the month's spending but are never refused. A burst of inbound replies can then use up the month and pause outbound sends, without dropping any inbound message. The alternative (inbound outside the limit) leaves inbound spending unbounded by any owner control.
 3. **No double charge.** The webhook and the reconciler must use the same idempotency key (MessageSid). A charge is never re-derived after settlement.
 4. **Flood cost today.** The inbound route currently auto-replies "Thanks for your message…" to **every** ordinary inbound text (`inbound/route.ts`, the final reply). Each third-party text therefore costs an inbound **and** an outbound segment, with no reservation. Recommendation: remove the generic reply, or send it at most once per number per day through the billed path, silent when unfunded.
-5. **Pilot business.** Inbound for ConfiDance is charged to credit like any business; never the $150 pilot ceiling.
+5. **Pilot business.** Inbound for the pilot studio is charged to credit like any business; never the [PILOT-CAP] pilot ceiling.
 
 ## 3. Lower inbound rate vs included allowance
 
@@ -107,7 +107,7 @@ Owner decisions:
 
 No P0; webhook authentication, tenant checks and the replay ledger are unchanged (PR 242's four guarantees verified). Fixed:
 - **Ceiling on available funds (P1).** The ceiling is measured on balance minus reserved funds, so an outgoing text in flight or a set-aside recurring month can no longer push real exposure past the ceiling.
-- **Pilot business carries no inbound debt (P1).** Its pilot-funded setup operations need a non-negative balance, so for the pilot business ordinary inbound is charged only from available credit (ceiling 0) and the rest is uncollected; the $150 pilot ceiling still never funds texting. **Owner to confirm** (it narrows D1 for the pilot only).
+- **Pilot business carries no inbound debt (P1).** Its pilot-funded setup operations need a non-negative balance, so for the pilot business ordinary inbound is charged only from available credit (ceiling 0) and the rest is uncollected; the [PILOT-CAP] pilot ceiling still never funds texting. **Owner to confirm** (it narrows D1 for the pilot only).
 - One error reply per sender per day across all error kinds; HELP and START share one allowance of five confirmations.
 - A fallback STOP / HELP / START on an error path gets a compliance reply (STOP always; HELP/START fail open) instead of silence.
 - Recording fails fast under contention (lock timeout 2 s, statement timeout 5 s) so it cannot hold a webhook reply; the text is recovered by the reconciler slice.
@@ -119,7 +119,7 @@ No P0; webhook authentication, tenant checks and the replay ledger are unchanged
 
 ## 8. Final owner decisions on PR 248 (2026-10-20, authoritative)
 
-1. **ConfiDance pilot: no inbound debt.** Inbound is charged only against its separately funded, settled SMS credit (available funds). Beyond that, texts are still accepted and the rest is DanceFlow-absorbed. Its balance never goes negative from inbound; the $150 pilot setup ceiling is not messaging credit. (Implemented as a ceiling of 0 for the pilot business.)
+1. **Pilot: no inbound debt.** Inbound is charged only against its separately funded, settled SMS credit (available funds). Beyond that, texts are still accepted and the rest is DanceFlow-absorbed. Its balance never goes negative from inbound; the [PILOT-CAP] pilot setup ceiling is not messaging credit. (Implemented as a ceiling of 0 for the pilot business.)
 2. **Unknown-sender drain: protect recurring fees (option c).**
    - Inbound never consumes funds reserved for authorized recurring fees: while a first month is set aside (`commit:`) or a recurring charge is in flight (`rec:`), an inbound charge may not bring the balance below those reservations. Other businesses keep the $10 negative-balance ceiling; anything beyond the permitted charge is absorbed.
    - An authorized recurring fee's monthly-limit check leaves inbound texts out (`tw4_recurring_charge`, replaced from its 20261128 definition with only that change), so inbound volume cannot hold the number or service fee. Chargeable inbound still counts toward the month for everything else, outgoing texts are still refused when the limit is used up, and overruns are displayed.

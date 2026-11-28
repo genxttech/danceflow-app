@@ -1,6 +1,6 @@
 {
   "status": "PROPOSED_NOT_APPROVED",
-  "note": "Six price proposals for the single-studio ConfiDance pilot (Low Volume path). Data only: entering these through the price form is a separate, owner-authorized act and each one still needs its own proposal, the 24 hour cooling-off and a hardware-key authorization from a separate session. Amounts are the owner's provisional per-segment rates plus candidate fixed-fee customer prices. Nothing here is financial authorization and the $150 ceiling is a safety limit, not a budget.",
+  "note": "Six price proposals for the single-studio pilot (Low Volume path). Data only: entering these through the price form is a separate, owner-authorized act and each one still needs its own proposal, the 24 hour cooling-off and a hardware-key authorization from a separate session. Amounts are the owner's provisional per-segment rates plus candidate fixed-fee customer prices. Nothing here is financial authorization and the [PILOT-CAP] ceiling is a safety limit, not a budget.",
   "prices": [
     {
       "order": 1,
@@ -11,7 +11,7 @@
       "priceUsd": "0.017",
       "costUsd": "0.012695",
       "description": "Outbound text message, per segment (carrier fees included)",
-      "reason": "Owner-approved provisional outbound rate for the ConfiDance pilot; expected provider cost is the blended Twilio base rate plus carrier fees (28/37/35 carrier mix, October 2026 price page)."
+      "reason": "Owner-approved provisional outbound rate for the pilot; expected provider cost is the blended Twilio base rate plus carrier fees (28/37/35 carrier mix, October 2026 price page)."
     },
     {
       "order": 2,
@@ -29,7 +29,7 @@
         "expectedNetMargin": "30.1%",
         "worstCarrierNetMargin": "19.8%",
         "method": "net margin = 0.959 (after 4.1% Stripe) minus cost/price",
-        "note": "costMicros stays the expected blend for consistency with sms_usage; the worst-carrier case is protected by the price, not by a higher cost field. Twilio ticket 30376594 says no inbound 10DLC surcharge; the public page lists AT&T 0.0035 and T-Mobile/US Cellular 0.0025, so the price covers the public reading."
+        "note": "costMicros stays the expected blend for consistency with sms_usage; the worst-carrier case is protected by the price, not by a higher cost field. Twilio ticket [PROVIDER-TICKET-B] says no inbound 10DLC surcharge; the public page lists AT&T 0.0035 and T-Mobile/US Cellular 0.0025, so the price covers the public reading."
       }
     },
     {
@@ -39,7 +39,7 @@
       "priceCents": 700,
       "costCents": 450,
       "description": "Brand registration, Low Volume Standard (one time)",
-      "reason": "Candidate pass-through price for the Low Volume Standard brand registration; Twilio list cost $4.50 is unconfirmed pending ticket 29647095."
+      "reason": "Candidate pass-through price for the Low Volume Standard brand registration; Twilio list cost $4.50 is unconfirmed pending ticket [PROVIDER-TICKET-A]."
     },
     {
       "order": 4,
@@ -57,7 +57,7 @@
       "priceCents": 225,
       "costCents": 150,
       "description": "Campaign, Low Volume Mixed (monthly)",
-      "reason": "Candidate pass-through price for the Low Volume Mixed campaign monthly fee; Twilio list cost $1.50 per month is unconfirmed pending ticket 29647095."
+      "reason": "Candidate pass-through price for the Low Volume Mixed campaign monthly fee; Twilio list cost $1.50 per month is unconfirmed pending ticket [PROVIDER-TICKET-A]."
     },
     {
       "order": 6,

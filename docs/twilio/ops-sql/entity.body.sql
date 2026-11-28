@@ -13,4 +13,4 @@ begin
   if o.rep_first_name is null or o.rep_last_name is null or o.rep_email is null or o.address_line1 is null then raise exception 'STOP: representative or address fields are missing' using errcode = '22023'; end if;
   v_r := public.tw4_entity_create_for_studio('__STUDIO__'::uuid, v_admin, 'Created from the owner-attested onboarding; executed by engineering via danceflow-ops under owner authorization');
   v_entity := (v_r ->> 'legal_entity_id')::uuid;
-  perform public.tw4_entity_set_spend_cap(v_entity, 15000, v_admin);
+  perform public.tw4_entity_set_spend_cap(v_entity, __CAP_CENTS__, v_admin);

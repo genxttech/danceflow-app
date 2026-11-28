@@ -1,4 +1,4 @@
-# TW-4A — Twilio support message and ConfiDance registration-readiness package
+# TW-4A — Twilio support message and the pilot studio registration-readiness package
 
 Status 2026-10-15. DRAFT for the owner. **Nothing here has been sent to Twilio, submitted, provisioned or changed.** Items in `[BRACKETS]` are unverified placeholders. No Twilio policy answer is assumed anywhere in this file: where Twilio's answer decides something, it says "pending Twilio".
 
@@ -6,15 +6,15 @@ Sources: `docs/twilio/TW-4_ISV_SMS_Onboarding_Design.md` §17 (questions) and §
 
 ---
 
-## 1. Twilio ticket #29647095 — submission-ready message (Q1–Q5)
+## 1. Twilio ticket [PROVIDER-TICKET-A] — submission-ready message (Q1–Q5)
 
 The five questions are exactly those in design §20 / §17. Use this verbatim. If the earlier send already happened, post it as a follow-up and keep the numbering so replies map to Q1–Q5.
 
-> **Subject:** DanceFlow ISV – architecture confirmation before automated studio onboarding (ConfiDance pilot)
+> **Subject:** DanceFlow ISV – architecture confirmation before automated studio onboarding (pilot)
 >
-> Hello Sachin / A2P 10DLC team,
+> Hello [PROVIDER-CONTACT] / A2P 10DLC team,
 >
-> Thank you for updating our Primary Customer Profile (GenX TotalTech LLC, BUed777b1ed81df271793fbd097324ec94) to ISV Reseller or Partner. We are designing DanceFlow's automated, API-based onboarding so each dance studio registers through our platform rather than through manual Console setup. ConfiDance Studio will be the first studio. Studio traffic is limited to transactional appointment messages (confirmations, reschedules, cancellations) and staff-initiated one-to-one operational messages, with no marketing. Before we build, we'd appreciate confirmation on five points:
+> Thank you for updating our Primary Customer Profile (GenX TotalTech LLC, [PRIMARY-PROFILE-SID]) to ISV Reseller or Partner. We are designing DanceFlow's automated, API-based onboarding so each dance studio registers through our platform rather than through manual Console setup. The pilot studio will be the first studio. Studio traffic is limited to transactional appointment messages (confirmations, reschedules, cancellations) and staff-initiated one-to-one operational messages, with no marketing. Before we build, we'd appreciate confirmation on five points:
 >
 > **1. Subaccount per studio.** We plan one Twilio subaccount per studio, with the studio's Secondary Customer Profile, A2P TrustProduct, Brand, Messaging Service, campaign and number created inside that subaccount by our parent account via API.
 > (a) Is this the architecture you recommend for us?
@@ -40,42 +40,42 @@ The five questions are exactly those in design §20 / §17. Use this verbatim. I
 > (a) Please enable, or tell us how to request, the campaign update API (Private Beta) for our parent account and its subaccounts.
 > (b) For Event Streams A2P events (brand, campaign, number registration), should we create one sink and subscription in the parent account that receives subaccount events, or one per subaccount?
 > (c) Should the Secondary profile and TrustProduct notification email be our own ISV compliance mailbox?
-> (d) Will you review the first automatically generated ConfiDance campaign package before we submit it?
+> (d) Will you review the first automatically generated the pilot studio campaign package before we submit it?
 >
 > We will not create any studio registrations until you confirm. Thank you,
-> Michael Curtis — GenX TotalTech LLC / DanceFlow
+> [OWNER NAME] — GenX TotalTech LLC / DanceFlow
 
 What the answers unlock (design §17/§18; nothing is assumed): Q1 → 4C subaccount design; Q2 → 4B opt-out mode and HELP behavior; Q3 → website/URL domain hold for studios with their own site; Q4 → tier and `LOW_VOLUME` enum decision (TW-3 allows only the existing use-case set); Q5 → 4B Event Streams and campaign-update API.
 
 ---
 
-## 2. ConfiDance registration package (generated from the real templates)
+## 2. The pilot studio registration package (generated from the real templates)
 
-Generated text below uses `[CONFIDANCE DISPLAY NAME]` / `[CONFIDANCE-SLUG]`; the wizard generates the same text for the studio automatically, so this is what the owner will see on the Review step and what Twilio would receive.
+Generated text below uses `[PILOT STUDIO DISPLAY NAME]` / `[PILOT-STUDIO-SLUG]`; the wizard generates the same text for the studio automatically, so this is what the owner will see on the Review step and what Twilio would receive.
 
 ### 2.1 Campaign description (template v1)
-> [CONFIDANCE DISPLAY NAME] uses DanceFlow, a software platform operated by GenX TotalTech LLC, to send transactional appointment messages (lesson confirmations, reschedules and cancellations) and one-to-one operational messages written by studio staff to the studio's own clients who have opted in. No marketing, promotional, bulk or lead-generation messages are sent.
+> [PILOT STUDIO DISPLAY NAME] uses DanceFlow, a software platform operated by GenX TotalTech LLC, to send transactional appointment messages (lesson confirmations, reschedules and cancellations) and one-to-one operational messages written by studio staff to the studio's own clients who have opted in. No marketing, promotional, bulk or lead-generation messages are sent.
 
 Supported use case: transactional appointment messages and staff one-to-one operational messages. **Use-case code to register: pending Twilio (Q4a)**. Industry value (EDUCATION vs CONSUMER): pending Twilio (Q4c); the wizard currently offers both and the owner picks.
 
 Campaign attributes (all fixed by the template): subscriber opt-in yes; embedded links no; embedded phone numbers no; age-gated no; direct lending no.
 
 ### 2.2 Sample messages (the real dispatcher output shapes; every message carries the studio-named opt-out footer)
-1. Confirmation — "Hi Alex,\nYour private lesson is confirmed for Wed, Oct 14, 2026, 6:00 PM EDT.\nIt is scheduled to end at Wed, Oct 14, 2026, 6:30 PM EDT.\nInstructor: Jamie Rivera.\nWe look forward to seeing you.\n\n[CONFIDANCE DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
-2. Rescheduling — "Hi Alex,\nYour private lesson has been rescheduled to Fri, Oct 16, 2026, 5:00 PM EDT.\nIt is scheduled to end at Fri, Oct 16, 2026, 5:30 PM EDT.\nInstructor: Jamie Rivera.\nPlease contact the studio if you have any questions.\n\n[CONFIDANCE DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
-3. Cancellation — "Hi Alex,\nYour private lesson scheduled for Fri, Oct 16, 2026, 5:00 PM EDT has been cancelled.\nInstructor: Jamie Rivera.\nPlease contact the studio if you would like to reschedule.\n\n[CONFIDANCE DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
-4. Staff one-to-one — "Hi Alex, this is [CONFIDANCE DISPLAY NAME]. Does Saturday at 10 AM still work for your lesson?\n\n[CONFIDANCE DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
+1. Confirmation — "Hi Alex,\nYour private lesson is confirmed for Wed, Oct 14, 2026, 6:00 PM EDT.\nIt is scheduled to end at Wed, Oct 14, 2026, 6:30 PM EDT.\nInstructor: Jamie Rivera.\nWe look forward to seeing you.\n\n[PILOT STUDIO DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
+2. Rescheduling — "Hi Alex,\nYour private lesson has been rescheduled to Fri, Oct 16, 2026, 5:00 PM EDT.\nIt is scheduled to end at Fri, Oct 16, 2026, 5:30 PM EDT.\nInstructor: Jamie Rivera.\nPlease contact the studio if you have any questions.\n\n[PILOT STUDIO DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
+3. Cancellation — "Hi Alex,\nYour private lesson scheduled for Fri, Oct 16, 2026, 5:00 PM EDT has been cancelled.\nInstructor: Jamie Rivera.\nPlease contact the studio if you would like to reschedule.\n\n[PILOT STUDIO DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
+4. Staff one-to-one — "Hi Alex, this is [PILOT STUDIO DISPLAY NAME]. Does Saturday at 10 AM still work for your lesson?\n\n[PILOT STUDIO DISPLAY NAME]: Reply STOP to opt out. Reply HELP for help."
 
 There is deliberately no appointment-reminder sample: reminders are not an allowed automated template in DanceFlow today. No marketing sample exists.
 
 ### 2.3 Public opt-in flow and evidence
-Opt-in flow (template text): a person opts in on the studio's public DanceFlow page `https://www.idanceflow.com/studios/[CONFIDANCE-SLUG]#lead` by entering a mobile number and checking an optional, **unchecked** box next to this exact disclosure (disclosure version recorded with each consent):
+Opt-in flow (template text): a person opts in on the studio's public DanceFlow page `https://www.idanceflow.com/studios/[PILOT-STUDIO-SLUG]#lead` by entering a mobile number and checking an optional, **unchecked** box next to this exact disclosure (disclosure version recorded with each consent):
 
-> "Yes, I agree to receive text messages from [CONFIDANCE DISPLAY NAME] through DanceFlow, a software platform owned and operated by GenX TotalTech LLC, about my inquiry, lesson bookings and appointments (including confirmations, changes and cancellations), and other service-related messages from the studio. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is optional and is not a condition of purchase. See our Terms and Privacy Policy."
+> "Yes, I agree to receive text messages from [PILOT STUDIO DISPLAY NAME] through DanceFlow, a software platform owned and operated by GenX TotalTech LLC, about my inquiry, lesson bookings and appointments (including confirmations, changes and cancellations), and other service-related messages from the studio. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is optional and is not a condition of purchase. See our Terms and Privacy Policy."
 
 Consent may also be given directly to the studio (verbal or written) after the same disclosure; authorized staff record it in DanceFlow. DanceFlow sends only to recipients with recorded consent (TW-2 protections, unchanged by TW-4A).
 
-Evidence to attach (owner/platform must capture; **not yet captured**): (a) screenshot of the live opt-in form with the unchecked box and disclosure on `[CONFIDANCE-SLUG]`'s page; (b) the studio's DanceFlow public page URL; (c) the per-studio Terms and Privacy URLs rendering; (d) an exported sample consent record (timestamp, disclosure version, source) with the phone number redacted.
+Evidence to attach (owner/platform must capture; **not yet captured**): (a) screenshot of the live opt-in form with the unchecked box and disclosure on `[PILOT-STUDIO-SLUG]`'s page; (b) the studio's DanceFlow public page URL; (c) the per-studio Terms and Privacy URLs rendering; (d) an exported sample consent record (timestamp, disclosure version, source) with the phone number redacted.
 
 ### 2.4 STOP / HELP
 - Every message ends with the studio-named footer "Reply STOP to opt out. Reply HELP for help."
@@ -83,16 +83,16 @@ Evidence to attach (owner/platform must capture; **not yet captured**): (a) scre
 - **Who replies to HELP, and whether Twilio's default opt-out handling or Advanced Opt-Out is used, is pending Twilio (Q2).** The campaign OptOut/Help wording fields are submitted only after Q2c is answered.
 
 ### 2.5 URLs (studio-specific, DanceFlow-hosted)
-- Terms: `https://www.idanceflow.com/studios/[CONFIDANCE-SLUG]/sms-terms`
-- Privacy: `https://www.idanceflow.com/studios/[CONFIDANCE-SLUG]/sms-privacy`
-- Opt-in page: `https://www.idanceflow.com/studios/[CONFIDANCE-SLUG]#lead`
-- **Held pending Twilio (Q3):** whether these are acceptable when the studio's own website is on another domain; ConfiDance should therefore choose "Use my DanceFlow studio page" as its website in the wizard unless Twilio says otherwise.
+- Terms: `https://www.idanceflow.com/studios/[PILOT-STUDIO-SLUG]/sms-terms`
+- Privacy: `https://www.idanceflow.com/studios/[PILOT-STUDIO-SLUG]/sms-privacy`
+- Opt-in page: `https://www.idanceflow.com/studios/[PILOT-STUDIO-SLUG]#lead`
+- **Held pending Twilio (Q3):** whether these are acceptable when the studio's own website is on another domain; the pilot studio should therefore choose "Use my DanceFlow studio page" as its website in the wizard unless Twilio says otherwise.
 These pages are generated by DanceFlow, name the studio and DanceFlow's role, state that mobile numbers and consent are not shared with third parties for marketing, and show the studio's legal name once the owner has submitted the setup. They return 404 until the pilot switch is on, a setup is submitted, or the studio has an existing registration.
 
 ### 2.6 Business identity — what only the owner can supply (all `[UNVERIFIED]` until the owner enters them)
 | Field | Source | Notes |
 |---|---|---|
-| Legal business name | `[CONFIDANCE LEGAL NAME]` | exactly as on the IRS EIN letter (CP 575 / 147C); not the display name |
+| Legal business name | `[PILOT STUDIO LEGAL NAME]` | exactly as on the IRS EIN letter (CP 575 / 147C); not the display name |
 | EIN | `[OWNER ENTERS IN WIZARD]` | owner types it personally; stored encrypted; DanceFlow staff never see or handle it |
 | Entity type | `[LLC / corporation / partnership / non-profit / co-op]` | |
 | Industry | `[EDUCATION / CONSUMER]` | pending Twilio Q4c |
@@ -104,7 +104,7 @@ These pages are generated by DanceFlow, name the studio and DanceFlow's role, st
 
 ---
 
-## 3. ConfiDance registration-readiness checklist
+## 3. The pilot studio registration-readiness checklist
 
 Legend: ✅ done, ⏳ in progress, ⛔ blocked on the named item, 👤 owner action, 🛠 engineering (needs separate authorization).
 
@@ -112,17 +112,17 @@ Legend: ✅ done, ⏳ in progress, ⛔ blocked on the named item, 👤 owner act
 - ✅ Wizard, status tracker, cancel/recovery, paused-pilot handling, per-studio SMS legal pages, platform pilot panel built and tested locally (see TW-4A_Notes.md).
 - ✅ SQL TW-4A (`f792c351933e`) applied to shared DEV 2026-10-15.
 - ⏳ SQL TW-4A.1 (`9ca53d4d3221…`, paused status + legal-page continuity) validated locally and on the local QA stack; **not applied to DEV or PROD** (needs authorization; DEV first).
-- 🛠 PROD SQL (4A then 4A.1) → app deploy → set `SMS_EIN_ENCRYPTION_KEY` / `SMS_EIN_ENCRYPTION_KEY_ID` in the PROD environment → register the EIN-purge cron in `vercel.json` → enable the pilot for ConfiDance only (platform panel, with a reason).
-- ⛔ **Self-service registration submission itself is NOT built.** TW-4A captures and stores the data; creating the Twilio resources is TW-4B/4C, which are gated on Twilio Q1, Q2, Q5 and an Opus security review. Until then, ConfiDance's registration would have to be submitted manually in the Twilio Console from this package (the earlier manual path).
+- 🛠 PROD SQL (4A then 4A.1) → app deploy → set `SMS_EIN_ENCRYPTION_KEY` / `SMS_EIN_ENCRYPTION_KEY_ID` in the PROD environment → register the EIN-purge cron in `vercel.json` → enable the pilot for the pilot studio only (platform panel, with a reason).
+- ⛔ **Self-service registration submission itself is NOT built.** TW-4A captures and stores the data; creating the Twilio resources is TW-4B/4C, which are gated on Twilio Q1, Q2, Q5 and an Opus security review. Until then, the pilot studio's registration would have to be submitted manually in the Twilio Console from this package (the earlier manual path).
 
 **Twilio**
-- 👤 Send / follow up Q1–Q5 on #29647095 (section 1); record each answer and date.
+- 👤 Send / follow up Q1–Q5 on [PROVIDER-TICKET-A] (section 1); record each answer and date.
 - ⛔ Use-case/tier choice (Q4), opt-out mode and HELP behavior (Q2), URL-domain rule (Q3), subaccount design (Q1) — all wait on Twilio.
 
-**Owner / ConfiDance**
-- 👤 Confirm ConfiDance's DanceFlow display name and public slug, and that its public page and the opt-in form (`#lead`) are live.
-- 👤 Decide website choice (DanceFlow page recommended) and, if ConfiDance has its own site, give the URL.
-- 👤 ConfiDance's owner (not DanceFlow staff) completes Settings → Texting after the pilot is on: legal name, EIN, entity type, industry, address, representative details, area code, the four attestations.
+**Owner / the pilot studio**
+- 👤 Confirm the pilot studio's DanceFlow display name and public slug, and that its public page and the opt-in form (`#lead`) are live.
+- 👤 Decide website choice (DanceFlow page recommended) and, if the pilot studio has its own site, give the URL.
+- 👤 The pilot studio's owner (not DanceFlow staff) completes Settings → Texting after the pilot is on: legal name, EIN, entity type, industry, address, representative details, area code, the four attestations.
 - 👤 Capture the opt-in evidence listed in 2.3 (screenshot of the live form, sample consent record).
 - 👤 Confirm packaging/fees wording the attestation refers to (decision D7) so the "fees and terms" statement is true.
 
@@ -131,4 +131,4 @@ Legend: ✅ done, ⏳ in progress, ⛔ blocked on the named item, 👤 owner act
 ---
 
 ## 4. Recommended smallest next step
-Authorize **TW-4A.1 on shared DEV only** (function bodies; privileges unchanged; DEV rollback ready), then send Q1–Q5 if not yet sent. Those two steps unblock everything else without touching PROD or Twilio. After that, in order: PROD SQL 4A + 4A.1 and app deploy with the pilot OFF → enable ConfiDance only → ConfiDance's owner completes the wizard → decide, with Twilio's answers in hand, between the manual Console submission and starting TW-4B (which needs its own Opus review).
+Authorize **TW-4A.1 on shared DEV only** (function bodies; privileges unchanged; DEV rollback ready), then send Q1–Q5 if not yet sent. Those two steps unblock everything else without touching PROD or Twilio. After that, in order: PROD SQL 4A + 4A.1 and app deploy with the pilot OFF → enable the pilot studio only → the pilot studio's owner completes the wizard → decide, with Twilio's answers in hand, between the manual Console submission and starting TW-4B (which needs its own Opus review).
