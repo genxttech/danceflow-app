@@ -146,6 +146,18 @@ Executed: apply, rollback and re-apply 8 of 8; the S5, R-11, R-10 S3 and R-15 su
 - **Executed:** stand-in tables only (in-process PostgreSQL): rollback exactness for three prior grant states, refusal without the record, and the fixture (41 of 41). The composed chain, suites and race scripts are PENDING.
 - **Review of these two changes (independent, by reading):** fixed: the fixture is one transaction (a refused opt-in installs nothing), tolerates only the function's own refusals, renews a stale determination only on a participant write (never at placement) and ignores floor-state updates; the rollback refuses while an S6 guard applied later is installed. The fixture still creates one adult participant for an entry that has none, so a result obtained with it is no evidence for that gate. Check-in now fails closed until the SQL is applied: it is part of the release order, not only the planner.
 
+## AUTOSEED results (p1run6, 866 `d40d1d2d`) and verdicts
+
+12 of 17 suites and 9 of 14 race re-runs passed with the shared fixture (S5 record; adapted evidence only). The rollback difference on the TRIGGER grants is gone.
+
+| Still stopping | Cause | Verdict / remedy (none executed on the chain) |
+|---|---|---|
+| cf1_a1_helpers, cf1_rb3_refund_evidence | the suites seed no studio manager, so the fixture could not record a decision (42501) | fixture gap, fixed: a throwaway fixture manager for that one decision, removed again |
+| cf1_a5_exclusion, races a5 and a5 with S6 | they plant already-ineligible couples into running heats under replica mode (the 10D rule does not fire there; the R-15 placement gate does, like the other ENABLE ALWAYS CF1 guards) | gate behaves as designed; not changed. Remedy belongs to the suite owner: place while cleared, then mark ineligible (labelled copy). Whether R-15 should stay active under replica mode is a coordinator decision; recommended: keep |
+| cf1_callback_final_advancement (U11) | publication refused; the suite marks a placed couple ineligible shortly before publishing (likely cause, not confirmed from the log) | refusal intended for an ineligible couple; the suite should scratch it before publishing (owner) |
+| cf1_rb3r (and its race) | couples neither placed nor given participants | one `select r15_testfixture.clear_all();` after seeding, in a labelled copy |
+| phase10a | writes eligibility directly | refusal correct; the suite must use the function |
+
 ## Known gaps
 
 App changes above; suites not yet adapted; D-R15-4 (authorization semantics), D-R15-5 (waiver categories), whether early ballot-mark refusal is wanted (lock-time refusal is mandatory and present); division label / participant edits during a running round make a determination stale (recoverable by re-determination, not frozen). The blocker stays OPEN until the integrated release candidate passes end-to-end verification (register entry `DFPOL-R15-ELIGIBILITY-ENFORCEMENT`).

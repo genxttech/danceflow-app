@@ -83,7 +83,9 @@ describe("R-15 (S4) migration order and rollback safety", () => {
     expect(sql).toMatch(/^begin;$/m);
     expect(sql.trimEnd().endsWith("commit;")).toBe(true);
     expect(sql).toContain("exception when check_violation or insufficient_privilege then");
-    expect(sql).not.toContain("exception when others");
+    // the only catch-all handlers are the two around removing the throwaway fixture manager, never around the decision
+    expect(sql.match(/exception when others/g)).toHaveLength(2);
+    expect(sql.indexOf("exception when others")).toBeGreaterThan(sql.indexOf("exception when check_violation or insufficient_privilege then"));
     expect(sql).toContain("before insert or update of entry_id, heat_id on public.event_competition_heat_entries");
     expect(sql).not.toMatch(/insert\s+into\s+public\.event_competition_eligibility_determinations/i);
     expect(sql).not.toMatch(/disable\s+trigger|drop\s+trigger|create\s+or\s+replace\s+function\s+public\./i);

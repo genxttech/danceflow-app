@@ -35,3 +35,55 @@ held exactly while neither guard is installed. The released suite stays unchange
 | `docs/competition/governance/audit/guarded-baseline/test_T_od31_guarded_baseline_negative.sql` | `d72eee3687648257488252f4fcb590eaf4f357b1` | `7ad6269c2c0de911e9c88ca62341b1f738a5c76e` |
 
 Same rules as above: temporary copy only, check both blobs, originals run unpatched on the baseline, results labelled ADAPTED COPY.
+
+## Labelled R-15 suite copies (separate files in `sql-tests/`)
+
+**None of these is a released suite. A pass of a copy is never a pass of its source.** The sources stay unchanged and still run on a chain without R-15.
+Each copy has a header listing every change and every dropped assertion, and prints `ADAPTED COPY R-15:` in front of its verdict.
+
+| Source | Source blob | Copy | Copy blob |
+|---|---|---|---|
+| `test_T_competition_cf1_a5_exclusion.sql` | `bf0e2ce896b11ea7f8f96631bc7968128b59c848` | `test_T_competition_cf1_a5_exclusion_with_r15.sql` | `4dcefccfa9164edcc5c48c792b7ce63dfbf46621` |
+| `test_T_competition_cf1_a5_concurrency.sh` | `287fff40ea019b72a4e7776a8b6c8a15b1dcbdcb` | `test_T_competition_cf1_a5_concurrency_with_r15.sh` | `934055616f6da84898bd398e20c8a7cfc21ae50f` |
+| `test_T_competition_cf1_a5_concurrency_with_s6.sh` | `446a681269651922ee45a5227006a22764d70d00` | `test_T_competition_cf1_a5_concurrency_with_s6_with_r15.sh` | `f2df840ae3d08c6bf0a99d5195fb9c1ee9d5302c` |
+| `test_T_competition_cf1_callback_final_advancement.sql` | `8b44c385cb875fc38287ca32748969e5ce3dc3d1` | `test_T_competition_cf1_callback_final_advancement_with_r15.sql` | `4deaf379aae03e8d6651f6ddac8e0c400e1c2581` |
+| `test_T_competition_cf1_rb3r_reconciliation.sql` | `6ee17b31901da4f5825426d520db61388ce42ab9` | `test_T_competition_cf1_rb3r_reconciliation_with_r15.sql` | `ae1f2d907ed68c4d819fa1c36cb3ad2a23e6085c` |
+| `test_T_competition_cf1_rb3r_concurrency.sh` | `9e101e805d239f9a5b1dde9bce57e204ddaeef43` | `test_T_competition_cf1_rb3r_concurrency_with_r15.sh` | `c76400984bd6e40ad997582cd9aa7b9c29b892e7` |
+| `test_T_phase10a_competition_foundation.sql` | `491b091b37dc540ffe01a7e5faa9019e3f1b8ed6` | `test_T_phase10a_competition_foundation_with_r15.sql` | `0f7539860070cefaa4461f89fee181531b750831` |
+| `test_T_competition_cf1_a1_helpers.sql` | `5f5dd42021366731925927698c22d47c9d5760d1` | `test_T_competition_cf1_a1_helpers_with_r15.sql` | `cd07d3351de0d902fec33410ff14a7728c9815b1` |
+| `test_T_competition_cf1_rb3_refund_evidence.sql` | `5035e0792c026c9bb3d42e4c88adece2f3325cd3` | `test_T_competition_cf1_rb3_refund_evidence_with_r15.sql` | `023b0b13ea41b4f053e5f1d436ba83304a78c1ab` |
+
+Three sources are not on this branch: the S6 race script is PR 877's file, the callback suite is the composed merge of candidate blob `412d42d008` with
+PR 844's change (the content run in p1run6), and the A1 helpers suite is PR 844's edit (the content run in p1run7). Regenerate the copy if a source moves.
+
+| Copy | Changes | Dropped |
+|---|---|---|
+| A5 suite and both A5 race scripts | couples are seeded as in the source, made eligible only while cleared through the real RPC and placed, then set back; one added check of that starting state | none |
+| callback to Final | U11 only: an added check that the publish is refused for exactly the one ineligible couple, which is then withdrawn by an owner fixture write | none (the source publishes with that couple still placed) |
+| RB3R suite and race script | seeded couples cleared through the real RPC; one added check | none |
+| Phase 10A | eligibility decided through the RPC; the direct write now expects refusal; a direct `late_entry` edit keeps the direct-audit coverage; an added refusal check and clearance before publishing v1 | the two checks of a **direct eligibility write** succeeding and being audited (replaced) |
+| A1 helpers | a fixture event manager added (the source has none); ineligible and needs-review couples cleared and placed while eligible, then set back; added refusal checks for both direct placements; four expectations changed for the needs-review couple e05, which R-15 holds as unavailable | "needs_review is NOT unavailable (e05)" (replaced by its opposite) |
+| RB3 refund evidence | same manager, fixture change and refusal checks; later couples cleared too, with one added check; the ledger-absent equality now expects the R-15 reason for e05 | the A1 equality for e05 only (replaced) |
+
+Limits of what the copies show:
+
+- A1 helpers and RB3 refund evidence: the couples set back to their seeded status by an owner fixture write keep an "eligible" determination, and the manager
+  who records it exists only in the copy. Neither copy exercises the organizer's own way of changing a decision.
+- A5 suite: every couple keeps the fixture's "eligible" determination, so the source's later direct writes back to "eligible" count as cleared again. The
+  organizer's path (ineligible through the RPC, then a new eligible decision) is not exercised.
+- Callback: the withdrawal that follows the U11 check is not an organizer action and does not show how an organizer clears such a refusal. The fixture's state
+  (a `danced` placement in a draft about to be published) is one normal use cannot reach, because a publish is refused once any heat has run.
+
+U11 cause: the draft that event 6 publishes still holds a couple that the earlier U32 steps made ineligible. R-15 refuses such a publish on purpose, so this is
+intended behaviour and not a product defect. The cause was read from the code and fixture; the added U11 check is what proves it on a database.
+
+Running:
+
+- All need the real S5 predicate and a disposable database. The A1, A5, RB3, RB3R and Phase 10A `.sql` copies need `fixtures/r15_clear_entries.sql` prepended (the
+  composed runner does this for every suite). The race scripts read that file themselves.
+- The callback copy needs `fixtures/r15_clearance_autoseed.sql` installed: its result is ADAPTED COPY **and** AUTOSEED.
+- `..._a5_concurrency_with_r15.sh` is for a chain with R-15 and **without** S6. With S6 its P1 and P2 fail by design (`COMP_ENTRY_LIFECYCLE_PLACED`); that is
+  not adapted away. On such a chain the result that counts is `..._a5_concurrency_with_s6_with_r15.sh`.
+- The runner picks the files up by name but does not add its own label: the run record must label them ADAPTED COPY.
+- Outside these copies' scope: the Phase 10A "Competition template not found" checks fail on the baseline chain too. On the chain with the pilot restriction
+  (`20270301180000`) the callback, A1, A5, RB3 refund-evidence and Phase 10A suites and the A5 race scripts stop on pilot restrictions; that is not adapted here.
