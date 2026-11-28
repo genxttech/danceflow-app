@@ -489,7 +489,7 @@ Generated from the blobs by `gen_manifest_data.mjs`; regenerate, do not hand-edi
 #### 20261129090000_twilio_tw4f_provider_integration.sql
 
 - sha256 (LF-normalized): `5e9395e47c655eaa18c7b5445b515d052548c706b22a464c987c825f37361278`  (183 lines)
-- header: TW-4F provider integration (Twilio ticket #29647095 answers, 2026-10-19). Database side only; NO Twilio call is made by anything in it.
+- header: TW-4F provider integration (Twilio ticket [PROVIDER-TICKET-A] answers, 2026-10-19). Database side only; NO Twilio call is made by anything in it.
 - created: 2 tables (`sms_webhook_receipts`, `studio_sms_tier_decisions`), 6 functions, 0 views, 5 indexes/triggers/constraints
   - new functions: `tw4_webhook_account`, `_sms_webhook_receipts_guard`, `sms_webhook_receipt_seen`, `sms_webhook_receipt_record`, `tw4_onboarding_set_tier`, `tw4_runner_tier`
 - client-exposed grants (anon/authenticated/PUBLIC): none
@@ -1016,7 +1016,7 @@ Common setup for every hosted step:
 
 ### 8.2 PROD (`hvsujyfbftfffxpfmlpb`)
 
-Prerequisites, all separately authorized and recorded: DEV D1-D5 complete and clean for the same `<ref>`; the PR set merged by the owner; the candidate build exists on qfem but is **not promoted**; the previous production deployment id is recorded as the app rollback target; the pilot switch for ConfiDance stays OFF.
+Prerequisites, all separately authorized and recorded: DEV D1-D5 complete and clean for the same `<ref>`; the PR set merged by the owner; the candidate build exists on qfem but is **not promoted**; the previous production deployment id is recorded as the app rollback target; the pilot switch for the pilot studio stays OFF.
 
 **P0. Authorization.** Owner names project PROD, `<ref>`, the file list and order, and that the apply is database-only (no promotion in the same step).
 
@@ -1030,14 +1030,14 @@ Prerequisites, all separately authorized and recorded: DEV D1-D5 complete and cl
 
 **P5. Rollback posture.** While all tables hold 0 rows: app first (promote previous), then SQL in reverse order with fingerprints. After the first evidence row exists anywhere: app first only; SQL stays; forward-fix.
 
-### 8.3 ConfiDance pilot gates (tracker section 8, P)
+### 8.3 pilot gates (tracker section 8, P)
 
 The pilot is not a database event. Each step is separately authorized in writing, and none runs before P1-P4 are complete and clean:
 
 1. PROD SQL then app promotion (8.2).
 2. Prices published (decision U-2). No migration seeds prices.
 3. Stage B draft handled (U-10).
-4. **Per-fee and per-period written approvals (U-4), within the ConfiDance $150 cumulative ceiling.** `1230` extends the evidence rule to every pilot spend approval and to the pilot exception itself (see the `1230` apply-order gate in section 3.0: apply it before the first exception or approval exists). With `1229` each per-period cover is recorded with dated written-authorization evidence (date, role, scope, amount equal to the published price, period, document reference, sha256 of the retained text; the text itself is never stored) via the eleven-argument `tw4_rfl_pilot_cover`; an evidence-free cover no longer counts, and `1229` will not apply while one exists. The ceiling is a non-spendable authorization, not credit; each period needs its own written approval; no standing recurring authorization for the pilot business.
+4. **Per-fee and per-period written approvals (U-4), within the pilot-studio [PILOT-CAP] cumulative ceiling.** `1230` extends the evidence rule to every pilot spend approval and to the pilot exception itself (see the `1230` apply-order gate in section 3.0: apply it before the first exception or approval exists). With `1229` each per-period cover is recorded with dated written-authorization evidence (date, role, scope, amount equal to the published price, period, document reference, sha256 of the retained text; the text itself is never stored) via the eleven-argument `tw4_rfl_pilot_cover`; an evidence-free cover no longer counts, and `1229` will not apply while one exists. The ceiling is a non-spendable authorization, not credit; each period needs its own written approval; no standing recurring authorization for the pilot business.
 5. Real-provider validation, one call at a time, each authorized.
 6. Scheduled jobs registered only after authorization, and only after **healthy reconciliation**: the usage reconciler, inventory reconciliation, sender re-verification, RFL scan and RFL delivery. Until then `vercel.json` has no TW-4F cron and the switches stay off. Activation requires reconciliation to report healthy (F3's `_tw4usage_reconciler_ready()` once `1218` is merged and applied); an unhealthy or unverified reconciler blocks activation.
 7. Alert recipients verified and the delivery runbook (`TW-4F_RFL_Delivery_Runbook.md` section 7) executed; **delivery switches stay off** until then.

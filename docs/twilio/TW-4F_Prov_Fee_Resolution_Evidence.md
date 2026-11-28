@@ -4,7 +4,7 @@ Baseline: `main` 54ca06be (R2a, R2b, RFL, R2c-I1/I2 merged). Migration `20261212
 
 ## 1. The problem
 
-R2a let a platform administrator close a fee-bearing operation with an UNKNOWN provider outcome as "not created" (`tw4_prov_resolve`) and, through `tw4_prov_settle_admin`, release a held reservation, on a written note and a 20-minute wait alone. For a credit-funded business that returns money the provider may still be billing; for the ConfiDance pilot it returns headroom to the cumulative $150 ceiling, which a late-discovered resource can then no longer be counted against. Nothing recorded WHAT the provider showed.
+R2a let a platform administrator close a fee-bearing operation with an UNKNOWN provider outcome as "not created" (`tw4_prov_resolve`) and, through `tw4_prov_settle_admin`, release a held reservation, on a written note and a 20-minute wait alone. For a credit-funded business that returns money the provider may still be billing; for the pilot it returns headroom to the cumulative [PILOT-CAP] ceiling, which a late-discovered resource can then no longer be counted against. Nothing recorded WHAT the provider showed.
 
 ## 2. Release paths and their basis (after this change)
 
@@ -51,14 +51,14 @@ While an orphan is `open` or `registered` a BEFORE INSERT trigger refuses every 
 
 Known interaction (RFL-owned, reported to that session): once registered, an orphan is a studio resource for the lifecycle's coverage and alert rules (periods covered by the studio's own recurring charge, owner "authorize" alerts and the sending gate when uncovered). Registering is therefore an explicit administrator step, not automatic.
 
-## 6. ConfiDance
+## 6. The pilot studio
 
 For the pilot business `tw4_prov_resolve('not_created')` on a fee-bearing operation and `tw4_prov_settle_admin('released')` are refused with `TW048` whatever the evidence. "Pilot" is judged by the exception row OR by the operation's own pilot-funded reservations (so removing the exception never makes them releasable by absence). The releases that remain are the provider's own evidence: a definitive refusal recorded by `tw4_prov_finish`, and a provider-read FAILED campaign judged by `tw4_prov_observe` (the not-yet-captured monthly fee). The shared pilot-ceiling function (`20261202`) is not touched: the ceiling can only shrink through provider evidence, never through an absence determination.
 
 ## 7. Interfaces and ownership
 
 * R2a: this PR replaces `tw4_prov_resolve` and `tw4_prov_settle_admin` (a precondition check refuses to apply if either differs from the R2a text). R2a's own suite is updated for the new rules; its rollback test now takes later layers off first.
-* R2b owns L1-L4 for NUMBERS (`tw4_num_resolve`, `tw4_num_settle_admin`, orphan adoption, scheduled inventory). Not touched. **Gap to close there:** R2b's `tw4_num_resolve('not_created')` and `tw4_num_settle_admin('released')` still release fee-bearing number reservations (including the pilot's, which count against the $150 ceiling) on an administrator's attestation. R2b's L2 can reuse the proof pattern in section 4. This PR adds only the generic orphan-block trigger on `studio_sms_num_operations`.
+* R2b owns L1-L4 for NUMBERS (`tw4_num_resolve`, `tw4_num_settle_admin`, orphan adoption, scheduled inventory). Not touched. **Gap to close there:** R2b's `tw4_num_resolve('not_created')` and `tw4_num_settle_admin('released')` still release fee-bearing number reservations (including the pilot's, which count against the [PILOT-CAP] ceiling) on an administrator's attestation. R2b's L2 can reuse the proof pattern in section 4. This PR adds only the generic orphan-block trigger on `studio_sms_num_operations`.
 * RFL: registration (`tw4_rfl_register`), the alert queue (`_tw4rfl_alert`, kind `inventory_gap`), exposure and cancellation evidence are consumed unchanged (confirmed with that session: no signature or kind change in its `20261211`); no competing table. Delivery of the alerts remains RFL's.
 * Application: `FEE_RELEASE_ENABLED=false` in `provisionLedger.ts` is unchanged, so the console still cannot release a fee. A future slice may lift it only after this evidence flow has a console surface and an owner decision.
 

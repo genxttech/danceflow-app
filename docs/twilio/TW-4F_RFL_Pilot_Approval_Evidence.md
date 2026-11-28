@@ -65,7 +65,7 @@ is refused (`_tw4c_truncate_guard`), and an insert is accepted only under the `t
 that cover. The shared `_tw4rfl_guard` body is **not replaced** (attaching evidence to its `else` branch would have been wrong, and replacing it needs a new fingerprint chain).
 Audit: the existing `rfl_cover_recorded` audit row now names the evidence id, role, authorization date and the first 12 hex of the hash (the audit action vocabulary is unchanged).
 
-Everything else in the 20261225 body is kept: current or next period only (`TW042`), no retroactive approval, platform administrator only (`42501`), hold or negative balance (`TW007`), the $150
+Everything else in the 20261225 body is kept: current or next period only (`TW042`), no retroactive approval, platform administrator only (`42501`), hold or negative balance (`TW007`), the [PILOT-CAP]
 cumulative ceiling (`TW007`), one reference per use (`TW019`), D5 supersede semantics (`TW043`), the `tw4.rfl_write` flag pattern and the lock order (`_tw4rfl_lock`: legal business row, then credit
 account, then the resource row, then `tw4_spend_authorize`). The function did not take the location-link `_tw4sr_lock` before this change either, so none was added. No two-admin control was added.
 A replay (same reference, same actor, same evidence) returns the same cover and evidence; the same reference with different evidence is refused with `TW019`.
@@ -94,7 +94,7 @@ negative balance; `TW041` resource not a live fee resource; `TW042` not the pilo
 
 ### Other pilot spend approvals (follow-up, not done)
 
-`tw4_pilot_exception_create` (the $150 exception itself) and the other pilot-funded authorizations go through `tw4_spend_authorize` directly, not through `tw4_rfl_pilot_cover`. Sharing the evidence there is not
+`tw4_pilot_exception_create` (the [PILOT-CAP] exception itself) and the other pilot-funded authorizations go through `tw4_spend_authorize` directly, not through `tw4_rfl_pilot_cover`. Sharing the evidence there is not
 trivial (different amounts, no period, a different table), so it is a follow-up. The reusable parts are the evidence table shape and the shared TS validator.
 
 ## 3. Callers of `tw4_rfl_pilot_cover` and of `tw4_spend_authorize` for pilot covers (on main fc507ee1)

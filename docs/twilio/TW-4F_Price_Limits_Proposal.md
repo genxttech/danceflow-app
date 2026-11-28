@@ -10,7 +10,7 @@ The price list accepts exactly eight kinds (check constraint after `20261202`/`2
 | `brand` | $46.00 cost; candidates $56 to $65 ($5,600 to $6,500 cents); provider 4,600 | 1000/700, 4600/4600, 100/50 | 10,000 ($100) | 6,000 ($60) | 50% | about 1.5x the highest candidate; a Standard brand costs $46 |
 | `brand_low_volume` | $4.50 cost; candidates 600 to 1,450 | 700/450 | 2,000 ($20) | 1,000 ($10) | 50% | LVS brand fee is $4.50; the highest candidate is $14.50 |
 | `campaign_vetting` | $15 cost; candidates 1,900 to 2,100 | 1500/1500, 1500/1000 | 3,500 ($35) | 2,500 ($25) | 50% | about 1.7x candidate; vetting is $15 and non-refundable |
-| `number` (monthly rent) | $1.15 cost; candidates 150 to 165 | 200/115, 500/400, 14500/100 (a test at the $150 cap) | 500 ($5) | 300 ($3) | 50% | monthly rent for one local number; 14,500 appears only as a test of the entity cap |
+| `number` (monthly rent) | $1.15 cost; candidates 150 to 165 | 200/115, 500/400, 14500/100 (a test at the [PILOT-CAP] cap) | 500 ($5) | 300 ($3) | 50% | monthly rent for one local number; 14,500 appears only as a test of the entity cap |
 | `monthly` (campaign monthly, standard) | $10 cost; candidates 1,200 to 1,400 | 1000/150, 1500/1400, 1800/1000 | 2,500 ($25) | 1,500 ($15) | 50% | standard MIXED is $10; low-volume is separate |
 | `monthly_low_volume` | $1.50 cost; candidates 200 to 250 | 250/150 | 600 ($6) | 400 ($4) | 50% | LVS campaign fee is $1.50 |
 | `sms_usage` (outbound per segment) | provisional **3** (about 2.4x list cost 1.27); provider about 1 to 2 | 3/1, 1000/400, 9/1 | 6 | 3 | 50% (3 to 4 ok, 3 to 5 not) | stays on the $0.03 direction with room for the 4 to 5 cent alternative; cost 1.3 cents all-in |

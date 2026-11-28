@@ -52,7 +52,7 @@ Application:
 
 Prices stay DRAFT (`TW-4F-3b_Pricing_Proposal.md` §5). Without a published price, nothing of these kinds can be authorized (TW008).
 
-ConfiDance: the pilot ceiling logic is kind-agnostic and unchanged: a pilot-funded approval of either brand kind still needs its own written approval for one location, and the cumulative $150 ceiling counts reserved + captured reservations of every kind. Standing recurring authorizations stay refused for the pilot business (TW011).
+The pilot studio: the pilot ceiling logic is kind-agnostic and unchanged: a pilot-funded approval of either brand kind still needs its own written approval for one location, and the cumulative [PILOT-CAP] ceiling counts reserved + captured reservations of every kind. Standing recurring authorizations stay refused for the pilot business (TW011).
 
 ## 3. Deployment and rollback
 

@@ -4,7 +4,7 @@ Status: implemented locally on branch `twilio-tw4f-provider-integration` (fake a
 
 This document is the reference for how DanceFlow talks to Twilio once each studio legal business has its own subaccount (D2, owner decision 2026-10-18). It replaces the working assumptions Q1b and Q1c in `TW-4F_Production_Onboarding_Plan.md` §13 and `TW-4F-3a_Subaccount_Design.md`.
 
-## 1. What Twilio confirmed (support ticket #29647095, 2026-10-19)
+## 1. What Twilio confirmed (support ticket [PROVIDER-TICKET-A], 2026-10-19)
 
 | # | Question | Twilio's answer | Where it is implemented |
 |---|---|---|---|

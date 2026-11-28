@@ -82,7 +82,7 @@ export interface IsvAdapter {
 /**
  * TW-4F-3a: the parent (ISV) account's account-management surface. It can find and create subaccounts and read a subaccount's auth token, and
  * NOTHING else that writes: it carries no registration methods, so parent credentials can never create or submit Trust Hub or A2P resources
- * (Twilio ticket #29647095, answer 2: those operations need subaccount-scoped credentials).
+ * (Twilio ticket [PROVIDER-TICKET-A], answer 2: those operations need subaccount-scoped credentials).
  */
 export interface IsvParentAdapter {
   findSubaccount(friendlyName: string): Promise<string[]>;

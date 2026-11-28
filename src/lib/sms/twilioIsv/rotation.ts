@@ -2,7 +2,7 @@ import type { RedactedSecret, SubaccountTokenProvider } from "./account";
 import { IsvApiError } from "./types";
 
 /**
- * TW-4F provider integration: a subaccount registration adapter that survives an Auth Token rotation (Twilio ticket #29647095, answer 5: no
+ * TW-4F provider integration: a subaccount registration adapter that survives an Auth Token rotation (Twilio ticket [PROVIDER-TICKET-A], answer 5: no
  * overlap window, so a token cached a moment before the rotation is rejected with HTTP 401 from then on).
  *
  * On a 401 from the subaccount the token is re-read from the parent ONCE (spaced per account, see SubaccountTokenProvider.refresh) and, only if it

@@ -4,7 +4,7 @@ import type { RedactedSecret, SubaccountTokenProvider } from "@/lib/sms/twilioIs
 import { twilioSignatureMatches, verifyTwilioWebhook } from "@/lib/sms/twilioWebhook";
 
 /**
- * TW-4F provider integration: account-aware Twilio webhook verification (Twilio ticket #29647095, answers 3-5).
+ * TW-4F provider integration: account-aware Twilio webhook verification (Twilio ticket [PROVIDER-TICKET-A], answers 3-5).
  *
  *  - A webhook for a message sent from a studio legal business's SUBACCOUNT is signed with that subaccount's own Auth Token. The parent token
  *    cannot verify it, and accepting the parent token for it would be wrong anyway.

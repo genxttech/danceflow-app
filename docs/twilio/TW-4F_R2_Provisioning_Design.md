@@ -41,7 +41,7 @@ Both tables are append/update-guarded, have no API-role privileges, and are reac
 5. Fee authorization for `campaign` (reserved atomically in one transaction, so a partial reservation cannot commit):
    - always: a written, owner-approved `campaign_vetting` spend event (permanent reference, correct business and location), reserved against settled credit or, for the pilot business, the cumulative ceiling;
    - credit-funded business: an ACTIVE recurring authorization of the path's campaign monthly kind at the current published price, and settled credit for the first month beyond the vetting reservation;
-   - ConfiDance pilot business (no standing authorization is allowed): a SECOND explicit written approval of the monthly kind for the first month, inside the same cumulative ceiling. Each fee component has its own reference; none is inferred.
+   - Pilot business (no standing authorization is allowed): a SECOND explicit written approval of the monthly kind for the first month, inside the same cumulative ceiling. Each fee component has its own reference; none is inferred.
 6. A captured fee needs a fresh authorization for any later attempt (`tw4_spend_reserve` already requires an `authorized` event per attempt); resubmission after rejection therefore always needs a new explicit approval.
 
 ### 3.3 Idempotency and unknown outcomes
@@ -109,9 +109,9 @@ Twilio keeps billing a live campaign (and number) to the subaccount whether or n
 4. **Lapse procedure (platform admin, written reason each step).** (a) Revoke the location's sender (`tw4_sender_revoke`) so nothing is sent; (b) hold the credit account if funds are the cause; (c) if the owner does not reauthorize within the agreed grace period, cancel/suspend the campaign, the number and the Messaging Service at Twilio (manual console step; DanceFlow deletes nothing at the provider), record it, and close any held reservation with `tw4_prov_settle_admin` / `tw4_prov_resolve`; (d) any fee Twilio billed in the meantime is recorded as a provider-cost variance, never charged to the studio without authorization.
 5. **Runbook** (docs/twilio) with these steps and the alert wording ships with the scheduler.
 
-### 6.2 ConfiDance month two and later (enforced + BLOCKER before pilot activation)
+### 6.2 the pilot studio month two and later (enforced + BLOCKER before pilot activation)
 
-Enforced today: the pilot business cannot hold a standing recurring authorization (`tw4_recurring_authorize` refuses it, TW011; a pre-existing one makes R2a refuse the campaign with `pilot_conflict`, tested). No scheduler charges the pilot business. The $150 ceiling is not credit: every reservation needs its own written approval with a permanent reference (reserved + captured pilot reservations count cumulatively), and R2a has NO month-two operation, so nothing can fund a later month silently.
+Enforced today: the pilot business cannot hold a standing recurring authorization (`tw4_recurring_authorize` refuses it, TW011; a pre-existing one makes R2a refuse the campaign with `pilot_conflict`, tested). No scheduler charges the pilot business. The [PILOT-CAP] ceiling is not credit: every reservation needs its own written approval with a permanent reference (reserved + captured pilot reservations count cumulatively), and R2a has NO month-two operation, so nothing can fund a later month silently.
 
 Therefore the pilot's campaign and number rent for month two onward have no funding path unless the owner records a new explicit approval. BLOCKER: before the pilot is activated, define the month-two operation (its own approval per fee and per month, inside the cumulative ceiling, never a standing authorization) and the escalation: 35 days before the end of each paid month the owner is asked; without a recorded approval the lapse procedure in 6.1(4) runs. Until then the pilot may not go live.
 
