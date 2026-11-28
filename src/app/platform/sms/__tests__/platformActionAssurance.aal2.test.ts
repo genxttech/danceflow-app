@@ -53,6 +53,8 @@ type Tier = "aal2" | "recent" | "fresh";
 
 /** file -> action -> tier. Classification rationale is in docs/twilio/TW-4F_Platform_Admin_AAL2.md. */
 const REGISTRY: Record<string, Record<string, Tier>> = {
+  // pin and switch ON like activation (recent); switch OFF like suspend: a stop must not wait for a fresh code
+  "activationControlActions.ts": { pinInboundRouteAction: "recent", switchBilledTextingOnAction: "recent", switchBilledTextingOffAction: "aal2" },
   "actions.ts": {
     saveStudioSmsRegistrationAction: "aal2",
     setSmsOnboardingAccessAction: "aal2",
@@ -181,7 +183,7 @@ describe("completeness and source order", () => {
         "panelCreatePilotExceptionAction", "panelCreateSubaccountAction", "resolveProvisioningOperationAction", "reopenProvisioningAction",
         "runProvisioningStepAction", "runNumberStepAction", "retryRegistrationAction", "rflSetSwitchAction", "rflDualRequestAction", "rflDualApproveAction",
         "rflDisposeExposureAction", "rflPilotCoverAction", "rflCancelAuthorizeAction", "rflCancelBeginAction", "rflCancelFinishAction",
-        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction",
+        "rflCancelResolveAction", "rflCancelReleaseAction", "resolveUsageAttemptAction", "pinInboundRouteAction", "switchBilledTextingOnAction",
       ].sort(),
     );
   });
