@@ -1,0 +1,32 @@
+name: Documentation publication check
+
+# Fails a pull request whose changed documentation adds identifier-shaped values or a privately listed name.
+# No third-party action beyond the pinned checkout, no dependencies. Not a required check. See docs/Documentation_Publication_Policy.md.
+
+on:
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  docs-publication:
+    name: Documentation publication check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test the check
+        run: node --test scripts/docs-publication/__tests__/check.test.mjs
+      - name: Check the documentation this pull request adds
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Optional private name list (one per line). Empty when it is not configured, and for pull requests from forks.
+          DOCS_PUBLICATION_DENYLIST: ${{ secrets.DOCS_PUBLICATION_DENYLIST }}
+        run: node scripts/docs-publication/check.mjs --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA"
