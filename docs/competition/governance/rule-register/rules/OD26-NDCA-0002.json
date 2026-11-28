@@ -1,0 +1,35 @@
+{
+  "id": "OD26-NDCA-0002",
+  "governing_body": "NDCA",
+  "format": "NDCA Sanctioned events, first event of the day",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.D.1 (p.19), third of four sentences of the timetable text",
+    "quote_free_summary": "The first event of the day must not start ahead of its scheduled time."
+  },
+  "rule_class": "mandatory",
+  "requirement": "A future NDCA profile must show a proposed change that would start the first event of the day early as a preventable scheduling violation (acknowledgment and reason), and record the actual first start.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation. Needs the time model and a definition of 'first event of the day' per floor and day.",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED and a profile blocker. 'First event of the day' per floor and per day is not defined in the text read (Q2).",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

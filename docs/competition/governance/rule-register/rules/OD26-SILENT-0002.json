@@ -1,0 +1,28 @@
+{
+  "id": "OD26-SILENT-0002",
+  "governing_body": "silent",
+  "format": "UCWDC contests, timetable adherence, lateness, cut-off and change notification",
+  "source": null,
+  "rule_class": "rulebook_silent",
+  "requirement": "NOT SPECIFIED IN PROVIDED SOURCE: no UCWDC timetable-adherence, lateness, cut-off time or schedule-change notification rule was found in the Couples rules or the Scoring Format, other than OD26-UCWDC-0001 through -0005. Any such behavior is organizer or DanceFlow policy.",
+  "implementation": [],
+  "enforcement_point": "Nothing to enforce; no UCWDC compliance claimed.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "Keyword search (schedule, timetable, behind, delay, late, running order, on time, start time, midnight, a.m., curfew) of the Couples rules and the Scoring Format. A keyword search is not an end-to-end read; the ProPro/ProAm, Teams and Line Dance rules were not searched for this entry.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)",
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

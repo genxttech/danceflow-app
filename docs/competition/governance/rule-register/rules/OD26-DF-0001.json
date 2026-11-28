@@ -1,0 +1,27 @@
+{
+  "id": "OD26-DF-0001",
+  "governing_body": "dance_flow_policy",
+  "format": "DanceFlow Studio/Custom competitions, mid-event running-order changes",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "Allow controlled mid-event re-sequencing of unstarted floor heats only, in place on the live version, by one atomic RPC; never alter completed or running heats, their assignments, ballots, results or execution records; every accepted change appends an immutable revision (authorized actor, reason, timestamp, before/after order, snapshot, exact diff) and the original publication is preserved. Label it DanceFlow policy, never a body rule.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Future apply_competition_running_order_change RPC plus an evidence-backed UPDATE path in _comp10d_guard_floor_heat. Today the order is frozen after publication and republishing is refused once any heat ran (COMPO1_RUN_IN_PROGRESS).",
+  "tests": [],
+  "verification_status": "unverified",
+  "interpretation_notes": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation. Resolves O1 open decision 3 at the design level only, pending owner confirmation of the design; 'status carry-over' through a new version is rejected because new versions copy heats as new rows.",
+  "applicable_event_versions": [
+    "DanceFlow Studio/Custom"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

@@ -1,0 +1,35 @@
+{
+  "id": "OD26-UCWDC-0005",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, finality of Contest Coordinator and Event Director decisions",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Couples_v1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "8a45ee58d189e65dbda142a261dd311a3404138bcf75b7a533be7b0ef8974904",
+    "section": "II.N.1 (p.13)",
+    "quote_free_summary": "Decisions of the contest judges, the Contest Coordinator and the Event Director are final."
+  },
+  "rule_class": "organizer_discretion",
+  "requirement": "A future UCWDC profile preserves Contest Coordinator and Event Director authority; DanceFlow records who decided a reorder and does not adjudicate disputes.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation.",
+  "tests": [],
+  "verification_status": "requires_interpretation",
+  "interpretation_notes": "The sentence states finality of decisions; it does not say that schedule decisions are within that scope or who holds scheduling authority. NOT IMPLEMENTED.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}

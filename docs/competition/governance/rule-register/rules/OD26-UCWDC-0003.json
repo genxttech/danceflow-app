@@ -1,0 +1,35 @@
+{
+  "id": "OD26-UCWDC-0003",
+  "governing_body": "UCWDC",
+  "format": "UCWDC contests, move-up after scratches",
+  "source": {
+    "registry_document": "2026-Scoring-Format-v16.9b-1.pdf",
+    "edition": "2026 v16.9b",
+    "effective_from": "2026-01-01",
+    "effective_to": null,
+    "sha256": "44290a06d14c308087039bce8d57258629ae103734cce08eb21f41bdb667b02f",
+    "section": "Heating Rules item 4 (p.1)",
+    "quote_free_summary": "Where possible a division's smaller heats precede its larger ones so that, after scratches, the Contest Coordinator can move contestants up to keep heats balanced."
+  },
+  "rule_class": "recommended",
+  "requirement": "A future UCWDC profile supports a separate, audited move-up (from heat, to heat, reason scratch, actor, link to the original randomization evidence) by the Contest Coordinator; it is a change of assignment, not part of the running-order reorder, and is not converted into a hard blocker.",
+  "implementation": [],
+  "enforcement_point": "NOT IMPLEMENTED. Design only; no compliance claimed. Not authorized: SQL, migrations, UI, notification, activation. Separate slice (S6). Coordinated with OD-25 reproducible randomization (seed, algorithm version, final order).",
+  "tests": [],
+  "verification_status": "unsupported",
+  "interpretation_notes": "NOT IMPLEMENTED and a profile blocker for the UCWDC move-up capability. Modal language is 'Whenever possible'. Printed page 1.",
+  "applicable_event_versions": [
+    "2026 v16.9b"
+  ],
+  "decision_refs": [
+    "OD-26 (owner decision 2026-11-23, Option A: controlled, audited mid-event running-order changes, design-level draft; retrospective audit PR #795)",
+    "docs/competition/governance/running-order/OD-26-running-order-changes-design.md",
+    "docs/competition/governance/running-order/OD-26-migration-impact-and-test-plan.md",
+    "O1 open owner decision 3 (docs/competition/o1-day-of-operations.md)",
+    "OD-01 (PR 832)",
+    "OD-06/OD-17 (PR 834)",
+    "OD-25 (owner decision 2026-11-23)",
+    "OD-21 (PR 847)"
+  ],
+  "last_reviewed": "2026-11-23"
+}
