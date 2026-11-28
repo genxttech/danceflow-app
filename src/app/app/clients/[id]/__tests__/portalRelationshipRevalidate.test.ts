@@ -7,7 +7,7 @@ import {
 } from "@/lib/packages/__tests__/fakeEntitlementSupabase";
 
 /**
- * Sallie Debolt portal-status fix: linkPortalAccessAction,
+ * Portal-status fix: linkPortalAccessAction,
  * unlinkPortalAccessAction, and markFormerClientPortalAccessAction all
  * redirected to their success path without ever calling revalidatePath
  * first -- unlike every other mutating action in this file (e.g.
@@ -67,9 +67,9 @@ function clientRow(overrides: Partial<Row> = {}): Row {
   return {
     id: CLIENT_ID,
     studio_id: STUDIO_ID,
-    first_name: "Sallie",
-    last_name: "Debolt",
-    email: "sallie@example.test",
+    first_name: "Pat",
+    last_name: "Example",
+    email: "pat@example.test",
     is_independent_instructor: false,
     linked_instructor_id: null,
     ...overrides,
@@ -209,12 +209,12 @@ beforeEach(() => {
   revalidatePathMock.mockClear();
 });
 
-describe("portal relationship actions -- revalidatePath before success redirect (Sallie Debolt fix)", () => {
+describe("portal relationship actions -- revalidatePath before success redirect (portal-status fix)", () => {
   it("linkPortalAccessAction revalidates the client route before redirecting on success", async () => {
     setFixture({
       clients: [clientRow()],
       client_account_links: [],
-      profiles: [{ id: LINKED_USER_ID, email: "sallie@example.test", full_name: "Sallie Debolt" }],
+      profiles: [{ id: LINKED_USER_ID, email: "pat@example.test", full_name: "Pat Example" }],
     });
 
     const digest = await expectRedirectDigest(

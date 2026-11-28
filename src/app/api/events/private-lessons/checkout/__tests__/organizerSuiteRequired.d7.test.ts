@@ -204,7 +204,7 @@ describe("Organizer Suite events need a current entitlement for a new purchase",
   });
 });
 
-describe("DanceAbel boundary: complimentary access through July 8, 2027 (grant period_end 2027-07-09, America/New_York)", () => {
+describe("Protected grant boundary: complimentary access through July 8, 2027 (grant period_end 2027-07-09, America/New_York)", () => {
   const entitlements = () => [grant({ period_end: "2027-07-09" })];
 
   it("is allowed one second before local midnight on July 9 (2027-07-09T03:59:59Z)", async () => {

@@ -255,7 +255,7 @@ describe.each(MODES)("student event checkout (%s): organizer events need a curre
   });
 });
 
-describe("DanceAbel boundary: grant period_end 2027-07-09, America/New_York", () => {
+describe("Protected grant boundary: grant period_end 2027-07-09, America/New_York", () => {
   it.each([
     { at: "2027-07-08T20:00:00Z", allowed: true },
     { at: "2027-07-09T03:59:59Z", allowed: true },

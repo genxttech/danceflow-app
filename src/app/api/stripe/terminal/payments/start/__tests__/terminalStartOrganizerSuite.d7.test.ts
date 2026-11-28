@@ -136,7 +136,7 @@ describe("Terminal start: new ticket sales for organizer events need a current O
     expect(holdCalls()).toHaveLength(1);
   });
 
-  it("DanceAbel boundary: allowed before 2027-07-09T04:00:00Z, refused at it", async () => {
+  it("Protected grant boundary: allowed before 2027-07-09T04:00:00Z, refused at it", async () => {
     seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })] });
     vi.setSystemTime(new Date("2027-07-09T03:59:59Z"));
     expect(error(await start())).toBe("terminal_tickets_unavailable");
