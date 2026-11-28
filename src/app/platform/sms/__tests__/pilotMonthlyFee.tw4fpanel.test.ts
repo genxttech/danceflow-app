@@ -92,8 +92,8 @@ const run = async (fields: Record<string, string>, context: FeeContext) => {
   const result = await commands.authorizeFee(store as unknown as PanelStore, ADMIN, form(fields), context);
   return { store, result };
 };
-const standard: FeeContext = { studioTier: null, onboardingFound: true, pilotBusiness: true };
-const lowVolume: FeeContext = { studioTier: "low_volume_standard", onboardingFound: true, pilotBusiness: true };
+const standard: FeeContext = { studioTier: null, onboardingFound: true, pilotBusiness: true, monthlyRecorded: false };
+const lowVolume: FeeContext = { studioTier: "low_volume_standard", onboardingFound: true, pilotBusiness: true, monthlyRecorded: false };
 
 describe("authorizeFee: the monthly campaign fee approval of a pilot business", () => {
   it("records the path's monthly kind, pilot-funded, for one location, with the written-authorization evidence", async () => {
@@ -119,6 +119,8 @@ describe("authorizeFee: the monthly campaign fee approval of a pilot business", 
     ["a context that does not say the business is a pilot", {}, { studioTier: null, onboardingFound: true }, /pilot exception/],
     ["a business without a pilot exception paying from credit", { funding: "credit" }, { ...standard, pilotBusiness: false }, /pilot exception/],
     ["prepaid credit for the pilot business", { funding: "credit" }, standard, /pilot ceiling only/],
+    ["a second approval while one is recorded", {}, { ...standard, monthlyRecorded: true }, /already recorded.*per-period/],
+    ["a context that does not say whether one is recorded", {}, { studioTier: null, onboardingFound: true, pilotBusiness: true }, /already recorded/],
     ["missing evidence", { authorizedOn: "", documentRef: "", documentSha256: "" }, standard, /authorization/],
     ["the onboarding-fee evidence scope", { scope: "pilot_onboarding_fee" }, standard, /covers/],
     ["the period-cover evidence scope", { scope: "pilot_period_cover" }, standard, /covers/],
@@ -170,6 +172,23 @@ describe("panelAuthorizeFeeAction reads the path and the pilot exception from th
     expect(rpc.map((r) => r.fn)).toEqual(["tw4_panel_overview"]);
   };
 
+  it("refuses a second monthly approval the database already shows, whatever the form claims", async () => {
+    for (const spend of [[{ kind: "monthly" }], [{ kind: "monthly", status: "reserved", reservation: "captured" }], [{ kind: "monthly_low_volume", studio: null }]]) {
+      rpc.length = 0;
+      overviewData = raw({ spend });
+      await refused(monthlyFields({ monthlyRecorded: "false" }), /already recorded/);
+    }
+  });
+
+  it("allows a new approval after the earlier one was voided, or when only another location has one", async () => {
+    for (const spend of [[{ kind: "monthly", status: "void" }], [{ kind: "monthly", studio: OTHER_STUDIO }]]) {
+      rpc.length = 0;
+      overviewData = raw({ spend });
+      await submit(monthlyFields());
+      expect(rpc.map((r) => r.fn)).toEqual(["tw4_panel_overview", "tw4_spend_authorize"]);
+    }
+  });
+
   it("refuses a business without a pilot exception, whatever the form claims", async () => {
     overviewData = raw({ pilot: false });
     await refused(monthlyFields({ pilot: "on", pilotBusiness: "true" }), /pilot exception/);
@@ -211,7 +230,7 @@ describe("rendered panel: the monthly approval row", () => {
   it("is offered to a pilot business for its path's kind only, pilot-funded, with the evidence shown and required", () => {
     const html = render(raw());
     const row = feeForm(html, "monthly")!;
-    expect(row).toContain("First month of campaign service");
+    expect(row).toContain("Campaign monthly service fee");
     expect(row).toContain("$3.33");
     expect(row).toContain("Needed in addition to campaign vetting: both approvals must be recorded before the campaign can be submitted.");
     expect(row).toContain("its own retained document");
@@ -228,7 +247,7 @@ describe("rendered panel: the monthly approval row", () => {
   it("follows the Low-Volume Standard path", () => {
     const html = render(raw({ tier: "low_volume_standard" }));
     const row = feeForm(html, "monthly_low_volume")!;
-    expect(row).toContain("First month of campaign service (Low-Volume Standard)");
+    expect(row).toContain("Campaign monthly service fee (Low-Volume Standard)");
     expect(row).toContain("$4.44");
     expect(feeForm(html, "monthly")).toBeNull();
   });
@@ -242,8 +261,15 @@ describe("rendered panel: the monthly approval row", () => {
     }
   });
 
+  it("replaces the form with a note once an approval is recorded", () => {
+    const html = render(raw({ spend: [{ kind: "monthly" }] }));
+    expect(feeForm(html, "monthly")).toBeNull();
+    expect(html).toContain("an approval is already recorded for this location");
+    expect(feeForm(html, "campaign_vetting")).not.toBeNull();
+  });
+
   it("names a recorded monthly approval in plain words", () => {
-    expect(render(raw({ spend: [{ kind: "monthly" }] }))).toContain("First month of campaign service $0.01 (pilot ceiling)");
+    expect(render(raw({ spend: [{ kind: "monthly" }] }))).toContain("Campaign monthly service fee $0.01 (pilot ceiling)");
   });
 });
 
