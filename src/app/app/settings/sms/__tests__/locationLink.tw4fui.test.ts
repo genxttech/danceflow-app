@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/link", () => ({ default: ({ href, children, className }: { href: string; children: unknown; className?: string }) => createElement("a", { href, className }, children as never) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("../actions", () => ({ saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
+vi.mock("../actions", () => ({ smsSetupAction: vi.fn(), saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
 vi.mock("../location/actions", () => ({ attestLocationAction: vi.fn() }));
 
 let context: { studioId: string; userId: string; studioRole: string | null };

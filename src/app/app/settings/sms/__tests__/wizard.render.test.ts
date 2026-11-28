@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("../actions", () => ({
+  smsSetupAction: vi.fn(),
   saveSmsSetupAction: vi.fn(),
   submitSmsSetupAction: vi.fn(),
   cancelSmsSetupAction: vi.fn(),
@@ -24,9 +25,11 @@ const render = (props: Partial<Parameters<typeof SmsSetupWizard>[0]> = {}) =>
   renderToStaticMarkup(
     createElement(SmsSetupWizard, {
       initial: { ...emptyDraft(), legal_name: "Harbor Dance Studio LLC", industry: "EDUCATION", website_choice: "danceflow" },
+      hasSavedDraft: true,
       einOnFile: false,
       einLast4: null,
       canEdit: true,
+      isOwner: true,
       highlightFields: [],
       campaign,
       ...props,
@@ -68,7 +71,7 @@ describe("setup wizard", () => {
     expect(inputTag(html, "ein")).not.toContain("value=");
   });
   it("without edit rights every input is disabled and there is no submit or cancel", () => {
-    const html = render({ canEdit: false });
+    const html = render({ canEdit: false, isOwner: false });
     expect(html).not.toContain("Submit for review");
     expect(html).not.toContain("Save draft");
     expect(html).not.toContain("Cancel setup");

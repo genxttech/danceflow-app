@@ -126,6 +126,7 @@ export default function SmsSubaccountPanel({
       ) : (
         <>
           {senderHealth ? <SenderSchedulerLine scheduler={senderHealth.scheduler} /> : null}
+          <AwaitingBusinessRecord panels={panels} requested={pending.map((r) => r.studioId)} />
           {pending.length > 0 ? <LocationRequests requests={pending} overview={overview!} /> : null}
           <div className="mt-4 space-y-4">
             {panels.length === 0 ? <p className="text-sm text-slate-500">No studio has submitted a texting setup yet.</p> : null}
@@ -134,6 +135,28 @@ export default function SmsSubaccountPanel({
         </>
       )}
     </section>
+  );
+}
+
+/** Submitted setups whose next move is the platform administrator's: verify the business, then create its record. */
+function AwaitingBusinessRecord({ panels, requested }: { panels: StudioPanel[]; requested: string[] }) {
+  // only setups under review: one returned to the owner waits on the owner, and a location with a link request is decided there
+  const waiting = panels.filter((p) => !p.entity && p.onboarding && ["submitted_for_checks", "profile_review"].includes(p.onboarding.state) && p.onboarding.legalName && !requested.includes(p.studioId));
+  if (waiting.length === 0) return null;
+  return (
+    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/50 p-3" data-testid="awaiting-business-record">
+      <h3 className="text-sm font-semibold text-amber-950">Submitted setups waiting for you ({waiting.length})</h3>
+      <p className="mt-1 text-xs text-amber-900">
+        Verify each business against an official record, then create its record under &ldquo;Legal business&rdquo;. If it is another location of a business already listed, ask the owner to use &ldquo;Link this location&rdquo; instead. The studio cannot be charged or continue until this is done.
+      </p>
+      <ul className="mt-2 list-disc pl-5 text-sm">
+        {waiting.map((p) => (
+          <li key={p.studioId}>
+            <a className="font-semibold text-violet-800 underline" href={`/platform/sms?studio=${p.studioId}#studio-${p.studioId}`}>{p.studioName}</a>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -180,7 +203,7 @@ function StudioCard({ panel, overview, expanded, now, requestKey, monthlyLimits,
   // the open section is the one the next action belongs to
   const focus = !entity ? "entity" : entity.spendCapCents === 0 ? "budget" : entity.account?.status !== "active" ? "subaccount" : "budget";
   return (
-    <article className="rounded-2xl border border-slate-200 p-4" data-testid="studio-panel" data-studio={panel.studioName}>
+    <article id={`studio-${panel.studioId}`} className="rounded-2xl border border-slate-200 p-4" data-testid="studio-panel" data-studio={panel.studioName}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-base font-semibold text-slate-950">{panel.studioName}</h3>

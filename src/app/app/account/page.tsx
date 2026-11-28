@@ -21,20 +21,43 @@ export default async function AccountHomePage() {
     redirect("/login?next=/account");
   }
 
+  // Everyone counts their own registrations through the dancer view. Active studio staff ALSO run the previous base-table query (their
+  // staff policies stay in force after the dancer-policy cutover) so a staff member who is also a client still counts staff-created
+  // registrations under their own email. The two results are unioned by id; each is limited by its own boundary (the view by user_id,
+  // the base table by RLS plus the viewer's own email), so a staff member of studio A keeps their own registrations from studio B.
+  const { data: staffRole, error: staffRoleError } = await supabase
+    .from("user_studio_roles")
+    .select("studio_id")
+    .eq("user_id", user.id)
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (staffRoleError) {
+    throw new Error(`Failed to load account role: ${staffRoleError.message}`);
+  }
+
+  const isActiveStudioStaff = Boolean(staffRole);
+
   const [
     { data: favorites, error: favoritesError },
     { data: registrations, error: registrationsError },
+    { data: staffRegistrations, error: staffRegistrationsError },
   ] = await Promise.all([
     supabase
       .from("user_favorites")
       .select("target_type")
       .eq("user_id", user.id),
 
-    supabase
-      .from("event_registrations")
-      .select("id")
-      .eq("attendee_email", user.email ?? "__no_email__")
-      .not("status", "eq", "cancelled"),
+    supabase.from("my_event_registrations").select("id").not("status", "eq", "cancelled"),
+
+    isActiveStudioStaff
+      ? supabase
+          .from("event_registrations")
+          .select("id")
+          .eq("attendee_email", user.email ?? "__no_email__")
+          .not("status", "eq", "cancelled")
+      : Promise.resolve({ data: [] as RegistrationRow[], error: null }),
   ]);
 
   if (favoritesError) {
@@ -45,8 +68,16 @@ export default async function AccountHomePage() {
     throw new Error(`Failed to load registrations summary: ${registrationsError.message}`);
   }
 
+  if (staffRegistrationsError) {
+    throw new Error(`Failed to load registrations summary: ${staffRegistrationsError.message}`);
+  }
+
   const typedFavorites = (favorites ?? []) as FavoriteCountRow[];
-  const typedRegistrations = (registrations ?? []) as RegistrationRow[];
+  const typedRegistrations = Array.from(
+    new Map(
+      [...((registrations ?? []) as RegistrationRow[]), ...((staffRegistrations ?? []) as RegistrationRow[])].map((row) => [row.id, row] as [string, RegistrationRow]),
+    ).values(),
+  );
 
   const studioFavorites = typedFavorites.filter((row) => row.target_type === "studio").length;
   const eventFavorites = typedFavorites.filter((row) => row.target_type === "event").length;

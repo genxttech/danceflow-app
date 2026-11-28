@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolveGuestCoachAccess } from "@/lib/events/privateLessonAccess";
 import { normalizePublicToken } from "@/lib/security/tokens";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
@@ -215,19 +216,13 @@ export default async function GuestCoachSchedulePage({
 
   const supabase = await createClient();
 
-  const { data: coach, error: coachError } = await supabase
-    .from("event_guest_coaches")
-    .select("id, event_id, studio_id, organizer_id, name, bio, photo_url, schedule_token_enabled, active")
-    .eq("schedule_token", normalizedToken)
-    .eq("active", true)
-    .eq("schedule_token_enabled", true)
-    .single();
+  const access = await resolveGuestCoachAccess(normalizedToken, supabase);
 
-  if (coachError || !coach) {
+  if (!access) {
     notFound();
   }
 
-  const typedCoach = coach as CoachRow;
+  const typedCoach: CoachRow = access.coach;
 
   const nowIso = new Date().toISOString();
 
@@ -263,12 +258,13 @@ export default async function GuestCoachSchedulePage({
       )
       .eq("id", typedCoach.event_id)
       .single(),
-    supabase
+    access.db
       .from("event_private_lesson_slots")
       .select(
         "id, starts_at, ends_at, location_label, status, payment_status, buyer_name, buyer_email, buyer_phone, buyer_notes, held_until",
       )
       .eq("coach_id", typedCoach.id)
+      .eq("event_id", typedCoach.event_id)
       .in("status", ["held", "booked"])
       .order("starts_at", { ascending: true }),
   ]);

@@ -10,7 +10,7 @@ export const maxDuration = 60;
 /**
  * TW-4F / D4-2 scheduled pricing-integrity monitor (src/lib/sms/pricing/monitor.ts runPriceMonitor): calls tw4_price_verify, the price-list digest and the security-event feed,
  * records hash-chained evidence, alerts an independently configured destination and pings the dead-man heartbeat. Suggested schedule: every 15 minutes.
- * NOT registered in vercel.json: nothing calls it on a schedule until a release owner adds it deliberately. Answered 404 unless SMS_PRICE_MONITOR=on; then CRON_SECRET is required
+ * Registered in vercel.json (answered 404 unless SMS_PRICE_MONITOR=on). Answered 404 unless SMS_PRICE_MONITOR=on; then CRON_SECRET is required
  * (Bearer or x-cron-secret). It only DETECTS and ALERTS: it never publishes, repairs, rolls back or overwrites a price. Alert destinations come from PRICE_MONITOR_* environment
  * values only (src/lib/sms/pricing/transport.ts). Answers 500 whenever anything is wrong (a finding, an undelivered alert, a missing destination) so the scheduler also flags it;
  * the body carries codes and counts only.

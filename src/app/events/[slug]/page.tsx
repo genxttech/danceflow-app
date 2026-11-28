@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { loadVisitorPrivateLessonSlots } from "@/lib/events/privateLessonAccess";
 import FavoriteButton from "@/components/public/FavoriteButton";
 import ShareButton from "@/components/public/ShareButton";
 import RegistrationForm from "./register/RegistrationForm";
@@ -1276,29 +1277,7 @@ export default async function PublicEventDetailPage({
       .order("start_time", { ascending: true })
       .order("sort_order", { ascending: true }),
 
-    supabase
-      .from("event_private_lesson_slots")
-      .select(
-        `
-        id,
-        starts_at,
-        ends_at,
-        price,
-        location_label,
-        status,
-        payment_status,
-        event_guest_coaches:coach_id (
-          id,
-          name,
-          bio,
-          photo_url
-        )
-      `,
-      )
-      .eq("event_id", typedEvent.id)
-      .eq("status", "available")
-      .eq("payment_status", "unpaid")
-      .order("starts_at", { ascending: true }),
+    loadVisitorPrivateLessonSlots(typedEvent.id, supabase),
 
     supabase
       .from("event_document_requirements")
@@ -1370,7 +1349,7 @@ export default async function PublicEventDetailPage({
 
   if (query.registration) {
     const { data } = await supabase
-      .from("event_registrations")
+      .from("my_event_registrations")
       .select("id, payment_status, attendee_email")
       .eq("id", query.registration)
       .eq("event_id", typedEvent.id)

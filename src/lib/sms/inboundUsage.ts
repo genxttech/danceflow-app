@@ -110,7 +110,7 @@ export async function recordInboundUsage(
     const d = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
     if (d.recorded === false && d.reason === "legacy") return { recorded: false, reason: "legacy" };
     if (d.recorded !== true) return { recorded: false, reason: "failed", code: "unreadable" };
-    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+    const num = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : 0);
     return { recorded: true, replayed: d.replayed === true, chargedCents: num(d.charged_cents), uncollectedCents: num(d.uncollected_cents) };
   } catch {
     return { recorded: false, reason: "failed", code: "exception" };

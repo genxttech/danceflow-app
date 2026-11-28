@@ -13,6 +13,7 @@ import {
   deriveCompetitionDisplayState,
 } from "@/lib/competition/registrationCheckout";
 import { applyCompetitionCheckoutEvent } from "@/lib/competition/registrationLifecycle";
+import { fakeStripeReader, paidLive } from "./helpers/settlementStripeFake";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const ORDER = "11111111-2222-4333-8444-555555555555";
@@ -218,20 +219,21 @@ describe("display state is derived from server state only", () => {
 });
 
 describe("webhook lifecycle (applyCompetitionCheckoutEvent)", () => {
+  const { stripe } = fakeStripeReader(paidLive({ session: { id: "cs_1", amount_total: 10330 }, intent: { amount_received: 10330 } }));
   function session(overrides: Record<string, unknown> = {}) {
     return { id: "cs_1", payment_status: "paid", payment_intent: "pi_1", amount_total: 10330, currency: "usd", metadata: { source: "competition_registration", order_id: ORDER }, ...overrides } as unknown as Stripe.Checkout.Session;
   }
 
   it("completed + paid finalizes with the provider evidence (database re-validates binding and amount)", async () => {
     const { admin, calls } = fakeAdmin({ finalize_competition_registration: () => ({ data: { outcome: "finalized" } }) });
-    const result = await applyCompetitionCheckoutEvent(admin as never, { eventType: "checkout.session.completed", session: session(), stripeAccountId: ACCOUNT });
+    const result = await applyCompetitionCheckoutEvent(admin as never, { stripe, eventType: "checkout.session.completed", session: session(), stripeAccountId: ACCOUNT });
     expect(result).toMatchObject({ orderId: ORDER, outcome: "finalized", paymentIntentId: "pi_1" });
     expect(calls[0].args).toEqual({ p_order_id: ORDER, p_stripe_account_id: ACCOUNT, p_checkout_session_id: "cs_1", p_payment_intent_id: "pi_1", p_amount_cents: 10330, p_currency: "USD" });
   });
 
   it("an unpaid completion (delayed method) does not finalize", async () => {
     const { admin, calls } = fakeAdmin({});
-    const result = await applyCompetitionCheckoutEvent(admin as never, { eventType: "checkout.session.completed", session: session({ payment_status: "unpaid" }), stripeAccountId: ACCOUNT });
+    const result = await applyCompetitionCheckoutEvent(admin as never, { stripe, eventType: "checkout.session.completed", session: session({ payment_status: "unpaid" }), stripeAccountId: ACCOUNT });
     expect(result.outcome).toBe("pending_async");
     expect(calls).toHaveLength(0);
   });
@@ -239,21 +241,21 @@ describe("webhook lifecycle (applyCompetitionCheckoutEvent)", () => {
   it("expired and async-failed sessions release the bound order", async () => {
     for (const [eventType, reason] of [["checkout.session.expired", "expired"], ["checkout.session.async_payment_failed", "failed"]] as const) {
       const { admin, calls } = fakeAdmin({ release_competition_registration: () => ({ data: { outcome: "released" } }) });
-      await applyCompetitionCheckoutEvent(admin as never, { eventType, session: session({ payment_status: "unpaid" }), stripeAccountId: ACCOUNT });
+      await applyCompetitionCheckoutEvent(admin as never, { stripe, eventType, session: session({ payment_status: "unpaid" }), stripeAccountId: ACCOUNT });
       expect(calls[0]).toMatchObject({ name: "release_competition_registration", args: { p_order_id: ORDER, p_reason: reason, p_checkout_session_id: "cs_1", p_stripe_account_id: ACCOUNT } });
     }
   });
 
   it("refuses platform-scope events and malformed metadata without touching the database", async () => {
     const { admin, calls } = fakeAdmin({});
-    await expect(applyCompetitionCheckoutEvent(admin as never, { eventType: "checkout.session.completed", session: session(), stripeAccountId: null })).rejects.toThrow();
-    await expect(applyCompetitionCheckoutEvent(admin as never, { eventType: "checkout.session.completed", session: session({ metadata: { source: "competition_registration", order_id: "nope" } }), stripeAccountId: ACCOUNT })).rejects.toThrow();
+    await expect(applyCompetitionCheckoutEvent(admin as never, { stripe, eventType: "checkout.session.completed", session: session(), stripeAccountId: null })).rejects.toThrow();
+    await expect(applyCompetitionCheckoutEvent(admin as never, { stripe, eventType: "checkout.session.completed", session: session({ metadata: { source: "competition_registration", order_id: "nope" } }), stripeAccountId: ACCOUNT })).rejects.toThrow();
     expect(calls).toHaveLength(0);
   });
 
   it("a database binding/amount refusal propagates so the webhook is not marked processed", async () => {
     const { admin } = fakeAdmin({ finalize_competition_registration: () => ({ error: { message: "COMP10C_AMOUNT_MISMATCH: settled amount does not match" } }) });
-    await expect(applyCompetitionCheckoutEvent(admin as never, { eventType: "checkout.session.completed", session: session(), stripeAccountId: ACCOUNT })).rejects.toThrow(/AMOUNT_MISMATCH/);
+    await expect(applyCompetitionCheckoutEvent(admin as never, { stripe, eventType: "checkout.session.completed", session: session(), stripeAccountId: ACCOUNT })).rejects.toThrow(/AMOUNT_MISMATCH/);
   });
 });
 

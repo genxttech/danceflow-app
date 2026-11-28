@@ -46,8 +46,8 @@ export default async function SmsLocationAttestationPage({ searchParams }: { sea
       <section className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
         <h1 className="text-xl font-semibold text-slate-950">Add this location to your existing business</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Use this when this studio is another location of a business that already has DanceFlow texting set up. The locations then share one texting
-          registration, one setup budget and one prepaid balance. DanceFlow verifies the association before anything is linked.
+          Setting up texting for the first time? You do not need this page: complete the setup on the Texting page. Use this only when this studio is another location of a business that already has DanceFlow texting set up. The locations then share one texting
+          registration, one setup budget and one prepaid balance. First save this location&apos;s legal business name and EIN on the Texting page with Save draft; DanceFlow compares them and verifies the association before anything is linked.
         </p>
         {result ? (
           <p role={result.ok ? "status" : "alert"} className={`mt-3 rounded-xl px-3 py-2 text-sm ${result.ok ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>{result.text}</p>

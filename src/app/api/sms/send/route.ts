@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -12,6 +13,7 @@ import {
   sanitizedSmsProviderError,
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
+import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 import { BILLED_REFUSAL_MESSAGE, replayMeaning, sendBilledSms, smsUsageBillingEnabled, type BilledSendRefusal } from "@/lib/sms/usageBilling";
 import { billedSmsProviderFromEnv } from "@/lib/sms/usageProvider";
 import { cleanTextValue, normalizeOptionalUuid } from "@/lib/validation/forms";
@@ -32,6 +34,7 @@ const REFUSAL_STATUS: Record<BilledSendRefusal, number> = {
   not_billed: 503,
   invalid: 400,
   forbidden: 403,
+  opted_out: 400,
   unavailable: 503,
 };
 
@@ -39,6 +42,31 @@ function canSendClientSms(role: string | null | undefined) {
   return ["studio_owner", "studio_admin", "front_desk"].includes(
     String(role ?? "").toLowerCase(),
   );
+}
+
+/**
+ * getCurrentStudioContext() answers "not signed in", "no studio" and "no selected studio" with a Next redirect (it serves pages). In this JSON route a redirect thrown
+ * inside the try block used to land in the generic catch and come back as HTTP 500, so an anonymous caller saw a server error. Answer it as the refusal it is:
+ * 401 when the destination is the sign-in page, 403 otherwise. Nothing is sent, read or written on this path.
+ */
+async function resolveSendContext(): Promise<
+  { ok: true; context: Awaited<ReturnType<typeof getCurrentStudioContext>> } | { ok: false; response: Response }
+> {
+  try {
+    return { ok: true, context: await getCurrentStudioContext() };
+  } catch (error) {
+    if (!isRedirectError(error)) throw error;
+    // digest is "NEXT_REDIRECT;<replace|push>;<url>;<status>;"
+    const destination = String((error as { digest?: string }).digest ?? "").split(";")[2] ?? "";
+    const signedOut = destination === "/login" || destination.startsWith("/login?") || destination.startsWith("/login/");
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: signedOut ? "Sign in to send text messages." : "You do not have permission to send text messages." },
+        { status: signedOut ? 401 : 403 },
+      ),
+    };
+  }
 }
 
 export async function POST(request: Request) {
@@ -53,7 +81,9 @@ export async function POST(request: Request) {
 
   try {
     const supabase = await createClient();
-    const context = await getCurrentStudioContext();
+    const contextResult = await resolveSendContext();
+    if (!contextResult.ok) return contextResult.response;
+    const context = contextResult.context;
 
     const studioId = context.studioId;
     const studioRole = context.studioRole ?? "";
@@ -177,6 +207,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error }, { status: 400 });
     }
 
+    // TW-4F: a STOP parked because its consent change failed suppresses the text until it is applied or a START supersedes it (fail closed)
+    const parked = await pendingOptOutState(createAdminClient(), studioId, phoneE164);
+    if (parked === "blocked") {
+      return NextResponse.json({ ok: false, error: "This number has opted out of texts from your studio." }, { status: 400 });
+    }
+    if (parked === "unknown") {
+      return NextResponse.json({ ok: false, error: "SMS consent could not be verified." }, { status: 500 });
+    }
+
     // SMS-A2P-2: send only through this studio's own approved registration. The
     // registration table is platform-admin-only under RLS, so it is read server-side.
     const senderResult = await resolveStudioSmsSender(createAdminClient(), studioId);
@@ -264,6 +303,7 @@ export async function POST(request: Request) {
       : null;
 
     const sendResult = await sendTwilioSms({
+      studioId,
       to: phoneE164,
       body: finalBody,
       messagingServiceSid: senderResult.sender.messagingServiceSid,

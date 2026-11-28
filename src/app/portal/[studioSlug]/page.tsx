@@ -795,6 +795,29 @@ export default async function PortalHomePage({
   }
 
   const canReturnToWorkspace = Boolean(workspaceRole);
+  // Data-path switch (not the UI flag above): the viewer's own active staff role for THIS studio.
+  const isActiveStudioStaff = Boolean(workspaceRole);
+
+  const portalRegistrationSelect = `
+        id,
+        event_id,
+        status,
+        payment_status,
+        quantity,
+        total_amount,
+        created_at,
+        events (
+          id,
+          name,
+          slug,
+          start_date,
+          start_time,
+          end_date,
+          venue_name,
+          city,
+          state
+        )
+      `;
 
   const isInstructorPortal = Boolean(typedClient.is_independent_instructor);
   const nowIso = new Date().toISOString();
@@ -918,32 +941,20 @@ export default async function PortalHomePage({
       .order("assigned_at", { ascending: false })
       .limit(10),
 
-    supabase
-      .from("event_registrations")
-      .select(
-        `
-        id,
-        event_id,
-        status,
-        payment_status,
-        quantity,
-        total_amount,
-        created_at,
-        events (
-          id,
-          name,
-          slug,
-          start_date,
-          start_time,
-          end_date,
-          venue_name,
-          city,
-          state
-        )
-      `,
-      )
-      .eq("studio_id", typedStudio.id)
-      .eq("client_id", typedClient.id)
+    // Active studio staff keep the previous base-table query, scoped to this viewer's own selected client record (the staff policies stay in
+    // force after the dancer-policy cutover), so staff-created registrations of their own client record still show. Everyone else reads the
+    // dancer view, which is already limited to their own registrations.
+    (isActiveStudioStaff
+      ? supabase
+          .from("event_registrations")
+          .select(portalRegistrationSelect)
+          .eq("studio_id", typedStudio.id)
+          .eq("client_id", typedClient.id)
+      : supabase
+          .from("my_event_registrations")
+          .select(portalRegistrationSelect)
+          .eq("studio_id", typedStudio.id)
+    )
       .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
       .order("created_at", { ascending: false })
       .limit(6),
@@ -1063,8 +1074,9 @@ export default async function PortalHomePage({
   let typedEventTickets: PortalEventAttendeeRow[] = [];
 
   if (registrationIds.length) {
+    // Staff keep the base table for the (own-client) registrations selected above; everyone else reads the dancer view.
     const { data: eventTickets, error: eventTicketsError } = await supabase
-      .from("event_registration_attendees")
+      .from(isActiveStudioStaff ? "event_registration_attendees" : "my_event_registration_attendees")
       .select(
         "id, registration_id, event_id, first_name, last_name, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at",
       )

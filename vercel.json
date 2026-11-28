@@ -52,6 +52,22 @@
     {
       "path": "/api/cron/sms-price-monitor-watchdog",
       "schedule": "37 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-price-sweep",
+      "schedule": "23 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-sender-reverify",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-inventory-reconcile",
+      "schedule": "11 * * * *"
+    },
+    {
+      "path": "/api/cron/sms-recurring",
+      "schedule": "47 * * * *"
     }
   ]
 }
