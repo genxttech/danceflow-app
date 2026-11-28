@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("../actions", () => ({ saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
+vi.mock("../actions", () => ({ smsSetupAction: vi.fn(), saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
 vi.mock("@/app/platform/sms/actions", () => ({ setSmsOnboardingAccessAction: vi.fn(), runSmsOnboardingAction: vi.fn(), setSmsRunnerWindowAction: vi.fn() }));
 
 import SmsCancelSetup from "../SmsCancelSetup";
