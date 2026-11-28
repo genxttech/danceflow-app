@@ -144,7 +144,8 @@ export function normalizeWebsite(input: string | null | undefined): WebsiteResul
   if (withScheme.length > 300 || !/^https:\/\/[^\s/]+\.[^\s/]+(\/[^\s]*)?$/i.test(withScheme)) {
     return { ok: false, error: "Enter a full website address such as https://www.yourstudio.com." };
   }
-  return { ok: true, value: withScheme.replace(/^HTTPS:\/\//, "https://") };
+  // the database accepts only a lower-case scheme; a phone keyboard capitalizes it ("Https://")
+  return { ok: true, value: withScheme.replace(/^https:\/\//i, "https://") };
 }
 
 export type DraftValidation = {
@@ -212,13 +213,14 @@ export function validateDraftFields(input: Partial<Record<string, string | null 
   fields.rep_title = title;
 
   const email = text("rep_email").toLowerCase();
-  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) errors.rep_email = "Enter a valid business email address.";
+  if (email && (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))) errors.rep_email = "Enter a valid business email address.";
   else if (email && FREE_MAIL_DOMAINS.has(email.split("@")[1])) warnings.rep_email = "A business-domain email verifies faster than a free mailbox such as Gmail.";
   fields.rep_email = email;
 
   const phoneRaw = text("rep_phone");
   if (phoneRaw) {
-    const phone = normalizeSmsPhone(phoneRaw);
+    const normalized = normalizeSmsPhone(phoneRaw);
+    const phone = normalized && /^\+[1-9]\d{9,14}$/.test(normalized) ? normalized : null;
     if (!phone) errors.rep_phone = "Enter a valid US mobile number.";
     fields.rep_phone = phone ?? phoneRaw;
   }

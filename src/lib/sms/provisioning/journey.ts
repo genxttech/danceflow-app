@@ -142,8 +142,12 @@ const TROUBLE: OnboardingDisplayState[] = ["blocked", "exception"];
 function financeStage(input: JourneyInput): Stage {
   const { finance, state } = input;
   const label = "Financial approvals";
-  if (!finance || !finance.legalBusiness) {
-    return { key: "approvals", label, status: finance ? "attention" : "unavailable", detail: finance ? "This location is not linked to a legal business yet, so no fee can be approved." : "Charges and approvals are not available to your role." };
+  if (!finance) return { key: "approvals", label, status: "unavailable", detail: "Charges and approvals are not available to your role." };
+  if (!finance.legalBusiness) {
+    // DanceFlow creates the business record from the submitted setup: a waiting step, never something the owner must fix
+    if (BEFORE_REVIEW.includes(state) || state === "cancelled") return { key: "approvals", label, status: "upcoming", detail: "Fees come after DanceFlow reviews your information. You approve each one before it is charged." };
+    if (state === "submitted_for_checks" || state === "profile_review") return { key: "approvals", label, status: "upcoming", detail: "DanceFlow sets up your business record while it reviews your information. Fees come after that, and you approve each one before it is charged." };
+    return { key: "approvals", label, status: "waiting", detail: "DanceFlow still has to complete your business record before a fee can be approved. You do not need to do anything." };
   }
   if (finance.pilotBusiness) {
     return { key: "approvals", label, status: FEE_STATES.includes(state) ? "done" : "upcoming", detail: FEE_STATES.includes(state) ? "Your fee approvals for this step are recorded with DanceFlow. Later fees are approved with you one at a time." : "DanceFlow records each fee approval with you one at a time. Nothing is charged without your written approval." };
@@ -185,7 +189,7 @@ export function buildJourney(input: JourneyInput): Journey {
     key: "eligibility",
     label: "Registration eligibility and tier",
     status: beforeReview || state === "cancelled" ? "upcoming" : state === "submitted_for_checks" || state === "profile_review" ? "waiting" : trouble ? "attention" : "done",
-    detail: state === "submitted_for_checks" || state === "profile_review" ? "DanceFlow is verifying your business and choosing the registration path. This is not a carrier approval." : trouble ? "This needs DanceFlow. You do not need to do anything." : "Your registration path is set.",
+    detail: state === "submitted_for_checks" || state === "profile_review" ? "DanceFlow is verifying your business and choosing the registration path. You do not need to do anything right now. This is not a carrier approval." : trouble ? "This needs DanceFlow. You do not need to do anything." : "Your registration path is set.",
   };
   const approvals = financeStage(input);
   if (beforeReview || state === "submitted_for_checks" || state === "profile_review") {

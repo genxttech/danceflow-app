@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); } }));
 vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; children: unknown }) => createElement("a", { href }, children as never) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("../actions", () => ({ saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
+vi.mock("../actions", () => ({ smsSetupAction: vi.fn(), saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
 vi.mock("../numberActions", () => ({ approveNumberAction: vi.fn(), withdrawNumberAction: vi.fn() }));
 
 let context: { studioId: string; userId: string; studioRole: string | null };

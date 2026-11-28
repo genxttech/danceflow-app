@@ -9,12 +9,12 @@ import {
   US_STATES,
   WEBSITE_CHOICES,
   firstStepWith,
-  FIELD_STEP,
   type DraftFieldKey,
   type DraftFields,
   type WizardFieldKey,
 } from "@/lib/sms/onboarding/fields";
-import { saveSmsSetupAction, submitSmsSetupAction, type SmsSetupState } from "./actions";
+import { problemsByStep } from "@/lib/sms/onboarding/wizardState";
+import { smsSetupAction, type SmsSetupState } from "./actions";
 
 const input =
   "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-200 disabled:bg-slate-50";
@@ -23,6 +23,7 @@ const secondary = "rounded-xl border border-violet-300 bg-white px-4 py-2 text-s
 const initialState: SmsSetupState = {};
 
 const STEPS = ["Business", "Representative", "Texting number", "Review"] as const;
+const invalidRing = "border-rose-500 ring-2 ring-rose-200";
 
 // Each save result gets a new id. The form is re-created with it, because React resets uncontrolled fields after a form action
 // and a <select> keeps its ORIGINAL default: without this, a rejected save would silently blank every dropdown.
@@ -45,45 +46,50 @@ export type WizardCampaignPreview = {
   optInPageUrl: string;
 };
 
-export default function SmsSetupWizard({
-  initial,
-  einOnFile,
-  einLast4,
-  canEdit,
-  highlightFields,
-  campaign,
-}: {
+type WizardProps = {
   initial: DraftFields;
+  /** A draft exists in the database. When it disappears (cancelled) the form starts clean. */
+  hasSavedDraft: boolean;
   einOnFile: boolean;
   einLast4: string | null;
   canEdit: boolean;
+  isOwner: boolean;
   highlightFields: string[];
   campaign: WizardCampaignPreview;
-}) {
+};
+
+export default function SmsSetupWizard(props: WizardProps) {
+  // A saved draft that disappears (the setup was cancelled) starts a clean form.
+  const [generation, setGeneration] = useState(0);
+  const [wasSaved, setWasSaved] = useState(props.hasSavedDraft);
+  if (wasSaved !== props.hasSavedDraft) {
+    setWasSaved(props.hasSavedDraft);
+    if (!props.hasSavedDraft) setGeneration(generation + 1);
+  }
+  return <WizardForm key={generation} {...props} />;
+}
+
+function WizardForm({ initial, einOnFile, einLast4, canEdit, isOwner, highlightFields, campaign }: WizardProps) {
   const [step, setStep] = useState(0);
+  const [pressed, setPressed] = useState<"save" | "submit">("save");
   const [website, setWebsite] = useState(initial.website_choice || "danceflow");
-  const [saveState, saveAction, saving] = useActionState(saveSmsSetupAction, initialState);
-  const [submitState, submitAction, submitting] = useActionState(submitSmsSetupAction, initialState);
-  // A rejected save returns what was typed (never the EIN) so the form keeps it; saved/loaded values are the fallback.
-  const value = (key: DraftFieldKey) => saveState.values?.[key] ?? initial[key];
+  const [state, action, pending] = useActionState(smsSetupAction, initialState);
+  // A result returns what was typed or written (never the EIN) so the form keeps it; loaded values are the fallback.
+  const value = (key: DraftFieldKey) => state.values?.[key] ?? initial[key];
 
-  // Jump to the first step that has a problem, so an error is never hidden on another step.
-  const errorKeys = Object.keys(saveState.fieldErrors ?? {});
-  const submitMissing = submitState.missing ?? [];
-  const errorSteps = new Set<number>([...errorKeys, ...submitMissing].map((key) => (FIELD_STEP as Record<string, number | undefined>)[key]).filter((n): n is number => n !== undefined));
+  // Jump to the first screen that has a problem, so an error is never hidden on another screen.
+  const errorKeys = Object.keys(state.fieldErrors ?? {});
+  const needed = state.missing ?? [];
+  const problems = problemsByStep([...errorKeys, ...needed]);
+  const errorSteps = new Set<number>(problems.map((group) => group.step));
   useEffect(() => {
-    const target = firstStepWith(errorKeys);
+    const target = firstStepWith(errorKeys.length > 0 ? errorKeys : state.intent === "submit" ? needed : []);
     if (target !== null) setStep(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saveState]);
-  useEffect(() => {
-    const target = firstStepWith(submitMissing);
-    if (target !== null) setStep(target);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitState]);
+  }, [state]);
 
-  const error = (key: WizardFieldKey) => saveState.fieldErrors?.[key];
-  const warning = (key: WizardFieldKey) => saveState.warnings?.[key];
+  const error = (key: WizardFieldKey) => state.fieldErrors?.[key] ?? (needed.includes(key) ? "Required before you can submit." : undefined);
+  const warning = (key: WizardFieldKey) => state.warnings?.[key];
   const flagged = (key: WizardFieldKey) => highlightFields.includes(key);
 
   const field = (key: DraftFieldKey, extra?: { type?: string; placeholder?: string; autoComplete?: string }) => (
@@ -97,7 +103,7 @@ export default function SmsSetupWizard({
         placeholder={extra?.placeholder}
         autoComplete={extra?.autoComplete ?? "off"}
         aria-invalid={Boolean(error(key)) || flagged(key)}
-        className={`${input} ${flagged(key) ? "border-amber-400 ring-2 ring-amber-100" : ""}`}
+        className={`${input} ${error(key) ? invalidRing : flagged(key) ? "border-amber-400 ring-2 ring-amber-100" : ""}`}
       />
       {error(key) ? <span role="alert" className="mt-1 block text-xs text-rose-700">{error(key)}</span> : null}
       {!error(key) && warning(key) ? <span className="mt-1 block text-xs text-amber-700">{warning(key)}</span> : null}
@@ -107,7 +113,7 @@ export default function SmsSetupWizard({
   const select = (key: DraftFieldKey, options: readonly { value: string; label: string }[], placeholder: string) => (
     <label className="block text-sm font-medium text-slate-800">
       {FIELD_LABELS[key]}
-      <select name={key} defaultValue={value(key)} disabled={!canEdit} className={input} aria-invalid={Boolean(error(key)) || flagged(key)}>
+      <select name={key} defaultValue={value(key)} disabled={!canEdit} className={`${input} ${error(key) ? invalidRing : ""}`} aria-invalid={Boolean(error(key)) || flagged(key)}>
         <option value="">{placeholder}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>{option.label}</option>
@@ -134,13 +140,30 @@ export default function SmsSetupWizard({
         ))}
       </nav>
 
+      {problems.length > 0 ? (
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+          <p className="font-semibold">{errorKeys.length > 0 ? "These need attention:" : state.intent === "submit" ? "Nothing was submitted. Your details are saved. Still needed:" : "Saved. Still needed before you can submit:"}</p>
+          <ul className="mt-1 space-y-1">
+            {problems.map((group) => (
+              <li key={group.step}>
+                <button type="button" className="font-semibold underline" onClick={() => setStep(group.step)}>Screen {group.step + 1}, {group.label}</button>
+                : {group.fields.map((item) => item.label).join(", ")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {/* noValidate: the browser's own validation cannot focus a bad value on a hidden step and would block the save silently;
           the server validates every field, and this page jumps to the step with the problem. */}
-      <form key={resultId(saveState)} action={saveAction} noValidate className="space-y-5">
+      {/* One form: whichever button is pressed, what is on screen is what gets saved or submitted. "Save draft" is the first submit
+          button in the form, so pressing Enter in a field only saves. */}
+      <form key={resultId(state)} action={action} noValidate className="space-y-5">
         <section hidden={step !== 0} className="space-y-4 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm" aria-label="Business identity">
           <div>
             <h3 className="text-lg font-semibold text-slate-950">Business identity</h3>
             <p className="mt-1 text-sm text-slate-600">These details must match your IRS records. Carriers check them.</p>
+            <p className="mt-1 text-sm text-slate-600">Registration needs an LLC, corporation, partnership, non-profit or co-op with its own EIN, including a one-person business. Sole proprietors cannot register yet.</p>
           </div>
           <div>
             {field("legal_name")}
@@ -159,21 +182,32 @@ export default function SmsSetupWizard({
               disabled={!canEdit}
               placeholder={einOnFile ? `On file, ending ${einLast4 ?? "••••"}. Type a new EIN to replace it.` : "12-3456789"}
               aria-invalid={Boolean(error("ein")) || flagged("ein")}
-              className={`${input} ${flagged("ein") ? "border-amber-400 ring-2 ring-amber-100" : ""}`}
+              className={`${input} ${error("ein") ? invalidRing : flagged("ein") ? "border-amber-400 ring-2 ring-amber-100" : ""}`}
             />
             {error("ein") ? <span role="alert" className="mt-1 block text-xs text-rose-700">{error("ein")}</span> : null}
             <span className="mt-1 block text-xs text-slate-500">Stored encrypted and used only for business verification. DanceFlow never shows it again; only the last four digits.</span>
-            {saveState.ok === false && saveState.fieldErrors && !error("ein") ? (
-              <span className="mt-1 block text-xs text-amber-700">For your security the EIN is never sent back to this page. Please type it again before saving.</span>
+            {state.einUnsaved ? (
+              <span className="mt-1 block text-xs text-amber-700">For your security the EIN is never sent back to this page.</span>
             ) : null}
           </label>
+          {state.einUnsaved ? (
+            <div className="space-y-1">
+              <input type="hidden" name="ein_unsaved" value="1" />
+              {einOnFile ? (
+                <label className="flex items-center gap-2 text-sm text-slate-800">
+                  <input type="checkbox" name="keep_ein" />
+                  Keep the EIN on file, ending {einLast4 ?? "••••"}, instead
+                </label>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">{field("address_line1", { autoComplete: "address-line1" })}</div>
             <div className="sm:col-span-2">{field("address_line2", { autoComplete: "address-line2" })}</div>
             {field("city", { autoComplete: "address-level2" })}
             <label className="block text-sm font-medium text-slate-800">
               {FIELD_LABELS.region}
-              <select name="region" defaultValue={value("region")} disabled={!canEdit} className={input} aria-invalid={Boolean(error("region"))}>
+              <select name="region" defaultValue={value("region")} disabled={!canEdit} className={`${input} ${error("region") ? invalidRing : ""}`} aria-invalid={Boolean(error("region"))}>
                 <option value="">Choose…</option>
                 {US_STATES.map((code) => (
                   <option key={code} value={code}>{code}</option>
@@ -191,6 +225,7 @@ export default function SmsSetupWizard({
                 {choice.label}
               </label>
             ))}
+            {error("website_choice") ? <span role="alert" className="block text-xs text-rose-700">{error("website_choice")}</span> : null}
             {website === "own" ? <div>{field("website_url", { placeholder: "https://www.yourstudio.com" })}</div> : <input type="hidden" name="website_url" value="" />}
           </fieldset>
         </section>
@@ -218,18 +253,6 @@ export default function SmsSetupWizard({
           <div className="max-w-xs">{field("preferred_area_code", { placeholder: "503" })}</div>
         </section>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {canEdit ? (
-            <button type="submit" className={secondary} disabled={saving}>{saving ? "Saving…" : "Save draft"}</button>
-          ) : null}
-          {step < STEPS.length - 1 ? (
-            <button type="button" className={primary} onClick={() => setStep(step + 1)}>Next</button>
-          ) : null}
-          {saveState.error ? <span role="alert" className="text-sm font-medium text-rose-700">{saveState.error}</span> : null}
-          {saveState.ok && saveState.notice ? <span role="status" className="text-sm font-medium text-emerald-700">{saveState.notice}</span> : null}
-        </div>
-      </form>
-
       <section hidden={step !== 3} className="space-y-4 rounded-2xl border border-violet-200 bg-white p-5 shadow-sm" aria-label="Review and submit">
         <div>
           <h3 className="text-lg font-semibold text-slate-950">Review and submit</h3>
@@ -250,7 +273,8 @@ export default function SmsSetupWizard({
           <a className="font-semibold text-violet-700 underline" href={campaign.optInPageUrl}>Opt-in form</a>
         </p>
         {canEdit ? (
-          <form action={submitAction} className="space-y-3">
+          <fieldset className="space-y-3">
+            <legend className="sr-only">Statements</legend>
             {([
               ["attest_authorized", "I am authorized to register this business for text messaging."],
               ["attest_accurate", "The information is accurate and matches my business records."],
@@ -262,16 +286,28 @@ export default function SmsSetupWizard({
                 <span>{label}</span>
               </label>
             ))}
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="submit" className={primary} disabled={submitting}>{submitting ? "Submitting…" : "Submit for review"}</button>
-              {submitState.error ? <span role="alert" className="text-sm font-medium text-rose-700">{submitState.error}</span> : null}
-              {submitState.ok && submitState.notice ? <span role="status" className="text-sm font-medium text-emerald-700">{submitState.notice}</span> : null}
-            </div>
-          </form>
+            <p className="text-sm text-slate-600">Submit saves what you entered and sends it to DanceFlow. It cannot be edited afterwards. Nothing is charged.</p>
+          </fieldset>
         ) : (
-          <p className="text-sm text-slate-600">Only the studio owner can submit this setup.</p>
+          <p className="text-sm text-slate-600">{isOwner ? "This information can no longer be edited here." : "Only the studio owner can submit this setup."}</p>
         )}
       </section>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {canEdit ? (
+            <button type="submit" name="intent" value="save" className={secondary} disabled={pending} onClick={() => setPressed("save")}>{pending && pressed === "save" ? "Saving…" : "Save draft"}</button>
+          ) : null}
+          {step < STEPS.length - 1 ? (
+            <button type="button" className={primary} onClick={() => setStep(step + 1)}>Next</button>
+          ) : null}
+          {canEdit ? (
+            <button type="submit" name="intent" value="submit" hidden={step !== STEPS.length - 1} className={primary} disabled={pending} onClick={() => setPressed("submit")}>{pending && pressed === "submit" ? "Submitting…" : "Submit for review"}</button>
+          ) : null}
+          {state.error ? <span role="alert" className="text-sm font-medium text-rose-700">{state.error}</span> : null}
+          {state.ok && state.notice ? <span role="status" className="text-sm font-medium text-emerald-700">{state.notice}</span> : null}
+        </div>
+        {canEdit ? <p className="text-xs text-slate-500">Save draft is optional: use it to finish later.</p> : null}
+      </form>
 
     </div>
   );
