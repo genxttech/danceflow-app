@@ -111,6 +111,8 @@ export type FeeContext = {
   onboardingFound?: boolean;
   /** True only when the database shows a pilot exception for the chosen legal business AND this location linked to that business. */
   pilotBusiness?: boolean;
+  /** False only when the database shows no open or used monthly approval for this location. */
+  monthlyRecorded?: boolean;
 };
 
 /**
@@ -133,6 +135,9 @@ function monthlyRefusal(kind: string, funding: "credit" | "pilot", context: FeeC
       : "This location is on the Standard path: a Low-Volume Standard monthly approval does not apply.";
   }
   if (funding !== "pilot") return "The first month of the campaign's service fee is approved against the pilot ceiling only.";
+  if (context.monthlyRecorded !== false) {
+    return "A monthly campaign fee approval is already recorded for this location. Later months are recorded under the pilot's per-period written approvals.";
+  }
   return null;
 }
 

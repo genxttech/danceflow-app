@@ -123,6 +123,14 @@ export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 const AUTH_OPEN = new Set(["authorized", "reserved"]);
 
+/**
+ * True when a monthly campaign fee approval is already recorded for this location and not voided (a released one is voided). Another one would count
+ * against the setup budget, use up its reference and document, and pay for nothing: later months are recorded as per-period approvals.
+ */
+export function hasRecordedMonthlyApproval(entity: Pick<PanelEntity, "spend">, studioId: string): boolean {
+  return entity.spend.some((s) => (s.kind === "monthly" || s.kind === "monthly_low_volume") && (s.studioId === null || s.studioId === studioId) && AUTH_OPEN.has(s.status));
+}
+
 /** The database treats a 'creating' row older than 10 minutes as interrupted (tw4_subaccount_begin and tw4_panel_subaccount_confirm). */
 export const CREATING_STALE_MS = 10 * 60_000;
 export function creatingIsStale(updatedAt: string | null, now: number): boolean {
@@ -362,7 +370,7 @@ export function panelErrorMessage(action: string, error: unknown): string {
     link: { "22023": "Refused: the request is not pending, or the checks do not agree (owner of a studio of this business, legal name, EIN last four, the studio's own setup).", "23505": "This studio already belongs to a legal business." },
     cap: { "22023": "Refused: the budget cannot be negative or below what is already authorized or reserved (the ConfiDance pilot business also cannot exceed $150)." },
     spend: { TW008: "Refused: there is no published price for this fee, or the amount is not the published price (it may have changed: reload).", TW004: "Refused: this approval would exceed the setup budget.", "23505": "That approval reference was already used: each owner approval authorizes one operation, once.",
-      TW019: "That approval reference was already used (for a fee, a withdrawn or released approval, the pilot ceiling or a spending-limit approval). Each written owner approval authorizes one operation, once: record the owner's new written approval.",
+      TW019: "That approval reference or retained document was already used (for a fee, a withdrawn or released approval, the pilot ceiling or a spending-limit approval). Each written owner approval authorizes one operation, once: record the owner's new written approval with its own reference and document.",
       TW020: "Refused: this fee does not belong to the location's registration path (Low-Volume Standard fees need the verified Low-Volume Standard path; Standard fees are refused on it).", "22023": "Refused: a pilot-funded approval needs the pilot exception, the location and a written approval reference (10+ characters)." },
     withdraw: { "22023": "Only an approval that has not been reserved by a run can be withdrawn." },
     pilot: { "22023": "Refused: the pilot exception exists only for the verified ConfiDance Unlimited, LLC, with a ceiling of at most $150 within its budget and a written founder approval.", "23505": "The pilot exception already exists with another ceiling (it cannot be changed)." },

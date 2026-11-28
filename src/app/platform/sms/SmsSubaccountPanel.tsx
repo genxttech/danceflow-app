@@ -10,6 +10,7 @@ import {
   type PanelRequest,
   type StageState,
   type StudioPanel,
+  hasRecordedMonthlyApproval,
 } from "@/lib/sms/twilioIsv/panel";
 import { CREATE_PHRASE } from "@/lib/sms/twilioIsv/panelCommands";
 import { registrationPath } from "@/lib/sms/twilioIsv/registrationPath";
@@ -48,7 +49,7 @@ const STATE_CLASS: Record<StageState, string> = {
 const input = "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm";
 const primary = "rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800";
 const secondary = "rounded-xl border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50";
-const FEE_LABELS: Record<string, string> = { brand: "Brand registration", brand_low_volume: "Brand registration (Low-Volume Standard)", campaign_vetting: "Campaign vetting", monthly: "First month of campaign service", monthly_low_volume: "First month of campaign service (Low-Volume Standard)", number: "Phone number" };
+const FEE_LABELS: Record<string, string> = { brand: "Brand registration", brand_low_volume: "Brand registration (Low-Volume Standard)", campaign_vetting: "Campaign vetting", monthly: "Campaign monthly service fee", monthly_low_volume: "Campaign monthly service fee (Low-Volume Standard)", number: "Phone number" };
 const AUDIT_LABELS: Record<string, string> = {
   entity_created: "Legal business created", location_attested: "Owner attested a location", location_decided: "Location decision", spend_cap_set: "Setup budget set",
   spend_authorized: "Owner fee approval recorded", spend_reserved: "Fee reserved by a run", spend_withdrawn: "Fee approval withdrawn", subaccount_confirmed: "Subaccount creation confirmed",
@@ -368,6 +369,13 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
             const price = overview.prices[kind];
             const lvsBrand = kind === "brand_low_volume";
             const monthly = kind === monthlyKind;
+            if (monthly && hasRecordedMonthlyApproval(entity, panel.studioId)) {
+              return (
+                <p key={kind} className="rounded-lg border border-slate-100 p-2 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-900">{FEE_LABELS[kind]}:</span> an approval is already recorded for this location. Later months are recorded under the pilot&apos;s per-period written approvals.
+                </p>
+              );
+            }
             return (
               <form key={kind} action={panelAuthorizeFeeAction} className="grid gap-2 rounded-lg border border-slate-100 p-2 sm:grid-cols-[1fr_1.4fr_auto_auto] sm:items-end">
                 <input type="hidden" name="entityId" value={entity.id} />
@@ -378,7 +386,7 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
                   <p className="font-semibold text-slate-900">{FEE_LABELS[kind]}</p>
                   <p className="text-slate-600">{price ? formatCents(price) : lvsBrand ? "No Low-Volume Standard price published yet" : "No published price"}</p>
                   {monthly ? (
-                    <p className="text-slate-600">Needed in addition to campaign vetting: both approvals must be recorded before the campaign can be submitted. This one needs its own approval reference and its own retained document.</p>
+                    <p className="text-slate-600">This approval covers the first month. Needed in addition to campaign vetting: both approvals must be recorded before the campaign can be submitted. This one needs its own approval reference and its own retained document.</p>
                   ) : null}
                   <select name="funding" defaultValue={entity.pilot ? "pilot" : "credit"} className="mt-1 rounded-lg border border-slate-300 px-2 py-1">
                     {monthly ? null : <option value="credit">Prepaid credit</option>}
