@@ -42,7 +42,11 @@ async function rpc(fn: string, args: Record<string, unknown>) {
   return { data: null, error: null };
 }
 let role = "studio_owner";
-vi.mock("@/lib/auth/serverRoleGuard", () => ({ getCurrentUserStudioContext: async () => ({ supabase: { rpc }, user: { id: "u" }, studioId: "s", studioRole: role, isPlatformAdmin: false }) }));
+let contextFails = false;
+vi.mock("@/lib/auth/serverRoleGuard", () => ({ getCurrentUserStudioContext: async () => {
+  if (contextFails) throw new Error("synthetic transient failure");
+  return { supabase: { rpc }, user: { id: "u" }, studioId: "s", studioRole: role, isPlatformAdmin: false };
+} }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({ rpc }) }));
 
 import { smsSetupAction, type SmsSetupState } from "../actions";
@@ -69,6 +73,7 @@ beforeEach(() => {
   record = null;
   calls = [];
   role = "studio_owner";
+  contextFails = false;
   process.env.SMS_EIN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
 });
 afterEach(() => {
@@ -204,6 +209,17 @@ describe("a replacement EIN is never dropped silently", () => {
     expect(result.error).toMatch(/nothing was submitted/);
     expect(calls).not.toContain("submit_sms_onboarding");
     expect(record?.state).toBe("draft");
+  });
+  it("a failure before anything is written keeps the typed EIN marked unsaved, on submit and on save", async () => {
+    await onFile();
+    contextFails = true;
+    for (const intent of ["submit", "save"] as const) {
+      const result = await press(intent, { ...FIELDS, ...NEW, ...ATTEST });
+      expect(result).toMatchObject({ ok: false, intent, einUnsaved: true });
+      expect(result.fieldErrors?.ein).toBeTruthy();
+      expect(JSON.stringify(result)).not.toMatch(/123456789|12-3456789/);
+    }
+    expect(calls).toEqual([]);
   });
   it("a save in between keeps asking", async () => {
     await onFile();
