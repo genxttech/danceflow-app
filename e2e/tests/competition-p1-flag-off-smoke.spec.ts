@@ -9,7 +9,7 @@ import { psqlJson } from "../helpers/cf1Acceptance";
  * P1 flag-off smoke. Run ONLY against a production build made with NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED,
  * COMPETITION_FINALS_ENABLED and COMPETITION_PUBLIC_RESULTS_ENABLED all unset (the NEXT_PUBLIC value is inlined at build).
  * Not covered: the in-app Scratch page and its Registrations link are not behind a flag (manager-only workspace).
- * NOT YET EXECUTED.
+ * Executed locally 2026-11-28 (runbook: run record).
  */
 
 const ENABLED = process.env.E2E_P1_FLAG_OFF === "true";

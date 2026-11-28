@@ -40,7 +40,7 @@ import {
  * P1 restricted pilot, production build, local stack only (OWNER-DECISIONS section 21; plan: p1-integrated-test-plan.md section 3).
  * One adult-only $0 competition, one final-only division, four couples (one scratched before the start), three judges.
  * Every state change goes through the app. A step whose app or database part is missing is BLOCKED (skipped with the named
- * dependency), never passed; later steps then do not run. NOT YET EXECUTED: selectors for unmerged parts are unverified.
+ * dependency), never passed; later steps then do not run. Executed locally 2026-11-28 (runbook: run record).
  */
 
 const ENABLED = process.env.E2E_P1_WALKTHROUGH === "true";
@@ -290,6 +290,19 @@ test.describe("P1 restricted pilot walkthrough", () => {
     }
     await expect(appAlerts(page)).toHaveCount(0);
     await shot(page, "eligibility-recorded");
+    // Every entry needs a number before the competition: the public results page drops a placed row without one.
+    const numbered = () =>
+      psqlJson<number>(`select to_json(count(*)::int) from public.event_competition_entries e where e.event_id = '${scored.event.id}' and coalesce(e.entry_number, '') <> ''`);
+    for (let i = 0; i < COUPLES; i += 1) {
+      await page.goto(`${base()}/registrations`);
+      // the list re-sorts as numbers are saved, so take the first entry that still has none
+      const form = page.locator('input[name="entryNumber"][value=""]').first().locator("xpath=ancestor::form[1]");
+      await form.locator('input[name="entryNumber"]').fill(String(101 + i));
+      await form.getByRole("button", { name: "Assign" }).click();
+      await expect.poll(numbered, { timeout: 60_000 }).toBe(i + 1);
+    }
+    await expect(appAlerts(page)).toHaveCount(0);
+    await shot(page, "numbers-assigned");
     await page.context().close();
   });
 

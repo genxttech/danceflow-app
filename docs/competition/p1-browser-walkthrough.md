@@ -1,12 +1,12 @@
 # P1 restricted pilot: production-build browser walkthrough (runbook)
 
-Status: **PREPARED, NOT EXECUTED.** Written 2026-11-27 against the release line at `57c33191`. Companion to section 3 of `p1-integrated-test-plan.md` (PR 863 branch). DanceFlow Studio/Custom pilot behaviour; no governing-body claim. **Local only:** no hosted database, deploy, activation or provider call.
+Status: **EXECUTED locally 2026-11-28** on app head `8b7ecdb3d` (see Run record). Written 2026-11-27. Companion to section 3 of `p1-integrated-test-plan.md` (PR 863 branch). DanceFlow Studio/Custom pilot behaviour; no governing-body claim. **Local only:** no hosted database, deploy, activation or provider call.
 
 ## Run only when all of these hold
 
 | # | Precondition | State on 2026-11-27 |
 | --- | --- | --- |
-| 1 | A composed database candidate passes (base + corrections + restriction) | **not met:** the run of record does not show release readiness |
+| 1 | A composed database candidate passes (base + corrections + restriction) | `p1run8`, ruled by the Competition coordinator to meet the database acceptance rule (limits in `p1-disposition.md`) |
 | 2 | One integration app branch holding the app parts of PRs 835, 837, 846, the eligibility wiring for 866, 925, 865 messages, 878 and restriction messages | branch `claude/p1-release` (SC1 owns it) holds these, except an app message for the 865 approver refusal (corrections are disabled in P1); type check and build passed at `d68b83001`; merge in any source head that moves |
 | 3 | A full local stack (auth, REST, database, mail catcher) loaded with that composed chain, in a database container the harness accepts by exact name | provided by `scripts/qa/p1/browser/p1-stack.mjs` (container `df-p1walk-db`; the helpers also accept `supabase_db_cf1c-qa`) |
 | 4 | The heavy lock (`C:\dfr\HEAVY_LOCK_RULES.md`): a local stack and `next build` are heavy | per run |
@@ -46,10 +46,12 @@ npm run build
 npx next start -p 3100
 ```
 
+Use `localhost`, not `127.0.0.1`, as the app address (`NEXT_PUBLIC_APP_URL` at build time and `E2E_BASE_URL`): the app redirects to `localhost` and a sign-in made on `127.0.0.1` is lost. Without Playwright's own browser download, set `E2E_BROWSER_CHANNEL="chrome"`.
+
 In a second shell:
 
 ```powershell
-$env:E2E_BASE_URL="http://127.0.0.1:3100"; $env:E2E_RUN_DIR="C:\dfr\p1-browser\<timestamp>"
+$env:E2E_BASE_URL="http://localhost:3100"; $env:E2E_RUN_DIR="C:\dfr\p1-browser\<timestamp>"
 $env:E2E_SUPABASE_URL="<local stack URL>"; $env:E2E_SUPABASE_SERVICE_ROLE_KEY="<local service key>"; $env:E2E_SUPABASE_ANON_KEY="<local anon key>"
 $env:E2E_LOCAL_DB_CONTAINER="df-p1walk-db"; $env:E2E_P1_APP_CANDIDATE="<built commit>"; $env:E2E_P1_WALKTHROUGH="true"
 npx playwright test -c e2e/playwright.p1.config.ts --project=walkthrough
@@ -77,6 +79,17 @@ Stop the server, remove the three Competition variables, run `npm run build` and
 | P1-15, 99 | | other studio and anonymous; any console or 5xx error |
 
 A BLOCKED step is skipped with the missing dependency named, and later steps do not run. **Report skips as BLOCKED, never as passed.** Evidence (results.json, traces, screenshots) stays in `E2E_RUN_DIR`, outside the repository.
+
+## Run record (2026-11-28, local only)
+
+| Run | Result |
+| --- | --- |
+| Flag-off smoke, flags-off production build | runs 1 and 2 failed on the `127.0.0.1` sign-in problem above; run 3 on `localhost`: 3 of 3 passed. That build had `NEXT_PUBLIC_APP_URL` on `127.0.0.1` |
+| Walkthrough run 1 | 14 passed; P1-14 failed: **the public results page showed an empty table** because the entries had no entry number; 2 not run |
+| Walkthrough run 2 | stopped in P1-04: a harness selector fault in the new numbering step |
+| Walkthrough run 3 | 17 of 17 passed, none skipped, with a number assigned to every entry |
+
+**Open product finding:** publishing succeeds for entries without a number, the organizer sees the placements, and the public page lists no rows (`src/lib/competition/results/viewer.ts` drops them). The same code is on the release line and in production, where the Competition flags are off. Until it is fixed or numbering is enforced, assign every entry a number before publishing.
 
 ## Not covered
 

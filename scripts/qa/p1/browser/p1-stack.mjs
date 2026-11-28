@@ -64,7 +64,7 @@ for (let i = 0; i < rest.length; i += 1) {
 // In the repository this file lives at scripts/qa/p1/browser/; elsewhere pass --repo.
 const REPO = path.resolve(flags.repo ?? path.resolve(here, "..", "..", "..", ".."));
 const envOut = path.resolve(flags["env-out"] ?? "C:/dfr/p1-browser/stack");
-const appUrl = flags["app-url"] ?? "http://127.0.0.1:3100";
+const appUrl = flags["app-url"] ?? "http://localhost:3100";
 
 const git = (args, input) => execFileSync("git", args, { cwd: REPO, input, maxBuffer: 256 * 1024 * 1024 });
 const text = (args) => git(args).toString("utf8").replace(/\n$/, "");
