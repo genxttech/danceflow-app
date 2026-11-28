@@ -33,7 +33,7 @@ node scripts/qa/p1/browser/p1-stack.mjs check --pins C:/dfr/s5int-out/<run>.pins
 node scripts/qa/p1/browser/p1-stack.mjs down
 ```
 
-Take the heavy lock (FIFO ticket) around `up` ... `down`; `run-stack-verify.sh` does that for an up / check / down pass. An up / check / down pass succeeded on 2026-11-27 (16 checks, pins `p1run6`, head `d68b83001`). Limits: the database holds what the pins compose, so a migration applied to a hosted project outside them (`20270223150000`) is absent; no storage or realtime service (image upload cannot be exercised); migrations are applied as `supabase_admin`, as in the composed database run, not as the hosted `postgres` role.
+Take the heavy lock (FIFO ticket) around `up` ... `down`; `run-stack-verify.sh` does that for an up / check / down pass. An up / check / down pass succeeded on 2026-11-27 (16 checks, pins `p1run6`, head `d68b83001`). Limits: the database holds only what the pins compose (including layered `EXTRA_FILES` migrations), so a later change to a migration the image already holds is not re-applied; no storage or realtime service (image upload cannot be exercised); migrations are applied as `supabase_admin`, as in the composed database run, not as the hosted `postgres` role.
 
 ## Walkthrough run (flags on, its own build)
 

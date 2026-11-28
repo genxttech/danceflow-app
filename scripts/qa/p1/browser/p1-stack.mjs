@@ -91,17 +91,25 @@ function readPins() {
   if (typeof flags.pins !== "string") die("--pins <file> is required: name the pins file of the composed run this stack stands for");
   const file = path.resolve(flags.pins);
   const pins = {};
+  const extra = [];
   for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
     const match = /^export (\w+)=([0-9a-f]{40})\s*$/.exec(line);
     if (match) pins[match[1]] = match[2];
+    // files the composed run layered on its own, as "<commit>:<path>" pairs; only forward migrations are applied here
+    const layered = /^export EXTRA_FILES="([^"]*)"\s*$/.exec(line);
+    for (const item of layered ? layered[1].split(/\s+/).filter(Boolean) : []) {
+      const at = item.indexOf(":");
+      const target = item.slice(at + 1);
+      if (path.posix.dirname(target) === MIGRATIONS && /^[0-9]{14}_.*\.sql$/.test(path.posix.basename(target))) extra.push({ name: path.posix.basename(target), ref: item.slice(0, at) });
+    }
   }
   for (const key of ["LIVE_PIN", ...CORRECTION_PINS, RESTRICTION_PIN]) if (!pins[key]) die(`${file} has no ${key}`);
-  return { file, pins };
+  return { file, pins, extra };
 }
 
 /** What the image already holds, what is applied on top of it from the release line, then every correction and the restriction. */
 function compose() {
-  const { file, pins } = readPins();
+  const { file, pins, extra } = readPins();
   const live = pins.LIVE_PIN;
   const assumed = new Map(namesAt(BASE_MAIN).map((name) => [name, { name, ref: BASE_MAIN }]));
   const chosen = new Map();
@@ -131,6 +139,10 @@ function compose() {
       added += 1;
     }
     if (!added) notes.push(`${key} adds no migration`);
+  }
+  for (const { name, ref } of extra) {
+    if (chosen.has(name) || assumed.has(name)) notes.push(`EXTRA ${name} is already composed`);
+    else chosen.set(name, { ref, from: "EXTRA" });
   }
   const list = [...chosen].map(([name, source]) => ({ name, ...source })).sort(byVersion);
   return { pinsFile: file, pins, list, assumed: [...assumed.values()].sort(byVersion), releaseCount, notes };
@@ -391,6 +403,7 @@ async function check() {
       'od_published_order_guard', exists (select 1 from pg_trigger where tgname = 'zz_compd_guard_published_heat'),
       'p1_restriction', exists (select 1 from pg_class where relname like 'compp1\\_%') or exists (select 1 from pg_trigger where tgname like '%compp1%'))`),
   );
+  if (composition.migrations.some((m) => m.name.startsWith("20270223150000_"))) parts.private_lesson_read_scope = psql("select to_regprocedure('public.can_view_event_private_lessons(uuid)') is not null") === "t";
   for (const [name, present] of Object.entries(parts)) if (name !== "p1_restriction" || composition.restriction) record(`database ${name}`, present === true);
   const call = async (pathname, { key, token, method = "GET", body } = {}) => {
     const response = await fetch(`${env.E2E_SUPABASE_URL}${pathname}`, {
