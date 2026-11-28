@@ -5,6 +5,7 @@
 #
 #   bash scripts/qa/p1/comp-p1-replay-only.sh <ticket-file> <out-dir> <composed-out-dir> [wait-minutes] [hold-minutes]
 #
+# PROBE=<file in scripts/qa/p1> selects another observation probe that prints VERDICT lines and the same completion marker.
 # ONLY_BASE=1 runs chain A alone (no snapshots, same bounded hold on an inconclusive A verdict).
 # A base chain, B + corrections, C + restriction; the probe after each. If a B or C verdict is INCONCLUSIVE (a probe defect), the lock and the databases are
 # held for at most <hold-minutes> so the probe can be corrected against them; creating <out-dir>/release ends the hold. Everything is removed at the end.
@@ -46,7 +47,7 @@ PSQL=(docker exec -i -e PGPASSWORD=postgres "$NAME" psql -U supabase_admin -d po
 apply(){ if "${PSQL[@]}" -1 < "$1" > "$OUT/$2-$(basename "$1").log" 2>&1; then echo "OK   $2 $(basename "$1")" >> "$OUT/steps.txt"; else echo "FAIL $2 $(basename "$1")" >> "$OUT/steps.txt"; blocked "$2 $(basename "$1") did not apply: $(grep -m1 -E 'ERROR|FATAL' "$OUT/$2-$(basename "$1").log")"; fi; }
 snapshot(){ "${PSQL[@]}" -c checkpoint >/dev/null 2>&1; docker commit "$NAME" "df-p1rp-snap-$RUN_ID-$1" >/dev/null && wait_db "$NAME" || log "snapshot $1 failed"; }
 probe(){ # <phase>
-  cp "$HERE/probe_p1_r11_routes.sql" "$OUT/probe-used-$1.sql"
+  cp "$HERE/${PROBE:-probe_p1_r11_routes.sql}" "$OUT/probe-used-$1.sql"
   tr -d '\r' < "$OUT/probe-used-$1.sql" | timeout 600 "${PSQL[@]}" -At -v ON_ERROR_STOP=0 > "$OUT/bypass-$1.log" 2>&1
   { grep -E '^VERDICT[ -]' "$OUT/bypass-$1.log" || echo "NO VERDICT: $(grep -m1 -E 'ERROR|FATAL' "$OUT/bypass-$1.log")"; grep -q '^P1R11 PROBE COMPLETE' "$OUT/bypass-$1.log" || echo "PROBE INCOMPLETE"; } > "$OUT/bypass-$1.txt"
   log "[$1] reached $(grep -c ': REACHED' "$OUT/bypass-$1.txt"), not reached $(grep -c ': NOT REACHED' "$OUT/bypass-$1.txt"), closed at setup $(grep -c ': CLOSED AT SETUP' "$OUT/bypass-$1.txt"), inconclusive $(grep -c ': INCONCLUSIVE' "$OUT/bypass-$1.txt")"
