@@ -6,6 +6,37 @@ Heads (base fingerprint `d87e4285`): live `57c331910`, candidate `92a8c17c6`, 84
 
 Phases: A base chain; B base + 12 corrections; C B + restriction (919); D rollback; E re-apply.
 
+## Consolidated rerun: p1run8 (2026-11-27 22:13Z to 11-28 02:11Z)
+
+Local only; no hosted apply, merge or deploy. **P1 is still not shown to be release-ready.**
+
+Heads: base `57c33191`, 844 `ccc084057`, 865 `382a8850d`, 864 `23bd68d60`, 863 `02b8176ff`, 866 `c1a16ca54`, 877 `a79b0068c`, 919 `95d4a8f0f` (OD-31's final heads; fixes made after their review were not re-reviewed), 899 `2754a4402`, 926 `e851833d3`, R-11 `e2_marks` copy `5d06d0192`, migration 20270223150000 from PR 888 `3d0e13cbd`. 0 composition warnings.
+
+**Base data:** OD-31's starter-template seed now loads after the base chain, so base results are not directly comparable with earlier runs. The coordinator reports that the ballroom, country and west coast swing starter templates are active on DEV and PROD (read-only check, not made by this session): the earlier `phase10a` / `phase10b` template failure came from the test baseline.
+
+| Step | Result |
+|---|---|
+| Migrations | base 23/23 + seed, corrections 13/13, restriction 1/1 |
+| Rollback / re-apply | 14/14 and 14/14; catalog after rollback identical to base, after re-apply identical to C |
+| Selected suites | A 21 pass, 2 fail; B 27 pass, 13 fail, AUTOSEED 4 pass, 5 fail; C 11 pass, 32 fail, AUTOSEED 2 fail |
+| Selected race scripts | A 5 copies pass; B 7 pass, 18 fail, AUTOSEED 9 pass, 5 fail; C 4 pass, 21 fail, AUTOSEED 2 pass, 7 fail |
+| Route replay | unchanged: A all four reached; B NC, CS, CA reached, R refused; C all closed at setup |
+
+Results with copies include owner-supplied copies; they are labelled `[ADAPTED COPY]` in the run output.
+
+### Against the owners' expectations
+
+- OD-31: P1 suite 160 on C, F2 copy 32 checks (OD-31: of 33, one skipped), NS1 copy 18, A3 copy 15, E2 copy 10, od31 negative copy 29. All seen. The race copies pass on A and, with the clearance fixture, on B.
+- R-15: copies 8 and 9 (`cf1_a1_helpers`, `cf1_rb3_refund_evidence`) pass on B without it and stop on a restriction refusal on C.
+- R-11: the `e2_marks` copy passes on A, B and C.
+- R-10: `cf1_a4_concurrency` passes on B with the clearance fixture; on C it only reports `fixture failed` (R-10: unreachable in the pilot).
+
+### Where this leaves the table
+
+Every listed suite and script now has a passing original or labelled copy behind it on B (apart from two copies not meant for that chain: `cf1_a5_concurrency_with_r15`, which fails P1 and P2 as R-15 expected and is replaced there by its with-S6 copy, and the R-11 pilot copy, which refuses without the restrictions), and on C either passes, stops on a named restriction, or carries a written reason (`p1-disposition.md`). The written reasons are the owners', checked here only as far as the row says: `cf1_od17_enforcement` (read), `o1_concurrency` (OD-31; its related 919 check passes), `cf1_a4_concurrency` (R-10; not verified).
+
+**A restriction refusal means the guard is untested on the restriction chain.** Still not tested: the second-contest bypass, the application end-to-end workflow, the production-build browser run and the flag-off smoke test. Suites outside the selection keep their earlier results.
+
 ## Targeted rerun: p1run7 (2026-11-27 19:24-21:25Z)
 
 Local only; no hosted apply, merge or deploy. **P1 is still not shown to be release-ready.**
