@@ -1,6 +1,6 @@
 # TW-4F: final six-price reconciliation (2026-11-18)
 
-Evidence only: the repo price manifest `docs/twilio/pricing/ConfiDance_pilot_price_manifest.json`, `TW-4F_Pricing_Recommendation.md` sections 2 and 10, `TW-4F_Ticket_30376594_Pricing_Evidence_2026-11-16.md`, the implemented kinds in `src/lib/sms/priceChange.ts` and `priceMicros.ts`. No Twilio contact. Nothing published or filed.
+Evidence only: the repo price manifest `docs/twilio/pricing/*_pilot_price_manifest.json`, `TW-4F_Pricing_Recommendation.md` sections 2 and 10, `TW-4F_Ticket_B_Pricing_Evidence_2026-11-16.md`, the implemented kinds in `src/lib/sms/priceChange.ts` and `priceMicros.ts`. No Twilio contact. Nothing published or filed.
 
 ## 1. The "$20 / $15 / $40" figures
 
@@ -25,7 +25,7 @@ All kinds exist in the implemented schema (`PRICE_KIND_TEXT`: brand, brand_low_v
 | 5 | monthly_low_volume | monthly | $2.25 | $1.50 | 29.2% | Low Volume Mixed tier |
 | 6 | number | monthly | $1.65 | $1.15 | 26.2% | Local number list price |
 
-Setup bundle at retail (brand + vetting + first month + number): $31.90; provider cost $22.15 (conservative); recurring $3.90 per month at retail, $2.65 cost. Rejected-campaign exposure: another $15 cost. The $150 ceiling counts customer prices and is not authorization to spend.
+Setup bundle at retail (brand + vetting + first month + number): $31.90; provider cost $22.15 (conservative); recurring $3.90 per month at retail, $2.65 cost. Rejected-campaign exposure: another $15 cost. The [PILOT-CAP] ceiling counts customer prices and is not authorization to spend.
 
 Studio billing behavior (kinds and flags as implemented; each flag is off today): one-time kinds (brand, vetting) are itemized once at their gate; monthly kinds (campaign, number) repeat through the recurring/fee-lifecycle path, which is gated off; per-segment kinds are debited from the studio's prepaid ledger by the usage reconciler when usage billing is enabled; sub-cent amounts are kept as micro-dollars with a carry. I have not re-verified every billing path in this pass; the activation checklist re-proves them in isolated QA before any switch.
 

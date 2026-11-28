@@ -43,7 +43,7 @@ For each case save, under `docs/billing/evidence/d7-wp3-testmode/` (no secrets, 
 Independent review verdict recorded; PR CI green; owner authorization for the test-mode proof stating the Stripe account and who supplies the restricted key; the 60-day minimum remains provisional and is only a parameter in the proof.
 
 ## 8. Explicit non-goals
-No live Stripe call; no change to DanceAbel's subscription; no registry insert on any hosted database; no customer notice; no assumption that today's regular Pro price will be the July 2027 price; the paid Organizer Suite add-on and its price are a separate work package.
+No live Stripe call; no change to the grandfathered studio's subscription; no registry insert on any hosted database; no customer notice; no assumption that today's regular Pro price will be the July 2027 price; the paid Organizer Suite add-on and its price are a separate work package.
 
 ## 9. Additions after independent review (2026-10-31)
 Extra test-mode cases, to be run in the same authorized proof:
@@ -63,7 +63,7 @@ Known follow-ups deliberately NOT in this PR (owner decisions or later work pack
 
 ## 10. Owner decisions recorded (2026-11-01) and proof prerequisites
 
-Approved policy: DanceAbel's protected rate runs through July 8, 2027; the boundary is 2027-07-09T04:00:00Z. The 60-day advance-notice minimum and a separate 24-hour minimum lead time before the boundary for creating the schedule are approved minimum safeguards (subject to stricter applicable requirements); neither authorizes sending a notice or creating a schedule automatically. The effective price is never assumed from today's regular Pro price: it must be explicitly authorized and appear in the delivered notice.
+Approved policy: the grandfathered studio's protected rate runs through July 8, 2027; the boundary is 2027-07-09T04:00:00Z. The 60-day advance-notice minimum and a separate 24-hour minimum lead time before the boundary for creating the schedule are approved minimum safeguards (subject to stricter applicable requirements); neither authorizes sending a notice or creating a schedule automatically. The effective price is never assumed from today's regular Pro price: it must be explicitly authorized and appear in the delivered notice.
 
 The test-mode proof is **conditionally authorized**. It does not start until ALL of these are confirmed in writing, and the first provider call is preceded by `validateProofKey`, `checkSandboxIdentity` and a print of the exact operation list (`src/lib/billing/priceTransitionProofGuard.ts`):
 1. An explicitly approved, isolated Stripe TEST sandbox (account id supplied as `--expected-account`); the C6 invoice-testing sandbox/credential is excluded without separate approval.

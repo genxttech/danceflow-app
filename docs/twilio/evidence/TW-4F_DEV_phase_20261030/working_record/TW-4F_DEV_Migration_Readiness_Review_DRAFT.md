@@ -164,7 +164,7 @@ DEV and PROD each have exactly one platform admin, with one verified TOTP factor
 - Stale tests: `f3recon` F3-09(d) and `j2owner`; `r2b` and `tw4fj1` need harness support. `isolatedQa.canary` skipped.
 - The hosted probes cannot see the `1231` body or its policy re-creation. After applying `1231`, check `position('aal2' in prosrc) > 0` for `_sms_onb_is_platform_admin()` and read the three policies directly (as done in 2.2).
 - `https://danceflow-app.vercel.app/` returning 500 (section 1) and the build-to-DEV question (section 3).
-- ConfiDance pilot gates (KI-1, U-2 pricing, U-4 evidence, reconciler scheduler and alert recipients, compliance mailbox) are separate from the DEV schema apply. PROD stays on hold.
+- Pilot gates (KI-1, U-2 pricing, U-4 evidence, reconciler scheduler and alert recipients, compliance mailbox) are separate from the DEV schema apply. PROD stays on hold.
 
 ## 8. Workstream A: DEV application compatibility (read-only)
 
@@ -482,7 +482,7 @@ Consequences for this plan:
 
 #304 adds no SQL and no application code, so it does not alter the 41 files or the SQL/app compatibility. It does bear on gates that sit next to the DEV apply:
 
-- It names the pilot gates that stay open and are **not** part of a DEV schema apply: B-1 Stage B draft handling (nothing deleted, nothing authorized), B-2 the $150 cumulative pilot cap split ($20 absorbed inbound, $130 setup fees; planning only, enforces nothing in code), B-3 final retail price, B-4 Stripe answer, B-5 counsel/CPA, **B-6 dual control versus documented single admin for `tw4_price_set`**, B-7 hosted migrations, live SMS, provisioning and fee-bearing steps (none authorized).
+- It names the pilot gates that stay open and are **not** part of a DEV schema apply: B-1 Stage B draft handling (nothing deleted, nothing authorized), B-2 the [PILOT-CAP] cumulative pilot cap split ([PILOT-INBOUND-ALLOWANCE] absorbed inbound, [PILOT-SETUP-ALLOWANCE] setup fees; planning only, enforces nothing in code), B-3 final retail price, B-4 Stripe answer, B-5 counsel/CPA, **B-6 dual control versus documented single admin for `tw4_price_set`**, B-7 hosted migrations, live SMS, provisioning and fee-bearing steps (none authorized).
 - **B-6 interacts with the single-administrator gate (section 5).** The DEV schema apply needs no admin session, but a DEV check of `tw4_price_set` dual control cannot pass with one administrator. Keep it in the blocked-and-unverified list; do not substitute a workaround.
 - The checklist relies on migration `20261203090000` (`tw4_inbound_record`, STOP/START/HELP classified as compliance, never charged) and the pilot spend hardening (`20261231100000`, PR 330). Both are inside the 41 files at their documented positions (#13 and #41), so a DEV apply delivers the objects #304 discusses. #304 asserts no hosted state, and none was changed.
 - Open verification items V-1 to V-5 (Twilio invoice lines, failed-text fees, A2P fees, brand tier, UCS-2 segments) cannot be answered by a schema apply; they belong to the pilot, not to DEV readiness.

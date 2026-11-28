@@ -1,6 +1,6 @@
-# TW-4F ConfiDance pilot: consolidated owner decision package (2026-11-09)
+# TW-4F pilot: consolidated owner decision package (2026-11-09)
 
-Status: decision package only. Nothing here is approved or executed. No price is published, no hosted migration applied, no Twilio call made, no fee incurred, no SMS sent. Engineering facts are verified (read-only PROD probes, local QA); Twilio figures are NOT confirmed by Twilio (ticket #29647095 is unanswered, and Twilio's fee article returns 403 to automated reads), so they are labelled below.
+Status: decision package only. Nothing here is approved or executed. No price is published, no hosted migration applied, no Twilio call made, no fee incurred, no SMS sent. Engineering facts are verified (read-only PROD probes, local QA); Twilio figures are NOT confirmed by Twilio (ticket [PROVIDER-TICKET-A] is unanswered, and Twilio's fee article returns 403 to automated reads), so they are labelled below.
 
 ## 1. What is decided and what is not
 
@@ -8,9 +8,9 @@ Status: decision package only. Nothing here is approved or executed. No price is
 |---|---|
 | Provisional per-segment rates | Outbound $0.017, inbound $0.013 (owner-approved as provisional). Stored as micro-dollars 17,000 and 13,000 (PR #441). |
 | Fixed-fee customer prices | Candidates only, not approved (section 3). |
-| Twilio tier (Low Volume vs Standard) | UNCONFIRMED (ticket #29647095, question 6). |
+| Twilio tier (Low Volume vs Standard) | UNCONFIRMED (ticket [PROVIDER-TICKET-A], question 6). |
 | Price publication mechanism | Built in PR #441, not merged or applied. Needs the `20270210*` chain on PROD first (section 5). |
-| Pilot spending | Not authorized. The $150 ceiling is a safety limit, not a budget (section 6). |
+| Pilot spending | Not authorized. The [PILOT-CAP] ceiling is a safety limit, not a budget (section 6). |
 
 ## 2. Per-segment rates: reconciliation against Twilio's October 2026 price page
 
@@ -50,7 +50,7 @@ Margins are before Stripe fees (2.9% + $0.30 per top-up), the 5% variance reserv
 | Brand, Standard (includes $41.50 secondary vetting) | $46.00 one time | $65.00 | Standard fallback |
 | Campaign, Standard MIXED | $10.00 per month | $14.00 | Standard fallback |
 
-Customer-price setup totals (what the $150 ceiling counts): Low Volume $31.90, Standard $101.65. Recurring: $3.90 or $15.65 per month.
+Customer-price setup totals (what the [PILOT-CAP] ceiling counts): Low Volume $31.90, Standard $101.65. Recurring: $3.90 or $15.65 per month.
 
 ## 4. Estimated costs (actual Twilio spend, not customer price)
 
@@ -59,9 +59,9 @@ Customer-price setup totals (what the $150 ceiling counts): Low Volume $31.90, S
 | Low Volume path (recommended if Twilio confirms) | **$22.15** | $2.65 plus usage | $22.15 + 2 x $2.65 = $27.45; with one rejected-and-resubmitted campaign +$15 = $42.45; plus testing messages below |
 | Standard fallback (if Twilio says Low Volume does not apply to ISV-registered studio brands) | **$72.15** | $11.15 plus usage | $72.15 + 2 x $11.15 = $94.45; with one resubmission +$15 = $109.45; plus testing messages |
 
-Testing messages (separate from setup): a $10 complimentary testing credit is about 588 outbound segments at $0.017; Twilio cost for all of it is at most about $7.82 at the worst-carrier $0.0133. Recommended pilot testing budget: **$10 credit, DanceFlow-funded.** No recommendation to raise it before there is invoice data.
+Testing messages (separate from setup): a [PILOT-TEST-BUDGET] complimentary testing credit is about 588 outbound segments at $0.017; Twilio cost for all of it is at most about $7.82 at the worst-carrier $0.0133. Recommended pilot testing budget: **[PILOT-TEST-BUDGET] credit, DanceFlow-funded.** No recommendation to raise it before there is invoice data.
 
-Recommended maximum authorization to request: Low Volume path **$55** (setup $22.15, two further months $5.30, one resubmission $15, testing up to about $8, small rounding reserve). If the Standard path is forced, a new decision at about **$120** is needed; this package does not authorize it.
+Recommended maximum authorization to request: Low Volume path **[PILOT-MAXIMUM]** (setup $22.15, two further months $5.30, one resubmission $15, testing up to about $8, small rounding reserve). If the Standard path is forced, a new decision at about **$120** is needed; this package does not authorize it.
 
 ## 5. Price publication path (smallest compliant)
 
@@ -82,11 +82,11 @@ Free: create the studio subaccount; create the secondary customer profile and en
 
 Eligibility uncertainty, stated plainly: whether an EIN studio registered through the ISV Primary profile qualifies for Low Volume Standard and Low Volume Mixed is unanswered. Published criteria (EIN, under 6,000 segments per day) suggest yes; Twilio's written answer governs. If it is no, the Standard path costs $72.15 initially and $11.15 per month.
 
-## 8. The $150 ceiling is not spending authorization
+## 8. The [PILOT-CAP] ceiling is not spending authorization
 
 - It is a cumulative, non-spendable safety limit counted at published customer prices (Low Volume setup $31.90, Standard $101.65). Reaching it blocks further fee-bearing actions; not reaching it authorizes nothing.
 - Each real fee-bearing Twilio action still needs its own separate written owner approval reference. There is no generalized bypass, and one approval never carries to another action.
-- It does not fund messaging. Testing messages come from the separate $10 testing credit, which also needs its own approval.
+- It does not fund messaging. Testing messages come from the separate [PILOT-TEST-BUDGET] testing credit, which also needs its own approval.
 - It does not authorize billing, SMS sending, number purchase, campaign registration or price publication. Those switches stay off until their own release conditions are met.
 - Recurring monthly fees also count against it, so on the Standard path the ceiling is exhausted in about three months.
 
@@ -95,5 +95,5 @@ Eligibility uncertainty, stated plainly: whether an EIN studio registered throug
 1. Accept the six candidate fixed-fee customer prices in section 3, or name others.
 2. Approve the PROD release path in section 5 as a future bounded release (SQL chain of four migrations, then the app with PR #441, then the bootstrap). Not authorized by this document.
 3. Confirm the hardware key arrangement (section 6): which key, and recovery key custody.
-4. Set the pilot maximum: recommended $55 Low Volume with the $10 testing credit inside it; Standard path to be decided separately.
-5. Relay Twilio's reply on ticket #29647095 when it arrives (engineering cannot read the ticket). Engineering proceeds with the independent work in the meantime.
+4. Set the pilot maximum: recommended [PILOT-MAXIMUM] Low Volume with the [PILOT-TEST-BUDGET] testing credit inside it; Standard path to be decided separately.
+5. Relay Twilio's reply on ticket [PROVIDER-TICKET-A] when it arrives (engineering cannot read the ticket). Engineering proceeds with the independent work in the meantime.

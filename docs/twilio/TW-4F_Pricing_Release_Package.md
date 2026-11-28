@@ -1,6 +1,6 @@
 # TW-4F pricing release package: GO / NO-GO (2026-11-09)
 
-Nothing below has been executed. No production SQL, deployment, credential bootstrap, price publication, Twilio resource, charge or SMS. Planning approvals only (owner, 2026-11-09): Low Volume fixed-fee customer prices $7.00 brand, $21.00 vetting, $2.25 campaign per month, $1.65 number per month; per-segment $0.017 outbound, $0.013 inbound. Low Volume eligibility and actual Twilio fees stay pending ticket #29647095.
+Nothing below has been executed. No production SQL, deployment, credential bootstrap, price publication, Twilio resource, charge or SMS. Planning approvals only (owner, 2026-11-09): Low Volume fixed-fee customer prices $7.00 brand, $21.00 vetting, $2.25 campaign per month, $1.65 number per month; per-segment $0.017 outbound, $0.013 inbound. Low Volume eligibility and actual Twilio fees stay pending ticket [PROVIDER-TICKET-A].
 
 ## Verdict
 
@@ -40,7 +40,7 @@ Rollbacks: `..._dual_control_rollback` 5ad7636f9c9bed39; `..._owner_authorizatio
 | Prices published | 0 rows |
 | Usage-billing switch rows | 0 (billing off) |
 | Credit accounts, ledger rows, pilot exceptions | 0, 0, 0 |
-| $150 pilot ceiling | CHECK `ceiling_cents` 1 to 15000 present; burned-ceiling guard trigger enabled |
+| [PILOT-CAP] pilot ceiling | CHECK `ceiling_cents` 1 to 15000 present; burned-ceiling guard trigger enabled |
 | Inbound absorbed-cost allowance and volume alert | $20.00 and 200 segments per day |
 | `tw4_price_set_micros` | EXECUTE granted to no API role |
 | SMS-related production variables | only `SMS_USAGE_RECONCILER`, `SMS_FEE_LIFECYCLE_SCAN`, `SMS_FEE_LIFECYCLE_DELIVERY` (monitoring); no billing, purchase or sending flag |
@@ -61,14 +61,14 @@ After the release, all of the above stays unchanged: nothing publishes, bills, s
 
 **Bootstrap B1 (separate authorization, after R1):** engineering records the relying party and the two public keys with the owner-level bootstrap. Needs from you: (a) confirmation that you hold **two hardware security keys** (one primary, one offline recovery) and an enrolled authenticator app; (b) approval of relying party `www.idanceflow.com` with allowed origin `https://www.idanceflow.com` (an exact host, narrower than the apex); (c) the public key material from your enrolment ceremony. Engineering never holds a private key.
 
-**Owner actions D1 (not engineering):** six proposals from the manifest `docs/twilio/pricing/ConfiDance_pilot_price_manifest.json`, then six separate-session hardware-key authorizations after the mandatory 24 hours. Publishing prices is yours alone; engineering cannot do it by design.
+**Owner actions D1 (not engineering):** six proposals from the manifest `docs/twilio/pricing/*_pilot_price_manifest.json`, then six separate-session hardware-key authorizations after the mandatory 24 hours. Publishing prices is yours alone; engineering cannot do it by design.
 
 ## 6. Explicit non-goals of this release
 
-No Twilio call or fee, no subaccount, brand, campaign or number, no SMS send, no billing or credit purchase flag, no pilot exception, no price publication by engineering, no change to the refund freeze, competition registration or OD-17. The $150 ceiling is a safety limit, not spending authorization; the $55 planning figure is a plan. Each fee-bearing Twilio action later needs its own written approval.
+No Twilio call or fee, no subaccount, brand, campaign or number, no SMS send, no billing or credit purchase flag, no pilot exception, no price publication by engineering, no change to the refund freeze, competition registration or OD-17. The [PILOT-CAP] ceiling is a safety limit, not spending authorization; the [PILOT-MAXIMUM] planning figure is a plan. Each fee-bearing Twilio action later needs its own written approval.
 
 ## 7. Residual items
 
-- Twilio ticket #29647095 unanswered: Low Volume eligibility and actual fees unconfirmed. Not a blocker for R1, B1 or D1.
+- Twilio ticket [PROVIDER-TICKET-A] unanswered: Low Volume eligibility and actual fees unconfirmed. Not a blocker for R1, B1 or D1.
 - Verizon and other inbound carrier fees are blank on Twilio's page (treated as none); confirm on the first invoice.
 - Admin alert email end to end is still tested only locally (no business exists on production).

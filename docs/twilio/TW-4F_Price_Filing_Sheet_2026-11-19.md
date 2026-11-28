@@ -11,7 +11,7 @@ Where: platform admin, SMS page, section "Propose a price change". File six time
 | 5 | Campaign (monthly, Low-Volume Standard) | 2.25 | 1.50 | monthly |
 | 6 | Phone number (monthly) | 1.65 | 1.15 | monthly |
 
-Descriptions (3-200 chars) and reasons (10-500 chars) are in docs/twilio/pricing/ConfiDance_pilot_price_manifest.json. The only change: row 2 uses 0.0155 (owner decision 2026-11-18); keep the cost 0.010205.
+Descriptions (3-200 chars) and reasons (10-500 chars) are in docs/twilio/pricing/*_pilot_price_manifest.json. The only change: row 2 uses 0.0155 (owner decision 2026-11-18); keep the cost 0.010205.
 Do NOT use the other dropdown entries: "Brand registration" (Standard, $46), "Campaign (monthly)" (non-Low-Volume).
 
 Timing on PROD (config read 2026-11-19): single-owner mode, 24h cooling-off, then a 24h signing window. Each proposal must be signed with the hardware key within that window or the sweep expires it. File all six together, then sign all six in the window starting 24h later. Signing publishes: do not sign until you also intend publication (publication is a separate approval from me; signing is the act that publishes in this flow).

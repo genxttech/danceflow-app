@@ -1,10 +1,12 @@
 # TW-4F G-SUB prerequisite package (2026-11-23)
 
-Status: preparation only. Nothing was written to production, no Twilio resource exists, nothing was deployed, funded, messaged or activated. G-SUB itself (creating the ConfiDance subaccount) is on HOLD until the three prerequisites below are met. The $150 figure is a ceiling, not authorization.
+> Names, identifiers and pilot amounts are shown as placeholders in square brackets. Checksums recorded in this document refer to the earlier file content. Take real values from the private record before any use.
+
+Status: preparation only. Nothing was written to production, no Twilio resource exists, nothing was deployed, funded, messaged or activated. G-SUB itself (creating the pilot-studio subaccount) is on HOLD until the three prerequisites below are met. The [PILOT-CAP] figure is a ceiling, not authorization.
 
 ## 0. Where production stands (read-only, 2026-11-23 00:29Z)
 
-Studio `ConfiDance Studio` (`e9365dbd-9f8d-44ee-b7ec-053a7c0651ee`) exists and is active. Onboarding access is OFF, there is no onboarding, no legal entity, no subaccount, no confirmation, no step, no spend event. Six prices are active. One platform admin. Re-check any time with `gsub_prereq_check.sql` (`sb.sh prod-read`).
+Studio `[PILOT-STUDIO-NAME]` (`[PILOT-STUDIO-ID]`) exists and is active. Onboarding access is OFF, there is no onboarding, no legal entity, no subaccount, no confirmation, no step, no spend event. Six prices are active. One platform admin. Re-check any time with `gsub_prereq_check.sql` (`sb.sh prod-read`).
 
 ## 1. Prerequisite P1: owner onboarding (G1)
 
@@ -16,29 +18,29 @@ What is verified: the wizard at Settings > Texting (owner only) collects legal n
 
 "Submit for review" only records the setup (state `submitted_for_checks`); it calls nothing at Twilio. Only studio owners can submit.
 
-Blocker found: the wizard is hidden until the per-studio pilot switch (`studio_sms_onboarding_access`) is on. It is OFF for ConfiDance. The platform page action `set_sms_onboarding_access` needs a signed-in platform admin; the equivalent, hash-pinned script is `gsub_enable_onboarding_access_prod.sql` (see section 2). The switch only shows the wizard; it starts nothing.
+Blocker found: the wizard is hidden until the per-studio pilot switch (`studio_sms_onboarding_access`) is on. It is OFF for the pilot studio. The platform page action `set_sms_onboarding_access` needs a signed-in platform admin; the equivalent, hash-pinned script is `gsub_enable_onboarding_access_prod.sql` (see section 2). The switch only shows the wizard; it starts nothing.
 
-Self-service instructions for ConfiDance's authorized representative (draft, not sent to anyone):
-1. Sign in at the DanceFlow app as the studio owner of ConfiDance Studio.
-2. Open Settings > Texting. Complete the four steps: business identity (legal name exactly as on the IRS letter: ConfiDance Unlimited, LLC; entity type; industry Education or Consumer), address and website, the authorized representative (a person with authority to bind the business: owner, director, GM), and the preferred area code.
+Self-service instructions for the pilot studio's authorized representative (draft, not sent to anyone):
+1. Sign in at the DanceFlow app as the studio owner of the pilot studio.
+2. Open Settings > Texting. Complete the four steps: business identity (legal name exactly as on the IRS letter: [PILOT-LEGAL-NAME]; entity type; industry Education or Consumer), address and website, the authorized representative (a person with authority to bind the business: owner, director, GM), and the preferred area code.
 3. Enter the EIN once. It is encrypted and you will only see the last four digits afterwards.
 4. Read the generated campaign description, sample messages and the three public pages, then tick the four statements only if each is true, and press Submit for review.
 Do not share the EIN in chat or email. Nobody at DanceFlow enters, attests or submits for you. The representative must be a genuine, authorized person; the platform admin script in section 2 refuses unless the attestation was made by an active owner of this studio.
 
 First human action in this prerequisite: the owner decides who the representative is and completes the wizard (after the switch is on).
 
-## 2. Prerequisite P2: legal entity and $150 limit (platform admin)
+## 2. Prerequisite P2: legal entity and [PILOT-CAP] limit (platform admin)
 
 Existing platform actions (`tw4_entity_create_for_studio`, `tw4_entity_set_spend_cap`) are used unchanged. Two hash-pinned alternatives to clicking through the platform page are prepared; each guards, then calls the same functions:
 
 | File | When | What it does |
 | --- | --- | --- |
-| `gsub_enable_onboarding_access_prod.sql` (sha256 `64be40f0f2587af3910bad7e06d86960a8a403eab61f4bc5512c49fecb148959`) | now, after owner approval | turns the onboarding switch on for ConfiDance Studio only (refuses on any other name or if there is not exactly one platform admin), audits it |
-| `gsub_entity_and_cap_prod.sql` (sha256 `ec0f75ae2443bf409a5927ff2cdd1293a23b1019438dca09839ac8ec088d3c9a`) | only after the owner has genuinely submitted onboarding | refuses unless: studio name matches, legal name equals `ConfiDance Unlimited, LLC`, never GenX/TotalTech, onboarding is submitted, attested, EIN stored, attested by an active owner of that studio, representative and address present; then creates the legal entity and sets the cap to 15000 cents |
+| `gsub_enable_onboarding_access_prod.sql` (sha256 `64be40f0f2587af3910bad7e06d86960a8a403eab61f4bc5512c49fecb148959`) | now, after owner approval | turns the onboarding switch on for the pilot studio only (refuses on any other name or if there is not exactly one platform admin), audits it |
+| `gsub_entity_and_cap_prod.sql` (sha256 `ec0f75ae2443bf409a5927ff2cdd1293a23b1019438dca09839ac8ec088d3c9a`) | only after the owner has genuinely submitted onboarding | refuses unless: studio name matches, legal name equals `[PILOT-LEGAL-NAME]`, never GenX/TotalTech, onboarding is submitted, attested, EIN stored, attested by an active owner of that studio, representative and address present; then creates the legal entity and sets the cap to [PILOT-CAP-CENTS] cents |
 
 Audit attribution: these functions record the (sole) platform admin as the actor because they take it as an argument. The scripts write a note that engineering executed them via `danceflow-ops` under the owner's written approval of the file hash. If the owner prefers the platform page (two clicks, needs a recent sign-in), nothing else changes. Either path is a production write and needs the owner's approval of that exact file hash (`sb.sh prod-apply <file> <sha>`).
 
-Validation (DEV, hosted, always rolled back, 2026-11-23): `gsub_dev_validate.sql` runs the exact script bodies with test constants in one transaction that ends in a deliberate exception. Results: wrong studio name refused (access and entity); access enable ok and idempotent; no onboarding refused; draft onboarding refused; attestation by a non-owner refused; wrong legal name refused; genuine path creates the entity with cap 15000; replay refused; GenX subject refused; 0 Twilio account rows; audit entries `access_enabled`, `entity_created`, `spend_cap_set`. DEV was verified clean afterwards (0 entities, 0 onboardings). An earlier rehearsal also showed `tw4_subaccount_confirm` refuses without a cap (TW004) and with an unknown entity, records a confirmation once the cap exists, and creates no Twilio account row. Existing local suites (tw4f3a 16/16, tw4f3bui, panel tests) cover the app side.
+Validation (DEV, hosted, always rolled back, 2026-11-23): `gsub_dev_validate.sql` runs the exact script bodies with test constants in one transaction that ends in a deliberate exception. Results: wrong studio name refused (access and entity); access enable ok and idempotent; no onboarding refused; draft onboarding refused; attestation by a non-owner refused; wrong legal name refused; genuine path creates the entity with cap [PILOT-CAP-CENTS]; replay refused; GenX subject refused; 0 Twilio account rows; audit entries `access_enabled`, `entity_created`, `spend_cap_set`. DEV was verified clean afterwards (0 entities, 0 onboardings). An earlier rehearsal also showed `tw4_subaccount_confirm` refuses without a cap (TW004) and with an unknown entity, records a confirmation once the cap exists, and creates no Twilio account row. Existing local suites (tw4f3a 16/16, tw4f3bui, panel tests) cover the app side.
 
 What the cap is NOT: it is DanceFlow's own application limit (`studio_sms_legal_entities.spend_cap_cents`, checked by `tw4_runner_spend_check` before any fee step against fees DanceFlow has authorized or reserved at customer prices). Twilio does not enforce it. Actual charges accrue on the parent Twilio account and its funding, which the cap cannot stop. Every fee-bearing step stays its own gate with a dated written approval; the cap only refuses further steps. Verify in the Twilio Console what balance, auto-recharge and usage alert settings the parent account has; those, not this cap, bound real spend. (Not verified live by engineering.)
 
@@ -48,7 +50,7 @@ Today production has `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGIN
 
 | Variable | Value / source | Notes |
 | --- | --- | --- |
-| `TWILIO_ISV_PRIMARY_PROFILE_SID` | `BUed777b1ed81df271793fbd097324ec94` (GenX TotalTech LLC approved Primary Customer Profile; Stage A evidence, `TW-4_StageB_Decision_Memo.md`) | the Primary is only assigned, never the subject |
+| `TWILIO_ISV_PRIMARY_PROFILE_SID` | `[PRIMARY-PROFILE-SID]` (GenX TotalTech LLC approved Primary Customer Profile; Stage A evidence, `TW-4_StageB_Decision_Memo.md`) | the Primary is only assigned, never the subject |
 | `TWILIO_ISV_PRIMARY_POLICY_SID` | `RN6433641899984f951173ef1738c3bdd0` | same source |
 | `TWILIO_ISV_SECONDARY_POLICY_SID` | `RNdfbf3fae0e1107f8aded0e7cead80bf5` | Twilio ISV guide step 1 |
 | `TWILIO_ISV_A2P_POLICY_SID` | `RNb0d4771c2c98518d916a3d4cd70a8f8b` | Twilio ISV guide step 2.1; loader requires it though used later |
@@ -70,7 +72,7 @@ Deployment plan (Apps holds the Vercel CLI; each step its own owner gate): (1) s
 ## 5. Order of human actions (the first unavoidable one is item 1)
 
 1. Owner approves `gsub_enable_onboarding_access_prod.sql` (hash above), or flips the switch on the platform page. One approval; engineering runs it and verifies with `gsub_prereq_check.sql`.
-2. ConfiDance's authorized representative completes the wizard (cannot be delegated or done by engineering). In parallel, the owner chooses the compliance mailbox and approves the Vercel variable change and the staged build.
+2. The pilot studio's authorized representative completes the wizard (cannot be delegated or done by engineering). In parallel, the owner chooses the compliance mailbox and approves the Vercel variable change and the staged build.
 3. Engineering re-runs `gsub_prereq_check.sql` on the submitted onboarding, reports the findings, and asks for approval of `gsub_entity_and_cap_prod.sql` (or the platform page equivalent).
 4. Engineering returns the final single-subaccount authorization request (exact legal entity id, friendly name `df:production:{legal_entity_id}`, $0 documented cost, side effects, permanence), with the typed phrase to be entered by the platform admin.
 

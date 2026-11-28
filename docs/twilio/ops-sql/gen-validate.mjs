@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 const S = randomUUID();
 const body = (kind, name, legal) =>
-  "do $b$\ndeclare\n" + readFileSync(`docs/twilio/ops-sql/${kind}.body.sql`, "utf8").replaceAll("__STUDIO__", S).replaceAll("__NAME__", name).replaceAll("__LEGAL__", legal) + "end $b$;\n";
+  "do $b$\ndeclare\n" + readFileSync(`docs/twilio/ops-sql/${kind}.body.sql`, "utf8").replaceAll("__STUDIO__", S).replaceAll("__NAME__", name).replaceAll("__LEGAL__", legal).replaceAll("__CAP_CENTS__", "100") + "end $b$;\n";
 const t = (label, text, okKey) =>
   `  begin execute $q$${text}$q$; v_res := v_res || jsonb_build_object('${label}', ${okKey ?? "'NOT_REFUSED'"}); exception when others then v_res := v_res || jsonb_build_object('${label}', sqlerrm); end;\n`;
 const L = "Rehearsal Dance, LLC";

@@ -14,7 +14,7 @@ The decision lives in ONE place on the app side: `resolveStudioSmsSender`, the o
 - Not installed (`PGRST202`/`42883`): the link table is read. Relation missing (`42P01`/`PGRST205`, i.e. TW-4F-3a not applied) means legacy; a linked studio is refused; any other error refuses.
 - `tw4_usage_begin` re-checks the link inside its transaction.
 
-The ConfiDance pilot business is linked, so its texts are billed from credit like any business; the $150 pilot ceiling is never used for usage.
+The pilot business is linked, so its texts are billed from credit like any business; the [PILOT-CAP] pilot ceiling is never used for usage.
 
 ## 2. Lifecycle of one billed message
 
