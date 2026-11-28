@@ -7,6 +7,7 @@ import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 import { sendTwilioSms } from "@/lib/sms/twilio";
 import { sendBilledSms, type BilledSendInput } from "@/lib/sms/usageBilling";
 import { FakeBilledSmsProvider } from "@/lib/sms/usageProvider";
+import { useLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";
@@ -143,3 +144,5 @@ describe("sendBilledSms (billed sink)", () => {
     expect(out.outcome).not.toBe("refused");
   });
 });
+
+useLiveSendEnvironment();
