@@ -104,7 +104,8 @@ const results = [];
 const check = (name, ok, note = "") => { results.push({ name, ok: !!ok }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
 
 await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
-const browser = await chromium.launch({ headless: true });
+// --channel msedge|chrome uses an installed browser instead of Playwright's own download
+const browser = await chromium.launch({ headless: true, ...(opt("channel") ? { channel: opt("channel") } : {}) });
 let exit = 0;
 try {
   const context = await browser.newContext();
