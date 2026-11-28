@@ -125,7 +125,7 @@ describe("markEventRegistrationPaidAction: unpaid organizer-event registrations 
     expect(state.user.inserts.filter((insert) => insert.table === "event_payments")).toHaveLength(1);
   });
 
-  it("DanceAbel boundary: allowed at 03:59:59Z, refused at 04:00:00Z on 2027-07-09", async () => {
+  it("Protected grant boundary: allowed at 03:59:59Z, refused at 04:00:00Z on 2027-07-09", async () => {
     seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })] });
     vi.setSystemTime(new Date("2027-07-09T03:59:59Z"));
     expect(await markPaid()).toContain("success=registration_paid");

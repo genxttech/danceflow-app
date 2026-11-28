@@ -257,7 +257,7 @@ export default async function SupportPage({
                 id="workspaceName"
                 name="workspaceName"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
-                placeholder="ConfiDance Studio"
+                placeholder="Sample Dance Studio"
               />
             </div>
 

@@ -65,7 +65,7 @@ describe("legacy aliases that Node resolves but PostgreSQL pg_timezone_names doe
     expect(end("2027-07-09", "EST5EDT")).toBe("2027-07-09T04:00:00.000Z");
     expect(end("2027-07-09", "US/Eastern")).toBe("2027-07-09T04:00:00.000Z");
   });
-  it("the DanceAbel boundary is unchanged: America/New_York ends at 2027-07-09T04:00:00Z", () => {
+  it("the protected grant boundary is unchanged: America/New_York ends at 2027-07-09T04:00:00Z", () => {
     expect(end("2027-07-09", "America/New_York")).toBe("2027-07-09T04:00:00.000Z");
   });
 });
