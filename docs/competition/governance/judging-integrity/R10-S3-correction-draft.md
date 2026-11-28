@@ -112,6 +112,17 @@ Authority (unchanged): assign/unassign = event manager, draft/scheduled only; at
 | Rollback by a role without rights | Refused, nothing changed (it stops at the first table read, before the new code) |
 | QA-only copies of the rollback with one grant, or the owner statement, removed | Both refused by the end-state check, nothing changed; also unchanged without `ON_ERROR_STOP` |
 
+**P1 pilot copy** (`sql-tests/test_T_competition_r10_s3_panel_readiness_p1pilot.sql`, added 2026-11-27). In the combined P1 run `p1run6` (head `b94183a32`) the original suite passed on the chain without the pilot restrictions and stopped with `COMP_P1_CALLBACKS_OFF` on the restriction chain, because one fixture round is callback-scored. The original is unchanged; **a pass of the copy is never a pass of the original.**
+
+| Assertion | In the copy |
+|---|---|
+| `callback_tally with 3 judges is ready` | **DROPPED**: the restrictions refuse creating a callback round or switching to one |
+| `default minimum is the rule (3), not 1` and the four raised-minimum assertions on round r2 | Kept, but measured on an ordinal round |
+| Switching a draft round to callback scoring is refused | ADDED (only where the restrictions are installed) |
+| Everything else | Unchanged |
+
+Status: **NOT EXECUTED** at the time of writing (targeted rerun owned by the OD-02 session; expect 92 checks, 91 would mean the restrictions are absent). Not covered: a callback round that existed before the restrictions were applied. `20270301180000`'s preflight does not look for one and its guard acts only on insert or a method change; hosted counts on 2026-11-24 showed none.
+
 ## 6. Independent review of head `9d3dad16` (subagent, read-only, waited for)
 
 Verdict: **acceptable for owner review of a draft: yes; not ready for hosted apply.** No blocker. Verified by reading: rollback bodies byte-identical; `ready = true` implies the lock's panel check at that instant; privileges, search paths, RLS and immutable triggers; no deadlock cycle traced; merge-alone safety.
