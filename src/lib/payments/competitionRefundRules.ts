@@ -128,7 +128,8 @@ export type ParticipationClass = "unplaced" | "open" | "locked" | "certified";
 
 export function participationClass(placements: readonly Placement[]): ParticipationClass {
   if (placements.some((p) => p.lockState === "certified")) return "certified";
-  if (placements.some((p) => p.lockState === "locked" || hasDanced(p))) return "locked";
+  // A disqualified placement is locked, as in _r2_entry_participation_class.
+  if (placements.some((p) => p.lockState === "locked" || p.status === "disqualified" || hasDanced(p))) return "locked";
   return placements.length > 0 ? "open" : "unplaced";
 }
 

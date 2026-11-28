@@ -1,0 +1,26 @@
+{
+  "id": "SC1-STUDIO-CUSTOM-SCRATCH-WORKFLOW",
+  "governing_body": "dance_flow_policy",
+  "format": "DanceFlow Studio/Custom competition entries (all disciplines); not a governing-body profile",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "A competition manager scratches an entry only before it dances and only while none of its heats is locked, certified, active or completed and none carries a danced or disqualified status, with a recorded reason, through the audited lifecycle RPC. A scratch is distinct from a no-show, an organizer exclusion and a disqualification, changes no money, and is not reversed by this workflow.",
+  "implementation": [
+    { "path": "src/lib/competition/scratch/scratch.ts", "symbol_or_migration": "scratchPreflight" },
+    { "path": "src/lib/competition/scratch/scratchServer.ts", "symbol_or_migration": "performScratch" },
+    { "path": "src/lib/competition/scratch/scratchOffer.ts", "symbol_or_migration": "loadScratchOffer" },
+    { "path": "src/lib/supabase/migrations/20260620_competition_generation_operations_v1.sql", "symbol_or_migration": "change_competition_entry_lifecycle" }
+  ],
+  "enforcement_point": "Database: change_competition_entry_lifecycle refuses non-managers and locked or certified heats. Application only: the danced / on-the-floor refusal, the source-status restriction, the required reason and the sequential replay no-op.",
+  "tests": [
+    { "path": "src/lib/competition/scratch/__tests__/scratch.sc1.test.ts", "name": "refuses locked / certified heats, recorded placements and started or finished heats without calling the RPC" },
+    { "path": "src/lib/competition/scratch/__tests__/scratch.sc1.test.ts", "name": "keeps Scratched, Withdrawn and a stored disqualified status distinct, never as an organizer exclusion (OD-20)" },
+    { "path": "src/lib/competition/scratch/__tests__/scratchOffer.sc1.test.ts", "name": "offers nothing for a disqualified or complete entry status" },
+    { "path": "src/lib/competition/scratch/__tests__/scratchAuth.sc1.test.ts", "name": "refuses an event outside the signed-in studio" }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "Unverified: repository tests model the database. A local composed-chain database run on 2026-11-26 executed the lifecycle RPC (see the port doc) with a harness outside the repository that was not independently reviewed. Application-only checks are not a database boundary (they are time-of-check / time-of-use on the live RPC; the draft, unapplied S6 20270301140000 moves them into the database; see docs/competition/sc1-live-line-port.md). No governing-body rule book was consulted for this port and none is claimed. Governing-body scratch, missed-call and disqualification procedures (including those recorded under OD-20 for UCWDC and NDCA) are NOT IMPLEMENTED and belong to future profiles; organizer_staff may scratch because the existing manager authority is unchanged.",
+  "applicable_event_versions": ["DanceFlow Studio/Custom"],
+  "decision_refs": ["Owner decision 3 of 2026-11-24 (S6/S7 decisions, OWNER-DECISIONS section 10)", "OD-20", "Owner decision 2026-11-26: Option A (OWNER-DECISIONS section 14, PR 795)"],
+  "last_reviewed": "2026-11-26"
+}
