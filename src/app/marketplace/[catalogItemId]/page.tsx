@@ -267,10 +267,11 @@ export default async function MarketplaceItemPage({
               </p>
             </div>
             <div className="max-w-md text-sm leading-6 text-slate-600">
-              <p className="font-semibold text-slate-800">Purchase in the DanceFlow student app</p>
+              <p className="font-semibold text-slate-800">Available from the studio</p>
               <p className="mt-1">
-                Sign in, open Marketplace, and select this item. Access appears
-                in Learn and the receipt appears in Wallet after payment.
+                This item is not sold on this page or in the DanceFlow student
+                app. Ask the studio about getting it. Content you already own is
+                available in the app.
               </p>
             </div>
           </div>

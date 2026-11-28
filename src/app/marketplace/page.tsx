@@ -127,8 +127,9 @@ export default async function MarketplacePage() {
         </h1>
         <p className="mt-3 max-w-3xl text-base leading-7 text-slate-600">
           Browse secure videos and series created by dance professionals.
-          Purchases are completed in the DanceFlow student app and remain
-          available in Learn and Wallet.
+          Items are not sold on this page or in the DanceFlow student app; ask
+          the studio about getting one. Content you already own is available in
+          the app.
         </p>
 
         {rows.length ? (
