@@ -39,7 +39,7 @@ export class FakeIsvAdapter implements IsvAdapter {
   /**
    * @param options.primaryInAccount the ISV Primary profile is a resource OF this account (true, the default: single-account tests). A subaccount
    *   built by FakeIsvParent has it false: like at Twilio, the Primary lives in the parent, is not readable from the subaccount, and can only be
-   *   assigned to the subaccount's Secondary profile by its SID (Twilio ticket #29647095, answer 1).
+   *   assigned to the subaccount's Secondary profile by its SID (Twilio ticket [PROVIDER-TICKET-A], answer 1).
    */
   constructor(public readonly primaryProfileSid: string, private readonly options: { captureSensitive?: boolean; primaryPolicySid?: string; accountSid?: string; primaryInAccount?: boolean } = {}) {
     this.accountSid = options.accountSid ?? DEFAULT_FAKE_ACCOUNT_SID;
@@ -243,7 +243,7 @@ type ParentMethod = keyof IsvParentAdapter;
 /**
  * TW-4F-3a: an in-memory stand-in for the PARENT account. It creates subaccounts (each a separate FakeIsvAdapter, so a SID from one account is
  * unknown in another, exactly like Twilio) and hands out fake auth tokens. Like FakeIsvAdapter it can inject failures, including a lost response.
- * Twilio-confirmed (ticket #29647095, answer 1): the ISV Primary profile (parent account) can be assigned to a Secondary profile inside a subaccount of
+ * Twilio-confirmed (ticket [PROVIDER-TICKET-A], answer 1): the ISV Primary profile (parent account) can be assigned to a Secondary profile inside a subaccount of
  * the same organization. The fake models exactly that: a subaccount cannot READ the Primary but may assign it by SID; the Primary's state is read
  * through the parent (`getPrimaryProfile`). Tokens can be rotated (`rotateToken`) with no overlap, as Twilio does.
  */

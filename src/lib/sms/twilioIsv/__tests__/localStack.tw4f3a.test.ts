@@ -377,7 +377,7 @@ describe.skipIf(!enabled)("TW-4F-3a subaccounts, legal entities and spend agains
     expect(count(`select count(*) from public.studio_sms_provisioning_steps where studio_id = '${A}' and twilio_account_sid = '${sidOne}'`)).toBeGreaterThan(10);
     expect(count(`select count(*) from public.studio_sms_provisioning_steps where studio_id = '${A}' and twilio_account_sid is distinct from '${sidOne}'`)).toBe(0);
     // resources exist only in business one's account
-    // (the Secondary profile only: the ISV Primary lives in the parent account and is assigned, not copied, Twilio ticket #29647095)
+    // (the Secondary profile only: the ISV Primary lives in the parent account and is assigned, not copied, Twilio ticket [PROVIDER-TICKET-A])
     expect(parent.adapterFor(sidOne).profiles.size).toBe(1);
     expect(parent.adapterFor(sidOne).profiles.has(PRIMARY)).toBe(false);
     expect(parent.adapterFor(sidTwo).count("createCustomerProfile")).toBe(0);

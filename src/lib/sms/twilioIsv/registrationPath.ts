@@ -1,6 +1,6 @@
 /**
  * TW-4F provider integration: the two registration paths a studio legal business can take, with the semantics Twilio confirmed on support ticket
- * #29647095 (2026-10-19, answer 6: eligible EIN-registered studios may use Low-Volume Standard brands and Low Volume Mixed campaigns, subject to
+ * [PROVIDER-TICKET-A] (2026-10-19, answer 6: eligible EIN-registered studios may use Low-Volume Standard brands and Low Volume Mixed campaigns, subject to
  * Twilio review) and Twilio's ISV API guide:
  *
  *  - Standard (owner decision D3 for the pilot): BrandType STANDARD, automatic secondary vetting ON, campaign use case MIXED.

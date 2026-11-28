@@ -426,7 +426,7 @@ describe("panel commands", () => {
 
   it("no free-text field may carry a full EIN, in any spelling", async () => {
     for (const ein of ["98-7654321", "98 7654321", "98\u20137654321", "987654321", "EIN98-7654321", "12-345-6789", "12 345 6789", "12.3456789", "12/3456789"]) expect(looksLikeEin(ein)).toBe(true);
-    for (const fine of ["Owner email 2026-10-20 approving brand $46", "EIN last four 4321", "Oregon SOS #2026-10", "call 5551234567", "+15551234567", "(503) 555-0123", "2026-10-20 29647095", "ticket 1234567890", "$1,234.56"]) expect(looksLikeEin(fine)).toBe(false);
+    for (const fine of ["Owner email 2026-10-20 approving brand $46", "EIN last four 4321", "Oregon SOS #2026-10", "call 5551234567", "+15551234567", "(503) 555-0123", "2026-10-20 12345678", "ticket 1234567890", "$1,234.56"]) expect(looksLikeEin(fine)).toBe(false);
     const fee = form({ entityId: ENTITY, studioId: STUDIO, kind: "number", funding: "credit", amountCents: "150", approvalRef: "Owner approved, EIN 98 7654321", ownerApproved: "on" });
     expect((await commands.authorizeFee(db, ADMIN, fee, { studioTier: null })).message).toMatch(/Do not type an EIN/);
     expect((await commands.decideTier(db, ADMIN, form({ studioId: STUDIO, tier: "standard", reason: "EIN 987654321 checked ok" }))).message).toMatch(/Do not type an EIN/);
