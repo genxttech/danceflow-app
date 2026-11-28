@@ -69,7 +69,7 @@ Stop the server, remove the three Competition variables, run `npm run build` and
 | --- | --- | --- |
 | P1-00 | composed database parts present | otherwise BLOCKED |
 | P1-01, 02 | accounts verified; $0 final-only setup; publish and open | callback setup |
-| P1-03, 04 | adult registration; recorded eligibility determination | under-18 on screen and by direct request |
+| P1-03, 04 | adult registration; recorded eligibility determination; a number for every entry | under-18 on screen and by direct request |
 | P1-05, 07 | one final heat published; panel built; round starts | |
 | P1-06 | whole-entry scratch before the start, audited | judge on page and by direct request |
 | P1-08 | panel-breaking absence recorded only after confirmation (925) | unconfirmed record |
@@ -93,4 +93,4 @@ A BLOCKED step is skipped with the missing dependency named, and later steps do 
 
 ## Not covered
 
-Direct refusals for callbacks, paper ballots and other disabled operations beyond those named above; entrant (non-public) publication view and entry numbers; other-studio and anonymous refusal at every step (only the scratch and results paths); judge pages used for ballot submission are not watched for console errors; server-side finals actions with flags off; a database check for entry-number stability. Paid checkout and refunds; running-order replacement or cancellation after the start; a second round, heat or division added after judging; paper ballots; a one-couple final; an official-body-declared event (832); frozen names after publication; hosted environments. Several selectors for unmerged parts are unverified and will need adjustment on the first run. The Scratch page and its Registrations link are not behind a Competition flag, so the flag-off smoke does not assert their absence.
+Direct refusals for callbacks, paper ballots and other disabled operations beyond those named above; entrant (non-public) publication view; other-studio and anonymous refusal at every step (only the scratch and results paths); server-side finals actions with flags off; a database check for entry-number stability. Paid checkout and refunds; running-order replacement or cancellation after the start; a second round, heat or division added after judging; paper ballots; a one-couple final; an official-body-declared event (832); frozen names after publication; hosted environments. Several selectors for unmerged parts are unverified and will need adjustment on the first run. The Scratch page and its Registrations link are not behind a Competition flag, so the flag-off smoke does not assert their absence.
