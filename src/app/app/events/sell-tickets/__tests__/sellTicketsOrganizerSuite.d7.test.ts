@@ -112,7 +112,7 @@ describe("sellTicketsAction: new in-person sales for organizer events need a cur
     expect(created("event_registrations")).toHaveLength(1);
   });
 
-  it("DanceAbel boundary: a cash sale is allowed at 03:59:59Z and refused at 04:00:00Z on 2027-07-09", async () => {
+  it("Protected grant boundary: a cash sale is allowed at 03:59:59Z and refused at 04:00:00Z on 2027-07-09", async () => {
     seed({ organizerId: "org-1", entitlements: [grant({ period_end: "2027-07-09" })] });
     vi.setSystemTime(new Date("2027-07-09T03:59:59Z"));
     expect((await sell("cash")).result).toBeNull();

@@ -640,7 +640,7 @@ type PortalAdminAuthUserSummary = {
 };
 
 /**
- * Sallie Debolt portal-status fix: looks up an auth user by email via the
+ * Portal-status fix: looks up an auth user by email via the
  * Admin Auth API (the same paginated-scan pattern already used by
  * findOrCreatePortalProfileByEmail in ./actions.ts), instead of querying
  * `auth.users` directly through PostgREST (`adminSupabase.schema("auth")
@@ -685,7 +685,7 @@ export async function findAuthUserByEmail(
 }
 
 /**
- * Sallie Debolt portal-status fix: client_account_links (connection
+ * Portal-status fix: client_account_links (connection
  * status) and outbound_deliveries (invite-delivery history) are the two
  * load-bearing sources for the portal support summary -- a genuine
  * failure in either is surfaced via lookupError, matching the pre-fix
@@ -720,7 +720,7 @@ export async function loadClientPortalAdminStatus(
   const adminSupabase = createAdminClient();
 
   // The whole body below is wrapped in try/catch to preserve this
-  // function's original contract (from before the Sallie Debolt fix):
+  // function's original contract (from before the portal-status fix):
   // it never throws/rejects, always resolving to a ClientPortalAdminStatus,
   // so its single unguarded call site (the page component's render body)
   // can never crash the whole page from a load-bearing query genuinely

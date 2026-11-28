@@ -63,7 +63,7 @@ beforeEach(() => {
   rpcImpl = () => {
     if (!active) return { data: [], error: null };
     active = false;
-    return { data: [{ id: GRANT_ID, studio_id: STUDIO_NY, notes: "DanceAbel complimentary", status: "expired" }], error: null };
+    return { data: [{ id: GRANT_ID, studio_id: STUDIO_NY, notes: "Sample complimentary grant", status: "expired" }], error: null };
   };
   errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -132,7 +132,7 @@ describe("Organizer Suite expiry cron: run", () => {
     const text = JSON.stringify(body);
     expect(text).not.toContain(GRANT_ID);
     expect(text).not.toContain(STUDIO_NY);
-    expect(text).not.toContain("DanceAbel");
+    expect(text).not.toContain("Sample complimentary grant");
     expect(tableReads).toEqual([]);
   });
 

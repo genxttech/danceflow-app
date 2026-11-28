@@ -145,8 +145,8 @@ const catalogItem = {
   published: true,
   marketplace_visible: true,
   studios: {
-    name: "ConfiDance LLC",
-    public_name: "ConfiDance",
+    name: "Sample Dance Studio LLC",
+    public_name: "Sample Dance Studio",
     subscription_status: "active",
     stripe_connect_charges_enabled: true,
   },
@@ -171,7 +171,7 @@ describe("marketplace item metadata", () => {
     const { generateMetadata } = await import("../marketplace/[catalogItemId]/page");
     const metadata = await generateMetadata({ params: params("item-1") });
 
-    expect(metadata.title).toBe("Rumba Basics by ConfiDance");
+    expect(metadata.title).toBe("Rumba Basics by Sample Dance Studio");
     expect(metadata.description).toBe("Learn the box step.");
     expect(metadata.alternates?.canonical).toBe(`${SITE}/marketplace/item-1`);
     expect(metadata.openGraph?.images).toEqual([
