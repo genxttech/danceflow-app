@@ -45,9 +45,10 @@ begin;
 -- Fixtures
 -- ============================================================================
 
-insert into public.studios (id, name, slug) values
-  ('00000000-0000-0000-0000-0000005f0001', 'FC-1B5D Phase B Studio A (host)', 't-fc1b5d-pb-studio-a'),
-  ('00000000-0000-0000-0000-0000005f0002', 'FC-1B5D Phase B Studio B (independent)', 't-fc1b5d-pb-studio-b');
+-- An active plan with instructor seats, required before an instructor can be given teaching capability.
+insert into public.studios (id, name, slug, subscription_status, billing_plan) values
+  ('00000000-0000-0000-0000-0000005f0001', 'FC-1B5D Phase B Studio A (host)', 't-fc1b5d-pb-studio-a', 'active', 'pro'),
+  ('00000000-0000-0000-0000-0000005f0002', 'FC-1B5D Phase B Studio B (independent)', 't-fc1b5d-pb-studio-b', 'active', 'pro');
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000005f1001', 't-fc1b5d-pb-owner@example.test'),
@@ -80,9 +81,9 @@ insert into public.user_studio_roles (user_id, studio_id, role, active) values
   ('00000000-0000-0000-0000-0000005f1007', '00000000-0000-0000-0000-0000005f0001', 'instructor', true),
   ('00000000-0000-0000-0000-0000005f1007', '00000000-0000-0000-0000-0000005f0002', 'independent_instructor', true);
 
-insert into public.instructors (id, studio_id, user_id, first_name, last_name, active) values
-  ('00000000-0000-0000-0000-0000005f2001', '00000000-0000-0000-0000-0000005f0001', '00000000-0000-0000-0000-0000005f1005', 'PhaseB', 'InstructorOne', true),
-  ('00000000-0000-0000-0000-0000005f2002', '00000000-0000-0000-0000-0000005f0001', '00000000-0000-0000-0000-0000005f1007', 'PhaseB', 'HybridOne', true);
+insert into public.instructors (id, studio_id, user_id, first_name, last_name, active, can_instruct) values
+  ('00000000-0000-0000-0000-0000005f2001', '00000000-0000-0000-0000-0000005f0001', '00000000-0000-0000-0000-0000005f1005', 'PhaseB', 'InstructorOne', true, true),
+  ('00000000-0000-0000-0000-0000005f2002', '00000000-0000-0000-0000-0000005f0001', '00000000-0000-0000-0000-0000005f1007', 'PhaseB', 'HybridOne', true, true);
 
 insert into public.clients (
   id, studio_id, first_name, last_name, email, phone, status, skill_level, photo_url, client_qr_token
