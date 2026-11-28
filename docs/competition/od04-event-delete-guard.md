@@ -3,6 +3,8 @@
 Owner decision 2026-11-23: **Option A, BLOCK** (audit row X-18, `docs/competition/governance/audit/OWNER-DECISIONS.md`). Status: prepared in a
 draft PR; **not applied to DEV or PROD**; applying SQL anywhere needs a separate owner approval.
 
+Version note: this migration was first numbered `20270219090000`. That version belongs to `20270219090000_twilio_price_request_sweep.sql` on `main`, so it was renumbered to `20270301080000` (comment and file-name changes only; no executable SQL changed). The local database results below were produced under the old number.
+
 ## What was wrong
 `events` had no delete guard. Every Competition OS table references `events(id)` ON DELETE CASCADE and `protect_competition_history_evidence`
 (10A) deliberately allows a row to go once its parent event no longer exists, so one `delete from public.events` removed all ballots, results and
@@ -10,11 +12,11 @@ audit rows. Demonstrated on a local database before the fix (the ballot event ro
 deletion is blocked was false; it is corrected in the same PR.
 
 ## What the guard does
-`20270219090000_competition_od04_event_delete_guard.sql`: BEFORE DELETE (row) and BEFORE TRUNCATE (statement) triggers on `public.events`, both
+`20270301080000_competition_od04_event_delete_guard.sql`: BEFORE DELETE (row) and BEFORE TRUNCATE (statement) triggers on `public.events`, both
 ENABLE ALWAYS (so `session_replication_role = replica` does not bypass them). The delete is refused (SQLSTATE 23503,
 `COMP_EVENT_HAS_SCORING_EVIDENCE`, naming the tables) when any protected table has a row for the event. It runs before any cascade starts, so
 nothing is touched. It applies to every event with evidence (Studio, Custom and body-declared alike); it does not look at event type, body or format.
-Rollback: `rollback/20270219090000_competition_od04_event_delete_guard_rollback.sql` (drops triggers and functions only; touches no data).
+Rollback: `rollback/20270301080000_competition_od04_event_delete_guard_rollback.sql` (drops triggers and functions only; touches no data).
 
 Concurrency: PostgreSQL locks the event row before it fires a BEFORE ROW delete trigger, so a concurrent evidence writer (which holds FOR KEY SHARE on
 the event row through its foreign key) is waited for and then seen. The guard also takes the row lock explicitly (defense in depth). The race
@@ -68,7 +70,7 @@ OD04-0001, OD04-0002, OD04-0003.
 
 ## SQL approval package (for the owner; nothing applied)
 1. Preconditions on the target: Competition chain through CF1 and F3 applied (the migration preflight lists the 21 tables and aborts otherwise).
-2. Apply `src/lib/supabase/migrations/20270219090000_competition_od04_event_delete_guard.sql` through the approved ops tooling (one transaction; no data change).
+2. Apply `src/lib/supabase/migrations/20270301080000_competition_od04_event_delete_guard.sql` through the approved ops tooling (one transaction; no data change).
 3. Read-only postflight: both triggers present with `tgenabled = 'A'`; the five functions exist; `select public._compod04_any_evidence()` shows what the
    target holds (expected empty on PROD today: no competition ballots).
 4. Rollback: the rollback file (no data effect).

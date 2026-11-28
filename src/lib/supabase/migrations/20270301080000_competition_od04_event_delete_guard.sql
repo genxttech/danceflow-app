@@ -1,10 +1,10 @@
--- 20270219090000_competition_od04_event_delete_guard.sql
+-- 20270301080000_competition_od04_event_delete_guard.sql
 --
 -- COMPETITION OS -- OD-04 (owner decision 2026-11-23, Option A "BLOCK"): an event that holds scoring evidence can no longer be hard-deleted.
 --
 -- STATUS: GIT-ONLY. NOT APPLIED ANYWHERE (not on DEV, not on PROD). PROD (and DEV) apply requires separate, explicit owner approval.
 --         Apply this SQL before any app change that depends on it (there is none: the app has no event-delete path).
---         Rollback: rollback/20270219090000_competition_od04_event_delete_guard_rollback.sql
+--         Rollback: rollback/20270301080000_competition_od04_event_delete_guard_rollback.sql
 --
 -- WHY. Before this migration a plain `delete from public.events` removed every ballot, mark, result, publication and audit row, because
 -- every Competition OS table references events(id) ON DELETE CASCADE and the append-only guard (protect_competition_history_evidence,

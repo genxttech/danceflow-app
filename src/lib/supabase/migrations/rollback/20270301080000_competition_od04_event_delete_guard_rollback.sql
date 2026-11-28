@@ -1,4 +1,4 @@
--- Rollback for 20270219090000_competition_od04_event_delete_guard.sql
+-- Rollback for 20270301080000_competition_od04_event_delete_guard.sql
 --
 -- STATUS: GIT-ONLY. Not applied anywhere. Running this on PROD or DEV needs the same separate owner approval as the migration.
 --

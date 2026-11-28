@@ -1,6 +1,6 @@
 -- Competition OD-04 -- event delete guard regression suite.
 --
--- Covers 20270219090000_competition_od04_event_delete_guard.sql on top of the composed Competition chain (through 20270218090000).
+-- Covers 20270301080000_competition_od04_event_delete_guard.sql on top of the composed Competition chain (through 20270218090000).
 -- Run as a SUPERUSER (supabase_admin) on a LOCAL QA database only, after loading fixtures/od04_seed.sql in the same psql session:
 --   cat sql-tests/fixtures/od04_seed.sql sql-tests/test_T_competition_od04_event_delete_guard.sql | psql -U supabase_admin ...
 -- One transaction, synthetic rows only. The final block ALWAYS raises, so nothing persists:

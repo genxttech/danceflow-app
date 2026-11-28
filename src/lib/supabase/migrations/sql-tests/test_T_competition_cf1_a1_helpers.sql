@@ -687,7 +687,7 @@ reset role;
 insert into public.event_competition_round_exclusions
   (id, event_id, round_id, entry_id, kind, reason_kind, reason, actor, actor_role, request_id, seq) values
   (pg_temp.u('0e0099'), pg_temp.u('00e002'), pg_temp.u('006016'), pg_temp.u('008901'), 'exclude_requested', 'other', 'cascade probe', pg_temp.u('000001'), 'manager', pg_temp.u('0f0099'), 1);
--- OD-04 (20270219090000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- OD-04 (20270301080000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
 -- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
 select pg_temp.expect_ok('U74: deleting the event cascades through the protected table (the one permitted removal)',
   format($q$delete from public.events where id = %L$q$, pg_temp.u('00e002')))

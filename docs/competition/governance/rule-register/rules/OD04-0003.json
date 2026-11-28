@@ -6,8 +6,8 @@
   "rule_class": "dance_flow_policy",
   "requirement": "An event that holds scoring evidence (ballots, marks, results, publications, advancement or exclusion decisions, corrections and their audit) cannot be hard-deleted by any path, including organizer-delete cascades and truncate. Events without such evidence keep their existing authorization-controlled deletion; non-competition events are unchanged. Archive or hide through event status (cancelled/completed) and visibility (private).",
   "implementation": [
-    { "path": "src/lib/supabase/migrations/20270219090000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "compod04_guard_event_delete, compod04_guard_event_truncate" },
-    { "path": "src/lib/supabase/migrations/rollback/20270219090000_competition_od04_event_delete_guard_rollback.sql", "symbol_or_migration": "rollback" }
+    { "path": "src/lib/supabase/migrations/20270301080000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "compod04_guard_event_delete, compod04_guard_event_truncate" },
+    { "path": "src/lib/supabase/migrations/rollback/20270301080000_competition_od04_event_delete_guard_rollback.sql", "symbol_or_migration": "rollback" }
   ],
   "enforcement_point": "Database triggers on public.events (ENABLE ALWAYS). Git-only: not applied to DEV or PROD.",
   "tests": [
