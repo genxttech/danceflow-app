@@ -6,6 +6,37 @@ Heads (base fingerprint `d87e4285`): live `57c331910`, candidate `92a8c17c6`, 84
 
 Phases: A base chain; B base + 12 corrections; C B + restriction (919); D rollback; E re-apply.
 
+## Second-contest probe (2026-11-28 04:17-04:21Z, `scripts/qa/p1/probe_p1_second_contest.sql`)
+
+Local only; no hosted apply, merge, deploy or activation. The composed migrations of p1run8 (base `57c33191`, corrections 13, restriction 919 `95d4a8f0f`), probe at commit `72b2addbe`, first execution. Competition state built through application paths only (the superuser seeds identities and studio roles, reads state and computes engine rows).
+
+**Question:** can the same people be entered in a second contest and a self-approved result for it be published, instead of the first? The original contest is judged (couple 1 wins), approved by a second manager and left unpublished. In each variant the same six people (same names and dates of birth, new entries) are judged with another couple preferred; the calculating manager tries to approve their own result; the result is published.
+
+| Variant | A: base | B: corrections | C: corrections + restriction |
+|---|---|---|---|
+| Second division in the same contest, prepared before judging | **REACHED** (self-approved, published) | **REACHED** | self-approval refused; **second result published with a second approver** |
+| Second contest in the same program, before judging | **REACHED** | **REACHED** | same as above |
+| Second event, before judging | **REACHED** | **REACHED** | same as above |
+| New event created after the original was judged | **REACHED** | **REACHED** | same as above |
+| Second program in the same event | not reached | not reached | not reached |
+| Division added to the same event after judging | not reached | not reached | not reached |
+
+First refusal:
+
+| Variant | Where | Refusal |
+|---|---|---|
+| The four reached variants, on C | calculator approves own result | `COMP_P1_SECOND_APPROVER_REQUIRED` (restriction). No refusal on A or B; none on C at setup, running order, judging, the second manager's approval or publication |
+| Second program, all chains | adding a program that carries the studio rules profile | `42501 permission denied for table event_competition_programs`. A program **without** a profile could be added and its heats run; calculation was then refused (`COMP_ENGINE_NOT_AVAILABLE`, no pinned engine) |
+| Division added after judging, A and B | publishing a new running order for it | `COMPO1_RUN_IN_PROGRESS` (existing guard; the script labels this variant INCONCLUSIVE) |
+| Division added after judging, C | adding the division | `COMP_P1_STRUCTURE_FROZEN` (restriction) |
+
+**Reading:**
+- On the corrections chain, one manager can publish a self-approved result for the same people through four routes.
+- The restriction removes the **self-approval**, not the **choice**: with a second approver, a different result for the same people is published while the first approved result stays unpublished, including from an event created after the first was seen. Nothing in the tested path links the two contests or shows the approver the other result.
+- No new restriction was added or proposed here.
+
+Not tested: duplicate dance catalog records, a manager acting as a judge or controlling judge accounts, the application screens, publishing the original afterwards, formats other than one couples waltz final in the studio profile. One run.
+
 ## Consolidated rerun: p1run8 (2026-11-27 22:13Z to 11-28 02:11Z)
 
 Local only; no hosted apply, merge or deploy. **P1 is still not shown to be release-ready.**
@@ -35,7 +66,7 @@ Results with copies include owner-supplied copies; they are labelled `[ADAPTED C
 
 Every listed suite and script now has a passing original or labelled copy behind it on B (apart from two copies not meant for that chain: `cf1_a5_concurrency_with_r15`, which fails P1 and P2 as R-15 expected and is replaced there by its with-S6 copy, and the R-11 pilot copy, which refuses without the restrictions), and on C either passes, stops on a named restriction, or carries a written reason (`p1-disposition.md`). The written reasons are the owners', checked here only as far as the row says: `cf1_od17_enforcement` (read), `o1_concurrency` (OD-31; its related 919 check passes), `cf1_a4_concurrency` (R-10; not verified).
 
-**A restriction refusal means the guard is untested on the restriction chain.** Still not tested: the second-contest bypass, the application end-to-end workflow, the production-build browser run and the flag-off smoke test. Suites outside the selection keep their earlier results.
+**A restriction refusal means the guard is untested on the restriction chain.** Still not tested at the time of p1run8: the second-contest bypass (probed afterwards, above). Still untested: the application end-to-end workflow, the production-build browser run and the flag-off smoke test. Suites outside the selection keep their earlier results.
 
 ## Targeted rerun: p1run7 (2026-11-27 19:24-21:25Z)
 
