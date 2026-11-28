@@ -72,6 +72,13 @@ type OwnerContext = Awaited<ReturnType<typeof ownerContext>>;
 const typedValues = (formData: FormData) =>
   Object.fromEntries(DRAFT_FIELD_KEYS.filter((key) => formData.has(key)).map((key) => [key, formText(formData, key)])) as Partial<Record<DraftFieldKey, string>>;
 
+/** A refusal raised outside the draft write: the same field error, and the same memory of an EIN that was typed but not stored. */
+function refusal(error: unknown, formData: FormData, values: SmsSetupState["values"]): SmsSetupState {
+  const refused = failure(error);
+  if (!einPending(formData)) return { ...refused, values };
+  return { ...refused, values, einUnsaved: true, fieldErrors: { ...refused.fieldErrors, ein: EIN_RETYPE } };
+}
+
 /** An EIN typed now or earlier that the draft still does not hold. Ticking "keep the EIN on file" withdraws an earlier one. */
 const einPending = (formData: FormData) =>
   formText(formData, "ein").trim() !== "" || (formData.get("ein_unsaved") === "1" && formData.get("keep_ein") !== "on");
@@ -148,8 +155,7 @@ export async function saveSmsSetupAction(_previous: SmsSetupState, formData: For
   try {
     return { ...(await persistDraft(await ownerContext(), formData)), intent: "save" };
   } catch (error) {
-    const refused = failure(error);
-    return { ...refused, intent: "save", values: typedValues(formData), ...(einPending(formData) ? { einUnsaved: true, fieldErrors: { ...refused.fieldErrors, ein: EIN_RETYPE } } : {}) };
+    return { ...refusal(error, formData, typedValues(formData)), intent: "save" };
   }
 }
 
@@ -161,6 +167,7 @@ const alreadySubmitted = (): SmsSetupState => ({ ok: false, intent: "submit", er
  */
 export async function submitSmsSetupAction(_previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
   let values = typedValues(formData);
+  let stored = false; // the draft write succeeded, so a typed EIN is already held
   try {
     const ctx = await ownerContext();
     const posted = DRAFT_FIELD_KEYS.some((key) => formData.has(key)) || formText(formData, "ein").trim() !== "";
@@ -172,7 +179,8 @@ export async function submitSmsSetupAction(_previous: SmsSetupState, formData: F
         return alreadySubmitted();
       }
       if (!saved.ok) return { ...saved, intent: "submit", error: `Nothing was submitted. ${saved.error}` };
-      if (saved.einUnsaved) return { ...saved, ok: false, intent: "submit", notice: undefined, error: "Your other details are saved, but nothing was submitted. Type the new EIN again, or keep the one on file." };
+      if (saved.einUnsaved) return { ...saved, ok: false, intent: "submit", notice: undefined, error: "Your other details are saved, but nothing was submitted. Type the EIN again (or tick to keep the one on file, if shown)." };
+      stored = true;
       values = saved.values ?? values;
       warnings = saved.warnings;
     }
@@ -196,7 +204,7 @@ export async function submitSmsSetupAction(_previous: SmsSetupState, formData: F
       revalidatePath(PATH);
       return alreadySubmitted();
     }
-    return { ...failure(error), intent: "submit", values };
+    return { ...(stored ? { ...failure(error), values } : refusal(error, formData, values)), intent: "submit" };
   }
 }
 
