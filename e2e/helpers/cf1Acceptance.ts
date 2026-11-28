@@ -7,6 +7,7 @@ import { createCompetitionEvent, readCompetitionRegistrations, type CreatedEvent
 import { e2eAdminClient } from "./competitionFixture";
 import { chooseCountryCouples, createDraft, finishSetup, startCompetition } from "./competitionWizard";
 import { readEntries, readHeatEvidence, signedIn, type RosterCouple, type ScheduleAcceptanceFixture } from "./competitionScheduleHeats";
+import { P1_QA_DB_CONTAINER } from "./qaDbContainer";
 import { useUniqueE2ESourceIp as assignUniqueSourceIp } from "./rateLimitBypass";
 
 /**
@@ -67,7 +68,7 @@ type Row = Record<string, unknown>;
 
 function container(): string {
   const name = process.env.E2E_LOCAL_DB_CONTAINER ?? "";
-  if (name !== "supabase_db_cf1c-qa") throw new Error("CF1-C reads only the dedicated stack: set E2E_LOCAL_DB_CONTAINER=supabase_db_cf1c-qa");
+  if (name !== "supabase_db_cf1c-qa" && name !== P1_QA_DB_CONTAINER) throw new Error("only a dedicated QA stack is read: set E2E_LOCAL_DB_CONTAINER=supabase_db_cf1c-qa or the P1 walkthrough stack");
   return name;
 }
 
@@ -444,8 +445,9 @@ export async function submitCallbackBallot(j: Journey, browser: Browser, judgeIn
 }
 
 /** A Final judge ranks the rows in the given order (rank n for row i = order[i]+1) and submits. */
-export async function submitOrdinalBallot(j: Journey, browser: Browser, judgeIndex: number, s: ScoredEvent, order?: number[]) {
+export async function submitOrdinalBallot(j: Journey, browser: Browser, judgeIndex: number, s: ScoredEvent, order?: number[], onPage?: (page: Page) => Page) {
   const page = await signedIn(browser, j.fixture.judges[judgeIndex] as never, judgeBallotUrl(s.event.id, s.finalRoundId));
+  onPage?.(page);
   const marks = page.locator('select[name^="mark:"]');
   const count = await marks.count();
   for (let i = 0; i < count; i += 1) await marks.nth(i).selectOption({ index: (order ? order[i] : i) + 1 });
