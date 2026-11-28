@@ -31,9 +31,8 @@ export default async function AccountHomePage() {
       .eq("user_id", user.id),
 
     supabase
-      .from("event_registrations")
+      .from("my_event_registrations")
       .select("id")
-      .eq("attendee_email", user.email ?? "__no_email__")
       .not("status", "eq", "cancelled"),
   ]);
 
