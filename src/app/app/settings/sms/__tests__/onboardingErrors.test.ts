@@ -77,7 +77,7 @@ describe("a database check names its field", () => {
   it("highlights that field on save, keeps what was typed, and leaks no database text", async () => {
     userResults.save_sms_onboarding_draft = { data: null, error: { code: "23514", message: "invalid value (studio_sms_onboarding_rep_email_check) SECRET" } };
     const result = await saveSmsSetupAction({}, form({ city: "Salem", rep_email: "pat@example.com", ein: "98-7654321" }));
-    expect(Object.keys(result.fieldErrors ?? {})).toEqual(["rep_email"]);
+    expect(Object.keys(result.fieldErrors ?? {}).sort()).toEqual(["ein", "rep_email"]);
     expect(result.values).toMatchObject({ city: "Salem", rep_email: "pat@example.com" });
     expect(JSON.stringify(result)).not.toMatch(/SECRET|studio_sms|987654321|98-7654321/);
   });

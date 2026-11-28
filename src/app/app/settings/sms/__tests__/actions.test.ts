@@ -87,7 +87,7 @@ describe("save", () => {
   it("validation failures return field errors and write nothing", async () => {
     const result = await saveSmsSetupAction({}, form({ ...validFields, region: "Oregon", rep_phone: "12", ein: "98-7654321" }));
     expect(result.ok).toBe(false);
-    expect(Object.keys(result.fieldErrors ?? {}).sort()).toEqual(["region", "rep_phone"]);
+    expect(Object.keys(result.fieldErrors ?? {}).sort()).toEqual(["ein", "region", "rep_phone"]); // the typed EIN was not saved either
     expect(userCalls).toEqual([]);
     expect(adminCalls).toEqual([]);
   });

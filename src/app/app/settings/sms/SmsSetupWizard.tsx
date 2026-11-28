@@ -186,10 +186,21 @@ function WizardForm({ initial, einOnFile, einLast4, canEdit, isOwner, highlightF
             />
             {error("ein") ? <span role="alert" className="mt-1 block text-xs text-rose-700">{error("ein")}</span> : null}
             <span className="mt-1 block text-xs text-slate-500">Stored encrypted and used only for business verification. DanceFlow never shows it again; only the last four digits.</span>
-            {state.ok === false && !error("ein") && !einOnFile ? (
-              <span className="mt-1 block text-xs text-amber-700">For your security the EIN is never sent back to this page. Please type it again before saving.</span>
+            {state.einUnsaved ? (
+              <span className="mt-1 block text-xs text-amber-700">For your security the EIN is never sent back to this page.</span>
             ) : null}
           </label>
+          {state.einUnsaved ? (
+            <div className="space-y-1">
+              <input type="hidden" name="ein_unsaved" value="1" />
+              {einOnFile ? (
+                <label className="flex items-center gap-2 text-sm text-slate-800">
+                  <input type="checkbox" name="keep_ein" />
+                  Keep the EIN on file, ending {einLast4 ?? "••••"}, instead
+                </label>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">{field("address_line1", { autoComplete: "address-line1" })}</div>
             <div className="sm:col-span-2">{field("address_line2", { autoComplete: "address-line2" })}</div>
