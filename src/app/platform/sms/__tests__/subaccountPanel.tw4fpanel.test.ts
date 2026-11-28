@@ -175,3 +175,20 @@ describe("a submitted setup without a business record is the administrator's to 
     expect(render(draft)).not.toContain("Submitted setups waiting for you");
   });
 });
+
+describe("the waiting list holds only setups whose next move is the administrator's", () => {
+  const html = (state: string, requests: unknown[] = []) => {
+    const overview = parsePanelOverview({ entities: [], requests, audit: [], prices: {}, onboardings: [{ studio_id: STUDIO, studio_name: "Synthetic Studio", onboarding_id: "b6000000-0000-4000-8000-0000000000b1", state, legal_name: "Synthetic LLC", ein_last4: "1234" }] });
+    return renderToStaticMarkup(createElement(SmsSubaccountPanel, { overview, panels: buildStudioPanels(overview), unavailable: false, notice: null, error: null, now: Date.now(), requestKeys: {} }));
+  };
+  it("excludes a setup returned to the owner", () => {
+    expect(html("needs_info")).not.toContain("Submitted setups waiting for you");
+    expect(html("profile_review")).toContain("Submitted setups waiting for you");
+  });
+  it("excludes a location whose link request is pending", () => {
+    const request = { id: "e6000000-0000-4000-8000-0000000000e1", studio_id: STUDIO, studio_name: "Synthetic Studio", claimed_legal_name: "Synthetic LLC", claimed_ein_last4: "1234", status: "pending", attested_at: "2026-11-27T00:00:00Z" };
+    const out = html("submitted_for_checks", [request]);
+    expect(out).toContain("Location requests waiting for you");
+    expect(out).not.toContain("Submitted setups waiting for you");
+  });
+});

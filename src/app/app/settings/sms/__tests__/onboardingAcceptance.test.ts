@@ -114,7 +114,7 @@ describe("invalid and missing information", () => {
   it("an invalid value on an earlier screen writes and submits nothing, names the field and keeps what was typed", async () => {
     const result = await press("submit", { ...FIELDS, rep_phone: "12", ein: "98-7654321", ...ATTEST });
     expect(result.ok).toBe(false);
-    expect(Object.keys(result.fieldErrors ?? {})).toEqual(["rep_phone"]);
+    expect(Object.keys(result.fieldErrors ?? {}).sort()).toEqual(["ein", "rep_phone"]);
     expect(result.error).toMatch(/^Nothing was submitted\. Check the highlighted fields/);
     expect(result.values?.city).toBe("Salem");
     expect(calls).toEqual([]);
@@ -179,5 +179,41 @@ describe("after submission: who acts next", () => {
   it("once the business record exists the review continues and fees still wait their turn", () => {
     const { next } = buildJourney(input({ finance: finance({ legalBusiness: true, pilotBusiness: true }) }));
     expect(next).toMatchObject({ stage: "eligibility", kind: "waiting" });
+  });
+});
+
+describe("a replacement EIN is never dropped silently", () => {
+  const onFile = async () => {
+    await press("save", { ...FIELDS, ein: "98-7654321" });
+    calls = [];
+  };
+  const NEW = { ein: "12-3456789" };
+
+  it("another field's refusal marks the typed EIN unsaved on the EIN field", async () => {
+    await onFile();
+    const result = await press("submit", { ...FIELDS, ...NEW, postal_code: "9720", ...ATTEST });
+    expect(result).toMatchObject({ ok: false, einUnsaved: true });
+    expect(Object.keys(result.fieldErrors ?? {}).sort()).toEqual(["ein", "postal_code"]);
+    expect(calls).toEqual([]);
+    expect(JSON.stringify(result)).not.toMatch(/123456789|12-3456789/);
+  });
+  it("submitting afterwards without retyping it is refused, so the old EIN is not submitted", async () => {
+    await onFile();
+    const result = await press("submit", { ...FIELDS, ein: "", ein_unsaved: "1", ...ATTEST });
+    expect(result).toMatchObject({ ok: false, einUnsaved: true });
+    expect(result.error).toMatch(/nothing was submitted/);
+    expect(calls).not.toContain("submit_sms_onboarding");
+    expect(record?.state).toBe("draft");
+  });
+  it("a save in between keeps asking", async () => {
+    await onFile();
+    expect(await press("save", { ...FIELDS, ein: "", ein_unsaved: "1" })).toMatchObject({ ok: true, einUnsaved: true });
+  });
+  it("retyping it, or choosing to keep the one on file, submits", async () => {
+    await onFile();
+    expect(await press("submit", { ...FIELDS, ...NEW, ein_unsaved: "1", ...ATTEST })).toMatchObject({ ok: true });
+    record = null;
+    await onFile();
+    expect(await press("submit", { ...FIELDS, ein: "", ein_unsaved: "1", keep_ein: "on", ...ATTEST })).toMatchObject({ ok: true });
   });
 });

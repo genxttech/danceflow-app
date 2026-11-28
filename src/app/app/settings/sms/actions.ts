@@ -33,7 +33,11 @@ export type SmsSetupState = {
   values?: Partial<Record<DraftFieldKey, string>>;
   warnings?: Partial<Record<WizardFieldKey, string>>;
   missing?: string[];
+  /** An EIN was typed and has not been stored (the box is always returned empty). Nothing is submitted until it is typed again or the EIN on file is kept. */
+  einUnsaved?: boolean;
 };
+
+const EIN_RETYPE = "The EIN you typed was not saved. Type it again.";
 
 const PATH = "/app/settings/sms";
 
@@ -68,8 +72,22 @@ type OwnerContext = Awaited<ReturnType<typeof ownerContext>>;
 const typedValues = (formData: FormData) =>
   Object.fromEntries(DRAFT_FIELD_KEYS.filter((key) => formData.has(key)).map((key) => [key, formText(formData, key)])) as Partial<Record<DraftFieldKey, string>>;
 
-/** Validates the posted fields and writes them (and a typed EIN) to the draft. Used by both buttons, so what is submitted is what was on screen. */
+/** An EIN typed now or earlier that the draft still does not hold. Ticking "keep the EIN on file" withdraws an earlier one. */
+const einPending = (formData: FormData) =>
+  formText(formData, "ein").trim() !== "" || (formData.get("ein_unsaved") === "1" && formData.get("keep_ein") !== "on");
+
+/**
+ * Validates the posted fields and writes them (and a typed EIN) to the draft. Used by both buttons, so what is submitted is what was on screen.
+ * A result that leaves a typed EIN unstored says so on the EIN field.
+ */
 async function persistDraft(ctx: OwnerContext, formData: FormData): Promise<SmsSetupState> {
+  const result = await writeDraft(ctx, formData);
+  const typed = formText(formData, "ein").trim() !== "";
+  if (!einPending(formData) || (result.ok && typed)) return result;
+  return { ...result, einUnsaved: true, fieldErrors: { ...result.fieldErrors, ein: result.fieldErrors?.ein ?? EIN_RETYPE } };
+}
+
+async function writeDraft(ctx: OwnerContext, formData: FormData): Promise<SmsSetupState> {
   const input: Record<string, string> = {};
   for (const key of DRAFT_FIELD_KEYS) input[key] = formText(formData, key);
   const values = { ...input } as Partial<Record<DraftFieldKey, string>>;
@@ -130,7 +148,8 @@ export async function saveSmsSetupAction(_previous: SmsSetupState, formData: For
   try {
     return { ...(await persistDraft(await ownerContext(), formData)), intent: "save" };
   } catch (error) {
-    return { ...failure(error), intent: "save", values: typedValues(formData) };
+    const refused = failure(error);
+    return { ...refused, intent: "save", values: typedValues(formData), ...(einPending(formData) ? { einUnsaved: true, fieldErrors: { ...refused.fieldErrors, ein: EIN_RETYPE } } : {}) };
   }
 }
 
@@ -153,6 +172,7 @@ export async function submitSmsSetupAction(_previous: SmsSetupState, formData: F
         return alreadySubmitted();
       }
       if (!saved.ok) return { ...saved, intent: "submit", error: `Nothing was submitted. ${saved.error}` };
+      if (saved.einUnsaved) return { ...saved, ok: false, intent: "submit", notice: undefined, error: "Your other details are saved, but nothing was submitted. Type the new EIN again, or keep the one on file." };
       values = saved.values ?? values;
       warnings = saved.warnings;
     }

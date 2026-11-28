@@ -126,7 +126,7 @@ export default function SmsSubaccountPanel({
       ) : (
         <>
           {senderHealth ? <SenderSchedulerLine scheduler={senderHealth.scheduler} /> : null}
-          <AwaitingBusinessRecord panels={panels} />
+          <AwaitingBusinessRecord panels={panels} requested={pending.map((r) => r.studioId)} />
           {pending.length > 0 ? <LocationRequests requests={pending} overview={overview!} /> : null}
           <div className="mt-4 space-y-4">
             {panels.length === 0 ? <p className="text-sm text-slate-500">No studio has submitted a texting setup yet.</p> : null}
@@ -139,8 +139,9 @@ export default function SmsSubaccountPanel({
 }
 
 /** Submitted setups whose next move is the platform administrator's: verify the business, then create its record. */
-function AwaitingBusinessRecord({ panels }: { panels: StudioPanel[] }) {
-  const waiting = panels.filter((p) => !p.entity && p.onboarding && !["draft", "cancelled"].includes(p.onboarding.state) && p.onboarding.legalName);
+function AwaitingBusinessRecord({ panels, requested }: { panels: StudioPanel[]; requested: string[] }) {
+  // only setups under review: one returned to the owner waits on the owner, and a location with a link request is decided there
+  const waiting = panels.filter((p) => !p.entity && p.onboarding && ["submitted_for_checks", "profile_review"].includes(p.onboarding.state) && p.onboarding.legalName && !requested.includes(p.studioId));
   if (waiting.length === 0) return null;
   return (
     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/50 p-3" data-testid="awaiting-business-record">
