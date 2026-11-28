@@ -1,5 +1,5 @@
 From b4289d3042979d1addb2579b863a2219f6a8a9c5 Mon Sep 17 00:00:00 2001
-From: Michael Curtis <mcurtis@genxmsp.com>
+From: DanceFlow Engineering <engineering@example.invalid>
 Date: Tue, 13 Oct 2026 15:11:42 -0400
 Subject: [PATCH] M-0 rollback-compat build: pre-M-0 application + the M-0
  one-click unsubscribe endpoint

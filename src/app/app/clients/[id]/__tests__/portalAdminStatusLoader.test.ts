@@ -7,7 +7,7 @@ vi.mock("server-only", () => ({}));
 import type { ClientRecord } from "@/app/app/clients/[id]/page";
 
 /**
- * Sallie Debolt portal-status fix: loadClientPortalAdminStatus previously
+ * Portal-status fix: loadClientPortalAdminStatus previously
  * ran client_account_links, outbound_deliveries, profiles, and an
  * auth.users lookup through PostgREST (`adminSupabase.schema("auth")
  * .from("users")`) inside one `Promise.all`, then threw on the FIRST
@@ -17,7 +17,7 @@ import type { ClientRecord } from "@/app/app/clients/[id]/page";
  * an already-correct `linked` client_account_links row and already-
  * correct outbound_deliveries rows -- producing a false "Not Connected" /
  * "No Invite Recorded" for a genuinely healthy, linked relationship
- * (the exact production state confirmed for Sallie Debolt).
+ * (even though the stored rows were correct).
  *
  * This suite proves: (1) client_account_links and outbound_deliveries are
  * load-bearing -- a real failure in either still produces lookupError;
@@ -47,12 +47,12 @@ function clientAccountLinkRow(overrides: Partial<Row> = {}): Row {
     status: "linked",
     relationship_type: "self",
     is_primary: true,
-    created_at: "2026-09-01T16:31:08.000Z",
-    invited_email: "sallie@example.test",
+    created_at: "2026-09-01T12:00:00.000Z",
+    invited_email: "pat@example.test",
     invite_token_hash: null,
     invite_sent_at: null,
     invite_expires_at: null,
-    linked_at: "2026-09-01T16:31:08.000Z",
+    linked_at: "2026-09-01T12:00:00.000Z",
     disconnected_at: null,
     disconnect_reason: null,
     conflict_details: null,
@@ -64,7 +64,7 @@ function deliveryRow(overrides: Partial<Row> = {}): Row {
   return {
     id: "delivery-1",
     template_key: "client_portal_invite",
-    recipient_email: "sallie@example.test",
+    recipient_email: "pat@example.test",
     subject: "DanceFlow portal invite",
     status: "failed",
     provider_message_id: null,
@@ -78,9 +78,9 @@ function deliveryRow(overrides: Partial<Row> = {}): Row {
 function clientRecord(overrides: Partial<ClientRecord> = {}): ClientRecord {
   return {
     id: CLIENT_ID,
-    first_name: "Sallie",
-    last_name: "Debolt",
-    email: "sallie@example.test",
+    first_name: "Pat",
+    last_name: "Example",
+    email: "pat@example.test",
     phone: null,
     birthday: null,
     address_line1: null,
@@ -120,17 +120,17 @@ function createFakeAdminClient(config: FakeAdminConfig) {
   const deliveries = config.deliveries ?? { data: [deliveryRow()], error: null };
   const linkedProfile =
     config.linkedProfile ?? {
-      data: { id: LINKED_USER_ID, email: "sallie@example.test", full_name: "Sallie Debolt", created_at: null, updated_at: null },
+      data: { id: LINKED_USER_ID, email: "pat@example.test", full_name: "Pat Example", created_at: null, updated_at: null },
       error: null,
     };
   const matchingProfile =
     config.matchingProfile ?? {
-      data: [{ id: LINKED_USER_ID, email: "sallie@example.test", full_name: "Sallie Debolt", created_at: null, updated_at: null }],
+      data: [{ id: LINKED_USER_ID, email: "pat@example.test", full_name: "Pat Example", created_at: null, updated_at: null }],
       error: null,
     };
   const getUserById =
     config.getUserById ?? {
-      data: { user: { id: LINKED_USER_ID, email: "sallie@example.test", email_confirmed_at: "2026-09-01T00:00:00.000Z", last_sign_in_at: null, created_at: null } },
+      data: { user: { id: LINKED_USER_ID, email: "pat@example.test", email_confirmed_at: "2026-09-01T00:00:00.000Z", last_sign_in_at: null, created_at: null } },
       error: null,
     };
   const listUsersPages = config.listUsersPages ?? [{ data: { users: [] }, error: null }];
@@ -215,7 +215,7 @@ beforeEach(() => {
   fakeAdminConfig = {};
 });
 
-describe("loadClientPortalAdminStatus -- Sallie Debolt fix", () => {
+describe("loadClientPortalAdminStatus -- portal-status fix", () => {
   it("1/2/3: a healthy linked relationship still returns Connected, preserves invite deliveries, and reports no lookupError when the matching-auth-user (enrichment) lookup fails", async () => {
     fakeAdminConfig = {
       accountLinks: { data: [clientAccountLinkRow()], error: null },
@@ -284,7 +284,7 @@ describe("loadClientPortalAdminStatus -- Sallie Debolt fix", () => {
         {
           data: {
             users: [
-              { id: LINKED_USER_ID, email: "sallie@example.test", email_confirmed_at: "2026-09-01T00:00:00.000Z", last_sign_in_at: "2026-09-01T12:00:00.000Z", created_at: "2026-01-01T00:00:00.000Z" },
+              { id: LINKED_USER_ID, email: "pat@example.test", email_confirmed_at: "2026-09-01T00:00:00.000Z", last_sign_in_at: "2026-09-01T12:00:00.000Z", created_at: "2026-01-01T00:00:00.000Z" },
             ],
           },
           error: null,
@@ -295,7 +295,7 @@ describe("loadClientPortalAdminStatus -- Sallie Debolt fix", () => {
     const status = await loadClientPortalAdminStatus(clientRecord(), STUDIO_ID);
 
     expect(status.lookupError).toBeNull();
-    expect(status.matchingAuthUser).toMatchObject({ id: LINKED_USER_ID, email: "sallie@example.test" });
+    expect(status.matchingAuthUser).toMatchObject({ id: LINKED_USER_ID, email: "pat@example.test" });
   });
 
   it("linked-profile enrichment failure leaves linkedProfile null without erasing accountLink", async () => {
@@ -326,7 +326,7 @@ describe("loadClientPortalAdminStatus -- Sallie Debolt fix", () => {
   });
 });
 
-describe("findAuthUserByEmail -- Sallie Debolt fix (Admin Auth API pattern)", () => {
+describe("findAuthUserByEmail -- portal-status fix (Admin Auth API pattern)", () => {
   it("paginates auth.admin.listUsers and returns a case-insensitive email match", async () => {
     // Page 1 must return exactly `perPage` (200) users for the loop to
     // continue to page 2 -- a short first page is treated as the last
@@ -341,13 +341,13 @@ describe("findAuthUserByEmail -- Sallie Debolt fix (Admin Auth API pattern)", ()
     const adminClient = createFakeAdminClient({
       listUsersPages: [
         { data: { users: fullFirstPage }, error: null },
-        { data: { users: [{ id: LINKED_USER_ID, email: "Sallie@Example.test", email_confirmed_at: "2026-09-01T00:00:00.000Z", last_sign_in_at: null, created_at: null }] }, error: null },
+        { data: { users: [{ id: LINKED_USER_ID, email: "Pat@Example.test", email_confirmed_at: "2026-09-01T00:00:00.000Z", last_sign_in_at: null, created_at: null }] }, error: null },
       ],
     });
 
-    const result = await findAuthUserByEmail(adminClient as never, "sallie@example.test");
+    const result = await findAuthUserByEmail(adminClient as never, "pat@example.test");
 
-    expect(result).toMatchObject({ id: LINKED_USER_ID, email: "Sallie@Example.test" });
+    expect(result).toMatchObject({ id: LINKED_USER_ID, email: "Pat@Example.test" });
   });
 
   it("returns null when no auth user matches", async () => {
@@ -365,7 +365,7 @@ describe("findAuthUserByEmail -- Sallie Debolt fix (Admin Auth API pattern)", ()
       listUsersPages: [{ data: null, error: { message: "Admin API unavailable" } }],
     });
 
-    await expect(findAuthUserByEmail(adminClient as never, "sallie@example.test")).rejects.toMatchObject({
+    await expect(findAuthUserByEmail(adminClient as never, "pat@example.test")).rejects.toMatchObject({
       message: "Admin API unavailable",
     });
   });

@@ -37,12 +37,12 @@ describe("terminalSaleNeedsOrganizerSuite", () => {
     { name: "a lapsed grant", entitlements: [grant({ period_end: "2026-12-01" })], needs: true },
     { name: "a revoked grant", entitlements: [grant({ status: "revoked" })], needs: true },
     { name: "a current grant", entitlements: [grant()], needs: false },
-    { name: "DanceAbel-style grant (period_end 2027-07-09) before the boundary", entitlements: [grant({ period_end: "2027-07-09" })], needs: false },
+    { name: "Protected-style grant (period_end 2027-07-09) before the boundary", entitlements: [grant({ period_end: "2027-07-09" })], needs: false },
   ])("organizer event with $name -> refuse=$needs", async ({ entitlements, needs }) => {
     expect(await terminalSaleNeedsOrganizerSuite(db({ entitlements }), { studioId: STUDIO, organizerId: "org-1" })).toBe(needs);
   });
 
-  it("DanceAbel boundary: allowed at 03:59:59Z, refused at 04:00:00Z on 2027-07-09", async () => {
+  it("Protected grant boundary: allowed at 03:59:59Z, refused at 04:00:00Z on 2027-07-09", async () => {
     const database = db({ entitlements: [grant({ period_end: "2027-07-09" })] });
     vi.setSystemTime(new Date("2027-07-09T03:59:59Z"));
     expect(await terminalSaleNeedsOrganizerSuite(database, { studioId: STUDIO, organizerId: "org-1" })).toBe(false);
