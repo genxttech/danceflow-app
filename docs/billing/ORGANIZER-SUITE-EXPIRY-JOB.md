@@ -12,7 +12,7 @@ Status: implemented, **dark**, **not registered** anywhere that would run it. Re
 That function sets `status = 'expired'` on rows that are `source = 'manual_grant'`, `status = 'active'`, feature
 `organizer_suite`, with a `period_end` whose end instant has passed. The end instant is the **start (00:00 local) of the
 period_end calendar day in the studio's timezone** (period_end is exclusive; NULL/unknown timezone falls back to UTC). For
-The grandfathered studio's grant (period_end 2027-07-09, America/New_York) that is 2027-07-09T04:00:00Z.
+DanceAbel's grant (period_end 2027-07-09, America/New_York) that is 2027-07-09T04:00:00Z.
 
 Owner policy: a complimentary grant ends on its period_end; afterwards access needs a separately purchased paid add-on (a
 `stripe_subscription_item` row). The job **never purchases, charges, extends, creates or deletes** anything and never touches
