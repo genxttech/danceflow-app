@@ -17,7 +17,7 @@ vi.mock("@/lib/aria/outcome-verification", () => ({
 }));
 
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
-import { useLiveSendEnvironment } from "@/test/liveSendEnvironment";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_STUDIO_ID = "22222222-2222-4222-8222-222222222222";
@@ -415,4 +415,4 @@ describe("A2P-1A source guards", () => {
   });
 });
 
-useLiveSendEnvironment();
+declareLiveSendEnvironment();

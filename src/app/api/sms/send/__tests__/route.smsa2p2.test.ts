@@ -19,7 +19,7 @@ vi.mock("@/lib/auth/studio", () => ({
 }));
 
 import { POST } from "@/app/api/sms/send/route";
-import { useLiveSendEnvironment } from "@/test/liveSendEnvironment";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO_A = "11111111-1111-4111-8111-111111111111";
 const STUDIO_B = "22222222-2222-4222-8222-222222222222";
@@ -225,4 +225,4 @@ describe("TW-2: consumer STOP message on manual sends", () => {
   });
 });
 
-useLiveSendEnvironment();
+declareLiveSendEnvironment();
