@@ -37,7 +37,7 @@ Take the heavy lock (FIFO ticket) around `up` ... `down`; `run-stack-verify.sh` 
 
 ## Walkthrough run (flags on, its own build)
 
-PowerShell. Build and serve the app from a checkout of the release candidate (`claude/p1-release`); run Playwright from a checkout that holds these files. Local keys only; never a hosted URL.
+PowerShell. Build and serve the app from a checkout of the release candidate (`claude/p1-release`); run Playwright from a checkout that holds these files. That checkout must have no `.env` or `.env.local` file and the shell no payment, email or SMS keys: the run must reach no provider. Local keys only; never a hosted URL.
 
 ```powershell
 $env:NEXT_PUBLIC_SUPABASE_URL="<local stack URL>"; $env:NEXT_PUBLIC_SUPABASE_ANON_KEY="<local anon key>"; $env:SUPABASE_SERVICE_ROLE_KEY="<local service key>"

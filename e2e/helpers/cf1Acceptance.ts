@@ -445,8 +445,9 @@ export async function submitCallbackBallot(j: Journey, browser: Browser, judgeIn
 }
 
 /** A Final judge ranks the rows in the given order (rank n for row i = order[i]+1) and submits. */
-export async function submitOrdinalBallot(j: Journey, browser: Browser, judgeIndex: number, s: ScoredEvent, order?: number[]) {
+export async function submitOrdinalBallot(j: Journey, browser: Browser, judgeIndex: number, s: ScoredEvent, order?: number[], onPage?: (page: Page) => Page) {
   const page = await signedIn(browser, j.fixture.judges[judgeIndex] as never, judgeBallotUrl(s.event.id, s.finalRoundId));
+  onPage?.(page);
   const marks = page.locator('select[name^="mark:"]');
   const count = await marks.count();
   for (let i = 0; i < count; i += 1) await marks.nth(i).selectOption({ index: (order ? order[i] : i) + 1 });
