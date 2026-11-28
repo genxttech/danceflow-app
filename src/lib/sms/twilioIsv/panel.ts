@@ -246,6 +246,17 @@ export function deriveStudioPanel(
     if (state === "attention") blockers.push("The registration needs a human: see the run evidence.");
   }
 
+  // a pilot business's campaign needs TWO open owner approvals before it can be submitted (the database refuses it otherwise): say which is missing
+  if (entity?.pilot && onboarding?.state === "service_setup") {
+    const open = (kind: string) => entity.spend.some((s) => s.kind === kind && (s.studioId === null || s.studioId === studio.id)
+      && (s.status === "authorized" || (s.status === "reserved" && s.reservationStatus === "reserved")));
+    const missing = [
+      open("campaign_vetting") ? null : "campaign vetting",
+      open(registrationPath(tier).campaignMonthlyPriceKind) ? null : "the first month of the campaign's service fee",
+    ].filter((item) => item !== null);
+    if (missing.length > 0) blockers.push(`Before the campaign can be submitted, record the owner's fee approval for ${missing.join(" and ")} (the campaign needs both approvals).`);
+  }
+
   const nextAction = blockers[0] ?? (stages.find((s) => s.key === "registration")?.state === "active" ? "Nothing to do: the studio can send." : "Run the next registration steps in the runner below (window, confirmations).");
   return { studioId: studio.id, studioName: studio.name, entity, onboarding, stages, blockers, nextAction, pilot: isPilot, tier };
 }

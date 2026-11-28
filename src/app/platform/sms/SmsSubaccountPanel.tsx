@@ -12,6 +12,7 @@ import {
   type StudioPanel,
 } from "@/lib/sms/twilioIsv/panel";
 import { CREATE_PHRASE } from "@/lib/sms/twilioIsv/panelCommands";
+import { registrationPath } from "@/lib/sms/twilioIsv/registrationPath";
 import type { PanelMonthlyLimits } from "@/lib/billing/smsPanelMonthlyLimits";
 import { ChevronDown } from "lucide-react";
 import PanelMonthlyLimit from "./PanelMonthlyLimit";
@@ -47,7 +48,7 @@ const STATE_CLASS: Record<StageState, string> = {
 const input = "mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm";
 const primary = "rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800";
 const secondary = "rounded-xl border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50";
-const FEE_LABELS: Record<string, string> = { brand: "Brand registration", brand_low_volume: "Brand registration (Low-Volume Standard)", campaign_vetting: "Campaign vetting", number: "Phone number" };
+const FEE_LABELS: Record<string, string> = { brand: "Brand registration", brand_low_volume: "Brand registration (Low-Volume Standard)", campaign_vetting: "Campaign vetting", monthly: "First month of campaign service", monthly_low_volume: "First month of campaign service (Low-Volume Standard)", number: "Phone number" };
 const AUDIT_LABELS: Record<string, string> = {
   entity_created: "Legal business created", location_attested: "Owner attested a location", location_decided: "Location decision", spend_cap_set: "Setup budget set",
   spend_authorized: "Owner fee approval recorded", spend_reserved: "Fee reserved by a run", spend_withdrawn: "Fee approval withdrawn", subaccount_confirmed: "Subaccount creation confirmed",
@@ -305,6 +306,9 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
   const isConfiDance = nameKey(entity.legalName) === CONFIDANCE_NAME_KEY;
   const open = entity.spend.filter((s) => s.status === "authorized" || s.status === "reserved");
   const pilotRemaining = entity.pilot ? entity.pilot.ceilingCents - entity.pilot.usedCents - entity.pilot.authorizedCents : 0;
+  // the first month of the campaign's service fee: a one-off approval of a pilot business only, offered only when the location's path can be read
+  const monthlyKind = entity.pilot && panel.onboarding ? registrationPath(panel.tier).campaignMonthlyPriceKind : null;
+  const feeRows = ["brand", "campaign_vetting", ...(monthlyKind ? [monthlyKind] : []), "number"];
   return (
     <div className="space-y-3">
       <form action={panelSetSpendCapAction} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
@@ -358,11 +362,12 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
         <summary className={`${SUMMARY} text-xs font-semibold text-slate-900`}><Chevron group="fee" />Record an owner fee approval</summary>
         <p className="mt-2 text-xs text-slate-600">One approval authorizes exactly one operation at the published price. It is reserved only when that step runs.</p>
         <div className="mt-2 space-y-2">
-          {(["brand", "campaign_vetting", "number"] as const).map((row) => {
+          {feeRows.map((row) => {
             // the brand fee is priced for the location's registration path (the database refuses the other path's kind)
             const kind = row === "brand" && panel.tier === "low_volume_standard" ? "brand_low_volume" : row;
             const price = overview.prices[kind];
             const lvsBrand = kind === "brand_low_volume";
+            const monthly = kind === monthlyKind;
             return (
               <form key={kind} action={panelAuthorizeFeeAction} className="grid gap-2 rounded-lg border border-slate-100 p-2 sm:grid-cols-[1fr_1.4fr_auto_auto] sm:items-end">
                 <input type="hidden" name="entityId" value={entity.id} />
@@ -372,8 +377,11 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
                 <div className="text-xs">
                   <p className="font-semibold text-slate-900">{FEE_LABELS[kind]}</p>
                   <p className="text-slate-600">{price ? formatCents(price) : lvsBrand ? "No Low-Volume Standard price published yet" : "No published price"}</p>
+                  {monthly ? (
+                    <p className="text-slate-600">Needed in addition to campaign vetting: both approvals must be recorded before the campaign can be submitted. This one needs its own approval reference and its own retained document.</p>
+                  ) : null}
                   <select name="funding" defaultValue={entity.pilot ? "pilot" : "credit"} className="mt-1 rounded-lg border border-slate-300 px-2 py-1">
-                    <option value="credit">Prepaid credit</option>
+                    {monthly ? null : <option value="credit">Prepaid credit</option>}
                     {entity.pilot ? <option value="pilot">Pilot ceiling</option> : null}
                   </select>
                 </div>
@@ -381,7 +389,13 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
                   <input name="approvalRef" required minLength={10} maxLength={120} className={input} />
                 </label>
                 <label className="flex items-center gap-2 pb-2 text-xs"><input type="checkbox" name="ownerApproved" /> Owner approved this operation and amount</label>
-                {entity.pilot ? (
+                {monthly ? (
+                  // always pilot-funded, so the evidence is always required: shown open (a required field inside a closed section cannot be focused)
+                  <div className="sm:col-span-4">
+                    <p className="text-xs font-medium text-fuchsia-900">The owner&apos;s written authorization (required)</p>
+                    <PilotEvidenceFields scopes={scopesForKind(kind)} inputClass={input} />
+                  </div>
+                ) : entity.pilot ? (
                   <details className="sm:col-span-4">
                     <summary className="cursor-pointer text-xs font-medium text-fuchsia-900">Pilot ceiling only: the owner&apos;s written authorization (required when paid from the pilot ceiling)</summary>
                     <PilotEvidenceFields scopes={scopesForKind(kind)} inputClass={input} required={false} />
