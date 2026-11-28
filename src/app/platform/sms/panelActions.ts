@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { buildRunnerRuntime } from "@/lib/sms/twilioIsv/factory";
-import { SupabasePanelStore } from "@/lib/sms/twilioIsv/panel";
+import { monthlyApprovalBlock, SupabasePanelStore, type MonthlyApprovalBlock } from "@/lib/sms/twilioIsv/panel";
 import * as commands from "@/lib/sms/twilioIsv/panelCommands";
 import type { CommandResult, SubaccountDeps } from "@/lib/sms/twilioIsv/panelCommands";
 import { encodePanelFlash, PANEL_FLASH_COOKIE, PANEL_FLASH_MAX_AGE_SECONDS } from "@/lib/sms/twilioIsv/panelFlash";
@@ -56,18 +56,25 @@ export async function panelSetSpendCapAction(formData: FormData) {
 export async function panelAuthorizeFeeAction(formData: FormData) {
   const admin = await requirePlatformStepUp("recent");
   const panelStore = store();
-  // the location's registration tier comes from the database, never from the form
+  // the location's registration tier and the business's pilot exception come from the database, never from the form
   let studioTier: string | null = null;
   let onboardingFound = false;
+  let pilotBusiness = false;
+  let monthlyBlock: MonthlyApprovalBlock | null | undefined;
   try {
     const studioId = String(formData.get("studioId") ?? "");
-    const onboarding = (await panelStore.overview(admin.id)).onboardings.find((o) => o.studioId === studioId);
+    const entityId = String(formData.get("entityId") ?? "");
+    const overview = await panelStore.overview(admin.id);
+    const onboarding = overview.onboardings.find((o) => o.studioId === studioId);
     onboardingFound = Boolean(onboarding);
     studioTier = onboarding?.tier ?? null;
+    const entity = overview.entities.find((e) => e.id === entityId);
+    pilotBusiness = Boolean(entity && entity.pilot !== null && entity.studios.some((s) => s.studioId === studioId));
+    monthlyBlock = entity && onboarding ? monthlyApprovalBlock(entity, studioId, onboarding.state) : undefined;
   } catch {
     await finish({ ok: false, message: "The studio's registration path could not be read. Nothing was authorized." }, formData);
   }
-  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier, onboardingFound }), formData);
+  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier, onboardingFound, pilotBusiness, monthlyBlock }), formData);
 }
 
 export async function panelWithdrawFeeAction(formData: FormData) {

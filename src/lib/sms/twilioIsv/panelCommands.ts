@@ -1,5 +1,5 @@
 import type { EntityStore } from "./entityStore";
-import { LVS_CHECKLIST, looksLikeEin, panelErrorMessage, type PanelStore } from "./panel";
+import { LVS_CHECKLIST, looksLikeEin, MONTHLY_BLOCK_TEXT, panelErrorMessage, type MonthlyApprovalBlock, type PanelStore } from "./panel";
 import { isRegistrationTier, registrationPath } from "./registrationPath";
 import { provisionSubaccount, type SubaccountResult } from "./subaccount";
 import type { IsvEnvName, IsvParentAdapter } from "./types";
@@ -100,15 +100,52 @@ export async function setSpendCap(store: PanelStore, actorId: string, form: Form
   return good(`Setup budget set to $${(cents / 100).toFixed(2)}. It is a ceiling only: every fee still needs its own owner approval.`);
 }
 
-const FEE_KINDS = new Set(["brand", "brand_low_volume", "campaign_vetting", "number"]);
+const FEE_KINDS = new Set(["brand", "brand_low_volume", "campaign_vetting", "monthly", "monthly_low_volume", "number"]);
 const BRAND_KINDS = new Set(["brand", "brand_low_volume"]);
+/** The first month of the campaign's service fee. A one-off approval of it exists for a business with a pilot exception only (see `monthlyRefusal`). */
+const MONTHLY_KINDS = new Set(["monthly", "monthly_low_volume"]);
+
+export type FeeContext = {
+  /** The location's tier as the database reports it; null = no choice recorded (Standard). */
+  studioTier: string | null;
+  onboardingFound?: boolean;
+  /** True only when the database shows a pilot exception for the chosen legal business AND this location linked to that business. */
+  pilotBusiness?: boolean;
+  /** Null only when the database shows that a new monthly approval can still pay for this location's campaign. */
+  monthlyBlock?: MonthlyApprovalBlock | null;
+};
+
+/**
+ * Why a monthly campaign fee approval is refused, or null. Stricter than the other kinds, and fail closed: anything not positively read from the
+ * database refuses. The database requires this second approval (beside campaign vetting) of a pilot business only; every other business covers the
+ * first month with the owner's recurring authorization, so no one-off monthly spend is recorded for it. Pilot-funded only: a credit-funded month is
+ * never counted as the pilot business's cover of that month.
+ */
+function monthlyRefusal(kind: string, funding: "credit" | "pilot", context: FeeContext): string | null {
+  const tier = context.studioTier ?? "standard";
+  if (context.onboardingFound !== true || !isRegistrationTier(tier)) {
+    return "This location's registration path could not be read, so no monthly campaign fee can be approved for it.";
+  }
+  if (context.pilotBusiness !== true) {
+    return "A monthly campaign fee is approved here only for a location of a business with a pilot exception. Every other business covers the first month with the owner's recurring monthly authorization.";
+  }
+  if (kind !== registrationPath(tier).campaignMonthlyPriceKind) {
+    return tier === "low_volume_standard"
+      ? "This location is on Low-Volume Standard: a Standard-price monthly approval would be wrong."
+      : "This location is on the Standard path: a Low-Volume Standard monthly approval does not apply.";
+  }
+  if (funding !== "pilot") return "The first month of the campaign's service fee is approved against the pilot ceiling only.";
+  if (context.monthlyBlock === undefined) return "Whether a monthly approval is already open for this location could not be read.";
+  if (context.monthlyBlock !== null) return MONTHLY_BLOCK_TEXT[context.monthlyBlock];
+  return null;
+}
 
 /**
  * Records the OWNER's written approval of ONE fee-bearing operation, at the published price, for one location. The database refuses an amount
  * other than the published price, an approval reference used before (ever: one written approval = one operation, so a double submit returns the
  * same unused authorization and a replay after withdrawal, release or use is refused), a fee of the other registration path, anything beyond the setup budget, and a pilot-funded approval outside the pilot exception.
  */
-export async function authorizeFee(store: PanelStore, actorId: string, form: FormData, context: { studioTier: string | null; onboardingFound?: boolean }): Promise<CommandResult> {
+export async function authorizeFee(store: PanelStore, actorId: string, form: FormData, context: FeeContext): Promise<CommandResult> {
   if (einInForm(form)) return bad(EIN_REFUSAL);
   const entityId = field(form, "entityId");
   const studioId = field(form, "studioId");
@@ -133,6 +170,10 @@ export async function authorizeFee(store: PanelStore, actorId: string, form: For
         : "This location is on the Standard path: a Low-Volume Standard brand approval does not apply. Nothing was authorized.");
     }
   }
+  if (MONTHLY_KINDS.has(kind)) {
+    const refusal = monthlyRefusal(kind, funding, context);
+    if (refusal) return bad(`${refusal} Nothing was authorized.`);
+  }
   // a pilot-funded approval needs the owner's dated written authorization as evidence (a reference alone is not authorization); a credit-funded one takes none
   let evidence: PilotEvidence | null = null;
   if (funding === "pilot") {
@@ -148,6 +189,9 @@ export async function authorizeFee(store: PanelStore, actorId: string, form: For
   }
   // an identical resubmission of a still-unused approval: the database returned the SAME authorization, nothing new was recorded
   if (replayed) return good("This owner approval was already recorded (unused). Nothing new was authorized.");
+  if (MONTHLY_KINDS.has(kind)) {
+    return good(`Owner approval recorded for the first month of the campaign's service fee, $${(cents / 100).toFixed(2)} (pilot ceiling). The campaign also needs the campaign vetting approval before it can be submitted. It is reserved only when that step runs.`);
+  }
   return good(`Owner approval recorded for one ${kind.replaceAll("_", " ")} fee of $${(cents / 100).toFixed(2)} (${funding === "pilot" ? "pilot ceiling" : "prepaid credit"}). It is reserved only when that step runs.`);
 }
 
