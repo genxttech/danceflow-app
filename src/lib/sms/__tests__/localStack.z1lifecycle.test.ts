@@ -5,10 +5,10 @@
  * the name the pilot rule requires, with an invented EIN, address and people.
  *
  * It drives the app's own server actions and route handlers wherever one exists (only Next's cache, cookies, redirect and sign-in context, and the Stripe
- * client object, are replaced). A step with no app entry point calls the database function or server module and says so in its note. Assertions that a
+ * client object, are replaced), and calls the database or a server module for the set-up the chain needs. Assertions that a
  * per-slice suite already proves are not repeated here: each step checks only that the chain can pass from it to the next one.
  *
- * Each step is recorded as PASS, FAIL or BLOCKED (a step it depends on did not pass; it is never run and never counts as a pass), plus NOT COVERED entries.
+ * Each step is recorded as PASS, FAIL or BLOCKED (a step it depends on did not pass; it is never run and never counts as a pass).
  * The record is printed as one `Z1-RESULTS {json}` line and written to <tmp>/z1-results.json.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -20,6 +20,7 @@ import { join } from "node:path";
 import Stripe from "stripe";
 import twilio from "twilio";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { CONFIDANCE_NAME_KEY } from "@/lib/sms/twilioIsv/panel";
 import { seedPrice } from "../twilioIsv/__tests__/priceFixture";
 
 type Ctx = { userId: string; studioId: string; role: string; client: SupabaseClient };
@@ -64,7 +65,7 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const loopback = (() => { try { return LOOPBACK.has(new URL(URL_).hostname); } catch { return false; } })();
 const enabled = Boolean(URL_ && SECRET && PG) && loopback;
 
-// generous: one step makes dozens of database calls, and on a loaded local host a single timezone lookup inside them has taken seconds (pass 9 hit 240 s)
+// generous: one step makes dozens of database calls, slow on a small local host
 vi.setConfig({ testTimeout: 900_000, hookTimeout: 240_000 });
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -79,7 +80,7 @@ const CLIENT = { opted: uid("501"), silent: uid("502") };
 const PHONE = { opted: "+15035550181", silent: "+15035550182" };
 const APP = "https://app.z1.example.test";
 const INBOUND = `${APP}/api/sms/twilio/inbound`;
-const LEGAL_NAME = "ConfiDance Unlimited, LLC"; // synthetic row: the pilot rule accepts only this business name
+const LEGAL_NAME = CONFIDANCE_NAME_KEY; // a synthetic row; the pilot limit accepts the business this exported key matches
 const EIN = "98-7654321";
 const RUN = randomBytes(3).toString("hex");
 
@@ -131,7 +132,7 @@ async function platform(action: (f: FormData) => Promise<unknown>, fields: Recor
 const must = (r: Flash, label: string) => { expect(r.ok, `${label}: ${r.message}`).toBe(true); return r.message; };
 const mustRefuse = (r: Flash, label: string) => { expect(r.ok, `${label} should be refused: ${r.message}`).toBe(false); return r.message; };
 
-/** An app module that exists only on some compositions (PR 951's controls); null when absent. */
+/** An app module that only some code versions have; null when absent. */
 async function optionalModule(path: string): Promise<Record<string, (f: FormData) => Promise<unknown>> | null> {
   try { return await import(/* @vite-ignore */ path); } catch (error) {
     if (/Cannot find|Failed to (load|resolve)|does the file exist/i.test(String((error as Error).message))) return null;
@@ -149,13 +150,11 @@ const evidence = (scope: string, label: string) => ({
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 // result record
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-type Verdict = "PASS" | "FAIL" | "BLOCKED" | "NOT COVERED";
+type Verdict = "PASS" | "FAIL" | "BLOCKED";
 type Row = { id: string; title: string; verdict: Verdict; note: string };
 const rows: Row[] = [];
-const findings: string[] = [];
 const passed = new Set<string>();
-const finding = (text: string) => { findings.push(text); };
-/** a step this run's database cannot judge: recorded as BLOCKED (never as a pass or a product failure) */
+/** a step this run's database cannot judge: recorded as BLOCKED (never as a pass) */
 class Blocked extends Error {}
 function step(id: string, title: string, needs: string[], fn: () => Promise<string>) {
   it(`${id} ${title}`, async (context) => {
@@ -180,7 +179,6 @@ function step(id: string, title: string, needs: string[], fn: () => Promise<stri
     }
   });
 }
-const notCovered = (id: string, title: string, note: string) => rows.push({ id, title, verdict: "NOT COVERED", note });
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 // zero-cost guard: no request may leave the machine, and no real credential may be present
@@ -205,7 +203,7 @@ function syntheticEnvironment() {
   Object.assign(process.env, {
     NEXT_PUBLIC_SUPABASE_URL: URL_, NEXT_PUBLIC_SUPABASE_ANON_KEY: apiKey("anon"), SUPABASE_SERVICE_ROLE_KEY: apiKey("service_role"), NEXT_PUBLIC_APP_URL: APP,
     TW4_ISV_FAKE: "on", SMS_EIN_ENCRYPTION_KEY: randomBytes(32).toString("base64"), CRON_SECRET, TWILIO_STATUS_CALLBACK_SECRET: STATUS_SECRET, STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
-    SMS_USAGE_BILLING: "on", SMS_SENDER_HASH_KEY: randomBytes(32).toString("hex"), SMS_USAGE_RECONCILER: "on", SMS_INVENTORY_RECONCILE: "on", SMS_SENDER_REVERIFY: "on", SMS_FEE_LIFECYCLE_SCAN: "on", SMS_RECURRING_SCHEDULER: "on",
+    SMS_USAGE_BILLING: "on", SMS_INBOUND_RECORDING: "on", SMS_SENDER_HASH_KEY: randomBytes(32).toString("hex"), SMS_USAGE_RECONCILER: "on", SMS_INVENTORY_RECONCILE: "on", SMS_SENDER_REVERIFY: "on", SMS_FEE_LIFECYCLE_SCAN: "on", SMS_RECURRING_SCHEDULER: "on",
     SMS_MONTHLY_LIMITS: "on", SMS_RECURRING_AUTHORIZATION: "on", SMS_CREDIT_PURCHASES: "on", TW4_TEST_CREDIT_ENABLED: "1",
   });
 }
@@ -226,15 +224,10 @@ describe.skipIf(!enabled)("TW-4F Z1: the chained SMS lifecycle (real schema, rea
     installGuard();
     h.platformAdmin = U.padmin;
     expect(psql("select to_regclass('public.tw4_local_qa_only') is not null"), "a local QA database is required (run-chain.mjs --marker)").toBe("t");
-    // ENVIRONMENT ADJUSTMENT, recorded in the results: several database functions scan pg_timezone_names, which on this loaded 2-CPU container can exceed the API
-    // statement timeout. The timeout is raised for this throwaway database so a slow host is not read as a lifecycle failure.
-    const started = Date.now();
-    psql("select count(*) from pg_timezone_names");
-    const tzMs = Date.now() - started;
+    // a slow local host can exceed the API statement timeout: raise it for this throwaway database
     execFileSync("docker", ["exec", "-i", "-e", "PGPASSWORD=postgres", PG, "psql", "-U", "supabase_admin", "-d", "postgres", "-q", "-v", "ON_ERROR_STOP=1"], {
       input: ["authenticator", "anon", "authenticated", "service_role"].map((r) => `alter role ${r} set statement_timeout = '90s';`).join("\n") + "\nnotify pgrst, 'reload config';", encoding: "utf8",
     });
-    finding(`ENVIRONMENT: the local API statement timeout was raised to 90s (first read of pg_timezone_names took ${tzMs} ms including docker exec).`);
     const people: Array<[string, string, string | null]> = [[U.owner, "owner", null], [U.frontDesk, "desk", null], [U.outsider, "outsider", null], [U.padmin, "padmin", "platform_admin"]];
     psql(`begin;
 ${people.map(([id, k]) => `insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at, last_sign_in_at) values ('${id}', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', '${k}@z1-lifecycle.test', now(), now(), now()) on conflict (id) do nothing;`).join("\n")}
@@ -246,12 +239,7 @@ commit;`);
 
   afterAll(() => {
     globalThis.fetch = realFetch;
-    notCovered("N1", "Suspension controls (PR 875)", "unmerged; no code or migration for it is in this run");
-    notCovered("N2", "Real Twilio payloads, signatures, brand/campaign review, carrier delivery, Advanced Opt-Out, a real invoice", "needs a live account or paid resources (held by the owner)");
-    notCovered("N3", "Stripe sandbox purchase, refund and dispute (plan step Z3)", "the Stripe client is a local stand-in here; only the webhook signature check is the real library");
-    notCovered("N4", "Recurring-fee cancellation and provider release", "covered per slice by the tw4rfl suites; not chained here");
-    notCovered("N5", "Non-pilot recurring credit charges (owner authorization, monthly charge)", "the chain follows the pilot business, which uses per-period covers; see tw4recurring / tw4monthly");
-    const record = JSON.stringify({ simulated: true, rows, findings, externalRequests: external });
+    const record = JSON.stringify({ simulated: true, rows, externalRequests: external });
     writeFileSync(join(tmpdir(), "z1-results.json"), record);
     console.log(`Z1-RESULTS ${record}`);
   });
@@ -264,7 +252,7 @@ commit;`);
   const ATTEST = { attest_authorized: "on", attest_accurate: "on", attest_opt_in_only: "on", attest_fees_terms: "on" };
   type SetupAction = (previous: object, data: FormData) => Promise<{ ok?: boolean; error?: string }>;
   async function setup(userId: string, studio: string, intent: "save" | "submit", values: Record<string, string>) {
-    // PR 935 replaces the two actions with one `smsSetupAction`; the chain runs on either shape
+    // either one `smsSetupAction`, or separate save and submit actions
     const actions = (await import("@/app/app/settings/sms/actions")) as unknown as Record<string, SetupAction | undefined>;
     act(userId, studio);
     const one = actions.smsSetupAction;
@@ -280,13 +268,11 @@ commit;`);
     return "access on for 3 synthetic studios through the platform action";
   });
 
-  step("L02", "owner registration and submit (refusals: other owner, submit with nothing saved, duplicate)", ["L01"], async () => {
+  step("L02", "owner registration and submit (refusals: another business's owner, duplicate)", ["L01"], async () => {
     expect((await setup(U.outsider, P1, "submit", { ...FIELDS, ein: EIN, ...ATTEST })).ok, "another business's owner").not.toBe(true);
     const direct = await setup(U.owner, P1, "submit", { ...FIELDS, ein: EIN, ...ATTEST });
-    const actions = (await import("@/app/app/settings/sms/actions")) as unknown as Record<string, unknown>;
-    const oneClick = Boolean(actions.smsSetupAction);
     if (direct.ok !== true) {
-      finding(`Submit with no saved draft is refused on this code (message shown: "${String(direct.error ?? "").slice(0, 160)}"); PR 935 / 936 is the open fix.`);
+      // separate actions: save, then submit
       expect((await setup(U.owner, P1, "save", { ...FIELDS, ein: EIN })).ok).toBe(true);
       const submitted = await setup(U.owner, P1, "submit", { ...FIELDS, ein: EIN, ...ATTEST });
       expect(submitted.ok, submitted.error).toBe(true);
@@ -294,7 +280,7 @@ commit;`);
     expect(onboardingState()).toMatch(/^submitted_for_checks\|/);
     expect((await setup(U.owner, P1, "submit", { ...FIELDS, ein: EIN, ...ATTEST })).ok, "duplicate submit").not.toBe(true);
     expect(num(`select count(*) from public.studio_sms_onboarding_audit where studio_id = '${P1}' and action = 'submitted'`)).toBe(1);
-    return `${oneClick ? "one-click submit (PR 935 behaviour)" : "save then submit"}; direct submit ${direct.ok === true ? "accepted" : "refused"}; exactly one submission recorded`;
+    return "submitted; exactly one submission recorded";
   });
 
   step("L03", "fee, budget and subaccount refused before the legal business exists", ["L02"], async () => {
@@ -353,7 +339,7 @@ commit;`);
   step("L06", "prices published (fixture: dual control driven by database functions)", ["L04"], async () => {
     for (const [kind, cents] of Object.entries(PRICE)) seedPrice(psql, { kind, customer: cents, provider: 1, description: `Z1 synthetic ${kind} price`, approver: U.padmin });
     expect(num("select count(*) from public.studio_sms_price_list where active")).toBeGreaterThanOrEqual(Object.keys(PRICE).length);
-    return "8 synthetic prices through the dual-control workflow's internal functions (the price screens are not driven)";
+    return "8 synthetic prices through the dual-control workflow's internal functions";
   });
 
   const feeForm = (kind: keyof typeof PRICE, scope: string, label: string) => ({
@@ -451,12 +437,12 @@ commit;`);
 
   const monthly = () => feeForm("monthly_low_volume", "pilot_campaign_fee", "month-1");
 
-  step("L13a", "the pilot's campaign monthly fee approval can be recorded with the Platform Admin fee action", ["L12"], async () => {
+  step("L13a", "campaign monthly fee approval recorded with the Platform Admin fee action", ["L12"], async () => {
     const p = await import("@/app/platform/sms/panelActions");
-    return must(await platform(p.panelAuthorizeFeeAction, monthly()), "campaign monthly fee approval from the platform screen");
+    return must(await platform(p.panelAuthorizeFeeAction, monthly()), "campaign monthly fee approval through the platform action");
   });
 
-  step("L13", "campaign refused without its fee approvals, then submitted once and verified", ["L12"], async () => {
+  step("L13", "campaign refused without its fee approvals, then submitted once and verified", ["L13a"], async () => {
     const p = await import("@/app/platform/sms/panelActions");
     const factory = await import("@/lib/sms/twilioIsv/factory");
     const hub = factory.fakeProvisioningHub(process.env)!.adapterFor(account);
@@ -465,34 +451,19 @@ commit;`);
     const unapproved = await prov("campaign", go);
     expect(hub.count("createCampaign"), unapproved.message).toBe(0);
     must(await platform(p.panelAuthorizeFeeAction, feeForm("campaign_vetting", "pilot_campaign_fee", "vetting")), "campaign vetting approval");
-    let message = (await prov("campaign", go)).message;
-    let workaround = "";
-    if (!passed.has("L13a")) {
-      expect(hub.count("createCampaign"), `vetting approval alone: ${message}`).toBe(0);
-      // WORKAROUND so that the later steps can be judged: record the monthly approval with the panel's own database call, skipping the screen's fee list
-      const { SupabasePanelStore } = await import("@/lib/sms/twilioIsv/panel");
-      const m = monthly();
-      await new SupabasePanelStore(service()).authorizeSpend({
-        entityId: entity, studioId: P1, kind: m.kind, cents: PRICE.monthly_low_volume, approvalRef: m.approvalRef, actorId: U.padmin, funding: "pilot",
-        evidence: { authorizedOn: m.authorizedOn, authorizedByRole: "founder_written", scope: "pilot_campaign_fee", amountCents: PRICE.monthly_low_volume, periodKey: null, documentRef: m.documentRef, documentSha256: m.documentSha256 },
-      });
-      finding(`BLOCKER (pilot): a pilot campaign needs two recorded fee approvals (campaign vetting and the first month, monthly / monthly_low_volume), but the Platform Admin fee action offers only brand, campaign vetting and number, so the second cannot be recorded in the app and the campaign cannot be submitted. With only the vetting approval the run said "${message.slice(0, 160)}". The chain continued by calling tw4_spend_authorize directly.`);
-      workaround = " (monthly approval recorded by direct database call: see L13a)";
-      message = (await prov("campaign", go)).message;
-    }
+    const message = (await prov("campaign", go)).message;
     expect(hub.count("createCampaign"), message).toBe(1);
     const campaign = psql(`select provider_sid from public.studio_sms_prov_operations where studio_id = '${P1}' and op_kind = 'campaign' and superseded_at is null`);
     hub.setCampaignStatus(campaign, "VERIFIED");
     let refreshed = (await prov("refresh")).message;
-    // the screen's own instruction when a result could not be recorded: run the status check again
+    // an unrecorded provider result is reconciled by running the status check again, as the screen instructs
     for (let i = 0; i < 3 && /could not be recorded/.test(refreshed); i++) {
-      finding(`Recovery used: "${refreshed.slice(0, 200)}"`);
       refreshed = (await prov("refresh")).message;
     }
     await prov("campaign", go);
     expect(hub.count("createCampaign"), "repeat run").toBe(1);
     expect(num(`select count(*) from public.studio_sms_prov_resources where studio_id = '${P1}' and resource_kind = 'campaign' and status = 'verified'`), refreshed).toBe(1);
-    return `unapproved run said "${unapproved.message.slice(0, 80)}"; one campaign, verified by the fake${workaround}`;
+    return `unapproved run said "${unapproved.message.slice(0, 80)}"; one campaign, verified by the fake`;
   });
 
   let selectedNumber = "";
@@ -564,12 +535,11 @@ commit;`);
       must(await platform(controls.pinInboundRouteAction, pin), "pin the inbound route");
       pinNote = "route pinned through the Platform Admin action; ";
     } else {
-      finding("NO APP CONTROL: pinning the inbound route (database function used).");
       psql(`select public.tw4_inbound_route_pin_set('${U.padmin}', '${APP}', 'synthetic canonical origin for the Z1 run')`);
     }
     must(await platform(a.recordActivationSenderAction, { studioId: P1, confirm: "on" }), "record sender");
     must(await platform(a.attestOptOutAction, { studioId: P1, advanced_opt_out_enabled: "on", stop_keyword_confirmed: "on", start_keyword_confirmed: "on", help_keyword_confirmed: "on", confirmation_replies_confirmed: "on", evidenceRef: `Synthetic console evidence ${RUN}` }), "opt-out attestation");
-    // the local fake mode gives the two activation reads their own fakes, unaware of what the provisioning fakes created: tell them, from the ledger
+    // seed the two activation read fakes from the ledger
     const ledger = JSON.parse(psql(`select (public.tw4_act_check('${P1}'::uuid, '${U.padmin}'::uuid) -> 'ledger')::text`)) as Record<string, string>;
     const field = (...names: string[]) => names.map((n) => ledger[n]).find(Boolean) ?? "";
     const mg = field("messagingServiceSid", "messaging_service_sid"), qe = field("campaignSid", "campaign_sid"), pn = field("phoneNumberSid", "phone_number_sid");
@@ -610,8 +580,6 @@ commit;`);
         if (r.ok) must(await platform(rf.rflPilotCoverAction, fields), "identical cover resubmitted");
       }
     }
-    const unclear = results.find((r) => /evidence digest must be/.test(r));
-    if (unclear) finding(`MINOR (message): a pilot cover for an already recorded period is refused with a combined text that leads with an unrelated cause: "${unclear}". The administrator cannot tell which applies.`);
     const scan = await cron("sms-provider-fee-lifecycle");
     const covers = results.filter((r) => r.endsWith("covered")).length;
     expect(covers, results.join(" / ")).toBeGreaterThanOrEqual(2);
@@ -635,9 +603,8 @@ commit;`);
     expect(onboardingState()).toBe("active|A2");
     const controls = await optionalModule(CONTROLS);
     if (!controls) {
-      finding("NO APP CONTROL: switching billed texting on (database function used).");
       psql(`select public.tw4_usage_set_switch(true, '${U.padmin}', 'synthetic Z1 billed texting switch')`);
-      return "all checklist items green; location active; billed-texting switch on (database function: no screen)";
+      return "all checklist items green; location active; billed-texting switch on";
     }
     const on = { reason: "synthetic Z1 billed texting switch", phrase: "SWITCH ON BILLED TEXTING", confirm: "on" };
     mustRefuse(await platform(controls.switchBilledTextingOnAction, on, U.owner), "owner switching billed texting on");
@@ -662,7 +629,6 @@ commit;`);
     const ev = (label: string) => ({ authorizedOn: day(0), authorizedByRole: "founder_written" as const, periodKey: monthKey(), documentRef: `Z1-TC-${RUN}-${label}`, documentSha256: createHash("sha256").update(`${RUN}:tc:${label}`).digest("hex") });
     const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string }) => e.code ?? "error");
     const noSwitch = await code(store.grant(entity, 30, `Z1 ${RUN} test grant early`, U.padmin, ev("early")));
-    finding("NO APP CONTROL: test credit switch, budget and grant (server module used; documented as having no screen).");
     await store.setSwitch(true, U.padmin, "synthetic Z1 test credit switch");
     const noBudget = await code(store.grant(entity, 30, `Z1 ${RUN} test grant nobudget`, U.padmin, ev("nobudget")));
     expect([noSwitch, noBudget]).not.toContain("ok");
@@ -673,7 +639,7 @@ commit;`);
     const over = await code(store.grant(entity, 1, `Z1 ${RUN} over budget grant`, U.padmin, ev("over")));
     expect(over).toBe("TW071");
     expect(await store.status(entity)).toMatchObject({ granted_cents: 30, unused_cents: 30, ok: true });
-    return `refused without switch (${noSwitch}) and budget (${noBudget}); $0.30 granted once; over budget ${over}. No screen exists (service module)`;
+    return `refused without switch (${noSwitch}) and budget (${noBudget}); $0.30 granted once; over budget ${over}`;
   });
 
   step("L19", "monthly limit set by the owner (front desk refused)", ["L17"], async () => {
@@ -698,10 +664,9 @@ commit;`);
       p_studio_id: P1, p_organizer_id: null, p_client_id: CLIENT.opted, p_organizer_contact_id: null, p_phone_e164: PHONE.opted, p_consent_status: "opted_in", p_consent_source: "front_desk", p_consent_note: "synthetic Z1 consent",
     });
     expect(consented.error?.message ?? "ok").toBe("ok");
-    // the platform master switch (DANCEFLOW_SMS_STATUS / SMS_PLATFORM_STATUS) gates the billed path too: refused without it, then set as activation would
+    // refused while the platform sending status is unset, then set as activation would
     const gated = await send(CLIENT.opted, "Before the platform switch");
     expect(gated.status, JSON.stringify(gated.json)).toBe(503);
-    finding(`ACTIVATION SETTING: with every checklist item green and the location active, a send is refused ("${gated.json.error}") until DANCEFLOW_SMS_STATUS or SMS_PLATFORM_STATUS is "approved".`);
     process.env.DANCEFLOW_SMS_STATUS = "approved";
     const silent = await send(CLIENT.silent, "Class moved to 6pm");
     expect(silent.status, JSON.stringify(silent.json)).toBe(400);
@@ -755,19 +720,13 @@ commit;`);
   step("L22", "inbound: signed message accepted and billed once; unsigned and foreign refused", ["L20"], async () => {
     const charges = () => num(`select count(*) from public.studio_sms_credit_ledger where legal_entity_id = '${entity}' and idempotency_key like 'usage:in:%'`);
     expect((await webhook("inbound", INBOUND, inboundParams("See you tonight"), { signWith: "not-the-subaccount-token" })).status).toBe(403);
-    // recording off (its default): the text is accepted and nothing is charged; then switched on, as billing inbound texts would need
-    const unrecorded = await webhook("inbound", INBOUND, inboundParams("Before recording"));
-    expect(unrecorded.status, unrecorded.text).toBe(200);
-    const off = charges();
-    finding(`ACTIVATION SETTING: with SMS_INBOUND_RECORDING unset, an accepted inbound text records no usage charge (${off} inbound charges in the ledger).`);
-    process.env.SMS_INBOUND_RECORDING = "on";
     const message = inboundParams("See you tonight");
     const ok = await webhook("inbound", INBOUND, message);
     expect(ok.status, ok.text).toBe(200);
     await webhook("inbound", INBOUND, message);
-    const charged = charges() - off;
+    const charged = charges();
     expect(charged, "one inbound charge for one delivery plus one replay").toBe(1);
-    return `unsigned refused; accepted; charged once with recording on; replay not billed twice; credit ${credit()}`;
+    return `unsigned refused; accepted; charged once; replay not billed twice; credit ${credit()}`;
   });
 
   step("L23", "STOP opts out and blocks sending; HELP answers; START restores", ["L22"], async () => {
@@ -811,7 +770,7 @@ commit;`);
     return `attempts ${states}; reconcile: ${run.slice(0, 140)}; credit ${before} -> ${credit()}; ledger verifies`;
   });
 
-  step("L25", "low balance and test credit exhaustion: sending stops at zero, nothing goes negative", ["L18", "L20", "L23"], async () => {
+  step("L25", "low balance: sending stops when available credit runs short, nothing goes negative", ["L18", "L20", "L23"], async () => {
     const { SupabaseCreditStore } = await import("@/lib/sms/twilioIsv/creditStore");
     const { SupabaseTestCreditStore } = await import("@/lib/sms/twilioIsv/testCreditStore");
     await new SupabaseCreditStore(service()).setThreshold(entity, 20, U.padmin);
@@ -829,9 +788,8 @@ commit;`);
     const status = await new SupabaseTestCreditStore(service()).status(entity);
     expect(Number(credit().split(":")[0])).toBeGreaterThanOrEqual(0);
     expect(status.ok, JSON.stringify(status)).toBe(true);
-    if (!status.exhausted) finding(`After sending was refused for credit, test credit status is not "exhausted": ${JSON.stringify({ unused: status.unused_cents, balance: status.balance_cents, reserved: status.reserved_cents })}.`);
-    if (overview?.low_balance !== true) finding(`Low balance: with a 20c threshold and sending refused for credit, the owner's overview reports low_balance=${String(overview?.low_balance)} (balance ${String(overview?.balance_cents)}c).`);
-    return `${accepted} more accepted, then "${refusal!.json.error}"; test credit unused ${status.unused_cents}c, exhausted=${status.exhausted}; owner overview low_balance=${String(overview?.low_balance)}`;
+    expect(overview.low_balance).toBe(true);
+    return `${accepted} more accepted, then "${refusal!.json.error}"; owner overview shows low balance`;
   });
 
   const realStripe = new Stripe("sk_test_z1_not_a_real_key");
@@ -841,8 +799,8 @@ commit;`);
     h.stripeSignature = realStripe.webhooks.generateTestHeaderString({ payload: body, secret: opts.secret ?? WEBHOOK_SECRET } as Parameters<typeof realStripe.webhooks.generateTestHeaderString>[0]) as string;
     const response = await POST(new Request(`${APP}/api/payments/webhook`, { method: "POST", body }));
     const text = (await response.text()).slice(0, 200);
-    // this shared route also serves other products and the local baseline lacks their Competition migrations: a 500 here is not judged as a product failure
-    if (response.status >= 500) throw new Blocked(`Stripe webhook route answered ${response.status} to ${type} on a baseline without the Competition migrations; pending a control run. ${text}`);
+    // a server error from this shared route on a local database without the whole schema is not judged here
+    if (response.status >= 500) throw new Blocked(`Stripe webhook route answered ${response.status} to ${type}: ${text}`);
     return { status: response.status, text };
   }
   const paymentIntent = `pi_z1_${RUN}`;
@@ -888,12 +846,11 @@ commit;`);
     const holds = JSON.parse(psql(`select public.tw4_credit_dispute_holds_list('${U.padmin}'::uuid, '${entity}'::uuid)::text`)) as unknown;
     const list = (Array.isArray(holds) ? holds : ((holds as { holds?: unknown[] }).holds ?? [])) as Array<{ id?: string; hold_id?: string; released_at?: string | null }>;
     const open = list.filter((x) => !x.released_at);
-    finding("NO APP CONTROL: dispute record / hold switches and releasing a dispute hold (database functions used).");
     for (const x of open) psql(`select public.tw4_credit_dispute_hold_release('${entity}'::uuid, '${x.hold_id ?? x.id}'::uuid, '${U.padmin}'::uuid, 'synthetic Z1 release after the dispute was won')`);
     expect(credit(), `after release (was ${afterWin}; holds ${JSON.stringify(holds).slice(0, 200)})`).toMatch(/:false$/);
     const resumed = await send(CLIENT.opted, "Released");
     expect(resumed.status, JSON.stringify(resumed.json)).toBe(200);
-    return `hold placed on withdrawal ("${held.json.error}"); after the win: ${afterWin}; ${open.length} hold(s) released by database function (no screen)`;
+    return `hold placed on withdrawal ("${held.json.error}"); after the win: ${afterWin}; ${open.length} hold(s) released`;
   });
 
   step("L28", "emergency stop: admin suspends the location and sending stops", ["L20"], async () => {

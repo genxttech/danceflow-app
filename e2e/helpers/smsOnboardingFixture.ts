@@ -158,7 +158,7 @@ export async function ownerSubmitsSetup(page: Page, owner: SmsAccount, legalName
   await expect(page.getByRole("navigation", { name: "Setup steps" })).toBeVisible();
   await fillWizard(page, undefined, legalName);
   await saveDraft(page);
-  // wait for the save to finish: when it completes it clears the statements ticked meanwhile, and the submit is then refused (seen on a slow host)
+  // wait for the save to finish before entering anything on the next screen
   await expect(page.getByText("Saved", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
   await submitReview(page);
   await expect(page.getByRole("heading", { name: "Submitted" })).toBeVisible({ timeout: 30_000 });
