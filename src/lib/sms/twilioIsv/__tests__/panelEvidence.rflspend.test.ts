@@ -138,7 +138,7 @@ describe("authorizeFee: a pilot approval needs evidence, a credit approval takes
   });
 
   it("every fee kind reaches the store with a scope that allows it", async () => {
-    // the panel form offers these four kinds (the monthly kinds are approved through the period-cover and recurring paths, not this form)
+    // the kinds that need no pilot context (the monthly kinds additionally do: see pilotMonthlyFee.tw4fpanel.test.ts)
     for (const kind of ["brand", "brand_low_volume", "campaign_vetting", "number"]) {
       const store = new Store();
       const r = await commands.authorizeFee(asStore(store), ADMIN, fee({ kind, amountCents: "150", approvalRef: `Owner email 2026-10-20 approving ${kind}` }), { studioTier: kind === "brand_low_volume" ? "low_volume_standard" : null });

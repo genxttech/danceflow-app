@@ -56,18 +56,22 @@ export async function panelSetSpendCapAction(formData: FormData) {
 export async function panelAuthorizeFeeAction(formData: FormData) {
   const admin = await requirePlatformStepUp("recent");
   const panelStore = store();
-  // the location's registration tier comes from the database, never from the form
+  // the location's registration tier and the business's pilot exception come from the database, never from the form
   let studioTier: string | null = null;
   let onboardingFound = false;
+  let pilotBusiness = false;
   try {
     const studioId = String(formData.get("studioId") ?? "");
-    const onboarding = (await panelStore.overview(admin.id)).onboardings.find((o) => o.studioId === studioId);
+    const entityId = String(formData.get("entityId") ?? "");
+    const overview = await panelStore.overview(admin.id);
+    const onboarding = overview.onboardings.find((o) => o.studioId === studioId);
     onboardingFound = Boolean(onboarding);
     studioTier = onboarding?.tier ?? null;
+    pilotBusiness = overview.entities.some((e) => e.id === entityId && e.pilot !== null && e.studios.some((s) => s.studioId === studioId));
   } catch {
     await finish({ ok: false, message: "The studio's registration path could not be read. Nothing was authorized." }, formData);
   }
-  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier, onboardingFound }), formData);
+  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier, onboardingFound, pilotBusiness }), formData);
 }
 
 export async function panelWithdrawFeeAction(formData: FormData) {
