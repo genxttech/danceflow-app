@@ -1,5 +1,5 @@
 import type { EntityStore } from "./entityStore";
-import { LVS_CHECKLIST, looksLikeEin, panelErrorMessage, type PanelStore } from "./panel";
+import { LVS_CHECKLIST, looksLikeEin, MONTHLY_BLOCK_TEXT, panelErrorMessage, type MonthlyApprovalBlock, type PanelStore } from "./panel";
 import { isRegistrationTier, registrationPath } from "./registrationPath";
 import { provisionSubaccount, type SubaccountResult } from "./subaccount";
 import type { IsvEnvName, IsvParentAdapter } from "./types";
@@ -111,8 +111,8 @@ export type FeeContext = {
   onboardingFound?: boolean;
   /** True only when the database shows a pilot exception for the chosen legal business AND this location linked to that business. */
   pilotBusiness?: boolean;
-  /** False only when the database shows no open or used monthly approval for this location. */
-  monthlyRecorded?: boolean;
+  /** Null only when the database shows that a new monthly approval can still pay for this location's campaign. */
+  monthlyBlock?: MonthlyApprovalBlock | null;
 };
 
 /**
@@ -135,9 +135,8 @@ function monthlyRefusal(kind: string, funding: "credit" | "pilot", context: FeeC
       : "This location is on the Standard path: a Low-Volume Standard monthly approval does not apply.";
   }
   if (funding !== "pilot") return "The first month of the campaign's service fee is approved against the pilot ceiling only.";
-  if (context.monthlyRecorded !== false) {
-    return "A monthly campaign fee approval is already recorded for this location. Later months are recorded under the pilot's per-period written approvals.";
-  }
+  if (context.monthlyBlock === undefined) return "Whether a monthly approval is already open for this location could not be read.";
+  if (context.monthlyBlock !== null) return MONTHLY_BLOCK_TEXT[context.monthlyBlock];
   return null;
 }
 

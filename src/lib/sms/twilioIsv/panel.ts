@@ -123,13 +123,28 @@ export const formatCents = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 const AUTH_OPEN = new Set(["authorized", "reserved"]);
 
+/** An owner approval that can still pay for a step: not yet used, or set aside and still held. A spent one keeps the status `reserved` for good. */
+const isOpenApproval = (s: PanelSpend) => s.status === "authorized" || (s.status === "reserved" && s.reservationStatus === "reserved");
+
+/** The campaign is verified in these states: the database asks for no further first-month approval. */
+const CAMPAIGN_VERIFIED_STATES = new Set(["ready_for_activation", "active", "suspended"]);
+
+export type MonthlyApprovalBlock = "open" | "verified";
+
 /**
- * True when a monthly campaign fee approval is already recorded for this location and not voided (a released one is voided). Another one would count
- * against the setup budget, use up its reference and document, and pay for nothing: later months are recorded as per-period approvals.
+ * Why a new monthly campaign approval would pay for nothing, or null. Another one would count against the setup budget and use up its reference and
+ * document. A spent or released approval does not block: a replacement campaign (after the provider rejects one) needs a new approval.
  */
-export function hasRecordedMonthlyApproval(entity: Pick<PanelEntity, "spend">, studioId: string): boolean {
-  return entity.spend.some((s) => (s.kind === "monthly" || s.kind === "monthly_low_volume") && (s.studioId === null || s.studioId === studioId) && AUTH_OPEN.has(s.status));
+export function monthlyApprovalBlock(entity: Pick<PanelEntity, "spend">, studioId: string, onboardingState: string): MonthlyApprovalBlock | null {
+  const open = entity.spend.some((s) => (s.kind === "monthly" || s.kind === "monthly_low_volume") && (s.studioId === null || s.studioId === studioId) && isOpenApproval(s));
+  if (open) return "open";
+  return CAMPAIGN_VERIFIED_STATES.has(onboardingState) ? "verified" : null;
 }
+
+export const MONTHLY_BLOCK_TEXT: Record<MonthlyApprovalBlock, string> = {
+  open: "A monthly campaign fee approval is already open for this location.",
+  verified: "This location's campaign is already verified. Later months are recorded under the pilot's per-period written approvals.",
+};
 
 /** The database treats a 'creating' row older than 10 minutes as interrupted (tw4_subaccount_begin and tw4_panel_subaccount_confirm). */
 export const CREATING_STALE_MS = 10 * 60_000;
@@ -256,8 +271,7 @@ export function deriveStudioPanel(
 
   // a pilot business's campaign needs TWO open owner approvals before it can be submitted (the database refuses it otherwise): say which is missing
   if (entity?.pilot && onboarding?.state === "service_setup") {
-    const open = (kind: string) => entity.spend.some((s) => s.kind === kind && (s.studioId === null || s.studioId === studio.id)
-      && (s.status === "authorized" || (s.status === "reserved" && s.reservationStatus === "reserved")));
+    const open = (kind: string) => entity.spend.some((s) => s.kind === kind && (s.studioId === null || s.studioId === studio.id) && isOpenApproval(s));
     const missing = [
       open("campaign_vetting") ? null : "campaign vetting",
       open(registrationPath(tier).campaignMonthlyPriceKind) ? null : "the first month of the campaign's service fee",
