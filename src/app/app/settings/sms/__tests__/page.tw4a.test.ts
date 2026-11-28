@@ -11,7 +11,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; children: unknown }) => createElement("a", { href }, children as never) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("../actions", () => ({ saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
+vi.mock("../actions", () => ({ smsSetupAction: vi.fn(), saveSmsSetupAction: vi.fn(), submitSmsSetupAction: vi.fn(), cancelSmsSetupAction: vi.fn() }));
 
 let context: { studioId: string; userId: string; studioRole: string | null };
 vi.mock("@/lib/auth/studio", () => ({ getCurrentStudioContext: async () => context }));
@@ -165,5 +165,26 @@ describe("Settings -> Texting page", () => {
       draftResult = draft({ state });
       expect(await render()).not.toMatch(/twilio|trust ?hub|\bTCR\b|10DLC|\bSID\b|BU[0-9a-f]{32}/i);
     }
+  });
+});
+
+describe("business linkage is offered only where it helps", () => {
+  const QUIET = "sms-location-link-quiet";
+  it("before submission the optional card explains that first-time studios skip it", async () => {
+    const html = await render();
+    expect(html).toContain("Already texting with DanceFlow at another location?");
+    expect(html).toContain("If this is your first location with texting, skip this");
+    expect(html).not.toContain(QUIET);
+  });
+  it("after submission a first-time studio sees no card, only a quiet conditional link, and no hold", async () => {
+    statusResult = status({ state: "submitted_for_checks", can_edit: false, submission_seq: 1 });
+    draftResult = draft({ state: "submitted_for_checks" });
+    const html = await render();
+    expect(html).not.toContain("Already texting with DanceFlow at another location?");
+    expect(html).toContain(QUIET);
+    expect(html).not.toContain("Fees cannot be approved yet");
+    expect(html).not.toContain("is not linked to a legal business");
+    expect(html).toContain("You do not need to do anything right now");
+    expect(html).toContain('data-kind="waiting"');
   });
 });

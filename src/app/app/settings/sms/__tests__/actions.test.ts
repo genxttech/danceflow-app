@@ -87,7 +87,7 @@ describe("save", () => {
   it("validation failures return field errors and write nothing", async () => {
     const result = await saveSmsSetupAction({}, form({ ...validFields, region: "Oregon", rep_phone: "12", ein: "98-7654321" }));
     expect(result.ok).toBe(false);
-    expect(Object.keys(result.fieldErrors ?? {}).sort()).toEqual(["region", "rep_phone"]);
+    expect(Object.keys(result.fieldErrors ?? {}).sort()).toEqual(["ein", "region", "rep_phone"]); // the typed EIN was not saved either
     expect(userCalls).toEqual([]);
     expect(adminCalls).toEqual([]);
   });
@@ -181,8 +181,11 @@ describe("a rejected save keeps what the owner typed (never the EIN)", () => {
     expect(result.values?.city).toBe("Portland");
     expect(JSON.stringify(result)).not.toMatch(/SECRET|Failing row|987654321/);
   });
-  it("a successful save does not echo values (the page reloads the saved draft)", async () => {
-    expect((await saveSmsSetupAction({}, form(validFields))).values).toBeUndefined();
+  it("a successful save returns exactly the normalized values written, never the EIN", async () => {
+    const result = await saveSmsSetupAction({}, form({ ...validFields, ein: "98-7654321" }));
+    expect(result.values).toEqual(userCalls[0].args.p_fields);
+    expect(Object.keys(result.values ?? {})).not.toContain("ein");
+    expect(JSON.stringify(result)).not.toMatch(/987654321|98-7654321/);
   });
 });
 

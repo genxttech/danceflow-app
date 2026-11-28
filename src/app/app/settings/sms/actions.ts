@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentUserStudioContext } from "@/lib/auth/serverRoleGuard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  ALREADY_SUBMITTED,
   cancelOnboarding,
   friendlyOnboardingError,
   OnboardingRpcError,
@@ -12,7 +13,8 @@ import {
   submitOnboarding,
 } from "@/lib/sms/onboarding/client";
 import { EinCryptoError, einEncryptionConfigured, encryptEin } from "@/lib/sms/onboarding/ein";
-import { DRAFT_FIELD_KEYS, FIELD_LABELS, normalizeEin, validateDraftFields, type DraftFieldKey, type WizardFieldKey } from "@/lib/sms/onboarding/fields";
+import { describeProblems } from "@/lib/sms/onboarding/wizardState";
+import { DRAFT_FIELD_KEYS, normalizeEin, validateDraftFields, type DraftFieldKey, type WizardFieldKey } from "@/lib/sms/onboarding/fields";
 
 /**
  * TW-4A server actions for Settings -> Texting. Owner only (the database re-checks the role and the pilot flag on every call).
@@ -22,14 +24,20 @@ import { DRAFT_FIELD_KEYS, FIELD_LABELS, normalizeEin, validateDraftFields, type
 
 export type SmsSetupState = {
   ok?: boolean;
+  /** Which button produced this result. */
+  intent?: "save" | "submit";
   error?: string;
   notice?: string;
   fieldErrors?: Partial<Record<WizardFieldKey, string>>;
-  /** The submitted NON-SECRET field values, returned on a failed save so the form keeps what the owner typed. Never the EIN. */
+  /** NON-SECRET field values: what was typed (a failed save) or what was written (a successful one), so the form shows it. Never the EIN. */
   values?: Partial<Record<DraftFieldKey, string>>;
   warnings?: Partial<Record<WizardFieldKey, string>>;
   missing?: string[];
+  /** An EIN was typed and has not been stored (the box is always returned empty). Nothing is submitted until it is typed again or the EIN on file is kept. */
+  einUnsaved?: boolean;
 };
+
+const EIN_RETYPE = "The EIN you typed was not saved. Type it again.";
 
 const PATH = "/app/settings/sms";
 
@@ -42,7 +50,10 @@ async function ownerContext() {
 }
 
 function failure(error: unknown): SmsSetupState {
-  if (error instanceof OnboardingRpcError) return { ok: false, error: error.friendly };
+  if (error instanceof OnboardingRpcError) {
+    if (!error.field) return { ok: false, error: error.friendly };
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: { [error.field]: "This value was not accepted. Correct it and click Save draft." } };
+  }
   if (error instanceof EinCryptoError) {
     // Operational problem on our side; the code is safe to log, the studio gets a neutral message.
     console.warn(`sms_onboarding_ein_${error.code}`);
@@ -56,13 +67,38 @@ function formText(formData: FormData, key: string) {
   return typeof value === "string" ? value : "";
 }
 
-export async function saveSmsSetupAction(_previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+type OwnerContext = Awaited<ReturnType<typeof ownerContext>>;
+
+const typedValues = (formData: FormData) =>
+  Object.fromEntries(DRAFT_FIELD_KEYS.filter((key) => formData.has(key)).map((key) => [key, formText(formData, key)])) as Partial<Record<DraftFieldKey, string>>;
+
+/** A refusal raised outside the draft write: the same field error, and the same memory of an EIN that was typed but not stored. */
+function refusal(error: unknown, formData: FormData, values: SmsSetupState["values"]): SmsSetupState {
+  const refused = failure(error);
+  if (!einPending(formData)) return { ...refused, values };
+  return { ...refused, values, einUnsaved: true, fieldErrors: { ...refused.fieldErrors, ein: EIN_RETYPE } };
+}
+
+/** An EIN typed now or earlier that the draft still does not hold. Ticking "keep the EIN on file" withdraws an earlier one. */
+const einPending = (formData: FormData) =>
+  formText(formData, "ein").trim() !== "" || (formData.get("ein_unsaved") === "1" && formData.get("keep_ein") !== "on");
+
+/**
+ * Validates the posted fields and writes them (and a typed EIN) to the draft. Used by both buttons, so what is submitted is what was on screen.
+ * A result that leaves a typed EIN unstored says so on the EIN field.
+ */
+async function persistDraft(ctx: OwnerContext, formData: FormData): Promise<SmsSetupState> {
+  const result = await writeDraft(ctx, formData);
+  const typed = formText(formData, "ein").trim() !== "";
+  if (!einPending(formData) || (result.ok && typed)) return result;
+  return { ...result, einUnsaved: true, fieldErrors: { ...result.fieldErrors, ein: result.fieldErrors?.ein ?? EIN_RETYPE } };
+}
+
+async function writeDraft(ctx: OwnerContext, formData: FormData): Promise<SmsSetupState> {
   const input: Record<string, string> = {};
   for (const key of DRAFT_FIELD_KEYS) input[key] = formText(formData, key);
   const values = { ...input } as Partial<Record<DraftFieldKey, string>>;
   try {
-    const ctx = await ownerContext();
-
     const { fields, errors, warnings } = validateDraftFields(input);
     const fieldErrors: SmsSetupState["fieldErrors"] = { ...errors };
 
@@ -85,26 +121,69 @@ export async function saveSmsSetupAction(_previous: SmsSetupState, formData: For
     const saved = await saveOnboardingDraft(ctx.supabase, ctx.studioId, posted);
     let missing = saved.missing;
     if (ein && ein.ok) {
-      const encrypted = encryptEin(ctx.studioId, { digits: ein.digits, last4: ein.last4 });
-      await storeEinCiphertext(createAdminClient(), {
-        studioId: ctx.studioId,
-        actorUserId: ctx.user.id,
-        ciphertext: encrypted.ciphertext,
-        keyId: encrypted.keyId,
-        last4: encrypted.last4,
-      });
+      try {
+        const encrypted = encryptEin(ctx.studioId, { digits: ein.digits, last4: ein.last4 });
+        await storeEinCiphertext(createAdminClient(), {
+          studioId: ctx.studioId,
+          actorUserId: ctx.user.id,
+          ciphertext: encrypted.ciphertext,
+          keyId: encrypted.keyId,
+          last4: encrypted.last4,
+        });
+      } catch (error) {
+        const refused = failure(error); // also logs the safe code for an encryption problem
+        revalidatePath(PATH);
+        if (refused.error === ALREADY_SUBMITTED) return { ...refused, values };
+        return {
+          ok: false,
+          error: "Your other details were saved, but the EIN was not. If it fails again, contact DanceFlow support and do not send your EIN.",
+          fieldErrors: { ein: "Not saved. Type the EIN again and try again." },
+          values,
+        };
+      }
       missing = missing.filter((key) => key !== "ein");
     }
     revalidatePath(PATH);
-    return { ok: true, notice: "Saved.", warnings, missing };
+    return { ok: true, notice: "Saved.", warnings, missing, values: posted };
   } catch (error) {
     return { ...failure(error), values };
   }
 }
 
+/** Optional: keep the answers and finish later. */
+export async function saveSmsSetupAction(_previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+  try {
+    return { ...(await persistDraft(await ownerContext(), formData)), intent: "save" };
+  } catch (error) {
+    return { ...refusal(error, formData, typedValues(formData)), intent: "save" };
+  }
+}
+
+const alreadySubmitted = (): SmsSetupState => ({ ok: false, intent: "submit", error: "This setup was already submitted. Nothing in this window was changed." });
+
+/**
+ * Saves what is on screen, then submits it. Nothing is submitted unless the save succeeded, every statement is ticked and the database finds
+ * no required field empty. The database allows one submission per setup, so a repeated request changes nothing.
+ */
 export async function submitSmsSetupAction(_previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+  let values = typedValues(formData);
+  let stored = false; // the draft write succeeded, so a typed EIN is already held
   try {
     const ctx = await ownerContext();
+    const posted = DRAFT_FIELD_KEYS.some((key) => formData.has(key)) || formText(formData, "ein").trim() !== "";
+    let warnings: SmsSetupState["warnings"];
+    if (posted) {
+      const saved = await persistDraft(ctx, formData);
+      if (saved.error === ALREADY_SUBMITTED) {
+        revalidatePath(PATH);
+        return alreadySubmitted();
+      }
+      if (!saved.ok) return { ...saved, intent: "submit", error: `Nothing was submitted. ${saved.error}` };
+      if (saved.einUnsaved) return { ...saved, ok: false, intent: "submit", notice: undefined, error: "Your other details are saved, but nothing was submitted. Type the EIN again (or tick to keep the one on file, if shown)." };
+      stored = true;
+      values = saved.values ?? values;
+      warnings = saved.warnings;
+    }
     const attestation = {
       authorized: formData.get("attest_authorized") === "on",
       accurate: formData.get("attest_accurate") === "on",
@@ -112,18 +191,26 @@ export async function submitSmsSetupAction(_previous: SmsSetupState, formData: F
       fees_terms: formData.get("attest_fees_terms") === "on",
     };
     if (!Object.values(attestation).every(Boolean)) {
-      return { ok: false, error: "Please confirm every statement before submitting." };
+      return { ok: false, intent: "submit", error: `${posted ? "Your details are saved, but nothing was submitted. " : ""}Please confirm every statement before submitting.`, values, warnings };
     }
     const result = await submitOnboarding(ctx.supabase, ctx.studioId, attestation);
     if (!result.submitted) {
-      const labels = result.missing.map((key) => FIELD_LABELS[key as WizardFieldKey] ?? key);
-      return { ok: false, error: `Finish the form first. Still needed: ${labels.join(", ")}.`, missing: result.missing };
+      return { ok: false, intent: "submit", error: `Nothing was submitted. Still needed: ${describeProblems(result.missing)}`, missing: result.missing, values, warnings };
     }
     revalidatePath(PATH);
-    return { ok: true, notice: "Submitted. We have your information and will take it from here." };
+    return { ok: true, intent: "submit", notice: "Submitted. We have your information and will take it from here." };
   } catch (error) {
-    return failure(error);
+    if (error instanceof OnboardingRpcError && error.friendly === ALREADY_SUBMITTED) {
+      revalidatePath(PATH);
+      return alreadySubmitted();
+    }
+    return { ...(stored ? { ...failure(error), values } : refusal(error, formData, values)), intent: "submit" };
   }
+}
+
+/** The wizard is one form with two buttons; the pressed button names the intent. Anything but "submit" only saves. */
+export async function smsSetupAction(previous: SmsSetupState, formData: FormData): Promise<SmsSetupState> {
+  return formData.get("intent") === "submit" ? submitSmsSetupAction(previous, formData) : saveSmsSetupAction(previous, formData);
 }
 
 export async function cancelSmsSetupAction(): Promise<SmsSetupState> {
