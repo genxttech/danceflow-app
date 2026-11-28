@@ -21,6 +21,7 @@ vi.mock("@/lib/auth/studio", () => ({
 }));
 
 import { POST } from "@/app/api/sms/send/route";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO_ID = "11111111-1111-4111-8111-111111111111";
 const CLIENT_ID = "33333333-3333-4333-8333-333333333333";
@@ -217,3 +218,5 @@ describe("manual send UI notice", () => {
     expect(card).toContain("Service-related messages only. Do not send promotional content.");
   });
 });
+
+declareLiveSendEnvironment();
