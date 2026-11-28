@@ -955,3 +955,13 @@ Local only. Run 13:54Z to 17:36Z at base `57c33191`, with PR 899 pinned at `41ce
 * Known limit: guards exercised only on the corrections chain are not demonstrated under the restriction triggers.
 
 Next: one targeted rerun (PR 899 `2754a4402`, PR 919 `58e27945921e`, PR 866 `5577708bc`, migration `20270223150000`, and the labelled copies pushed by then). Not yet queued or run.
+
+## 25. Consolidated rerun p1run8: database acceptance judged met (coordinator determination, 2026-11-28 UTC)
+
+Local only, 22:13Z to 02:11Z. Record: PR 863 at `e3c317cce` (`docs/competition/p1-disposition.md`). Rollback and re-apply: 0 catalog differences.
+
+Against the section 24 rule, over p1run6, p1run7 and p1run8 together: every failed suite and race has a passing original or labelled copy on the corrections chain (two rows are copies not meant for that chain); on the restriction chain each passes, stops on a named restriction or has a written reason; the P1 correction suites checked pass there as originals or pilot copies, or have a written reason; no unexplained failure or product defect is recorded. **This is a coordinator determination about the database composition only, not release readiness.**
+
+Limits: adapted copies are not passes of the originals; legacy guards stopped by a restriction (including the U18, U18-S and JC1 heat guards and the older results, no-show and locking races) are untested under it; the `cf1_a4` reason rests on the R-10 session's run and reading; test-copy fixes made after review were not re-reviewed; the tested base was `57c33191` with migration `20270223150000` layered, not the current release tip.
+
+Still unexercised: second-contest bypass, application end-to-end flow, production-build browser run, flag-off smoke test, hosted checks. No apply, merge, deploy or activation.
