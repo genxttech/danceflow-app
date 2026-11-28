@@ -126,10 +126,13 @@ const AUTH_OPEN = new Set(["authorized", "reserved"]);
 /** An owner approval that can still pay for a step: not yet used, or set aside and still held. A spent one keeps the status `reserved` for good. */
 const isOpenApproval = (s: PanelSpend) => s.status === "authorized" || (s.status === "reserved" && s.reservationStatus === "reserved");
 
-/** The campaign is verified in these states: the database asks for no further first-month approval. */
-const CAMPAIGN_VERIFIED_STATES = new Set(["ready_for_activation", "active", "suspended"]);
+/**
+ * The states before the campaign is submitted: only here can a first-month approval still be used. A verified campaign can stay in
+ * `campaign_pending` for the whole number setup, and a rejected one is reopened to `service_setup` before its replacement is submitted.
+ */
+const BEFORE_CAMPAIGN_STATES = new Set(["draft", "submitted_for_checks", "needs_info", "profile_review", "brand_pending", "service_setup"]);
 
-export type MonthlyApprovalBlock = "open" | "verified";
+export type MonthlyApprovalBlock = "open" | "submitted";
 
 /**
  * Why a new monthly campaign approval would pay for nothing, or null. Another one would count against the setup budget and use up its reference and
@@ -138,12 +141,12 @@ export type MonthlyApprovalBlock = "open" | "verified";
 export function monthlyApprovalBlock(entity: Pick<PanelEntity, "spend">, studioId: string, onboardingState: string): MonthlyApprovalBlock | null {
   const open = entity.spend.some((s) => (s.kind === "monthly" || s.kind === "monthly_low_volume") && (s.studioId === null || s.studioId === studioId) && isOpenApproval(s));
   if (open) return "open";
-  return CAMPAIGN_VERIFIED_STATES.has(onboardingState) ? "verified" : null;
+  return BEFORE_CAMPAIGN_STATES.has(onboardingState) ? null : "submitted";
 }
 
 export const MONTHLY_BLOCK_TEXT: Record<MonthlyApprovalBlock, string> = {
   open: "A monthly campaign fee approval is already open for this location.",
-  verified: "This location's campaign is already verified. Later months are recorded under the pilot's per-period written approvals.",
+  submitted: "A first-month approval is recorded only before the campaign is submitted (reopen a setup in exception first). Later months are recorded under the pilot's per-period written approvals.",
 };
 
 /** The database treats a 'creating' row older than 10 minutes as interrupted (tw4_subaccount_begin and tw4_panel_subaccount_confirm). */

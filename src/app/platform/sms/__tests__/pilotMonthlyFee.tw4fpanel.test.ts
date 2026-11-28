@@ -120,7 +120,7 @@ describe("authorizeFee: the monthly campaign fee approval of a pilot business", 
     ["a business without a pilot exception paying from credit", { funding: "credit" }, { ...standard, pilotBusiness: false }, /pilot exception/],
     ["prepaid credit for the pilot business", { funding: "credit" }, standard, /pilot ceiling only/],
     ["a second approval while one is open", {}, { ...standard, monthlyBlock: "open" }, /already open/],
-    ["a verified campaign", {}, { ...standard, monthlyBlock: "verified" }, /already verified.*per-period/],
+    ["a campaign already submitted", {}, { ...standard, monthlyBlock: "submitted" }, /only before the campaign is submitted.*per-period/],
     ["a context that does not say whether one is open", {}, { studioTier: null, onboardingFound: true, pilotBusiness: true }, /could not be read/],
     ["missing evidence", { authorizedOn: "", documentRef: "", documentSha256: "" }, standard, /authorization/],
     ["the onboarding-fee evidence scope", { scope: "pilot_onboarding_fee" }, standard, /covers/],
@@ -181,11 +181,22 @@ describe("panelAuthorizeFeeAction reads the path and the pilot exception from th
     }
   });
 
-  it("refuses once the campaign is verified, even with nothing open", async () => {
-    for (const state of ["ready_for_activation", "active", "suspended"]) {
+  it("refuses after the campaign is submitted, even with nothing open (spent or voided rows included)", async () => {
+    for (const state of ["campaign_pending", "ready_for_activation", "active", "suspended", "exception", "blocked"]) {
+      for (const spend of [[], [{ kind: "monthly", status: "reserved", reservation: "captured" }], [{ kind: "monthly", status: "void" }]]) {
+        rpc.length = 0;
+        overviewData = raw({ state, spend });
+        await refused(monthlyFields(), /only before the campaign is submitted/);
+      }
+    }
+  });
+
+  it("accepts it in the states before the campaign is submitted", async () => {
+    for (const state of ["profile_review", "brand_pending", "service_setup"]) {
       rpc.length = 0;
       overviewData = raw({ state });
-      await refused(monthlyFields(), /already verified/);
+      await submit(monthlyFields());
+      expect(rpc.map((r) => r.fn)).toEqual(["tw4_panel_overview", "tw4_spend_authorize"]);
     }
   });
 
@@ -276,8 +287,8 @@ describe("rendered panel: the monthly approval row", () => {
     }
   });
 
-  it("replaces the form with a note while an approval is open, or once the campaign is verified", () => {
-    for (const [data, text] of [[raw({ spend: [{ kind: "monthly" }] }), "already open for this location"], [raw({ state: "active" }), "campaign is already verified"]] as const) {
+  it("replaces the form with a note while an approval is open, or after the campaign is submitted", () => {
+    for (const [data, text] of [[raw({ spend: [{ kind: "monthly" }] }), "already open for this location"], [raw({ state: "campaign_pending" }), "only before the campaign is submitted"]] as const) {
       const html = render(data);
       expect(feeForm(html, "monthly")).toBeNull();
       expect(html).toContain(text);
