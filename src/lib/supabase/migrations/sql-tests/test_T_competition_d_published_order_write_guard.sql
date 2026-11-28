@@ -144,7 +144,7 @@ values (pg_temp.u('00b002'), pg_temp.u('00e001'), pg_temp.u('00c002'), pg_temp.u
 set session_replication_role = origin;
 
 select pg_temp.chk('S: the seven order lock triggers are installed ENABLE ALWAYS and their definer function is not callable',
-  (select count(*) = 7 from pg_trigger where tgname like 'aa\_compd\_lock\_%' and tgenabled = 'A' and not tgisinternal)
+  (select count(*) = 7 from pg_trigger where tgname like 'cf1\_compd\_lock\_%' and tgenabled = 'A' and not tgisinternal)
   and (select count(*) = 1 from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname = 'compd_lock_draft_order' and p.prosecdef and not has_function_privilege('authenticated', p.oid, 'execute')));
 select pg_temp.chk('S: both guards installed, ENABLE ALWAYS, security invoker; publication is security definer',
   (select count(*) = 2 from pg_trigger where tgname in ('zz_compd_guard_published_heat', 'zz_compd_guard_published_version') and tgenabled = 'A' and not tgisinternal)
@@ -154,7 +154,7 @@ select pg_temp.chk('S: both guards installed, ENABLE ALWAYS, security invoker; p
 -- ============================================================================
 -- Published heats: every direct re-pointing write is refused
 -- ============================================================================
-select pg_temp.refused('D: move a never-run published heat to another round', $q$update public.event_competition_heats set round_id = pg_temp.u('006003'), division_id = pg_temp.u('003013') where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
+select pg_temp.refused('D: move a never-run published heat to another round', $q$update public.event_competition_heats set round_id = pg_temp.u('006003') where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: renumber a published heat', $q$update public.event_competition_heats set heat_number = 99 where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: detach a published heat from its version and floor heat', $q$update public.event_competition_heats set schedule_version_id = null, floor_heat_id = null where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');
 select pg_temp.refused('D: detach only the version (floor heat kept)', $q$update public.event_competition_heats set schedule_version_id = null where id = pg_temp.u('00d001')$q$, 'COMPD_PUBLISHED_ORDER_WRITE_REFUSED');

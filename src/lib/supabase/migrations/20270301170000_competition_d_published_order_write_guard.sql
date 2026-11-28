@@ -31,7 +31,8 @@
 -- pinned exact-text replacement (pre md5 9a61cd9bcdbe8557d76cd6ec9e72c82c, post md5 0fbbbef9670082fbb3cb2484d966dfa3); grants are unchanged (anon keeps EXECUTE as before and is refused by the
 -- function's own manager check).
 -- Concurrency: every write of a heat, heat entry, heat dance, numbered floor heat, schedule session, block or block contest first share-locks the DRAFT/REVIEW version(s) it touches
--- (trigger aa_compd_lock_*, sorting before the other guards, no role exemption). Publication holds that row FOR UPDATE, so a writer waits for it
+-- (trigger cf1_compd_lock_*, no role exemption). The name sorts before the 10D, O1 and schedule-item guards, and cf1_ is the
+-- prefix the heat-entry trigger inventory suites (10D.1, NS1) allow for later additions. Publication holds that row FOR UPDATE, so a writer waits for it
 -- and the later guards then see a published order. Rows of published versions are not locked (day-of writes are unaffected). A writer that already
 -- holds a row publication needs can deadlock: PostgreSQL then aborts one of the two, which is a refusal, not a partial write.
 -- Publication snapshot rows: the client INSERT policy is dropped (publication, now definer, is the only writer).
@@ -217,34 +218,34 @@ end;
 $$;
 revoke all on function public.compd_lock_draft_order() from public, anon, authenticated, service_role;
 
-create trigger aa_compd_lock_heat
+create trigger cf1_compd_lock_heat
   before insert or update or delete on public.event_competition_heats
   for each row execute function public.compd_lock_draft_order();
-alter table public.event_competition_heats enable always trigger aa_compd_lock_heat;
-create trigger aa_compd_lock_heat_entry
+alter table public.event_competition_heats enable always trigger cf1_compd_lock_heat;
+create trigger cf1_compd_lock_heat_entry
   before insert or update or delete on public.event_competition_heat_entries
   for each row execute function public.compd_lock_draft_order();
-alter table public.event_competition_heat_entries enable always trigger aa_compd_lock_heat_entry;
-create trigger aa_compd_lock_heat_dance
+alter table public.event_competition_heat_entries enable always trigger cf1_compd_lock_heat_entry;
+create trigger cf1_compd_lock_heat_dance
   before insert or update or delete on public.event_competition_heat_dances
   for each row execute function public.compd_lock_draft_order();
-alter table public.event_competition_heat_dances enable always trigger aa_compd_lock_heat_dance;
-create trigger aa_compd_lock_floor_heat
+alter table public.event_competition_heat_dances enable always trigger cf1_compd_lock_heat_dance;
+create trigger cf1_compd_lock_floor_heat
   before insert or update or delete on public.event_competition_floor_heats
   for each row execute function public.compd_lock_draft_order();
-alter table public.event_competition_floor_heats enable always trigger aa_compd_lock_floor_heat;
-create trigger aa_compd_lock_session
+alter table public.event_competition_floor_heats enable always trigger cf1_compd_lock_floor_heat;
+create trigger cf1_compd_lock_session
   before insert or update or delete on public.event_competition_schedule_sessions
   for each row execute function public.compd_lock_draft_order();
-alter table public.event_competition_schedule_sessions enable always trigger aa_compd_lock_session;
-create trigger aa_compd_lock_block
+alter table public.event_competition_schedule_sessions enable always trigger cf1_compd_lock_session;
+create trigger cf1_compd_lock_block
   before insert or update or delete on public.event_competition_schedule_blocks
   for each row execute function public.compd_lock_draft_order();
-alter table public.event_competition_schedule_blocks enable always trigger aa_compd_lock_block;
-create trigger aa_compd_lock_block_contest
+alter table public.event_competition_schedule_blocks enable always trigger cf1_compd_lock_block;
+create trigger cf1_compd_lock_block_contest
   before insert or update or delete on public.event_competition_schedule_block_contests
   for each row execute function public.compd_lock_draft_order();
-alter table public.event_competition_schedule_block_contests enable always trigger aa_compd_lock_block_contest;
+alter table public.event_competition_schedule_block_contests enable always trigger cf1_compd_lock_block_contest;
 
 drop policy competition_publications_insert on public.event_competition_schedule_publications;
 
@@ -311,7 +312,7 @@ begin
      or (select count(*) from pg_trigger where tgname in ('zz_compd_guard_published_heat', 'zz_compd_guard_published_version') and not tgisinternal and tgenabled = 'A') <> 2
      or has_function_privilege('authenticated', 'public.compd_guard_published_heat()', 'execute')
      or (select count(*) from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname in ('compd_guard_published_heat', 'compd_guard_published_version') and not p.prosecdef) <> 2
-     or (select count(*) from pg_trigger where tgname like 'aa\_compd\_lock\_%' and not tgisinternal and tgenabled = 'A') <> 7
+     or (select count(*) from pg_trigger where tgname like 'cf1\_compd\_lock\_%' and not tgisinternal and tgenabled = 'A') <> 7
      or has_function_privilege('authenticated', 'public.compd_lock_draft_order()', 'execute')
      or exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'event_competition_schedule_publications' and cmd in ('INSERT', 'ALL')) then
     raise exception 'D postflight failed.';

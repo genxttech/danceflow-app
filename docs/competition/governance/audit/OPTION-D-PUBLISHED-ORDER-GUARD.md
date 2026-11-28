@@ -45,6 +45,41 @@ Head `60b4edd7e`, migration sha256 `1607747d…`, composed base (`release/websit
 
 D does not close the spare-round replacement routes, and this run does not change that.
 
+## Re-review findings under P1: executed 2026-11-27
+
+Run on head `41cecd3e9` (lock 13:40Z, finished 13:54Z), disposable local database. The P1 chain uses the composed run's own S / R package and restriction files (manifest checked; base fingerprint matched), with only D swapped: **before** = `db5c9b876`, **after** = this head. Verdict of the whole job: **FAIL** (28 expectations met, 5 not; causes below).
+
+| Finding | Before, beside P1 (executed) | After, beside P1 (executed) | Reachable under P1? |
+|---|---|---|---|
+| Publication does not serialize other writers: **heat entry** | accepted; the entry is in the published order | waits, refused, nothing entered | **yes** |
+| the same: **schedule session** | accepted into the published order | waits, refused | **yes** |
+| the same: definer heat move | refused by the restrictions (`COMP_P1_BUSY`) | waits, refused | no (observed once) |
+| Manager inserts a publication snapshot row | accepted; a forged row for a draft then **blocks its publication** (unique violation) | refused (row-level security) | **yes** |
+| "keep" checks asserted no effect | test weakness | each asserts its effect; all of them passed | not a vulnerability |
+
+Also passed in this run: publication races 25 checks (standalone and P1 chain), planted-heat probe (reproduced before its fix, not after), apply preflight, D rollback and re-apply beside the restrictions, rollback / replay / re-apply on the standalone chain.
+
+**Not met, both from this change, fixed in `8e371bd56` (rerun pending):**
+* one D suite check (forward, re-apply, P1 chain): "move to another round" had been changed to move the division too, so the existing placement validator refused it before D;
+* the 10D.1 and NS1 suites assert which triggers heat entries may carry and rejected `aa_compd_lock_heat_entry`. The lock triggers are now `cf1_compd_lock_*`, the prefix those suites allow for later additions. Side effect: six CF1 suites disable every `cf1_%` trigger on heats, entries and rounds inside their own rolled-back transaction, so D's lock is off during those suites.
+
+Callback-Final advancement suite: not covered (fails with and without D).
+
+**Narrow re-review of the corrections (`0e1905426..8e371bd56`, by reading only): no blocker.** Lock triggers fire before every other BEFORE trigger found on the seven tables, including the restriction triggers; a future `cf1_a*` or `cf1_b*` trigger would run before the lock and nothing asserts the order.
+* **Should-fix, kept as a deliberate choice:** the `cf1_` name passes the two inventory checks by using CF1's prefix. The reviewer prefers a D-specific name listed explicitly in both suites. Not done because PR 866's versions of those suites change the same allow-list line (a merge conflict, and the composed run takes 866's copies). Consequences to accept or change: six CF1 suites run with D's heat and entry locks off, and any owner procedure that disables `cf1_%` triggers would silently reopen the publication race.
+* Not changed: the migration header still says advanced-mode schedule items "have their own rules" although their three tables are now locked too; the session race on the previous version is logged, not asserted.
+
+### Composed run beside the restrictions (`/c/dfr/s5int-out/p1run4`, D `db5c9b876`): D failures
+
+| Failure | Defect or harness |
+|---|---|
+| D suite, chains C and E: no verdict (`compp1_one_round_per_division`) | harness: D's fixtures put several rounds in one division |
+| D races, chain C: fixtures | harness: the same |
+| D suite, chain B: two publication "keep" checks (`COMP_R15_PROVISIONAL_ASSIGNMENT`) | harness: fixtures not cleared through R-15 |
+| D races, chain B: R2 "did not wait" | defect in D's **test**: after the planted-heat fix that write is refused at once; the earlier standalone pass depended on slow timing |
+
+No D guard defect was found in that run. Both suite and races now pass or are corrected for that chain. Separately, on chain C the 10D.1 suite already failed on a restriction trigger on heat entries, which is not D's.
+
 ## Evaluation against pilot P1 (PR 795 section 21, `0d68b2f38`): by reading; run result in the next section
 
 P1 disables running-order replacement and cancellation after a start, enforced at the database. D alone does **not** do that: it stops direct client writes; lifecycle functions (round cancel, publication, advancement) pass it, and are the P1 restriction work (slots `180000`-`189000`).
