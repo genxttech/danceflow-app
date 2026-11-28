@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformStepUp } from "@/lib/auth/platform-assurance";
 import { buildRunnerRuntime } from "@/lib/sms/twilioIsv/factory";
-import { hasRecordedMonthlyApproval, SupabasePanelStore } from "@/lib/sms/twilioIsv/panel";
+import { monthlyApprovalBlock, SupabasePanelStore, type MonthlyApprovalBlock } from "@/lib/sms/twilioIsv/panel";
 import * as commands from "@/lib/sms/twilioIsv/panelCommands";
 import type { CommandResult, SubaccountDeps } from "@/lib/sms/twilioIsv/panelCommands";
 import { encodePanelFlash, PANEL_FLASH_COOKIE, PANEL_FLASH_MAX_AGE_SECONDS } from "@/lib/sms/twilioIsv/panelFlash";
@@ -60,7 +60,7 @@ export async function panelAuthorizeFeeAction(formData: FormData) {
   let studioTier: string | null = null;
   let onboardingFound = false;
   let pilotBusiness = false;
-  let monthlyRecorded = true;
+  let monthlyBlock: MonthlyApprovalBlock | null | undefined;
   try {
     const studioId = String(formData.get("studioId") ?? "");
     const entityId = String(formData.get("entityId") ?? "");
@@ -70,11 +70,11 @@ export async function panelAuthorizeFeeAction(formData: FormData) {
     studioTier = onboarding?.tier ?? null;
     const entity = overview.entities.find((e) => e.id === entityId);
     pilotBusiness = Boolean(entity && entity.pilot !== null && entity.studios.some((s) => s.studioId === studioId));
-    monthlyRecorded = entity ? hasRecordedMonthlyApproval(entity, studioId) : true;
+    monthlyBlock = entity && onboarding ? monthlyApprovalBlock(entity, studioId, onboarding.state) : undefined;
   } catch {
     await finish({ ok: false, message: "The studio's registration path could not be read. Nothing was authorized." }, formData);
   }
-  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier, onboardingFound, pilotBusiness, monthlyRecorded }), formData);
+  await finish(await commands.authorizeFee(panelStore, admin.id, formData, { studioTier, onboardingFound, pilotBusiness, monthlyBlock }), formData);
 }
 
 export async function panelWithdrawFeeAction(formData: FormData) {

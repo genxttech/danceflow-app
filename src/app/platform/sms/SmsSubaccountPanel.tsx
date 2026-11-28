@@ -10,7 +10,8 @@ import {
   type PanelRequest,
   type StageState,
   type StudioPanel,
-  hasRecordedMonthlyApproval,
+  monthlyApprovalBlock,
+  MONTHLY_BLOCK_TEXT,
 } from "@/lib/sms/twilioIsv/panel";
 import { CREATE_PHRASE } from "@/lib/sms/twilioIsv/panelCommands";
 import { registrationPath } from "@/lib/sms/twilioIsv/registrationPath";
@@ -369,10 +370,11 @@ function BudgetForms({ panel, overview }: { panel: StudioPanel; overview: PanelO
             const price = overview.prices[kind];
             const lvsBrand = kind === "brand_low_volume";
             const monthly = kind === monthlyKind;
-            if (monthly && hasRecordedMonthlyApproval(entity, panel.studioId)) {
+            const block = monthly ? monthlyApprovalBlock(entity, panel.studioId, panel.onboarding!.state) : null;
+            if (block) {
               return (
                 <p key={kind} className="rounded-lg border border-slate-100 p-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-900">{FEE_LABELS[kind]}:</span> an approval is already recorded for this location. Later months are recorded under the pilot&apos;s per-period written approvals.
+                  <span className="font-semibold text-slate-900">{FEE_LABELS[kind]}:</span> {MONTHLY_BLOCK_TEXT[block]}
                 </p>
               );
             }
