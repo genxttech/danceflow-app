@@ -105,7 +105,7 @@ function BilledSwitch({ usage, readiness }: { usage: SwitchOverview | null; read
       {/* the stop never depends on a read */}
       <form action={switchBilledTextingOffAction} className={`${box} border-rose-200`} data-testid="controls-switch-off">
         <p className="font-semibold text-slate-900">Switch billed texting OFF</p>
-        <p className="text-slate-600">Always allowed by the database. New billed texts are refused; texts already reserved or sent are not recalled.</p>
+        <p className="text-slate-600">Always allowed by the database. New billed texts are refused. A text already reserved may still be sent until usage reconciliation releases it, and sent texts are not recalled.</p>
         <Reason />
         <Confirm label="I am switching billed texting off" />
         <button type="submit" className={danger}>Switch OFF</button>
