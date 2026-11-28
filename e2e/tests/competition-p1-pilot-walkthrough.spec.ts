@@ -129,6 +129,14 @@ test.describe("P1 restricted pilot walkthrough", () => {
     return page;
   }
   const manager = async (browser: Parameters<typeof signedIn>[0], account = fixture.owner) => watch(await signedIn(browser, account));
+  /** For pages that must be refused: the browser logs the expected 404 as a console error, so only server and page errors count. */
+  function watchServer(page: Page) {
+    page.on("pageerror", (error) => problems.push(`page error ${new URL(page.url()).pathname}: ${error.message.slice(0, 200)}`));
+    page.on("response", (response) => {
+      if (response.status() >= 500) problems.push(`HTTP ${response.status()} ${new URL(response.url()).pathname}`);
+    });
+    return page;
+  }
   const base = () => `/app/events/${scored.event.id}/competition`;
   const scratchUrl = (entryId: string) => `${base()}/registrations/scratch/${entryId}`;
   const heatEntryStatuses = (entryId: string) =>
@@ -192,7 +200,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
     await expect(studio.getByLabel("Scoring setup").locator("option", { hasText: "Callbacks + Final" }), "if the option is gone, assert its absence instead").toHaveCount(1);
     await studio.getByLabel("Scoring setup").selectOption({ label: "Callbacks + Final" });
     await studio.getByRole("button", { name: "Apply to all divisions" }).click();
-    await expect(appAlerts(page).first(), "the refusal is shown").toBeVisible({ timeout: 60_000 });
+    await expect(appAlerts(page).filter({ hasText: "This pilot runs one final per division" }).first(), "the pilot refusal is shown, not just any error").toBeVisible({ timeout: 60_000 });
     await shot(page, "callbacks-refused");
     const callbackRounds = psqlJson<number>(`select to_json(count(*)::int) from public.event_competition_rounds where event_id = '${event.id}' and scoring_method = 'callback_tally'`);
     expect(callbackRounds, "no callback round can be configured").toBe(0);
@@ -299,8 +307,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
 
   test("P1-06 scratch screen before the start: one couple is scratched with a reason; non-managers see nothing", async ({ browser }, testInfo) => {
     const shot = stepShots(testInfo);
-    // Deliberate refusal: this page is not watched (the browser logs the expected 404 as a console error).
-    const judge = await signedIn(browser, fixture.judges[0] as never);
+    const judge = watchServer(await signedIn(browser, fixture.judges[0] as never));
     expect((await visit(judge, scratchUrl(entries[SCRATCHED]))).status).toBe(404);
     await judge.context().close();
     expect(await directScratch(fixture.judges[0] as never, entries[SCRATCHED]), "a judge cannot scratch directly").toMatch(/cannot be managed/);
@@ -403,7 +410,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
   });
 
   test("P1-11 judge ballots: three judges rank the three remaining couples from their own accounts", async ({ browser }) => {
-    for (let judge = 0; judge < 3; judge += 1) expect(await submitOrdinalBallot(journey, browser, judge, scored), "the scratched couple is not on the sheet").toBe(COUPLES - 1);
+    for (let judge = 0; judge < 3; judge += 1) expect(await submitOrdinalBallot(journey, browser, judge, scored, undefined, watch), "the scratched couple is not on the sheet").toBe(COUPLES - 1);
     expect(await readBallotCount(config, scored.finalRoundId)).toBe(3);
   });
 
@@ -473,7 +480,7 @@ test.describe("P1 restricted pilot walkthrough", () => {
 
   test("P1-15 after publication: scratch stays refused; another studio and anonymous callers are refused", async ({ browser }) => {
     expect(await directScratch(fixture.owner as never, entries[1])).toMatch(/locked or certified heat|COMP_ENTRY_LIFECYCLE_PLACED/);
-    const other = await signedIn(browser, fixture.otherOwner);
+    const other = watchServer(await signedIn(browser, fixture.otherOwner));
     for (const path of [scratchUrl(entries[1]), `${base()}/results/${scored.finalRoundId}`]) expect((await visit(other, path)).status, path).toBe(404);
     await other.context().close();
     expect(await directScratch(fixture.otherOwner as never, entries[1])).toMatch(/cannot be managed/);
