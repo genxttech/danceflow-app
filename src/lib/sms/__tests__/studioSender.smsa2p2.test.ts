@@ -9,7 +9,7 @@ import {
 } from "@/lib/sms/compliance";
 import { resolveStudioFromInboundSender, resolveStudioSmsSender } from "@/lib/sms/studioSender";
 import { sendTwilioSms } from "@/lib/sms/twilio";
-import { useLiveSendEnvironment } from "@/test/liveSendEnvironment";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 /** SMS-A2P-2: per-studio sender resolution, approval gating and studio identity in the body. */
 
@@ -231,4 +231,4 @@ describe("studio identity and STOP/HELP in every message", () => {
   });
 });
 
-useLiveSendEnvironment();
+declareLiveSendEnvironment();

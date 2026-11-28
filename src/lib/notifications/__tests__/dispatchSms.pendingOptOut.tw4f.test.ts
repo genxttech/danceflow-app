@@ -24,7 +24,7 @@ vi.mock("@/lib/sms/usageProvider", async (importOriginal) => {
 });
 
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
-import { useLiveSendEnvironment } from "@/test/liveSendEnvironment";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO_A = "11111111-1111-4111-8111-111111111111";
 const STUDIO_B = "22222222-2222-4222-8222-222222222222";
@@ -153,4 +153,4 @@ describe.each(["billed", "legacy"] as const)("%s path", (mode) => {
   });
 });
 
-useLiveSendEnvironment();
+declareLiveSendEnvironment();

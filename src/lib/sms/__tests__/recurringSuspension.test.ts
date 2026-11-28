@@ -22,7 +22,7 @@ vi.mock("@/lib/aria/outcome-verification", () => ({
 import { POST } from "@/app/api/sms/send/route";
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
 import { resolveStudioFromInboundSender, resolveStudioSmsSender } from "@/lib/sms/studioSender";
-import { useLiveSendEnvironment } from "@/test/liveSendEnvironment";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO_A = "11111111-1111-4111-8111-111111111111";
 const STUDIO_B = "22222222-2222-4222-8222-222222222222";
@@ -200,4 +200,4 @@ describe("automated appointment texts (dispatch)", () => {
   });
 });
 
-useLiveSendEnvironment();
+declareLiveSendEnvironment();
