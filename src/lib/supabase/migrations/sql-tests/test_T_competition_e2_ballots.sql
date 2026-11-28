@@ -815,12 +815,24 @@ select pg_temp.chk('exactly one current ballot per (judge, heat) in r1 after all
 -- ============================================================================
 -- 14. Cascades: deleting the event removes the evidence with it
 -- ============================================================================
-select pg_temp.expect_ok('event delete cascades through ballots, marks and audit (event B; event A has locked heats, which 10A protects)', $q$delete from public.events where id = pg_temp.u('00e002')$q$);
+-- OD-04 (20270301080000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
+select pg_temp.expect_ok('event delete cascades through ballots, marks and audit (event B; event A has locked heats, which 10A protects)', $q$delete from public.events where id = pg_temp.u('00e002')$q$)
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
 select pg_temp.chk('cascade left nothing behind',
   pg_temp.n($q$select (select count(*) from public.event_competition_ballots where event_id = pg_temp.u('00e002'))
                     + (select count(*) from public.event_competition_marks where event_id = pg_temp.u('00e002'))
                     + (select count(*) from public.event_competition_judge_attendance where event_id = pg_temp.u('00e002'))
-                    + (select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e002'))$q$) = 0);
+                    + (select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e002'))$q$) = 0)
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
+select pg_temp.expect_msg('OD-04: deleting event B, which holds ballots, is refused', $q$delete from public.events where id = pg_temp.u('00e002')$q$, 'COMP_EVENT_HAS_SCORING_EVIDENCE')
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
+select pg_temp.chk('OD-04: the refused delete removed nothing (event, ballots, marks and audit remain)',
+  pg_temp.n($q$select count(*) from public.events where id = pg_temp.u('00e002')$q$) = 1
+  and pg_temp.n($q$select count(*) from public.event_competition_ballots where event_id = pg_temp.u('00e002')$q$) > 0
+  and pg_temp.n($q$select count(*) from public.event_competition_marks where event_id = pg_temp.u('00e002')$q$) > 0
+  and pg_temp.n($q$select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e002')$q$) > 0)
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
 
 -- ============================================================================
 -- Verdict
