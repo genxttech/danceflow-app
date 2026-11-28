@@ -815,7 +815,7 @@ select pg_temp.chk('exactly one current ballot per (judge, heat) in r1 after all
 -- ============================================================================
 -- 14. Cascades: deleting the event removes the evidence with it
 -- ============================================================================
--- OD-04 (20270219090000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- OD-04 (20270301080000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
 -- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
 select pg_temp.expect_ok('event delete cascades through ballots, marks and audit (event B; event A has locked heats, which 10A protects)', $q$delete from public.events where id = pg_temp.u('00e002')$q$)
   where to_regprocedure('public.compod04_guard_event_delete()') is null;

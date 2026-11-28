@@ -802,7 +802,7 @@ reset role;
 select pg_temp.expect_msg('NO ACTION FK: a direct delete of the scratched heat entry''s round is refused', format($q$delete from public.event_competition_rounds where id = %L$q$, pg_temp.id('fin', 8)), '', null);
 -- (pre-existing, not CF1: deleting an event that still has a certified heat is refused by protect_locked_competition_heat_children, so the heats are opened first)
 select pg_temp.su(format($q$update public.event_competition_heats set lock_state = 'open' where event_id = %L$q$, pg_temp.id('evt', 4)));
--- OD-04 (20270219090000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- OD-04 (20270301080000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
 -- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
 select pg_temp.expect_ok('deleting the event cascades through heats, heat entries (guard exception), withdrawals and requests', format($q$delete from public.events where id = %L$q$, pg_temp.id('evt', 4)))
   where to_regprocedure('public.compod04_guard_event_delete()') is null;

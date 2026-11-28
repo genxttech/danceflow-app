@@ -14,7 +14,7 @@
   "rule_class": "mandatory",
   "requirement": "Published results and their score evidence must not be removable while a posting duty may still apply. This change only keeps the evidence (results, publications, ballots) from being hard-deleted with the event. Posting for at least 30 days, withdrawal and correction handling are OD-22 and OD-23 and are NOT implemented here.",
   "implementation": [
-    { "path": "src/lib/supabase/migrations/20270219090000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "_compod04_evidence_tables (result versions, rows, events, approvals, publications)" }
+    { "path": "src/lib/supabase/migrations/20270301080000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "_compod04_evidence_tables (result versions, rows, events, approvals, publications)" }
   ],
   "enforcement_point": "Database BEFORE DELETE trigger on public.events; not applied to any hosted database yet.",
   "tests": [

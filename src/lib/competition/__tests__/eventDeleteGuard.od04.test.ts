@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const MIG = join(ROOT, "src/lib/supabase/migrations");
-const VERSION = "20270219090000";
+const VERSION = "20270301080000";
 const MIGRATION = `${VERSION}_competition_od04_event_delete_guard.sql`;
 const ROLLBACK = `${VERSION}_competition_od04_event_delete_guard_rollback.sql`;
 const SUITE = "sql-tests/test_T_competition_od04_event_delete_guard.sql";

@@ -14,7 +14,7 @@
   "rule_class": "mandatory",
   "requirement": "Competition OS must not destroy the recorded judge ballots of an event (the digital counterpart of the score sheets) during or shortly after the event. A minimum duration only: DanceFlow retains them while the event row exists and never deletes them on a timer.",
   "implementation": [
-    { "path": "src/lib/supabase/migrations/20270219090000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "a00_compod04_events_delete_guard / _compod04_evidence_tables (ballots, marks, ballot events, corrections, attendance)" }
+    { "path": "src/lib/supabase/migrations/20270301080000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "a00_compod04_events_delete_guard / _compod04_evidence_tables (ballots, marks, ballot events, corrections, attendance)" }
   ],
   "enforcement_point": "Database BEFORE DELETE trigger on public.events (also reached by organizer-delete cascades); not applied to any hosted database yet.",
   "tests": [
