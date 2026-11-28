@@ -1,9 +1,9 @@
 # TW-4 — Automated Twilio ISV SMS Onboarding (Design for Owner Review)
 
-**Status (roadmap v2.22, 2026-10-13):** Self-service architecture **APPROVED AS THE PRODUCT DIRECTION** (owner). D1–D7 (§18) are **established design directions**; what remains for them is technical verification (Twilio Q1–Q5, §20), not product choice. **Implementation is not yet authorized** (each slice needs its own authorization). The ConfiDance pilot uses the real automated onboarding flow. D1–D7 supersede conflicting text in §2–§17. The §20 Twilio message is still a draft and has not been sent.
+**Status (roadmap v2.22, 2026-10-13):** Self-service architecture **APPROVED AS THE PRODUCT DIRECTION** (owner). D1–D7 (§18) are **established design directions**; what remains for them is technical verification (Twilio Q1–Q5, §20), not product choice. **Implementation is not yet authorized** (each slice needs its own authorization). The pilot uses the real automated onboarding flow. D1–D7 supersede conflicting text in §2–§17. The §20 Twilio message is still a draft and has not been sent.
 *(Original status, 2026-10-12: PROPOSED; architecture direction approved for further planning; not approved for implementation.)*
 **Date:** 2026-10-12. **Audited code:** `origin/main` `733a20c0`. **Roadmap:** recorded in v2.22 (Phase 2); this document is the TW-4 design reference.
-**Ticket:** Twilio #29647095. Primary Customer Profile `BUed777b1ed81df271793fbd097324ec94` (GenX TotalTech LLC) is now Twilio Approved as **ISV Reseller or Partner** (owner-reported).
+**Ticket:** Twilio [PROVIDER-TICKET-A]. Primary Customer Profile `[PRIMARY-PROFILE-SID]` (GenX TotalTech LLC) is now Twilio Approved as **ISV Reseller or Partner** (owner-reported).
 **Guardrails respected:** no Twilio resources created, no registrations submitted, no numbers bought, no SMS sent, no credentials touched, no SQL applied, no application code changed. PAY-WH-1 is not touched.
 
 ---
@@ -30,7 +30,7 @@ The studio owner fills in one guided form inside DanceFlow, accepts disclosures,
 4. **Low-Volume Standard + `LOW_VOLUME` (Low Volume Mixed) is far cheaper for small studios** than Standard + `MIXED`. Setup is about $20 instead of about $61; the campaign is $1.50/mo instead of $10/mo. TW-3's enum allows only `mixed`.
 5. **Per-number carrier registration status has no REST endpoint.** Event Streams is therefore required, not optional.
 
-**Recommendation:** formalize **TW-4 — ISV Studio Registration Provisioning** as a Phase 2 lane with slices 4A–4F (§16). ConfiDance is the first studio to go through the real in-app flow (§13).
+**Recommendation:** formalize **TW-4 — ISV Studio Registration Provisioning** as a Phase 2 lane with slices 4A–4F (§16). The pilot studio is the first studio to go through the real in-app flow (§13).
 
 ---
 
@@ -71,7 +71,7 @@ Today, TW-1 falls back to whole-message keyword classification and replies with 
 | **C. Ask Twilio for an ISV path** (API/account-level AOO template, or Support bulk-enable) | ✓ if offered | Strong | Small |
 
 **Recommendation:**
-- Ask Twilio (C) on #29647095.
+- Ask Twilio (C) on [PROVIDER-TICKET-A].
 - Design for **B as the automated default**, plus a per-registration `opt_out_mode` (`twilio_default` | `twilio_advanced`) so studios Twilio enables for AOO work unchanged.
 - The owner must **supersede the locked decision** "AOO is the compliance authority" with "Twilio opt-out enforcement is authoritative; AOO where available".
 
@@ -119,7 +119,7 @@ A dance studio's appointment + 1:1 traffic is far below the LVS limits.
 **Recommendation:**
 - Default to **LVS + `LOW_VOLUME`**, describing the same transactional + staff 1:1 content.
 - Standard + `MIXED` stays available for high-volume studios.
-- This needs a TW-3 enum extension (`low_volume_mixed`) and a decision that "Mixed" means Twilio `MIXED` or `LOW_VOLUME`. *Confirm with Twilio that LOW_VOLUME fits the guidance given for ConfiDance.*
+- This needs a TW-3 enum extension (`low_volume_mixed`) and a decision that "Mixed" means Twilio `MIXED` or `LOW_VOLUME`. *Confirm with Twilio that LOW_VOLUME fits the guidance given for the pilot studio.*
 - Upgrading LVS→Standard later means new vetting and a new campaign.
 
 ### F5 — Status visibility
@@ -144,7 +144,7 @@ A dance studio's appointment + 1:1 traffic is far below the LVS limits.
 All calls are server-side, using DanceFlow credentials (in the parent account, or scoped to the studio subaccount if F2 is adopted). FriendlyName convention: `df:{env}:{studio_id}:{step}`.
 
 ```
-P0  (platform, once)  Primary ISV profile approved (BUed777…)       — precondition check (GET)
+P0  (platform, once)  Primary ISV profile approved ([PRIMARY-PROFILE-SID])       — precondition check (GET)
 P1  (platform, once)  Event Streams sink DG… + subscription DF…      — 15 A2P event types
 P2  (studio, F2 only) Subaccount AC…
 
@@ -153,7 +153,7 @@ S2  EndUser business info IT…        type customer_profile_business_informatio
 S3  EndUser authorized rep IT…       type authorized_representative_1 → assign to S1
 S4  Address AD…                      api/2010-04-01/Addresses
 S5  SupportingDocument RD…           type customer_profile_address (address_sids=AD) → assign to S1
-S6  Assign Primary profile BUed777…  EntityAssignments on S1
+S6  Assign Primary profile [PRIMARY-PROFILE-SID]  EntityAssignments on S1
 S7  Evaluate S1                      Evaluations → compliant | noncompliant(results[])   ← validation gate
 S8  Submit S1                        Status=pending-review
 T1  A2P TrustProduct BU…             POST trusthub/v1/TrustProducts (Policy RNb0d477…)
@@ -441,13 +441,13 @@ Fee steps additionally need gates §7. DEV/preview environments **never** call T
 
 ---
 
-## 13. ConfiDance pilot (real in-app flow)
+## 13. Pilot (real in-app flow)
 
 1. Twilio answers F1–F4 questions; the owner decides.
-2. Ship 4A–4E to PROD behind the flag; enable only for ConfiDance; grant comp entitlement.
-3. **ConfiDance's owner** completes Settings → Texting in production (DanceFlow owner observes; does not enter data for them, beyond helping locate the EIN letter).
+2. Ship 4A–4E to PROD behind the flag; enable only for the pilot studio; grant comp entitlement.
+3. **The pilot studio's owner** completes Settings → Texting in production (DanceFlow owner observes; does not enter data for them, beyond helping locate the EIN letter).
 4. Orchestrator creates S1–T3, B1. Observe events and polls. Any needs_info is fixed through the UI.
-5. Before C1: export the generated campaign package from the platform console and send it to Twilio (#29647095) for pre-submission review, as promised. C1 is held by a pilot-only "campaign hold" until the review is clean.
+5. Before C1: export the generated campaign package from the platform console and send it to Twilio ([PROVIDER-TICKET-A]) for pre-submission review, as promised. C1 is held by a pilot-only "campaign hold" until the review is clean.
 6. M1, C1, N1–N3 run. Campaign and number approval arrive via events.
 7. Platform Release → `approved` → `DANCEFLOW_SMS_STATUS=approved` (env) → owner activates.
 8. Bounded PROD verification (TW-OPS step 9):
@@ -536,7 +536,7 @@ The pass-1 TW-OPS package (description, samples, opt-in trace) becomes template 
 | 4C | Orchestrator S1–T3 + B1, fee gates, reconcile, error catalog | yes (behind flag) | Opus |
 | 4D | M1 (+opt-out mode), C0–C1 (campaign hold), N1–N3, number registration | yes | Opus |
 | 4E | Readiness/release action, emails, platform alerts, ARIA guidance + KB, tracker polish | none | Sonnet |
-| 4F | ConfiDance pilot + PROD verification (TW-OPS) | yes (pilot only) | ops |
+| 4F | Pilot + PROD verification (TW-OPS) | yes (pilot only) | ops |
 | later | Sole proprietor path; Standard↔LVS upgrade; Marketing SMS campaign (Phase 13); auto-release; Compliance Embeddable re-evaluation | — | — |
 
 **Dependencies:** owner decisions D1–D6 (§17); Twilio answers; open decision #8 only for *general* availability (pilot uses comp entitlement). TW-4 doesn't block Phase 10, and PAY-WH-1 and Phase 10 continue first. Roadmap and Current State are updated only when the owner approves this design (as v2.22: Phase 2 objective → automated self-service onboarding, superseded locked decisions recorded).
@@ -564,11 +564,11 @@ The pass-1 TW-OPS package (description, samples, opt-in trace) becomes template 
 - **D6** EIN storage: encrypted with an env-held key + last4 for display (recommended), or not retained after Twilio accepts the profile?
 - **D7** SMS packaging/pricing direction for decision #8 (setup fee + monthly + metered).
 
-**Questions to send Twilio (#29647095):**
+**Questions to send Twilio ([PROVIDER-TICKET-A]):**
 - Can AOO be enabled/configured per Messaging Service by API or account-level default for ISVs? If not, is Twilio default opt-out handling acceptable for the campaigns, and what is the default HELP behavior?
 - Do you recommend subaccount-per-studio for our ISV case? Confirm that parent-credential A2P registration works in subaccounts and how webhook signatures are computed there.
 - Are DanceFlow-hosted, studio-scoped Terms/Privacy pages acceptable when the studio's website is a different domain?
-- Is Low-Volume Standard + `LOW_VOLUME` appropriate for ConfiDance-type traffic, given the earlier Mixed/Customer Care guidance?
+- Is Low-Volume Standard + `LOW_VOLUME` appropriate for pilot-studio-type traffic, given the earlier Mixed/Customer Care guidance?
 - Please enable campaign-update API (Private Beta) for our account.
 
 ---
@@ -581,7 +581,7 @@ The pass-1 TW-OPS package (description, samples, opt-in trace) becomes template 
 | D2 | One Twilio subaccount per studio (preferred ISV architecture) | ADOPTED, subject to confirming registration, webhook signing, lifecycle (Q1) |
 | D3 | Studio-specific SMS Privacy and Terms pages | ADOPTED; final domain design HELD (Q3) |
 | D4 | Low-Volume Standard default for eligible studios, correct alternatives where applicable | ADOPTED (Q4) |
-| D5 | Manual platform approval for the ConfiDance pilot only; automated activation afterwards | ADOPTED |
+| D5 | Manual platform approval for the pilot only; automated activation afterwards | ADOPTED |
 | D6 | Minimize EIN retention; encrypt any retained value; display last 4 only | ADOPTED |
 | D7 | Setup fee + monthly service fee + message allowance/overage; no final prices until Twilio costs are verified | ADOPTED (direction only) |
 
@@ -641,7 +641,7 @@ Brand `website_url` and campaign URL domains stay HELD until Q3 is answered. 4C/
 - TW-3's `campaign_use_case` enum is extended (`low_volume_mixed`, later others). The approved invariant accepts any registered transactional use case, never `MARKETING`.
 
 ### 18.5 D5: activation
-- **Pilot (ConfiDance):**
+- **Pilot (the pilot studio):**
   - A platform-admin **Release** sets aggregate `approved`.
   - A pilot-only **campaign hold** before campaign creation (C1) allows Twilio's pre-submission review.
   - `DANCEFLOW_SMS_STATUS=approved` is a deliberate environment change.
@@ -667,7 +667,7 @@ Throughout: never logged, never in audit, never returned to any client (owner or
 - Entitlement `sms_messaging` covers the setup fee (brand + vetting pass-through + onboarding), the monthly service (number + campaign + platform), and an included segment allowance with metered overage (`usage_events: sms_segment`).
 - Final prices wait for verified costs: the pilot's actual Twilio invoice lines and per-subaccount usage records over at least one full billing cycle, checked against the published list prices in §11.
 - This resolves the **direction** of open decision #8 for SMS. Amounts stay with Phase 22.
-- The ConfiDance pilot uses a platform comp entitlement; no billing action is taken.
+- The pilot uses a platform comp entitlement; no billing action is taken.
 
 ### 18.8 Revised slice plan
 
@@ -678,7 +678,7 @@ Throughout: never logged, never in audit, never returned to any client (owner or
 | 4C | **P2 subaccount** + S1–T3 + B1, fee gates, reconcile, error catalog, **tier selection** | Q1, Q4 |
 | 4D | M1, C0–C1 (pilot hold), N1–N3 | Q2, Q3 |
 | 4E | Release/auto-activation, emails, alerts, ARIA, KB | — |
-| 4F | ConfiDance pilot + PROD verification (TW-OPS) | all above |
+| 4F | Pilot + PROD verification (TW-OPS) | all above |
 | 4G | **Entitlement + billing wiring (D7)** | PAY-WH-1 released; decision #8 amounts |
 
 ---
@@ -717,7 +717,7 @@ Throughout: never logged, never in audit, never returned to any client (owner or
 
 ### Canonical roadmap v2.21 (no edit made; proposed for v2.22 after Twilio answers and owner implementation approval)
 - **Phase 2:**
-  - The objective becomes "automated self-service studio onboarding under the DanceFlow ISV profile, subaccount per studio". The primary profile is now ISV Reseller or Partner (ticket #29647095).
+  - The objective becomes "automated self-service studio onboarding under the DanceFlow ISV profile, subaccount per studio". The primary profile is now ISV Reseller or Partner (ticket [PROVIDER-TICKET-A]).
   - TW-4 is added as PROPOSED, with slices 4A–4G.
   - Superseded locked decisions are recorded:
     - AOO authority (D1);
@@ -733,7 +733,7 @@ Throughout: never logged, never in audit, never returned to any client (owner or
 - **Phase 11:** add 21610 suppression handling and Event Streams as part of the SMS platform.
 - **Phase 13:** unchanged. Marketing SMS stays out of scope and would need its own `MARKETING` campaign and separate marketing consent.
 - **Phase 22:** SMS prices follow verified pilot costs.
-- **Current State:** external dependency is Twilio answers on #29647095 (Q1–Q5); TW-4 is design-approved for planning only.
+- **Current State:** external dependency is Twilio answers on [PROVIDER-TICKET-A] (Q1–Q5); TW-4 is design-approved for planning only.
 
 ### PAY-WH-1 isolation
 - TW-4 shares no files with the Stripe webhook-ordering work.
@@ -743,13 +743,13 @@ Throughout: never logged, never in audit, never returned to any client (owner or
 
 ---
 
-## 20. Twilio Support message (ticket #29647095), DRAFT, not sent
+## 20. Twilio Support message (ticket [PROVIDER-TICKET-A]), DRAFT, not sent
 
-> **Subject:** DanceFlow ISV – architecture confirmation before automated studio onboarding (ConfiDance pilot)
+> **Subject:** DanceFlow ISV – architecture confirmation before automated studio onboarding (pilot)
 >
-> Hello Sachin / A2P 10DLC team,
+> Hello [PROVIDER-CONTACT] / A2P 10DLC team,
 >
-> Thank you for updating our Primary Customer Profile (GenX TotalTech LLC, BUed777b1ed81df271793fbd097324ec94) to ISV Reseller or Partner. We are now designing DanceFlow's automated, API-based onboarding so each dance studio registers through our platform rather than through manual Console setup. ConfiDance Studio will be the first studio. Studio traffic is limited to transactional appointment messages (confirmations, reschedules, cancellations) and staff-initiated one-to-one operational messages, with no marketing. Before we build, we'd appreciate confirmation on five points:
+> Thank you for updating our Primary Customer Profile (GenX TotalTech LLC, [PRIMARY-PROFILE-SID]) to ISV Reseller or Partner. We are now designing DanceFlow's automated, API-based onboarding so each dance studio registers through our platform rather than through manual Console setup. The pilot studio will be the first studio. Studio traffic is limited to transactional appointment messages (confirmations, reschedules, cancellations) and staff-initiated one-to-one operational messages, with no marketing. Before we build, we'd appreciate confirmation on five points:
 >
 > **1. Subaccount per studio.** Following your ISV architecture guidance, we plan one Twilio subaccount per studio, with the studio's Secondary Customer Profile, A2P TrustProduct, Brand, Messaging Service, campaign and number created inside that subaccount by our parent account via API.
 >   (a) Is this the architecture you recommend for us?
@@ -775,10 +775,10 @@ Throughout: never logged, never in audit, never returned to any client (owner or
 >   (a) Please enable, or tell us how to request, the campaign update API (Private Beta) for our parent account and its subaccounts.
 >   (b) For Event Streams A2P events (brand, campaign, number registration), should we create one sink and subscription in the parent account that receives subaccount events, or one per subaccount?
 >   (c) Should the Secondary profile and TrustProduct notification email be our own ISV compliance mailbox?
->   (d) Will you review the first automatically generated ConfiDance campaign package before we submit it?
+>   (d) Will you review the first automatically generated the pilot studio campaign package before we submit it?
 >
 > We will not create any studio registrations until you confirm. Thank you,
-> Michael Curtis — GenX TotalTech LLC / DanceFlow
+> [OWNER NAME] — GenX TotalTech LLC / DanceFlow
 
 ---
 

@@ -1,6 +1,6 @@
-# TW-4F price publication runbook (ConfiDance pilot, Low Volume path)
+# TW-4F price publication runbook (pilot, Low Volume path)
 
-Status: PREPARED, NOT EXECUTED. Nothing below is authorized until the owner approves the bounded release in the decision package. Executing it never bypasses the hardware-key or separate-session rules: those are enforced by the database, not by this runbook. Data for the six proposals: `docs/twilio/pricing/ConfiDance_pilot_price_manifest.json` (validated by `src/lib/sms/__tests__/pilotPriceManifest.test.ts`).
+Status: PREPARED, NOT EXECUTED. Nothing below is authorized until the owner approves the bounded release in the decision package. Executing it never bypasses the hardware-key or separate-session rules: those are enforced by the database, not by this runbook. Data for the six proposals: `docs/twilio/pricing/*_pilot_price_manifest.json` (validated by `src/lib/sms/__tests__/pilotPriceManifest.test.ts`).
 
 ## A. Preconditions (re-verify read-only immediately before starting)
 

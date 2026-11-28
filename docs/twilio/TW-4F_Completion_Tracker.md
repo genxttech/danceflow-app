@@ -52,7 +52,7 @@ Known issues carried forward: KI-1 (pilot double capture; activation is blocked 
 
 **Rollback note.** After 1229, `1219` cannot be re-applied unless 1229 is rolled back first, because its precondition expects the 4-argument `tw4_rfl_pilot_cover`. Hosted rollback must follow the strict reverse of the apply order (manifest §5.1), and 1230 is rolled back first. With 1231 and 1231b merged, the reverse order for the tail is 1231b, 1231, 1230: 1231b is rolled back BEFORE 1230 (1230's rollback refuses while 1231b is applied).
 
-**Hosted apply-order gate (1230).** 1230 refuses to apply once any pilot exception exists or any live evidence-free pilot approval exists. Apply it before ConfiDance's pilot exception or any pilot approval is created, and quiesce all administrative pilot actions for the duration of the apply. The precondition is that no pilot exception has ever existed. The exemption 1230 carries for #305 period covers is dead code on any hosted target, because no hosted cover exists. Hosted DEV and PROD have none today (probe 2026-10-24).
+**Hosted apply-order gate (1230).** 1230 refuses to apply once any pilot exception exists or any live evidence-free pilot approval exists. Apply it before the pilot studio's pilot exception or any pilot approval is created, and quiesce all administrative pilot actions for the duration of the apply. The precondition is that no pilot exception has ever existed. The exemption 1230 carries for #305 period covers is dead code on any hosted target, because no hosted cover exists. Hosted DEV and PROD have none today (probe 2026-10-24).
 
 **Not verified for #316:**
 - `tw4fj1` is BLOCKED by a harness limitation; it fails identically on plain main.
@@ -135,7 +135,7 @@ How the "no caller" claims were checked: `git grep -l -w <symbol> 960a9d02 -- sr
   - `1123`–`1217` have been applied only to local or isolated QA databases.
   - None of this may be treated as confirmed until a fresh SELECT-only fingerprint probe has been authorized and run.
 - `docs/twilio/TW-4F_Production_Onboarding_Plan.md` §9a still says `1120` and `1121` are "NOT applied". That conflicts with the Phase A record. See section 9.
-- Twilio ticket #29647095: the docs record the six answers as received 2026-10-19 (`TW-4F_Production_Onboarding_Plan.md` §13, `TW-4F_Provider_Integration.md`). The roadmap row "Twilio Q1–Q5 confirmation … OPEN" (`DanceFlow_Master_Roadmap.md:166`) looks stale. See section 9.
+- Twilio ticket [PROVIDER-TICKET-A]: the docs record the six answers as received 2026-10-19 (`TW-4F_Production_Onboarding_Plan.md` §13, `TW-4F_Provider_Integration.md`). The roadmap row "Twilio Q1–Q5 confirmation … OPEN" (`DanceFlow_Master_Roadmap.md:166`) looks stale. See section 9.
 - Provider request shapes are taken from the code (`src/lib/sms/twilioIsv/real.ts`). No real Twilio call has been made for R2a or R2b.
 
 ## 3. Requirement tracker
@@ -148,7 +148,7 @@ Columns:
 - **Dependency** is what must be done first.
 - **Acceptance** is the acceptance criteria.
 - **QA evidence** is the QA evidence required.
-- **Gate** is the release-gate class: G = Git completion, D = hosted DEV, P = ConfiDance pilot, L = general production.
+- **Gate** is the release-gate class: G = Git completion, D = hosted DEV, P = pilot, L = general production.
 
 ### 3.1 Owner journey
 
@@ -166,7 +166,7 @@ Columns:
 | Req | Requirement | Status | Evidence | WS | Dependency | Acceptance | QA evidence | Gate |
 |---|---|---|---|---|---|---|---|---|
 | A-1 | Start and refresh R2a Messaging Service and campaign provisioning | UNCONNECTED | `runProvisioning` and `refreshProvisioning` appear only in `src/lib/sms/twilioIsv/provisionRunner.ts`; no module imports `provisionRunner`. `factory.ts` builds only `createScopedRealAdapter` (R1) and never `createScopedProvisioningAdapter`. `adminView.ts` says "The provisioning runner has no platform action in this build." | J1 | — | Admin action runs or refreshes through the existing ledger with real-call env gates unchanged; fake adapter only in local QA | Isolated DB + fake adapter E2E; idempotency/replay; pilot-cap refusal | G |
-| A-2 | Start R2b number offers, acquisition and refresh | UNCONNECTED | `offerNumbers`, `runNumberAcquisition` and `refreshNumber` appear only in `numberRunner.ts`, which no module imports. `createScopedNumberAdapter` appears only in `real.ts`. | J1 | — | Same as A-1, plus the cumulative $150 ceiling is enforced at purchase | As A-1; concurrent purchase race | G |
+| A-2 | Start R2b number offers, acquisition and refresh | UNCONNECTED | `offerNumbers`, `runNumberAcquisition` and `refreshNumber` appear only in `numberRunner.ts`, which no module imports. `createScopedNumberAdapter` appears only in `real.ts`. | J1 | — | Same as A-1, plus the cumulative [PILOT-CAP] ceiling is enforced at purchase | As A-1; concurrent purchase race | G |
 | A-3 | Activation console (checklist, AOO attestation, compliance validation, sender verification, mark ready, activate, suspend) | UNCONNECTED | `activationCheck`, `attestOptOut`, `markReady` and the call to `tw4_act_activate` appear only in `src/lib/sms/activation.ts`, which no module imports | J4 | J1, F1, F3 | Every checklist item (`_tw4act_items`, 20261208:1625) is visible; activation refused unless all pass; manual platform release (D8) | Browser E2E admin; negative per checklist item | G / P |
 | A-4 | Advanced Opt-Out | VERIFIED as attestation | Approved D4: a Console step recorded by an admin (`TW-4F_Production_Onboarding_Plan.md` §11). R1 sender panel checkbox (`SenderIdentity.tsx`); R2b `tw4_act_attest` needs five confirmations, no caller (see A-3). No provider API read. | J4 | A-3 | Attestation recorded per studio subaccount before activation | Activation E2E | P |
 | A-5 | Provisioning ledger and unknown-outcome resolution (R2a) | VERIFIED (resolve as created only) | `ProvisioningLedger.tsx` → `resolveProvisioningOperationAction` → `tw4_prov_resolve`. `FEE_RELEASE_ENABLED=false` hides "not created" for fee-bearing operations (`ProvisioningLedger.tsx:43,51`). | F4 | U-1 | Per decision U-1 | — | G |
@@ -183,8 +183,8 @@ Columns:
 
 | Req | Requirement | Status | Evidence | WS | Dependency | Acceptance | QA evidence | Gate |
 |---|---|---|---|---|---|---|---|---|
-| F-1 | **ConfiDance activation funding path** | **MISSING (P1 blocker)** | `_tw4act_funding` (20261208:1604–1607) returns `pilot_month_two_undefined` unconditionally whenever a `studio_sms_pilot_exceptions` row exists. No later migration replaces it. The pilot can never pass `funding_continuity`. | F1 | — | Funding passes only with a `tw4_rfl_pilot_cover` written approval for the current period. It still fails closed without one, and the next period is flagged. No standing authorization (TW011). $150 cumulative ceiling unchanged. | Isolated DB: with/without cover, expired period, at-ceiling, concurrent cover | G / P |
-| F-2 | $150 cumulative pilot ceiling | VERIFIED (SQL) | `studio_sms_pilot_exceptions.ceiling_cents between 1 and 15000`, single-row unique, `_tw4c_pilot_cap_guard` (20261122). Never replenished (RFL Ops D4). | — | — | Done | Existing suites | G |
+| F-1 | **The pilot studio activation funding path** | **MISSING (P1 blocker)** | `_tw4act_funding` (20261208:1604–1607) returns `pilot_month_two_undefined` unconditionally whenever a `studio_sms_pilot_exceptions` row exists. No later migration replaces it. The pilot can never pass `funding_continuity`. | F1 | — | Funding passes only with a `tw4_rfl_pilot_cover` written approval for the current period. It still fails closed without one, and the next period is flagged. No standing authorization (TW011). [PILOT-CAP] cumulative ceiling unchanged. | Isolated DB: with/without cover, expired period, at-ceiling, concurrent cover | G / P |
+| F-2 | [PILOT-CAP] cumulative pilot ceiling | VERIFIED (SQL) | `studio_sms_pilot_exceptions.ceiling_cents between 1 and [PILOT-CAP-CENTS]`, single-row unique, `_tw4c_pilot_cap_guard` (20261122). Never replenished (RFL Ops D4). | — | — | Done | Existing suites | G |
 | F-3 | Written approval for every paid pilot period | VERIFIED (mechanism); evidence form open | `tw4_rfl_pilot_cover` (20261209:800): current or next period, approval reference required, published price, ceiling, immediate capture. UI `RecurringFeesPilot.tsx` → `rflPilotCoverAction` (`recurringFeeActions.ts:198`). The reference is free text recorded by one admin. | F1 | U-4 | Per U-4 (evidence fields and/or dual control) | DB suite + UI | P |
 | F-4 | Recurring charge enforcement | VERIFIED (SQL) | `tw4_recurring_charge` (20261217:332) refuses periods outside the current or previous month and the pilot business, replays charged periods, and holds retired resources and open cancellations. Unique `(authorization_id, period_key)` and the `studio_sms_recurring_charges_once` index (20261126:80/85). Caller `smsRecurring.ts` ← `/api/cron/sms-recurring` (`SMS_RECURRING_SCHEDULER` + DB switch; not scheduled). | F3 | — | Re-verified on the full chain in isolated QA | Full-chain isolated run | G / D |
 | F-5 | Usage reconciliation readiness before billed sending | UNCONNECTED (P1) | `tw4_usage_settle` is called only by `src/lib/sms/usageReconciler.ts` via `/api/cron/sms-usage-reconcile` (not scheduled). Turning on billed sending without the reconciler leaves reservations uncaptured. | F3 | — | Billed sending switch (`tw4_usage_set_switch`) and/or `tw4_usage_begin` refuse unless the reconciler has a recent healthy run | DB suite: stale heartbeat refusal | G / P |
@@ -467,7 +467,7 @@ Already decided, and **not** reopened here:
 - Subaccount per studio (D2).
 - Standard + MIXED (D3).
 - Advanced Opt-Out as a Console attestation (D4).
-- $150 pilot cap, with a written approval for every fee (D5).
+- [PILOT-CAP] pilot cap, with a written approval for every fee (D5).
 - Twilio pre-review (D6).
 - Manual activation for the pilot (D8).
 - Owner completes the wizard (D9).
@@ -494,21 +494,21 @@ Still unresolved:
 | U-7 | Owner self-service cancellation of a number or service, or admin-only | Scope of O-6 | — |
 | U-8 | Who may turn DB kill switches on (one admin today) | Control over money movement | RFL Ops follow-up backlog |
 | U-9 | SMS quiet hours: inside TW-4F or separate | Scope of S-8 | — |
-| U-10 | D1: delete the parent-account Stage B draft before the real ConfiDance run | Required before Stage C | `TW-4F_Production_Onboarding_Plan.md` §11 |
+| U-10 | D1: delete the parent-account Stage B draft before the real pilot-studio run | Required before Stage C | `TW-4F_Production_Onboarding_Plan.md` §11 |
 
-**Known pilot-ceiling issue KI-1** (owner decision 2026-10-23: keep the current behavior for now; must be revisited before ConfiDance activation):
+**Known pilot-ceiling issue KI-1** (owner decision 2026-10-23: keep the current behavior for now; must be revisited before the pilot studio activation):
 
 - **Where:** R2a `tw4_prov_observe` (20261207, unchanged by F4) captures the pilot's monthly campaign reservation when the campaign is approved, with no month check.
 - **Effect:** suppose an attempt reserves in October and approval lands in November.
   - The October reservation is captured.
   - Under D5 it covers no lifecycle period, so F4 #288 attaches no cover.
   - November then needs its own `tw4_rfl_pilot_cover`, which captures a second time.
-  - The result is two pilot captures against ConfiDance's prepaid credit and the $150 cumulative ceiling for one provider month.
+  - The result is two pilot captures against the pilot studio's prepaid credit and the [PILOT-CAP] cumulative ceiling for one provider month.
 - **Pinned** by a real-path test in #288 (it asserts 2 captures), so the behavior stays visible.
 - **Recommended fix** (not authorized yet): release the earlier reservation in `tw4_prov_observe` when approval lands in a later month. It belongs in its own migration with an Opus financial review.
-- **Gate:** ConfiDance activation (P) may not proceed until the owner re-decides KI-1.
+- **Gate:** the pilot studio activation (P) may not proceed until the owner re-decides KI-1.
 - **Related:** RFL-D5 (#290) does not address this capture.
-- **Same family, added 2026-10-23 (#290 Opus P2-2):** D5 keys the first-month cover on the month the reservation was created, which can differ from the month Twilio bills the first monthly fee (for example, a campaign submitted 25 Sep that finishes vetting 5 Oct). The cross-month rule could then use the $150 ceiling twice for one Twilio fee. Resolving it needs provider evidence of the billing month, or explicit owner acceptance in D5. There is no rule change now; it is part of the KI-1 re-decision before activation.
+- **Same family, added 2026-10-23 (#290 Opus P2-2):** D5 keys the first-month cover on the month the reservation was created, which can differ from the month Twilio bills the first monthly fee (for example, a campaign submitted 25 Sep that finishes vetting 5 Oct). The cross-month rule could then use the [PILOT-CAP] ceiling twice for one Twilio fee. Resolving it needs provider evidence of the billing month, or explicit owner acceptance in D5. There is no rule change now; it is part of the KI-1 re-decision before activation.
 - **Rollback-order caveat (#290 P3):** the merged 1211/1217 rollbacks do not refuse when 1225 is applied, so a wrong reverse order silently drops the D5 check. Hosted rollback must strictly reverse the apply order (H1 manifest).
 
 **Known rollback-completeness gap KI-2** (found by Q1, #275, 2026-10-23; owner decision pending):
@@ -543,12 +543,12 @@ Still unresolved:
 4. Grants and RLS probe.
 5. All flags and switches confirmed off; fake adapters only; no cron.
 
-**ConfiDance pilot (P), each step separately authorized:**
+**Pilot (P), each step separately authorized:**
 
 1. PROD SQL, then app promotion.
 2. Prices published (U-2).
 3. Stage B draft handled (U-10).
-4. Per-fee and per-period written approvals (U-4) within the $150 cumulative ceiling. Known issue KI-1 (double pilot capture when approval lands in a later month than the reservation) has been re-decided by the owner.
+4. Per-fee and per-period written approvals (U-4) within the [PILOT-CAP] cumulative ceiling. Known issue KI-1 (double pilot capture when approval lands in a later month than the reservation) has been re-decided by the owner.
 5. Real-provider validation, one call at a time.
 6. Scheduled jobs registered: reconciler, inventory reconciliation, sender re-verification, RFL scan and delivery.
 7. Alert recipients verified and the delivery runbook §7 executed.
@@ -577,7 +577,7 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 | Activation console (J4) | No importer of `src/lib/sms/activation.ts` | Nothing reaches `active`. The pilot needs manual platform activation (D8) |
 | Scheduled inventory reconciliation route | `reconcileInventories` has no caller; there is no `src/app/api/cron/sms-inventory*` | `_tw4sr_ready` holds sending once inventory health is stale (>24h) |
 
-### A. Mandatory for a safe ConfiDance pilot
+### A. Mandatory for a safe pilot
 
 | # | Item | Owner / where | Required tests | Status |
 |---|---|---|---|---|
@@ -638,6 +638,6 @@ TW-4F moves to a focused pilot closeout. Competition E2E, New Student Intake and
 ## 9. Document inconsistencies to reconcile (not fixed here)
 
 - `TW-4F_Production_Onboarding_Plan.md` §9a says `1120`/`1121` are NOT applied, while the 2026-10-19 Phase A record says DEV has `1120`–`1122`. Resolve this with the authorized hosted probe.
-- `DanceFlow_Master_Roadmap.md:166` lists "Twilio Q1–Q5 confirmation … OPEN", but `TW-4F_Production_Onboarding_Plan.md` §13 records the ticket #29647095 answers as of 2026-10-19.
-- `TW-4F_R2b_RFL_Integration.md` §6 lists "ConfiDance month-two controls" as open. The controls exist (`tw4_rfl_pilot_cover`), but activation is still blocked by `_tw4act_funding` (F-1).
+- `DanceFlow_Master_Roadmap.md:166` lists "Twilio Q1–Q5 confirmation … OPEN", but `TW-4F_Production_Onboarding_Plan.md` §13 records the ticket [PROVIDER-TICKET-A] answers as of 2026-10-19.
+- `TW-4F_R2b_RFL_Integration.md` §6 lists "the pilot studio month-two controls" as open. The controls exist (`tw4_rfl_pilot_cover`), but activation is still blocked by `_tw4act_funding` (F-1).
 - `TW-4F_Recurring_Fee_Lifecycle_Design.md` §12 lists D1–D6 as outstanding. They were decided in `TW-4F_RFL_Ops_Design.md` §1.

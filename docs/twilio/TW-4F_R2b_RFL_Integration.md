@@ -44,7 +44,7 @@ Two families already exist on main and are kept. `tw4_num_retire` now follows th
 ## 6. Still open (not done here)
 
 - Real-provider validation and authoritative creation history for purchased-then-deleted numbers.
-- Scheduled inventory reconciliation, funding monitoring and the ConfiDance month-two controls.
+- Scheduled inventory reconciliation, funding monitoring and the pilot-studio month-two controls.
 - The R2a campaign path's registration (`tw4_prov_observe`) and the TW047 wording/mapping follow-ups.
 - Application surfaces for the retry and gaps functions (a store method and an admin panel row).
 - Hosted apply order: after 20261214; no SQL has been applied to DEV or PROD.

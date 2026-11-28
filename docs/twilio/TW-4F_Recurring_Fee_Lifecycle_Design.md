@@ -63,9 +63,9 @@ A charge pays ONE resource's period: a replacement registered after its predeces
 - An operation abandoned as `still_active` (which itself needs the digest of a provider read) can still be completed with `confirmed` + evidence if the operator was mid-step; nothing else can leave `abandoned`.
 - `confirmed` sets the resource `cancelled` (final), closes accruing exposure rows without a bill (rows with recorded bills stay open for a disposition), and revokes DanceFlow's sender if it pointed at the resource.
 
-## 7. The ConfiDance pilot
+## 7. The pilot
 
-The $150 ceiling is unchanged and cumulative: `tw4_rfl_pilot_cover` authorizes through `tw4_spend_authorize(..., 'pilot', location)` (permanent approval reference, published price, spend cap) and reserves / captures a `pilot` credit reservation counted by the same cumulative sum R2a and the runner use, under the same locks. Current or next period only (no retroactive approval); refused while the account is on hold or negative; replay-safe. The pilot business still cannot hold a standing authorization (`TW011`). Month two onward therefore needs a new written approval per resource per period; without one the period is exposure and sending is suspended after grace (R2a section 6.2's blocker, now enforced).
+The [PILOT-CAP] ceiling is unchanged and cumulative: `tw4_rfl_pilot_cover` authorizes through `tw4_spend_authorize(..., 'pilot', location)` (permanent approval reference, published price, spend cap) and reserves / captures a `pilot` credit reservation counted by the same cumulative sum R2a and the runner use, under the same locks. Current or next period only (no retroactive approval); refused while the account is on hold or negative; replay-safe. The pilot business still cannot hold a standing authorization (`TW011`). Month two onward therefore needs a new written approval per resource per period; without one the period is exposure and sending is suspended after grace (R2a section 6.2's blocker, now enforced).
 
 ## 8. Interfaces agreed with R2a / R2b / R2c
 

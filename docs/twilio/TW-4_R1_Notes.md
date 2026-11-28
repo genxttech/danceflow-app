@@ -1,6 +1,6 @@
 # TW-4 R1: brand submission runner (local build)
 
-Status 2026-10-15: built and validated locally in `C:\Dev\studioapp-tw4a` (branch `twilio-tw4a-onboarding-foundation`). **Uncommitted. The R1 migration is NOT applied to shared DEV or PROD** (it is applied only to the local QA stack). **No Twilio call was made and none can be made from DEV, preview or tests.** Owner decisions applied: ConfiDance pilot in the parent account (pilot-scoped exception to D2), Standard brand + `MIXED`.
+Status 2026-10-15: built and validated locally in `C:\Dev\studioapp-tw4a` (branch `twilio-tw4a-onboarding-foundation`). **Uncommitted. The R1 migration is NOT applied to shared DEV or PROD** (it is applied only to the local QA stack). **No Twilio call was made and none can be made from DEV, preview or tests.** Owner decisions applied: pilot in the parent account (pilot-scoped exception to D2), Standard brand + `MIXED`.
 
 ## What R1 does (and does not)
 Runs the approved Twilio sequence for ONE studio, up to and including the **Brand**, then follows the brand's status:
@@ -28,7 +28,7 @@ SQL: R1 suite 41 checks pass; 10 mutation probes each fail the suite; rollback t
 - **Migrations:** PROD 4A → 4A.1 → R1 (DEV first for R1; **not applied anywhere shared yet**).
 - **Environment (production only):** existing `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `SMS_EIN_ENCRYPTION_KEY` (+`_KEY_ID`); new `TWILIO_ISV_PRIMARY_PROFILE_SID`, `TWILIO_ISV_SECONDARY_POLICY_SID`, `TWILIO_ISV_A2P_POLICY_SID`, `TWILIO_ISV_COMPLIANCE_EMAIL` (the ISV's own mailbox); `TW4_ISV_REAL_CALLS=on` set deliberately and only for the run; optional `TW4_ISV_MOCK_BRAND=on`. Local demos only: `TW4_ISV_FAKE=on` (never in production).
 - **Security review (targeted, before enabling in PROD):** handling of the master Twilio token (a restricted API key is preferable if Trust Hub/A2P accept one; not verified), the EIN decrypt/purge path, fee-gate and idempotency, the ten service-role functions and their privileges, and the real-calls gate.
-- **Owner inputs:** ISV compliance mailbox, industry value, spend authorization (brand about $46, campaign vetting and monthly fees come in R2), ConfiDance's own legal/EIN/representative data entered in the wizard.
+- **Owner inputs:** ISV compliance mailbox, industry value, spend authorization (brand about $46, campaign vetting and monthly fees come in R2), the pilot studio's own legal/EIN/representative data entered in the wizard.
 
 ## Security review of R1 (2026-10-15, Opus, read-only) and fixes (local)
 The review found no blocker for applying the migration to DEV and four P1s that block enabling the real adapter in PROD. All four P1s and the SQL P2s are fixed locally (the migration was rewritten in place; it had never been applied to a shared database).
