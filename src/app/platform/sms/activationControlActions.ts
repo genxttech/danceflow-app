@@ -88,5 +88,5 @@ export async function switchBilledTextingOffAction(formData: FormData): Promise<
   if (limited(admin.id, "switch-off", 20)) return finish(bad(TOO_MANY));
   const res = await setBilledTextingSwitch(createAdminClient(), { actorId: admin.id, enabled: false, reason });
   if (!res.ok) return finish(bad(res.message));
-  return finish({ ok: true, message: "Billed texting is now OFF. New billed texts are refused. Texts already reserved or sent are not recalled." });
+  return finish({ ok: true, message: "Billed texting is now OFF. New billed texts are refused. A text already reserved may still be sent until usage reconciliation releases it, and sent texts are not recalled." });
 }
