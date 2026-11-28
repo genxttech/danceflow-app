@@ -15,7 +15,7 @@ import {
   type SmsSkipReason,
 } from "@/lib/sms/compliance";
 import { resolveStudioSmsSender } from "@/lib/sms/studioSender";
-import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
+import { estimateSmsSegments, legacySendEnvironmentAllowed, sendTwilioSms } from "@/lib/sms/twilio";
 import { pendingOptOutState } from "@/lib/sms/sendSuppression";
 import { replayMeaning, sendBilledSms, smsUsageBillingEnabled, type BilledSendRefusal } from "@/lib/sms/usageBilling";
 import { billedSmsProviderFromEnv } from "@/lib/sms/usageProvider";
@@ -1650,6 +1650,64 @@ async function requeueFailedAriaDigestDeliveries(limit = 25) {
   return requeued;
 }
 
+/** The most claims one run makes outside production to get past queued texts it must leave alone. */
+const NON_PRODUCTION_CLAIM_ROUNDS = 20;
+/** The claim function never returns more rows than this for one call. */
+const CLAIM_FUNCTION_MAX_ROWS = 200;
+
+/**
+ * Leases this run's rows through the claim function.
+ *
+ * Outside the live production build neither text sender may call the provider, so a queued text is not this run's to
+ * handle: anything recorded for it (failed, skipped, a retry marker, an ARIA outcome) would take it away from the
+ * production dispatcher. The claim function cannot select by channel, so texts it returns are held only while further
+ * claims fill the run with other rows (otherwise old texts would starve email), then released as unclaimed. If the
+ * release fails they become claimable again when the lease expires; nothing else about them is written.
+ */
+async function claimDeliveries(claimOwner: string, limit: number) {
+  const supabase = createAdminClient();
+  const claim = (count: number) =>
+    supabase.rpc("claim_outbound_deliveries", {
+      p_owner: claimOwner,
+      p_limit: count,
+      p_lease_seconds: DISPATCH_LEASE_SECONDS,
+    });
+
+  const first = await claim(limit);
+  if (first.error || legacySendEnvironmentAllowed()) return first;
+
+  const rows: OutboundDeliveryRow[] = [];
+  let batch = (first.data ?? []) as OutboundDeliveryRow[];
+  let wanted = limit;
+  let held = 0;
+
+  for (let round = 1; ; round += 1) {
+    const others = batch.filter((row) => row.channel !== "sms");
+    const texts = batch.length - others.length;
+    rows.push(...others);
+    held += texts;
+    // A short batch means nothing else is claimable.
+    const short = batch.length < Math.min(wanted, CLAIM_FUNCTION_MAX_ROWS);
+    if (texts === 0 || short || round >= NON_PRODUCTION_CLAIM_ROUNDS) break;
+    wanted = texts;
+    const next = await claim(wanted);
+    if (next.error) break;
+    batch = (next.data ?? []) as OutboundDeliveryRow[];
+  }
+
+  if (held > 0) {
+    const { error } = await supabase
+      .from("outbound_deliveries")
+      .update({ claim_owner: null, claim_expires_at: null })
+      .eq("claim_owner", claimOwner)
+      .eq("channel", "sms")
+      .eq("status", "queued");
+    if (error) console.warn("[outbound] could not release held text claims", { count: held });
+  }
+
+  return { data: rows, error: null };
+}
+
 export async function dispatchQueuedOutboundDeliveries(
   limit = 25,
   options: { origin?: string | null } = {},
@@ -1663,14 +1721,10 @@ export async function dispatchQueuedOutboundDeliveries(
   // Status values are unchanged for every other producer/reader. Before the claim function exists (database not yet
   // migrated) the previous unleased selection is used.
   let claimOwner: string | null = randomUUID();
-  let { data, error } = await supabase.rpc("claim_outbound_deliveries", {
-    p_owner: claimOwner,
-    p_limit: limit,
-    p_lease_seconds: DISPATCH_LEASE_SECONDS,
-  });
+  let { data, error } = await claimDeliveries(claimOwner, limit);
   if (error && (error.code === "PGRST202" || error.code === "42883")) {
     claimOwner = null;
-    ({ data, error } = await supabase
+    let unleased = supabase
       .from("outbound_deliveries")
       .select(`
         id,
@@ -1689,9 +1743,10 @@ export async function dispatchQueuedOutboundDeliveries(
         related_id,
         error_message
       `)
-      .eq("status", "queued")
-      .order("created_at", { ascending: true })
-      .limit(limit));
+      .eq("status", "queued");
+    // Outside production a queued text is never taken (see claimDeliveries).
+    if (!legacySendEnvironmentAllowed()) unleased = unleased.neq("channel", "sms");
+    ({ data, error } = await unleased.order("created_at", { ascending: true }).limit(limit));
   }
 
   if (error) {

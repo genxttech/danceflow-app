@@ -21,6 +21,7 @@ vi.mock("@/lib/sms/usageProvider", async (importOriginal) => {
 });
 
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
+import { declareLiveSendEnvironment } from "@/test/liveSendEnvironment";
 
 const STUDIO_A = "11111111-1111-4111-8111-111111111111";
 const CLIENT_ID = "33333333-3333-4333-8333-333333333333";
@@ -348,3 +349,5 @@ describe("billed outcomes", () => {
     expect(fakeProvider().sent[0].from).toBe("+15035550199");
   });
 });
+
+declareLiveSendEnvironment();
