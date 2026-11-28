@@ -34,6 +34,8 @@
  *   --residue <regex>        (repeatable) catalog lines matching the regex are an ACCEPTED, DOCUMENTED residue of a fail-closed rollback: they are ignored (and listed) when a ROLLBACK stage is compared with the earlier catalog; re-apply stages are still compared exactly (D4-1)
  *   (default residue) scripts/qa/tw4f/rollback-residue.json is loaded automatically; --no-residue-file ignores it
  *   --keep                   keep the chain image and worktrees
+ *   --hold                   leave each suite's containers running (to read the data or drive a browser against them) and write stack.json (loopback URL,
+ *                            throwaway JWT secret, container names) into the suite's run directory; remove those containers by name afterwards (`down` removes every run's)
  *   --known <file>           known environment failures (default scripts/qa/tw4f/known-failures.json)
  *
  * Exit: 0 all green; 1 a check or test failed on a healthy database; 3 infrastructure failure (database crash/OOM, migration error); 4 nothing ran / skipped (BLOCKED);
@@ -87,6 +89,7 @@ function parseArgs(argv) {
     if (k === "no-residue-file") { continue; }
     if (k === "marker") { flags.marker = true; continue; }
     if (k === "auth") { flags.auth = true; continue; }
+    if (k === "hold") { flags.hold = true; continue; }
     if (k === "track-functions") { flags.trackFunctions = true; continue; }
     const v = argv[++i];
     if (v === undefined) die(`--${k} needs a value`);
@@ -437,9 +440,11 @@ async function suiteRun(plan, image, testsRef, outDir) {
       const rec = { suite: f, status: "BLOCKED", seconds: 0, counts: null, failedTests: [], note: "", host: { start: await hostSample(), end: null } };
       const runDir = path.join(outDir, `suite-${i}-${path.basename(f, ".test.ts")}`);
       mkdirSync(path.join(runDir, "tmp"), { recursive: true });
+      let stack = null;
       try {
         const since = await startDb(base, chainTag, flags.trackFunctions ? ["-c", "track_functions=all"] : []);
         const api = await startApi(base, base);
+        stack = api;
         const jsonOut = path.join(runDir, "vitest.json");
         const args = [path.join(tests.dir, "node_modules", "vitest", "vitest.mjs"), "run", "--no-file-parallelism", "--reporter=default", "--reporter=json", `--outputFile.json=${jsonOut}`, "--testTimeout=60000", "--hookTimeout=120000", f];
         const tmp = path.join(runDir, "tmp");
@@ -481,7 +486,8 @@ async function suiteRun(plan, image, testsRef, outDir) {
         rec.host.end = await hostSample();
         rec.hostSaturated = saturated(rec.host.start) || saturated(rec.host.end);
         if (rec.hostSaturated && ["FAIL", "INFRA"].includes(rec.status)) rec.note = `${rec.note} [resource exhaustion suspected: host saturated during this suite; rerun on an idle host before treating as a regression]`.trim();
-        removeAll(`${base}-kong`, `${base}-rest`, `${base}-auth`, base);
+        if (flags.hold && stack) writeFileSync(path.join(runDir, "stack.json"), JSON.stringify({ env: stack.env, containers: [base, ...Object.values(stack.names)] }, null, 2));
+        else removeAll(`${base}-kong`, `${base}-rest`, `${base}-auth`, base);
       }
       results.push(rec);
       log(`${rec.status.padEnd(7)} ${f} ${rec.counts ? `${rec.counts.passed}/${rec.counts.total}` : ""} ${rec.seconds}s ${rec.note ? "- " + rec.note.slice(0, 100) : ""}`);
