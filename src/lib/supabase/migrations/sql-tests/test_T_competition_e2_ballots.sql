@@ -179,6 +179,9 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008019'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'E119', 'confirmed', 'eligible', '119'),
   (pg_temp.u('008020'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'E120', 'confirmed', 'eligible', '120');
 
+-- R-15 (composed runs only): obtain clearance for the seeded entries when the clearance fixture is loaded. Inert otherwise.
+do $r15$ begin if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then perform pg_temp.r15_clear_entries(); end if; end $r15$;
+
 -- Heats sit in a published schedule version. Fixture-only shortcut: replica mode skips the 10D publish flow.
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
@@ -553,7 +556,9 @@ select pg_temp.expect_msg('an absent judge cannot submit', format($q$select publ
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('nor can a manager enter paper for an absent judge', format($q$select public.enter_competition_paper_ballot(%L, %L, %L, pg_temp.mk('00d007', '[1,2]'), %L)$q$, pg_temp.u('006005'), pg_temp.u('00d007'), pg_temp.off('00e001','000014'), pg_temp.u('f24010')), 'COMP_BALLOT_JUDGE_ABSENT');
 select pg_temp.as_user(pg_temp.u('000001'));
-select pg_temp.expect_ok('the manager records judge 2 present again', format($q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24011')));
+select pg_temp.expect_ok('the manager records judge 2 present again', format(case when to_regprocedure('public.record_competition_judge_attendance(uuid, uuid, text, text, uuid, boolean)') is not null
+  then $q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L, true)$q$
+  else $q$select public.record_competition_judge_attendance(%L, %L, 'present', null, %L)$q$ end, pg_temp.u('006005'), pg_temp.off('00e001','000014'), pg_temp.u('f24011')));
 select pg_temp.as_user(pg_temp.u('000014'));
 select pg_temp.chk('a judge marked present is no longer absent on their sheet', (public.competition_judge_ballot_sheet(pg_temp.u('006005')) ->> 'absent')::boolean = false);
 select pg_temp.as_user(pg_temp.u('000017'));
@@ -815,12 +820,24 @@ select pg_temp.chk('exactly one current ballot per (judge, heat) in r1 after all
 -- ============================================================================
 -- 14. Cascades: deleting the event removes the evidence with it
 -- ============================================================================
-select pg_temp.expect_ok('event delete cascades through ballots, marks and audit (event B; event A has locked heats, which 10A protects)', $q$delete from public.events where id = pg_temp.u('00e002')$q$);
+-- OD-04 (20270301080000, owner decision 2026-11-23): with the guard installed an event holding scoring evidence cannot be deleted. The suite runs on
+-- chains with and without it: the cascade assertions apply only without the guard, the refusal assertions only with it.
+select pg_temp.expect_ok('event delete cascades through ballots, marks and audit (event B; event A has locked heats, which 10A protects)', $q$delete from public.events where id = pg_temp.u('00e002')$q$)
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
 select pg_temp.chk('cascade left nothing behind',
   pg_temp.n($q$select (select count(*) from public.event_competition_ballots where event_id = pg_temp.u('00e002'))
                     + (select count(*) from public.event_competition_marks where event_id = pg_temp.u('00e002'))
                     + (select count(*) from public.event_competition_judge_attendance where event_id = pg_temp.u('00e002'))
-                    + (select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e002'))$q$) = 0);
+                    + (select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e002'))$q$) = 0)
+  where to_regprocedure('public.compod04_guard_event_delete()') is null;
+select pg_temp.expect_msg('OD-04: deleting event B, which holds ballots, is refused', $q$delete from public.events where id = pg_temp.u('00e002')$q$, 'COMP_EVENT_HAS_SCORING_EVIDENCE')
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
+select pg_temp.chk('OD-04: the refused delete removed nothing (event, ballots, marks and audit remain)',
+  pg_temp.n($q$select count(*) from public.events where id = pg_temp.u('00e002')$q$) = 1
+  and pg_temp.n($q$select count(*) from public.event_competition_ballots where event_id = pg_temp.u('00e002')$q$) > 0
+  and pg_temp.n($q$select count(*) from public.event_competition_marks where event_id = pg_temp.u('00e002')$q$) > 0
+  and pg_temp.n($q$select count(*) from public.event_competition_ballot_events where event_id = pg_temp.u('00e002')$q$) > 0)
+  where to_regprocedure('public.compod04_guard_event_delete()') is not null;
 
 -- ============================================================================
 -- Verdict

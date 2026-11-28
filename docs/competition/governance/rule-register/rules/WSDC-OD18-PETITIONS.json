@@ -1,0 +1,38 @@
+{
+  "id": "WSDC-OD18-PETITIONS",
+  "governing_body": "WSDC",
+  "format": "WSDC skill-division petitions",
+  "source": {
+    "registry_document": "Revised-WSDC-Registry-Event-Rules-Updated-Jan172026-V2026.1B.pdf",
+    "edition": "Version 2026.1C (page footers; the file name says 2026.1B)",
+    "effective_from": "2026-01-17",
+    "effective_to": null,
+    "sha256": "140caae75a8dd3378268e3d353fedf44911c1c2adb981fa4e81650f4e856d3b5",
+    "section": "3.1.6 (PDF p10-11)",
+    "quote_free_summary": "A competitor may petition to dance one division up or down: down is approved by the Chief Judge for one event, up by the Chief Judges Committee in advance with videos for six months; petitions cannot be approved to make a Tier."
+  },
+  "rule_class": "mandatory",
+  "requirement": "NOT IMPLEMENTED. Competition OS does not read, store or verify this requirement. For initial activation the organizer determines Studio/Custom eligibility and records the decision (OD-18 Option A); DanceFlow does not verify body registration, membership, Points Registry data or proficiency points. Future design only: see the credential-capture design note in the OD-18 PR.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/eligibilityGate.ts",
+      "symbol_or_migration": "evaluateEntryOperationalGate"
+    }
+  ],
+  "enforcement_point": "None for the body rule itself. The organizer determination gate (evaluateEntryOperationalGate, updateCompetitionEntryEligibilityAction) records that the organizer verified applicable criteria; it does not evaluate this rule.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/eligibilityGate.od18.test.ts",
+      "name": "says Studio/Custom eligibility is determined by the organizer and never claims body-credential verification"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "OD-18 (2026-11-23): organizer verification now; automated verified rule evaluation is a future, separately reviewed phase for NDCA/UCWDC/WSDC body profiles.   Re-read in the pinned PDF; SHA-256 matches the registry.",
+  "applicable_event_versions": [
+    "Version 2026.1C (page footers; the file name says 2026.1B)"
+  ],
+  "decision_refs": [
+    "OD-18"
+  ],
+  "last_reviewed": "2026-11-23"
+}

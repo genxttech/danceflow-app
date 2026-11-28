@@ -18,7 +18,18 @@ function label(value: string) {
  * Ballot status board plus lock / reopen / attendance / paper-entry controls. Shared by the manager panel and the
  * scorer/chair desk. Which controls render only mirrors what the RPCs will allow; the RPCs refuse everyone else.
  */
-export default function BallotDesk({ board, returnTo, heatFloor }: { board: BallotBoard; returnTo: string; heatFloor?: Record<string, HeatFloorInfo> }) {
+export default function BallotDesk({
+  board,
+  returnTo,
+  heatFloor,
+  confirmBreakOfficialId,
+}: {
+  board: BallotBoard;
+  returnTo: string;
+  heatFloor?: Record<string, HeatFloorInfo>;
+  /** The judge whose last attendance change the database refused until it is confirmed (R-10 panel break). */
+  confirmBreakOfficialId?: string;
+}) {
   const role = board.viewer_role;
   const roundId = board.round.id;
   const canLock = role === "manager" || role === "chair";
@@ -136,6 +147,12 @@ export default function BallotDesk({ board, returnTo, heatFloor }: { board: Ball
                       </button>
                     </>
                   )}
+                  {judge.official_id === confirmBreakOfficialId ? (
+                    <label className="flex w-full items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">
+                      <input type="checkbox" name="confirmPanelBreak" value="1" required className="mt-0.5" />
+                      <span>Record it anyway. I understand this round cannot lock its ballots until the panel is valid again.</span>
+                    </label>
+                  ) : null}
                 </form>
               </li>
             ))}

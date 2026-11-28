@@ -1,0 +1,11 @@
+live (pinned base) 57c33191026c3237b02945da2cbf36802ef39043
+candidate 92a8c17c6d0ee43540858402a647485c50476549
+867 6dc6b2d4e5657f27754c9dfc62e977f642ecb04c merged: part of the base chain
+844 origin/claude/od04-event-delete-guard-c68a8f ccc084057a91290d3656dc5b4f75d220fcbd479a
+865 origin/claude/r11-correction-migration 382a8850d1f279f5c3312d0525a3c63cfe14bae6
+864 origin/claude/r10-s3-panel-readiness 23bd68d602bdf929f5f87055f80135511b283c87
+863 origin/od02-s5-db-guard f94bec831f14f5c4a165aaa1539b6f74feb44f43
+866 origin/claude/r15-s4-eligibility-clearance 8f5d3d68a0e5f87121a6b9cf1d6419c4d186b27f
+877 98ae57a2965c59d8461200bd534a25c64c70aa82 98ae57a2965c59d8461200bd534a25c64c70aa82
+899 origin/claude/comp-d-published-order-guard 3dec135354999be4e3c12d347987ffbe119cf777
+P1 58e27945921ef91ca528ebeb0e551ac867fc76aa 58e27945921ef91ca528ebeb0e551ac867fc76aa

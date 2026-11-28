@@ -1,0 +1,42 @@
+{
+  "id": "UCWDC-OD02-ACCOMPANY-LINE",
+  "governing_body": "UCWDC",
+  "format": "UCWDC Line Dance (all divisions)",
+  "source": {
+    "registry_document": "2026-UCWDC-Rules_Line-Dance_V_1-26-2026-1.pdf",
+    "edition": "2026 (v1-26-2026)",
+    "effective_from": "2026-01-26",
+    "effective_to": null,
+    "sha256": "98e9001113108eaf9b72e4c8c530a2a3fe7d53edc4dcb12118f67dc068b97fb7",
+    "section": "II.O.2 (PDF p16)",
+    "quote_free_summary": "A competitor under the legal age of 18 must be accompanied by a parent or legal guardian who has written parental permission to act as guardian and who is responsible for the minor's safety and conduct."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not capture, verify or manage guardian accompaniment or written guardian permission. Until the Option A design (docs/competition/od02-option-a-minors-design.md) is built and approved, no under-18 competitor may be registered, so the situation this rule governs cannot arise through Competition OS.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/minorsGate.ts",
+      "symbol_or_migration": "evaluateCompetitionAdultGate"
+    },
+    {
+      "path": "src/app/api/events/[slug]/competition/checkout/route.ts",
+      "symbol_or_migration": "evaluateCompetitionAdultGate"
+    }
+  ],
+  "enforcement_point": "Server: POST /api/events/[slug]/competition/checkout evaluates every entry participant before any database call. The rule itself (accompaniment) is not implemented.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/minorsGate.od02.test.ts",
+      "name": "refuses an under-18 competitor, including in Studio/Custom style drafts (no event-type exemption)"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Owner decision OD-02 (2026-11-23): Option C for first activation (prohibit under-18), Option A as the future design. The accompaniment requirement is therefore AVOIDED, not implemented; status stays unsupported so it is not mistaken for compliance with the guardian-accompaniment rule. The clause was re-read in the pinned PDF (SHA-256 matches the registry). Whether a jurisdiction's legal age differs from 18 is NOT SPECIFIED IN PROVIDED SOURCE.",
+  "applicable_event_versions": [
+    "2026 (v1-26-2026)"
+  ],
+  "decision_refs": [
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

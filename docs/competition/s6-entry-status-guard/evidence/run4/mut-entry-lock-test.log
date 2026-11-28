@@ -1,0 +1,11 @@
+S6 CONCURRENCY FAIL:; A's evidence survived the second submit (reason 'S6 race', version advanced exactly once) (status=scratched audit=1 waiters=3)
+  A| {"sub" : "00000000-0000-0000-0000-c1a68a0000a0", "role" : "authenticated"}
+  A| 
+  A| 
+  A| NOTICE:  S6WAITERS=3
+  B| {"sub" : "00000000-0000-0000-0000-c1a68a0000a0", "role" : "authenticated"}
+  B| ERROR:  COMP_S6_ENTRY_STATUS_WRITER: entry status scratched -> withdrawn cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.
+  B| CONTEXT:  PL/pgSQL function cf1_s6_guard_entry_status() line 55 at RAISE
+  C| f
+  D| {"sub" : "00000000-0000-0000-0000-c1a68a0000a0", "role" : "authenticated"}
+  D| 

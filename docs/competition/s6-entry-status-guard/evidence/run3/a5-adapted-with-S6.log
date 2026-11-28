@@ -1,0 +1,28 @@
+== fixtures ==
+fixture rounds=2
+{"sub":"00000000-0000-0000-0000-cf1a5c000001","role":"authenticated"}
+{"role": "chair", "official_id": "306745ce-5e01-4463-ba62-9f8501b17a9a"}
+== P1: request holding its locks vs change_competition_entry_lifecycle (U78, shared entry -> heat-entry order) ==
+PASS  P1 lifecycle waited for the in-flight exclusion (4469 ms), no deadlock
+== P2: lifecycle holding the entry row vs request (U78, opposite arrival) ==
+PASS  P2 request waited for the lifecycle writer (5106 ms), then saw the scratched heat entry (NOT_DANCED), no deadlock
+== P3: exclusion vs reopen of the ballots (round FOR UPDATE serialization) ==
+PASS  P3 exclusion waited for the reopen (4406 ms) and ran against the active round
+== P4: reopen waits for an in-flight exclusion on a ballots_locked round ==
+PASS  P4 reopen waited (5103 ms); the exclusion row is committed once, the round ended active
+== P5: lock-ballots lock order (EMULATED: round FOR UPDATE, heats + heat entries FOR SHARE, entries FOR SHARE) vs request ==
+PASS  P5 request waited for the lock-order holder (6070 ms), no deadlock (emulation, not the real A2 lock function)
+== P6: the same request id from two sessions at once: one row, the second is a replay ==
+PASS  P6 one row, exactly one replayed result, no error
+== P7: two different requests in one round at once: distinct seq, no unique violation ==
+PASS  P7 seq values distinct and gap-free in the round
+== P8: concurrent co-sign of the same request by two co-signers: exactly one co-sign row ==
+PASS  P8 one co-sign row; the loser was refused COMP_EXCLUSION_DECISION_COMPLETED
+== P9: real function, entry in a COMPLETED heat ==
+PASS  P9 scratch in a completed heat refused (PLACED), entry and heat entry unchanged (confirmed|1|scheduled)
+== P10: real function, entry in an ACTIVE heat (withdrawal) ==
+PASS  P10 withdrawal in an active heat refused (PLACED), entry and heat entry unchanged (confirmed|1|scheduled)
+== P11: the refusal takes no row lock: another session holds the entry row ==
+PASS  P11 refused without waiting for the row lock (1858 ms)
+== summary ==
+COMPETITION CF1 A5 CONCURRENCY PASS

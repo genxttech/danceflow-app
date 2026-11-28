@@ -1,0 +1,31 @@
+{
+  "id": "OD01-NDCA-0001",
+  "governing_body": "NDCA",
+  "format": "All NDCA Sanctioned events (scoring system)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "Rule Book III.D.11 (p.21); related III.B.1.e (p.14), III.E.1 (p.25)",
+    "quote_free_summary": "The Skating System of score evaluation must be used in all NDCA Sanctioned events (Formation Teams and Team Matches may use a cumulative point system; Repechage call back is not permitted)."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Results of an event that declares NDCA may be approved or published only through a scoring method verified for NDCA. None exists: ndca_skating is unavailable with no authoritative algorithm source. Declared NDCA events are blocked at approve and publish.",
+  "implementation": [
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "evaluateSanctionScoringGuard" },
+    { "path": "src/lib/competition/scoring/sanctionGuard.ts", "symbol_or_migration": "guardRoundResultsForSanction" },
+    { "path": "src/app/app/events/[id]/competition/results/actions.ts", "symbol_or_migration": "approveRoundResultAction, publishRoundResultAction" }
+  ],
+  "enforcement_point": "Server actions approveRoundResultAction and publishRoundResultAction call guardRoundResultsForSanction before the database transition and refuse when blocked; the round results page and publicationControls mirror the refusal. App layer only: the database RPCs do not check the declaration (follow-up, needs SQL).",
+  "tests": [
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 guard: every body x method x declaration combination" },
+    { "path": "src/lib/competition/scoring/__tests__/sanctionGuard.od01.test.ts", "name": "OD-01 server actions" }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "The rulebook requires the Skating System but does not define the algorithm in the supplied source: UNRESOLVED until an authoritative specification is independently verified. Scrutineer certification (III.B.1.e) and computer scrutineering files (III.E.1) are not implemented. effective_from is the edition month (June 2026), exact date not read from the PDF. The Formation Teams / Team Matches exception is not modelled. Not verified_compliant.",
+  "applicable_event_versions": ["June 2026, Master v1"],
+  "decision_refs": ["OD-01 (owner decision 2026-11-23, BLOCK, Option C; retrospective audit PR #795)"],
+  "last_reviewed": "2026-11-23"
+}

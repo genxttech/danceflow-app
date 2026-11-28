@@ -1,0 +1,32 @@
+fn|_r2_apply_participation|p_refund_id uuid|true|supabase_admin|{supabase_admin=X/supabase_admin,postgres=X/supabase_admin,service_role=X/supabase_admin}|{"search_path=public, pg_temp"}|b6f3865bcb7f938882e8f74963a9b3ff
+fn|_r2_withdraw_entry|p_entry_id uuid, p_reason text, p_fee_handling text|true|supabase_admin|{supabase_admin=X/supabase_admin,postgres=X/supabase_admin,service_role=X/supabase_admin}|{"search_path=public, pg_temp"}|85f45769790cc7c34b034e4d3a89083e
+fn|change_competition_entry_lifecycle|selected_entry_id uuid, selected_status text, selected_reason text, selected_fee_handling text|false|postgres|{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}|{"search_path=public, pg_temp"}|3b4622d846fa2e6b223b3005d2425650
+trg|audit_competition_entry_change|O|CREATE TRIGGER audit_competition_entry_change AFTER DELETE OR UPDATE ON public.event_competition_entries FOR EACH ROW EXECUTE FUNCTION audit_competition_entry_change()
+trg|set_event_competition_updated_at|O|CREATE TRIGGER set_event_competition_updated_at BEFORE UPDATE ON public.event_competition_entries FOR EACH ROW EXECUTE FUNCTION set_event_competition_updated_at()
+trg|validate_competition_entry_registration_links|O|CREATE TRIGGER validate_competition_entry_registration_links BEFORE INSERT OR UPDATE OF event_id, registration_id, order_id, order_item_id ON public.event_competition_entries FOR EACH ROW EXECUTE FUNCTION validate_competition_entry_registration_links()
+acl|{postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}
+priv|anon|delete,insert,references,select,trigger,truncate,update
+priv|authenticated|delete,insert,references,select,trigger,truncate,update
+priv|service_role|delete,insert,references,select,trigger,truncate,update
+trg2|event_competition_heat_entries|cf1_guard_final_heat_entry|A
+trg2|event_competition_heat_entries|cf1_guard_withdrawn_heat_entry|A
+trg2|event_competition_heat_entries|cf1_od17_guard_heat_entry|A
+trg2|event_competition_heat_entries|cf1_u18_guard_heat_entry_status|A
+trg2|event_competition_heat_entries|cf1_u18s_guard_heat_entry_scratch|A
+trg2|event_competition_heat_entries|comp10d_guard_heat_entry|O
+trg2|event_competition_heat_entries|comp10d_heat_entry_floor_integrity|O
+trg2|event_competition_heat_entries|protect_locked_competition_heat_entry|O
+trg2|event_competition_heat_entries|set_event_competition_updated_at|O
+trg2|event_competition_heats|cf1_check_final_single_live_heat|A
+trg2|event_competition_heats|cf1_guard_final_heat_identity|A
+trg2|event_competition_heats|cf1_guard_final_heat_insert|A
+trg2|event_competition_heats|cf1_guard_final_heat_status|A
+trg2|event_competition_heats|comp10d_guard_heat_delete|O
+trg2|event_competition_heats|comp10d_heat_floor_integrity|O
+trg2|event_competition_heats|compo1_guard_heat_status|O
+trg2|event_competition_heats|hl1_guard_heat_lock|O
+trg2|event_competition_heats|hl1_guard_heat_reopen|O
+trg2|event_competition_heats|protect_competition_heat_initial_lock_state|O
+trg2|event_competition_heats|protect_locked_competition_heat|O
+trg2|event_competition_heats|set_event_competition_updated_at|O
+trg2|event_competition_heats|validate_competition_heat_schedule_placement|O

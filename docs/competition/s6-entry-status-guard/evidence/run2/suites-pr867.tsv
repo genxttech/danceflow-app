@@ -1,0 +1,3 @@
+test_T_competition_u18s_heat_entry_scratch_audit	PASS	ERROR:  COMPETITION U18S SQL SUITE PASS (17 checks)
+test_T_phase10a_competition_foundation	FAIL	ERROR:  PHASE 10A SQL SUITE FAIL: manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+test_T_competition_o1_day_of	FAIL	

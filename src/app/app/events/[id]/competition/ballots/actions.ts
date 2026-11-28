@@ -66,6 +66,8 @@ async function run(
   fallbackReturn: string,
   call: (rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{ error: { message: string; code?: string | null } | null }>) => PromiseLike<{ error: { message: string; code?: string | null } | null }>,
   okMessage: string,
+  /** Extra query parameters for the return page after a refusal. */
+  errorParams?: (message: string) => Record<string, string>,
 ): Promise<never> {
   const returnTo = safeReturnPath(text(formData, "returnTo"), fallbackReturn);
   const supabase = await createClient();
@@ -76,7 +78,7 @@ async function run(
   // CF1: a deadlock (40P01) or refused lock wait (55P03) is repeated once with the same arguments, hence the same request id.
   const result = await call(withRetryOnce((name, args) => supabase.rpc(name, args)));
   revalidatePath(returnTo);
-  if (result.error) back(returnTo, { error: actionErrorMessage(result.error) });
+  if (result.error) back(returnTo, { error: actionErrorMessage(result.error), ...errorParams?.(result.error.message) });
   back(returnTo, { saved: okMessage });
 }
 
@@ -161,6 +163,10 @@ export async function recordAttendanceAction(formData: FormData): Promise<void> 
   const officialId = uuid(formData, "officialId");
   const requestId = uuid(formData, "requestId");
   const status = text(formData, "status");
+  // R-10: the database refuses a change that leaves a started round's panel unable to lock its ballots until the user
+  // confirms it. The flag is sent only for that explicit confirmation: a database without it rejects the extra argument,
+  // and never asks for it, so this action works both before and after that migration is applied.
+  const confirmed = text(formData, "confirmPanelBreak") === "1";
   await run(
     formData,
     "/app/judging",
@@ -172,9 +178,11 @@ export async function recordAttendanceAction(formData: FormData): Promise<void> 
             p_status: status,
             p_reason: text(formData, "reason") || null,
             p_request_id: requestId,
+            ...(confirmed ? { p_confirm_panel_break: true } : {}),
           })
         : Promise.resolve({ error: { message: "COMP_ATTENDANCE_INVALID" } }),
     status === "absent" ? "Absence recorded." : "Marked present.",
+    (message): Record<string, string> => (officialId && message.includes("COMP_PANEL_BREAK_CONFIRM_REQUIRED") ? { confirmJudge: officialId } : {}),
   );
 }
 

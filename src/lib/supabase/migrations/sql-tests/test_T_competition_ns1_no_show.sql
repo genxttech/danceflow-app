@@ -183,6 +183,14 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008040'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003020'), 'E140', 'confirmed', 'eligible', '140'),
   (pg_temp.u('008041'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003020'), 'E141', 'confirmed', 'eligible', '141');
 
+-- S4/R-15: seeded eligible couples get an organizer determination through set_competition_entry_eligibility before they are placed (load fixtures/r15_clear_entries.sql first).
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+
 set session_replication_role = replica;
 insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values
   (pg_temp.u('00c001'), pg_temp.u('00e001'), 1, 'v1', 'published', now()),
@@ -344,7 +352,7 @@ update public.event_competition_heat_entries set status = 'scheduled' where id =
 -- (no heat_entries trigger: 10D.1 pins the trigger count; the mark RPC refuses danced entries)
 select pg_temp.chk('heat_entries triggers: the 4 pre-CF1 triggers exist and are enabled; no NS1 trigger; only cf1_* additions',
   (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgenabled <> 'D' and tgname in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'set_event_competition_updated_at')) = 4
-  and not exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname not in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'set_event_competition_updated_at') and tgname !~ '^cf1_'));
+  and not exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname not in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'r15_guard_heat_entry_clearance', 'set_event_competition_updated_at') and tgname !~ '^cf1_'));
 -- KNOWN GAP (reported in the PR): the dropped trigger blocked a direct heat_entries.status = 'danced' on an entry with an active no-show. Without it only
 -- the mark RPC (which refuses danced entries) protects that direction; a trusted direct writer can still set danced afterwards. No such writer exists today.
 select pg_temp.expect_ok('KNOWN GAP: a direct superuser update to danced on a no-show entry is not blocked (documented, no writer exists)', format($q$update public.event_competition_heat_entries set status = 'danced' where id = %L$q$, pg_temp.he('00d001', '008003')));
@@ -653,6 +661,14 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008033'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003010'), 'E133', 'confirmed', 'eligible', '133'),
   (pg_temp.u('008034'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003010'), 'E134', 'confirmed', 'eligible', '134'),
   (pg_temp.u('008035'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003010'), 'E135', 'confirmed', 'eligible', '135');
+-- S4/R-15: seeded eligible couples get an organizer determination through set_competition_entry_eligibility before they are placed (load fixtures/r15_clear_entries.sql first).
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+
 set session_replication_role = replica;
 insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status) values
   (pg_temp.u('00d014'), pg_temp.u('00e001'), pg_temp.u('003010'), pg_temp.u('006012'), 10, pg_temp.u('002001'), pg_temp.u('00c001'), 'active'),
@@ -757,14 +773,22 @@ insert into public.event_competition_divisions (id, event_id, program_id, contes
 values (pg_temp.u('003030'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('002003'), 'D30', 'open');
 insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method)
 values (pg_temp.u('006030'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003030'), 'R30 Real flow', 'final', 1, 'draft', 'ordinal_majority');
-insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via) values
-  (pg_temp.u('007050'), pg_temp.u('00e003'), 'Ada', 'Real', 'staff'), (pg_temp.u('007051'), pg_temp.u('00e003'), 'Bo', 'Real', 'staff');
+insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, date_of_birth) values
+  (pg_temp.u('007050'), pg_temp.u('00e003'), 'Ada', 'Real', 'staff', date '1985-06-15'), (pg_temp.u('007051'), pg_temp.u('00e003'), 'Bo', 'Real', 'staff', date '1985-06-15');
 insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number) values
   (pg_temp.u('008050'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003030'), 'Ada Real', 'confirmed', 'eligible', '150'),
   (pg_temp.u('008051'), pg_temp.u('00e003'), pg_temp.u('001003'), pg_temp.u('003030'), 'Bo Real', 'confirmed', 'eligible', '151');
 insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order) values
   (pg_temp.u('00e003'), pg_temp.u('008050'), pg_temp.u('007050'), 'student', 'follower', 'Ada Real', 1),
   (pg_temp.u('00e003'), pg_temp.u('008051'), pg_temp.u('007051'), 'student', 'follower', 'Bo Real', 1);
+-- S4/R-15: seeded eligible couples get an organizer determination through set_competition_entry_eligibility before they are placed (load fixtures/r15_clear_entries.sql first).
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
+
 
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));

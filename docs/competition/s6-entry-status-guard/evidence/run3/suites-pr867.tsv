@@ -1,0 +1,14 @@
+test_T_competition_u18s_heat_entry_scratch_audit	PASS	ERROR:  COMPETITION U18S SQL SUITE PASS (17 checks)
+test_T_phase10a_competition_foundation	FAIL	ERROR:  PHASE 10A SQL SUITE FAIL: manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+test_T_competition_o1_day_of	FAIL	
+test_T_competition_cf1_a1_helpers	PASS	ERROR:  COMPETITION CF1 A1 SQL SUITE PASS (136 checks, 6 blocked: apply/start guards, A2/A3 insertions, A5 functions are other packages)
+test_T_competition_cf1_a3_results	PASS	ERROR:  COMPETITION CF1 A3 SQL SUITE PASS (119 checks, 5 blocked)
+test_T_competition_cf1_a4a_target_guard	PASS	ERROR:  COMPETITION CF1 A4a SQL SUITE PASS (63 checks, 2 blocked)
+test_T_competition_cf1_a7_od13	PASS	ERROR:  COMPETITION CF1 A7 SQL SUITE PASS (81 checks, 1 blocked: two-session races are in the .sh script)
+test_T_competition_cf1_f3_publication	PASS	ERROR:  COMPETITION CF1 F3 SQL SUITE PASS (191 checks)
+test_T_competition_cf1_rb3_refund_evidence	PASS	ERROR:  COMPETITION CF1 RB3 SQL SUITE PASS (76 checks, 4 blocked)
+test_T_competition_cf1_rb3r_reconciliation	PASS	ERROR:  COMPETITION CF1 RB3R SQL SUITE PASS (100 checks, 3 blocked)
+test_T_competition_cf1_u66_recovery	PASS	ERROR:  COMPETITION CF1 U66 SQL SUITE PASS (57 checks, 1 blocked: two-session races are in the .sh script)
+test_T_competition_pv1_recompute	PASS	ERROR:  COMPETITION PV-1 SQL SUITE PASS (30 checks)
+test_T_competition_r2_entry_refunds	FAIL	
+test_T_competition_ns1_no_show	FAIL	

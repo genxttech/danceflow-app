@@ -1,0 +1,38 @@
+{
+  "id": "NDCA-OD02-JUNIOR-ENTRY-CONSENT",
+  "governing_body": "NDCA",
+  "format": "NDCA competitions (Juniors)",
+  "source": {
+    "registry_document": "2026 June - Compiled Rule Book Master v1 - reduced size.pdf",
+    "edition": "June 2026, Master v1",
+    "effective_from": "2026-06-01",
+    "effective_to": null,
+    "sha256": "d1b73e1f504d2f84b610fc489695dc2cb68e60c224970b03dd3f9f280cecdaa6",
+    "section": "III.C.5 Entry Blanks (printed p19; PDF p26)",
+    "quote_free_summary": "The organizer's entry blank must also carry a parent or guardian's consent signature for Juniors."
+  },
+  "rule_class": "mandatory",
+  "requirement": "Competition OS does not produce entry blanks or capture a guardian signature for Juniors. Until Option A is built and approved, no under-18 competitor can be registered through Competition OS, so no Junior entry exists that would need that signature.",
+  "implementation": [
+    {
+      "path": "src/lib/competition/minorsGate.ts",
+      "symbol_or_migration": "evaluateCompetitionAdultGate"
+    }
+  ],
+  "enforcement_point": "Server: checkout route age gate (avoidance). The consent-signature requirement is not implemented.",
+  "tests": [
+    {
+      "path": "src/lib/competition/__tests__/minorsGate.od02.test.ts",
+      "name": "checks every member of a team and both halves of a couple; one minor refuses the whole draft"
+    }
+  ],
+  "verification_status": "unsupported",
+  "interpretation_notes": "Avoided by OD-02 Option C, not implemented. The effective date is the edition month; an exact effective date is NOT SPECIFIED IN PROVIDED SOURCE. Which entries NDCA treats as Juniors (age bands) is part of the OD-03 audit item and is not decided here. NDCA VI.A.11, Registration - General (PDF p39) also makes a parent or guardian responsible for learning the rules for a registrant under 18; informational, not implemented.",
+  "applicable_event_versions": [
+    "June 2026, Master v1"
+  ],
+  "decision_refs": [
+    "OD-02"
+  ],
+  "last_reviewed": "2026-11-23"
+}

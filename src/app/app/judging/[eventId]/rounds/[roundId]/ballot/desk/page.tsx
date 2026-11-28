@@ -20,7 +20,7 @@ export default async function BallotDeskPage({
   searchParams,
 }: {
   params: Promise<{ eventId: string; roundId: string }>;
-  searchParams: Promise<{ saved?: string; error?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; confirmJudge?: string }>;
 }) {
   requireCompetitionFinals();
   const { eventId, roundId } = await params;
@@ -52,7 +52,7 @@ export default async function BallotDeskPage({
       {query.saved ? <p role="status" className="mt-3 rounded border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">{query.saved}</p> : null}
       {query.error ? <p role="alert" className="mt-3 rounded border border-rose-300 bg-rose-50 p-3 text-sm text-rose-950">{query.error}</p> : null}
       <div className="mt-3">
-        <BallotDesk board={board} returnTo={`/app/judging/${eventId}/rounds/${roundId}/ballot/desk`} />
+        <BallotDesk board={board} returnTo={`/app/judging/${eventId}/rounds/${roundId}/ballot/desk`} confirmBreakOfficialId={query.confirmJudge} />
       </div>
       {floorError ? <p role="alert" className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Couldn&apos;t load no-shows: {floorError}</p> : null}
       {floorEntries ? (

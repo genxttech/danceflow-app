@@ -18,3 +18,17 @@ Public activation stays blocked until every row is `closed`. See [README.md](REA
 
 Inventory file names are suggestions; the auditing session records the actual file name and PR here when its
 PR lands. Update the row in the same PR that adds the inventory file.
+
+## Owner decisions recorded
+
+| Id | Decision | Date | Implementation | Status |
+|---|---|---|---|---|
+| OD-01 | **BLOCK (Option C).** Block approval and publication of Studio-scored results where a declared governing body's mandatory scoring requirements are not implemented and verified. Non-scoring operations preserved; organizer acknowledgement never overrides mandatory body scoring rules; the WSDC non-WSDC-contest opt-out (3.4.9.f) is handled separately with contest-level identification and published disclosure and never applies to WSDC Jack and Jill contests; Studio/Custom (`none`) unchanged; `other` unblocked but never implies verified sanctioning compliance. | 2026-11-23 | Draft PR (app layer, no SQL): `sanctionGuard.ts`, approve/publish server actions, results page, publication controls, advanced-page copy. Register: OD01-UCWDC-0001, OD01-NDCA-0001, OD01-WSDC-0001, OD01-WSDC-0002 (all `unsupported`, i.e. blocked, not compliant). | implemented-unverified (unit tests only; no QA run, not merged) |
+
+Unresolved after OD-01 (never claimed compliant): NDCA Skating System algorithm; WSDC Relative Placement definition; UCWDC authorized-system designation; WSDC contest-level opt-out data model and disclosure record (needs SQL); database-level enforcement of the guard (RPCs do not read the declaration).
+
+## Owner-decision follow-ups
+
+| Decision | Item | PR | Status |
+|---|---|---|---|
+| OD-04 (2026-11-23, Option A BLOCK) | Event deletion with ballots/results (row X-18) | draft PR, branch `claude/od04-event-delete-guard-c68a8f` | Migration `20270301080000` + rollback + SQL suite + race script run on a local isolated Postgres (158 checks at the first head; 159 on base, 161 on the composed pilot chain after the fixture fixes); **not applied to DEV or PROD**; register entries OD04-0001..0003; results contract corrected. Owner gates: merge, DEV/PROD SQL apply. |

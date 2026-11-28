@@ -1,0 +1,53 @@
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-cf1033000001","role":"authenticated"}
+(1 row)
+
+ snap 
+------
+ 
+(1 row)
+
+ snap 
+------
+ 
+(1 row)
+
+ set_config 
+------------
+ scratch
+(1 row)
+
+ snap 
+------
+ 
+(1 row)
+
+ set_config 
+------------
+ 
+(1 row)
+
+ set_config 
+------------
+ scratch
+(1 row)
+
+ snap 
+------
+ 
+(1 row)
+
+ set_config 
+------------
+ 
+(1 row)
+
+                                step                                |                                                                   outcome                                                                    | parent_status | heat_entry_status | audit_scratch_rows 
+--------------------------------------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------+---------------+-------------------+--------------------
+ 0 initial (entry 1)                                                | -                                                                                                                                            | confirmed     | scheduled         |                  0
+ 1 client scratches the PARENT entry directly                       | OK                                                                                                                                           | scratched     | scheduled         |                  1
+ 2 forged marker + client scratches the HEAT entry directly         | OK                                                                                                                                           | scratched     | scratched         |                  1
+ 3 marker only (parent NOT scratched), heat entry scratch (entry 2) | 42501 COMP_U18S_SCRATCH_UNAUDITED: a heat entry is scratched only through the audited scratch workflow (change_competition_entry_lifecycle). | confirmed     | scheduled         |                  0
+(4 rows)
+

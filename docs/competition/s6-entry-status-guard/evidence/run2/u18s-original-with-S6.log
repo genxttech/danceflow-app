@@ -1,0 +1,102 @@
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-cf1019000001","role":"authenticated"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ set_config 
+------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ set_config 
+------------
+ scratch
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ERROR:  COMPETITION U18S SQL SUITE FAIL: direct parent-entry status write does not unlock a direct heat-entry scratch [42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.]; RPC on an entry scratched in an EARLIER transaction still scratches its heat entries (reviewer finding 1) [42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow. | OK]
+CONTEXT:  PL/pgSQL function inline_code_block line 6 at RAISE

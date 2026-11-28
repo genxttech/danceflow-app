@@ -1,0 +1,68 @@
+diff --git a/src/lib/supabase/migrations/sql-tests/test_T_competition_u18_heat_entry_status_guard.sql b/src/lib/supabase/migrations/sql-tests/test_T_competition_u18_heat_entry_status_guard.sql
+index 0c0893d..7be49b5 100644
+--- a/src/lib/supabase/migrations/sql-tests/test_T_competition_u18_heat_entry_status_guard.sql
++++ b/src/lib/supabase/migrations/sql-tests/test_T_competition_u18_heat_entry_status_guard.sql
+@@ -43,6 +43,13 @@ values ('00000000-0000-0000-0000-cf1018e00001', '00000000-0000-0000-0000-cf1018d
+ insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+ select ('00000000-0000-0000-0000-cf1018800' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1018e00001', '00000000-0000-0000-0000-cf1018001001', '00000000-0000-0000-0000-cf1018003001', 'e' || i, 'confirmed', 'eligible', '9' || i
+ from generate_series(1, 5) i;
++-- S4/R-15: the seeded couples get an organizer determination through set_competition_entry_eligibility before they are placed (fixtures/r15_clear_entries.sql).
++do $r15$
++begin
++  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
++    perform pg_temp.r15_clear_entries();
++  end if;
++end $r15$;
+ insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+ select ('00000000-0000-0000-0000-cf1018900' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1018e00001', '00000000-0000-0000-0000-cf1018003001', '00000000-0000-0000-0000-cf1018d00001',
+        ('00000000-0000-0000-0000-cf1018800' || lpad(i::text, 3, '0'))::uuid, i, case when i = 4 then 'danced' else 'scheduled' end
+diff --git a/src/lib/supabase/migrations/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql b/src/lib/supabase/migrations/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql
+index 46a301b..a1416c3 100644
+--- a/src/lib/supabase/migrations/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql
++++ b/src/lib/supabase/migrations/sql-tests/test_T_competition_u18s_heat_entry_scratch_audit.sql
+@@ -43,6 +43,13 @@ values ('00000000-0000-0000-0000-cf1019e00001', '00000000-0000-0000-0000-cf1019d
+ insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+ select ('00000000-0000-0000-0000-cf1019800' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1019e00001', '00000000-0000-0000-0000-cf1019001001', '00000000-0000-0000-0000-cf1019003001', 'e' || i, 'confirmed', 'eligible', '9' || i
+ from generate_series(1, 5) i;
++-- S4/R-15: the seeded couples get an organizer determination through set_competition_entry_eligibility before they are placed (fixtures/r15_clear_entries.sql).
++do $r15$
++begin
++  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
++    perform pg_temp.r15_clear_entries();
++  end if;
++end $r15$;
+ insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+ select ('00000000-0000-0000-0000-cf1019900' || lpad(i::text, 3, '0'))::uuid, '00000000-0000-0000-0000-cf1019e00001', '00000000-0000-0000-0000-cf1019003001', '00000000-0000-0000-0000-cf1019d00001',
+        ('00000000-0000-0000-0000-cf1019800' || lpad(i::text, 3, '0'))::uuid, i, 'scheduled'
+@@ -97,6 +104,13 @@ select pg_temp.chk('lifecycle RPC withdraw works and scratches the heat entry',
+ set local session_replication_role = replica;
+ insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number)
+ values ('00000000-0000-0000-0000-cf1019800006', '00000000-0000-0000-0000-cf1019e00001', '00000000-0000-0000-0000-cf1019001001', '00000000-0000-0000-0000-cf1019003001', 'e6', 'confirmed', 'eligible', '96');
++-- S4/R-15: the seeded couples get an organizer determination through set_competition_entry_eligibility before they are placed (fixtures/r15_clear_entries.sql).
++do $r15$
++begin
++  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
++    perform pg_temp.r15_clear_entries();
++  end if;
++end $r15$;
+ insert into public.event_competition_heat_entries (id, event_id, division_id, heat_id, entry_id, floor_order, status)
+ values ('00000000-0000-0000-0000-cf1019900007', '00000000-0000-0000-0000-cf1019e00001', '00000000-0000-0000-0000-cf1019003001', '00000000-0000-0000-0000-cf1019d00001', '00000000-0000-0000-0000-cf1019800006', 8, 'scheduled');
+ set local session_replication_role = origin;
+diff --git a/src/lib/supabase/migrations/sql-tests/test_T_competition_jc1_inactive_judge_absent.sql b/src/lib/supabase/migrations/sql-tests/test_T_competition_jc1_inactive_judge_absent.sql
+index 980acbb..c42c14e 100644
+--- a/src/lib/supabase/migrations/sql-tests/test_T_competition_jc1_inactive_judge_absent.sql
++++ b/src/lib/supabase/migrations/sql-tests/test_T_competition_jc1_inactive_judge_absent.sql
+@@ -141,6 +141,13 @@ insert into public.event_competition_entries (id, event_id, program_id, division
+   (pg_temp.u('008006'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'E106', 'confirmed', 'eligible', '106'),
+   (pg_temp.u('008007'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'E107', 'confirmed', 'eligible', '107'),
+   (pg_temp.u('008008'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'E108', 'confirmed', 'eligible', '108');
++-- S4/R-15: the seeded couples get an organizer determination through set_competition_entry_eligibility before they are placed (fixtures/r15_clear_entries.sql).
++do $r15$
++begin
++  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
++    perform pg_temp.r15_clear_entries();
++  end if;
++end $r15$;
+ set session_replication_role = replica;
+ insert into public.event_competition_schedule_versions (id, event_id, version_number, name, status, published_at) values (pg_temp.u('00c001'), pg_temp.u('00e001'), 1, 'v1', 'published', now());
+ insert into public.event_competition_heats (id, event_id, division_id, round_id, heat_number, contest_id, schedule_version_id, status) values

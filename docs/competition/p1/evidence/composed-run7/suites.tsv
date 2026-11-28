@@ -1,0 +1,133 @@
+A	test_T_competition_cf1_a1_helpers	PASS	ERROR:  COMPETITION CF1 A1 SQL SUITE PASS (136 checks, 6 blocked: apply/start guards, A2/A3 insertions, A5 functions are other packages)
+A	test_T_competition_cf1_a3_results	PASS	ERROR:  COMPETITION CF1 A3 SQL SUITE PASS (119 checks, 5 blocked)
+A	test_T_competition_cf1_a5_exclusion	PASS	ERROR:  COMPETITION CF1 A5 SQL SUITE PASS (186 checks, 4 blocked: A3-dependent lock refusal, cancel exit, multi-session probe, other suites)
+A	test_T_competition_cf1_a5_u38_composed	PASS	ERROR:  COMPETITION CF1 A5 U38 SQL SUITE PASS (14 checks)
+A	test_T_competition_cf1_callback_final_advancement	PASS	ERROR:  COMPETITION CF1 A0 SQL SUITE PASS (199 checks, 5 blocked)
+A	test_T_competition_cf1_f3_publication	PASS	ERROR:  COMPETITION CF1 F3 SQL SUITE PASS (191 checks)
+A	test_T_competition_cf1_od17_enforcement	PASS	ERROR:  COMPETITION CF1 OD17 SQL SUITE PASS (59 checks, r2=true)
+A	test_T_competition_cf1_rb3_refund_evidence	PASS	ERROR:  COMPETITION CF1 RB3 SQL SUITE PASS (76 checks, 4 blocked)
+A	test_T_competition_cf1_rb3r_reconciliation	PASS	ERROR:  COMPETITION CF1 RB3R SQL SUITE PASS (100 checks, 3 blocked)
+A	test_T_competition_e1_officials	FAIL	NO VERDICT: ERROR:  COMPO1_ROUND_EDGE: draft -> active is not a round transition in the K0 state machine.
+A	test_T_competition_hl1_heat_guards	PASS	ERROR:  COMPETITION HL1 HEAT GUARDS SQL SUITE PASS (42 checks)
+A	test_T_competition_jc1_inactive_judge_absent	PASS	ERROR:  COMPETITION JC1 SQL SUITE PASS (15 checks)
+A	test_T_competition_ns1_no_show	PASS	ERROR:  COMPETITION NS1 SQL SUITE PASS (152 checks)
+A	test_T_competition_o1_day_of	PASS	ERROR:  COMPETITION O1 SQL SUITE PASS (95 checks)
+A	test_T_competition_r2_entry_refunds	FAIL	NO VERDICT: ERROR:  COMPO1_HEAT_STATUS_WRITER: scheduled -> active is written only by advance_competition_floor_heat.
+A	test_T_competition_r2_refund_write_gate	PASS	ERROR:  COMPETITION R2 GATE SQL SUITE PASS (21 checks)
+A	test_T_competition_u18_heat_entry_status_guard	PASS	ERROR:  COMPETITION U18 SQL SUITE PASS (21 checks)
+A	test_T_competition_u18s_heat_entry_scratch_audit	PASS	ERROR:  COMPETITION U18S SQL SUITE PASS (17 checks)
+A	test_T_phase10a_competition_foundation	FAIL	ERROR:  PHASE 10A SQL SUITE FAIL: manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+A	test_T_phase10d1_heat_entry_eligibility	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)
+A	test_T_phase10d_floor_schedule	PASS	ERROR:  PHASE 10D SQL SUITE PASS (79 checks)
+B	test_T_competition_cf1_a1_helpers	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_cf1_a3_results	PASS	ERROR:  COMPETITION CF1 A3 SQL SUITE PASS (119 checks, 5 blocked)
+B	test_T_competition_cf1_a5_exclusion	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_cf1_a5_exclusion_with_r15	PASS	ERROR:  ADAPTED COPY R-15: COMPETITION CF1 A5 SQL SUITE PASS (187 checks, 4 blocked: A3-dependent lock refusal, cancel exit, multi-session probe, other suites)
+B	test_T_competition_cf1_a5_u38_composed	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_cf1_callback_final_advancement	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_cf1_callback_final_advancement_with_r15	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_cf1_f3_publication	PASS	ERROR:  COMPETITION CF1 F3 SQL SUITE PASS (191 checks)
+B	test_T_competition_cf1_od17_enforcement	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_cf1_rb3_refund_evidence	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_cf1_rb3r_reconciliation	FAIL	ERROR:  COMPETITION CF1 RB3R SQL SUITE FAIL: RB3R F15 failed / canceled refunds only (reversed) -> available []; RB3R F16 clean order -> available, raw null []; RB3R F17 refund fully attributed to ANOTHER entry of the order, ledger = payment = order status -> this entry stays available []; RB3R T1b order and payment recomputed from the ledger (as R2 does) -> entry available again []; RB3R T3 refund then attributed in full to a fee line -> entry available again (attribution, not assertion, clears
+B	test_T_competition_cf1_rb3r_reconciliation_with_r15	PASS	ERROR:  ADAPTED COPY R-15: COMPETITION CF1 RB3R SQL SUITE PASS (101 checks, 3 blocked)
+B	test_T_competition_d_published_order_write_guard	PASS	ERROR:  COMPETITION D SQL SUITE PASS (54 checks)
+B	test_T_competition_e1_officials	PASS	ERROR:  COMPETITION E1 SQL SUITE PASS (110 checks)
+B	test_T_competition_hl1_heat_guards	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B	test_T_competition_jc1_inactive_judge_absent	PASS [ADAPTED COPY]	ERROR:  COMPETITION JC1 SQL SUITE PASS (15 checks)
+B	test_T_competition_ns1_no_show	PASS	ERROR:  COMPETITION NS1 SQL SUITE PASS (152 checks)
+B	test_T_competition_o1_day_of	PASS	ERROR:  COMPETITION O1 SQL SUITE PASS (95 checks)
+B	test_T_competition_od04_event_delete_guard	PASS	ERROR:  COMPETITION OD-04 SQL SUITE PASS (161 checks)
+B	test_T_competition_r10_s3_panel_readiness	PASS	ERROR:  COMPETITION R10-S3 SQL SUITE PASS (92 checks)
+B	test_T_competition_r10_s3_panel_readiness_p1pilot	PASS	ERROR:  COMPETITION R10-S3 P1 PILOT COPY SQL SUITE PASS (91 checks)
+B	test_T_competition_r11_approval_override_scope	PASS	ERROR:  COMPETITION R11 SQL SUITE PASS (111 checks)
+B	test_T_competition_r11_approval_override_scope_p1_pilot	FAIL	NO VERDICT: ERROR:  R11 P1 pilot copy refused: the pilot restrictions are not installed; run the original suite.
+B	test_T_competition_r15_eligibility_clearance	PASS	ERROR:  R15 SQL SUITE PASS (106 checks; S5 predicate: real)
+B	test_T_competition_r2_entry_refunds	PASS	ERROR:  COMPETITION R2 SQL SUITE PASS (158 checks)
+B	test_T_competition_r2_refund_write_gate	PASS	ERROR:  COMPETITION R2 GATE SQL SUITE PASS (21 checks)
+B	test_T_competition_s5_participant_age_guard	PASS	ERROR:  COMPETITION S5 AGE GUARD SQL SUITE PASS (49 checks, 0 blocked)
+B	test_T_competition_s6_entry_status_guard	PASS [ADAPTED COPY]	ERROR:  COMPETITION S6 ENTRY STATUS GUARD SQL SUITE PASS (127 checks)
+B	test_T_competition_u18_heat_entry_status_guard	PASS [ADAPTED COPY]	ERROR:  COMPETITION U18 SQL SUITE PASS (21 checks)
+B	test_T_competition_u18s_heat_entry_scratch_audit	FAIL [ADAPTED COPY]	ERROR:  COMPETITION U18S SQL SUITE FAIL: direct parent-entry status write does not unlock a direct heat-entry scratch [42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direct table write; use the registration, refund or scratch/withdraw workflow.]; RPC on an entry scratched in an EARLIER transaction still scratches its heat entries (reviewer finding 1) [42501 COMP_S6_ENTRY_STATUS_WRITER: entry status confirmed -> scratched cannot be changed by a direc
+B	test_T_competition_u18s_heat_entry_scratch_audit_with_s6	PASS [ADAPTED COPY]	ERROR:  COMPETITION U18S SQL SUITE PASS (17 checks)
+B	test_T_phase10a_competition_foundation	FAIL	ERROR:  PHASE 10A SQL SUITE FAIL: manager direct entry update still audits => 42501 COMP_R15_ELIGIBILITY_WRITE_REFUSED: eligibility is decided through set_competition_entry_eligibility, not by a direct write.; direct entry update produced eligibility history => ; manager publishes v1 => P0001 COMP_R15_PROVISIONAL_ASSIGNMENT: the running order holds entries that are not cleared; clear, withdraw or scratch them before publishing.; published schedule sessions are no longer editable => statement une
+B	test_T_phase10a_competition_foundation_with_r15	FAIL	ERROR:  ADAPTED COPY R-15: PHASE 10A SQL SUITE FAIL: manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+B	test_T_phase10d1_heat_entry_eligibility	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)
+B	test_T_phase10d_floor_schedule	PASS	ERROR:  PHASE 10D SQL SUITE PASS (80 checks)
+B-autoseed	test_T_competition_cf1_a1_helpers	FAIL [AUTOSEED]	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B-autoseed	test_T_competition_cf1_a5_exclusion	FAIL [AUTOSEED]	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B-autoseed	test_T_competition_cf1_a5_u38_composed	PASS [AUTOSEED]	ERROR:  COMPETITION CF1 A5 U38 SQL SUITE PASS (14 checks)
+B-autoseed	test_T_competition_cf1_callback_final_advancement	FAIL [AUTOSEED]	ERROR:  COMPETITION CF1 A0 SQL SUITE FAIL: U11: event 6 publishes through the 10D RPC [P0001 COMP_R15_PROVISIONAL_ASSIGNMENT: the running order holds entries that are not cleared; clear, withdraw or scratch them before publishing.]; U11: scenario 28 applies after the publish [{"error": "COMP_ADVANCEMENT_NO_LIVE_VERSION: no schedule has been published; publish the running order before advancing.", "state": "P0001"}]; U11: the stored publication snapshot holds the callback heat and no Final heat; 
+B-autoseed	test_T_competition_cf1_callback_final_advancement_with_r15	PASS [AUTOSEED]	ERROR:  ADAPTED COPY R-15: COMPETITION CF1 A0 SQL SUITE PASS (200 checks, 5 blocked)
+B-autoseed	test_T_competition_cf1_od17_enforcement	PASS [AUTOSEED]	ERROR:  COMPETITION CF1 OD17 SQL SUITE PASS (59 checks, r2=true)
+B-autoseed	test_T_competition_cf1_rb3_refund_evidence	FAIL [AUTOSEED]	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+B-autoseed	test_T_competition_hl1_heat_guards	PASS [AUTOSEED]	ERROR:  COMPETITION HL1 HEAT GUARDS SQL SUITE PASS (42 checks)
+B-autoseed	test_T_phase10a_competition_foundation	FAIL [AUTOSEED]	ERROR:  PHASE 10A SQL SUITE FAIL: manager direct entry update still audits => 42501 COMP_R15_ELIGIBILITY_WRITE_REFUSED: eligibility is decided through set_competition_entry_eligibility, not by a direct write.; direct entry update produced eligibility history => ; manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+C	test_T_competition_cf1_a1_helpers	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_a3_results	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_a5_exclusion	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_a5_exclusion_with_r15	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_a5_u38_composed	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_callback_final_advancement	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_callback_final_advancement_with_r15	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_f3_publication	FAIL	NO VERDICT: ERROR:  duplicate key value violates unique constraint "compp1_one_round_per_division"
+C	test_T_competition_cf1_od17_enforcement	FAIL	NO VERDICT: ERROR:  COMP_R15_ENTRY_NOT_CLEARED: 1 entry is not cleared by the organizer and cannot take part in this step.
+C	test_T_competition_cf1_rb3_refund_evidence	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_cf1_rb3r_reconciliation	FAIL	ERROR:  COMPETITION CF1 RB3R SQL SUITE FAIL: RB3R F15 failed / canceled refunds only (reversed) -> available []; RB3R F16 clean order -> available, raw null []; RB3R F17 refund fully attributed to ANOTHER entry of the order, ledger = payment = order status -> this entry stays available []; RB3R T1b order and payment recomputed from the ledger (as R2 does) -> entry available again []; RB3R T3 refund then attributed in full to a fee line -> entry available again (attribution, not assertion, clears
+C	test_T_competition_cf1_rb3r_reconciliation_with_r15	PASS	ERROR:  ADAPTED COPY R-15: COMPETITION CF1 RB3R SQL SUITE PASS (101 checks, 3 blocked)
+C	test_T_competition_d_published_order_write_guard	PASS	ERROR:  COMPETITION D SQL SUITE PASS (54 checks)
+C	test_T_competition_e1_officials	PASS	ERROR:  COMPETITION E1 SQL SUITE PASS (110 checks)
+C	test_T_competition_hl1_heat_guards	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_jc1_inactive_judge_absent	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_ns1_no_show	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_o1_day_of	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_od04_event_delete_guard	PASS	ERROR:  COMPETITION OD-04 SQL SUITE PASS (161 checks)
+C	test_T_competition_p1_pilot_restrictions	PASS	ERROR:  COMPETITION P1 PILOT RESTRICTIONS SQL SUITE PASS (159 checks)
+C	test_T_competition_r10_s3_panel_readiness	FAIL	NO VERDICT: ERROR:  COMP_P1_CALLBACKS_OFF: callback scoring is off in the pilot.
+C	test_T_competition_r10_s3_panel_readiness_p1pilot	PASS	ERROR:  COMPETITION R10-S3 P1 PILOT COPY SQL SUITE PASS (92 checks)
+C	test_T_competition_r11_approval_override_scope	FAIL	NO VERDICT: ERROR:  COMP_P1_HEAT_NOT_STARTED: ballots are accepted only for a heat that has started (pilot).
+C	test_T_competition_r11_approval_override_scope_p1_pilot	PASS	ERROR:  COMPETITION R11 P1 PILOT COPY SQL SUITE PASS (93 checks; not a pass of the original R11 suite)
+C	test_T_competition_r15_eligibility_clearance	PASS	ERROR:  R15 SQL SUITE PASS (106 checks; S5 predicate: real)
+C	test_T_competition_r2_entry_refunds	FAIL	ERROR:  COMPETITION R2 SQL SUITE FAIL: fixture: planner places the entries [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; fixture: lock heat B [P0001 Heat was not found or cannot be managed.]; fixture: lock and certify heat C [P0001 Heat was not found or cannot be managed.]; fixture: 13 placements, heat B locked, heat C certified [0]; A: scheduled placement scratched [null]; A: checked-in placement scratched [null]; A/Q1: an entry that has danced (unlocked he
+C	test_T_competition_r2_refund_write_gate	FAIL	ERROR:  COMPETITION R2 GATE SQL SUITE FAIL: fixture: planner places the entries [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; fixture: lock heat B [P0001 Heat was not found or cannot be managed.]; fixture: lock and certify heat C [P0001 Heat was not found or cannot be managed.]; fixture: 13 placements, heat B locked, heat C certified [0]
+C	test_T_competition_s5_participant_age_guard	PASS	ERROR:  COMPETITION S5 AGE GUARD SQL SUITE PASS (49 checks, 0 blocked)
+C	test_T_competition_s6_entry_status_guard	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_s6_entry_status_guard_with_p1	PASS	ERROR:  COMPETITION S6 ENTRY STATUS GUARD SQL SUITE PASS (127 checks)
+C	test_T_competition_u18_heat_entry_status_guard	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_u18s_heat_entry_scratch_audit	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_competition_u18s_heat_entry_scratch_audit_with_s6	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+C	test_T_phase10a_competition_foundation	FAIL	NO VERDICT: ERROR:  duplicate key value violates unique constraint "compp1_one_heat_per_round"
+C	test_T_phase10a_competition_foundation_with_r15	FAIL	NO VERDICT: ERROR:  duplicate key value violates unique constraint "compp1_one_heat_per_round"
+C	test_T_phase10d1_heat_entry_eligibility	FAIL	ERROR:  PHASE 10D.1 SQL SUITE FAIL: the rule lives in the existing 10D integrity function (no second validator) []
+C	test_T_phase10d1_heat_entry_eligibility_with_p1	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)
+C	test_T_phase10d_floor_schedule	FAIL	ERROR:  PHASE 10D SQL SUITE FAIL: 6 shared ProPro instructor cannot share a scoring heat [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 7 shared Couples dancer cannot share a scoring heat [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 1 plan applies (final-only divisions generate scoring heats) [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 1 seven numbered heats, nine scoring heats, ni
+C-autoseed	test_T_competition_cf1_od17_enforcement	FAIL [AUTOSEED]	ERROR:  COMPETITION CF1 OD17 SQL SUITE FAIL: S09 OFF: an advancement insert is not gated by the refund gate (probe, even with the gate broken) []; M3d ON + refund gate lost: an advancement insert is refused COMP_OD17_REFUND_GATE; with the gate intact it is accepted (probes) []
+C-autoseed	test_T_phase10d_floor_schedule	FAIL [AUTOSEED]	ERROR:  PHASE 10D SQL SUITE FAIL: 6 shared ProPro instructor cannot share a scoring heat [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 7 shared Couples dancer cannot share a scoring heat [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 1 plan applies (final-only divisions generate scoring heats) [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 1 seven numbered heats, nine scoring heats, ni
+E	test_T_competition_cf1_a1_helpers	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_cf1_a3_results	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_cf1_a5_exclusion_with_r15	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_cf1_callback_final_advancement	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_cf1_callback_final_advancement_with_r15	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_cf1_f3_publication	FAIL	NO VERDICT: ERROR:  duplicate key value violates unique constraint "compp1_one_round_per_division"
+E	test_T_competition_cf1_rb3r_reconciliation_with_r15	PASS	ERROR:  ADAPTED COPY R-15: COMPETITION CF1 RB3R SQL SUITE PASS (101 checks, 3 blocked)
+E	test_T_competition_d_published_order_write_guard	PASS	ERROR:  COMPETITION D SQL SUITE PASS (54 checks)
+E	test_T_competition_e1_officials	PASS	ERROR:  COMPETITION E1 SQL SUITE PASS (110 checks)
+E	test_T_competition_ns1_no_show	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_o1_day_of	FAIL	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_od04_event_delete_guard	PASS	ERROR:  COMPETITION OD-04 SQL SUITE PASS (161 checks)
+E	test_T_competition_p1_pilot_restrictions	PASS	ERROR:  COMPETITION P1 PILOT RESTRICTIONS SQL SUITE PASS (159 checks)
+E	test_T_competition_r10_s3_panel_readiness	FAIL	NO VERDICT: ERROR:  COMP_P1_CALLBACKS_OFF: callback scoring is off in the pilot.
+E	test_T_competition_r10_s3_panel_readiness_p1pilot	PASS	ERROR:  COMPETITION R10-S3 P1 PILOT COPY SQL SUITE PASS (92 checks)
+E	test_T_competition_r11_approval_override_scope	FAIL	NO VERDICT: ERROR:  COMP_P1_HEAT_NOT_STARTED: ballots are accepted only for a heat that has started (pilot).
+E	test_T_competition_r11_approval_override_scope_p1_pilot	PASS	ERROR:  COMPETITION R11 P1 PILOT COPY SQL SUITE PASS (93 checks; not a pass of the original R11 suite)
+E	test_T_competition_r15_eligibility_clearance	PASS	ERROR:  R15 SQL SUITE PASS (106 checks; S5 predicate: real)
+E	test_T_competition_r2_entry_refunds	FAIL	ERROR:  COMPETITION R2 SQL SUITE FAIL: fixture: planner places the entries [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; fixture: lock heat B [P0001 Heat was not found or cannot be managed.]; fixture: lock and certify heat C [P0001 Heat was not found or cannot be managed.]; fixture: 13 placements, heat B locked, heat C certified [0]; A: scheduled placement scratched [null]; A: checked-in placement scratched [null]; A/Q1: an entry that has danced (unlocked he
+E	test_T_competition_r2_refund_write_gate	FAIL	ERROR:  COMPETITION R2 GATE SQL SUITE FAIL: fixture: planner places the entries [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; fixture: lock heat B [P0001 Heat was not found or cannot be managed.]; fixture: lock and certify heat C [P0001 Heat was not found or cannot be managed.]; fixture: 13 placements, heat B locked, heat C certified [0]
+E	test_T_competition_s5_participant_age_guard	PASS	ERROR:  COMPETITION S5 AGE GUARD SQL SUITE PASS (49 checks, 0 blocked)
+E	test_T_competition_s6_entry_status_guard	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_competition_s6_entry_status_guard_with_p1	PASS	ERROR:  COMPETITION S6 ENTRY STATUS GUARD SQL SUITE PASS (127 checks)
+E	test_T_competition_u18s_heat_entry_scratch_audit_with_s6	FAIL [ADAPTED COPY]	NO VERDICT: ERROR:  COMP_P1_FINAL_ONLY: the pilot runs one final per division; no other round type (callbacks and advancement are off).
+E	test_T_phase10a_competition_foundation_with_r15	FAIL	NO VERDICT: ERROR:  duplicate key value violates unique constraint "compp1_one_heat_per_round"
+E	test_T_phase10d1_heat_entry_eligibility	FAIL	ERROR:  PHASE 10D.1 SQL SUITE FAIL: the rule lives in the existing 10D integrity function (no second validator) []
+E	test_T_phase10d1_heat_entry_eligibility_with_p1	PASS	ERROR:  PHASE 10D.1 SQL SUITE PASS (22 checks)
+E	test_T_phase10d_floor_schedule	FAIL	ERROR:  PHASE 10D SQL SUITE FAIL: 6 shared ProPro instructor cannot share a scoring heat [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 7 shared Couples dancer cannot share a scoring heat [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 1 plan applies (final-only divisions generate scoring heats) [23505 duplicate key value violates unique constraint "compp1_one_heat_per_round"]; 1 seven numbered heats, nine scoring heats, ni

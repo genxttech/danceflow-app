@@ -106,8 +106,8 @@ insert into public.event_competition_division_dances (id, event_id, program_id, 
   (pg_temp.u('005021'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), pg_temp.u('004002'), 1);
 
 -- One competitor per status so no probe can fail on a conflict instead of eligibility.
-insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via)
-select pg_temp.u('0070' || lpad(n::text, 2, '0')), pg_temp.u('00e001'), 'Dancer', 'N' || n, 'staff' from generate_series(1, 14) n;
+insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, date_of_birth)
+select pg_temp.u('0070' || lpad(n::text, 2, '0')), pg_temp.u('00e001'), 'Dancer', 'N' || n, 'staff', date '1985-06-15' from generate_series(1, 14) n;
 
 -- Entry statuses: every value the schema allows (pending, confirmed, waitlisted, scratched, withdrawn,
 -- disqualified, complete) plus the eligibility values that matter.
@@ -133,6 +133,14 @@ values (pg_temp.u('00e001'), pg_temp.u('008011'), pg_temp.u('007001'), 'dancer',
 insert into public.event_competition_entry_dances (event_id, entry_id, division_dance_id, dance_key, dance_label)
 select e.event_id, e.id, case when e.division_id = pg_temp.u('003001') then pg_temp.u('005011') else pg_temp.u('005021') end, 'offering', 'Offering'
 from public.event_competition_entries e where e.id::text like '00000000-0000-0000-0000-0c10d1%';
+
+-- S4/R-15: predicate P now requires clearance for day-of floor states; seed it (load sql-tests/fixtures/r15_clear_entries.sql before this suite).
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries(pg_temp.u('00e001'));
+  end if;
+end $r15$;
 
 -- ============================================================================
 -- Planner apply still works (regression) -- creates Heat 1 Two Step and Heat 2 Waltz
@@ -203,8 +211,8 @@ select pg_temp.expect_ok('day-of status updates on placements stay allowed',
 reset role;
 select pg_temp.chk('the rule lives in the existing 10D integrity function (no second validator)',
   position('COMP10D_ENTRY_NOT_SCHEDULABLE' in pg_get_functiondef('public._comp10d_check_floor_heat_integrity()'::regprocedure)) > 0
-  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgenabled <> 'D' and tgname in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'set_event_competition_updated_at')) = 4
-  and not exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname not in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'set_event_competition_updated_at') and tgname !~ '^cf1_'));
+  and (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgenabled <> 'D' and tgname in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'r15_guard_heat_entry_clearance', 'set_event_competition_updated_at')) = 4 + (select count(*) from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and tgname = 'r15_guard_heat_entry_clearance')
+  and not exists (select 1 from pg_trigger where tgrelid = 'public.event_competition_heat_entries'::regclass and not tgisinternal and tgname not in ('comp10d_guard_heat_entry', 'comp10d_heat_entry_floor_integrity', 'protect_locked_competition_heat_entry', 'r15_guard_heat_entry_clearance', 'set_event_competition_updated_at') and tgname !~ '^cf1_'));
 select pg_temp.chk('the integrity function is not callable by API roles',
   not has_function_privilege('authenticated', 'public._comp10d_check_floor_heat_integrity()', 'EXECUTE')
   and not has_function_privilege('anon', 'public._comp10d_check_floor_heat_integrity()', 'EXECUTE'));

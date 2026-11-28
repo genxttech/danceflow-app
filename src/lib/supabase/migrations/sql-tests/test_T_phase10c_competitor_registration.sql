@@ -76,7 +76,8 @@ language sql immutable as $$ select ('00000000-0000-0000-0000-0c10c00f' || lpad(
 
 create or replace function pg_temp.person(p_id text, p_first text, p_last text, p_extra jsonb default '{}') returns jsonb
 language sql immutable as $$
-  select jsonb_build_object('clientId', p_id, 'firstName', p_first, 'lastName', p_last, 'personType', 'dancer') || p_extra
+  -- S5 (OD-02): roster people are adults (the database age guard refuses unknown or under-18); p_extra may override.
+  select jsonb_build_object('clientId', p_id, 'firstName', p_first, 'lastName', p_last, 'personType', 'dancer', 'dateOfBirth', '1985-06-15') || p_extra
 $$;
 
 create or replace function pg_temp.entry(p_id text, p_event int, p_contest int, p_division int, p_people jsonb, p_roles jsonb,

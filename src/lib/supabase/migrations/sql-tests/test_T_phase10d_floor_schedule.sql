@@ -186,6 +186,9 @@ insert into public.event_competition_entries (id, event_id, program_id, division
   (pg_temp.u('008012'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'Alex Morgan / Cal Cee', 'confirmed', 'eligible', '112'),
   (pg_temp.u('008019'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'Otto Other', 'confirmed', 'eligible', '119');
 
+-- S5 (OD-02): fixture competitors are adults. The database participant age guard (20270301120000) refuses an unknown or under-18 date of birth;
+-- the negative cases for both live in test_T_competition_s5_participant_age_guard.sql. Harmless on a chain without S5.
+update public.event_competition_competitors set date_of_birth = date '1985-06-15' where date_of_birth is null;
 insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order) values
   (pg_temp.u('00e001'), pg_temp.u('008001'), pg_temp.u('007002'), 'student', 'follower', 'Sam One', 1),
   (pg_temp.u('00e001'), pg_temp.u('008001'), pg_temp.u('007001'), 'professional', 'leader', 'Pat Pro', 2),
@@ -409,7 +412,25 @@ select pg_temp.chk('internal validation helpers are not callable by API roles',
   and not has_function_privilege('anon', 'public.apply_competition_floor_plan(uuid,jsonb)', 'EXECUTE'));
 
 -- (14) publish freezes the running order; (19) snapshot carries numbers, entries, competitor roles
+reset role;
+-- S4/R-15: publishing needs every placed couple cleared. Clearance is recorded through set_competition_entry_eligibility (fixtures/r15_clear_entries.sql); inert without R-15.
+do $r15$
+begin
+  if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then
+    perform pg_temp.r15_clear_entries();
+  end if;
+end $r15$;
 select pg_temp.as_user(pg_temp.u('000001'));
+-- Couple 008002 was planned while 'unverified' (provisional planning stays allowed above). With R-15 the order cannot be published until the organizer decides it.
+select pg_temp.expect_msg('14 R-15: an order holding an unverified couple cannot be published',
+  $q$select public.publish_competition_schedule_version(pg_temp.id('v1'))$q$, 'COMP_R15_PROVISIONAL_ASSIGNMENT')
+where to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is not null;
+do $r15d$
+begin
+  if to_regprocedure('public.set_competition_entry_eligibility(uuid,text,text,text[],uuid)') is not null then
+    perform public.set_competition_entry_eligibility(pg_temp.u('008002'), 'eligible', 'criteria_verified_by_organizer', array['age_division', 'level', 'status'], gen_random_uuid());
+  end if;
+end $r15d$;
 select pg_temp.expect_ok('14 publish the floor-heat schedule (no sessions needed)',
   $q$select public.publish_competition_schedule_version(pg_temp.id('v1'))$q$);
 select pg_temp.chk('14 published with a snapshot of 7 numbered heats',

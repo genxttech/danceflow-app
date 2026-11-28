@@ -126,11 +126,20 @@ insert into public.event_competition_divisions (id, event_id, program_id, contes
   (pg_temp.u('003003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('002001'), 'Advanced', 'open'),
   (pg_temp.u('003009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('002002'), 'Other Newcomer', 'open');
 -- r1 draft, r2 scheduled, r3 active, r9 other studio
-insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status) values
-  (pg_temp.u('006001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Final', 'final', 1, 'draft'),
-  (pg_temp.u('006002'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'Final', 'final', 1, 'scheduled'),
-  (pg_temp.u('006003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'Final', 'final', 1, 'draft'),
-  (pg_temp.u('006009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'Final', 'final', 1, 'draft');
+insert into public.event_competition_rounds (id, event_id, program_id, division_id, name, round_type, sequence_number, status, scoring_method) values
+  (pg_temp.u('006001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Final', 'final', 1, 'draft', 'ordinal_majority'),
+  (pg_temp.u('006002'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003002'), 'Final', 'final', 1, 'scheduled', 'ordinal_majority'),
+  (pg_temp.u('006003'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003003'), 'Final', 'final', 1, 'draft', 'ordinal_majority'),
+  (pg_temp.u('006009'), pg_temp.u('00e002'), pg_temp.u('001002'), pg_temp.u('003009'), 'Final', 'final', 1, 'draft', 'ordinal_majority');
+
+-- One confirmed, eligible entry in round 1's division: O1's fixture helper needs it to publish a running order.
+-- The dancer is an adult: on a chain with the S5 participant age guard (20270301120000) an unknown or under-18 date of birth is refused.
+insert into public.event_competition_competitors (id, event_id, first_name, last_name, created_via, date_of_birth) values
+  (pg_temp.u('007001'), pg_temp.u('00e001'), 'Fixture', 'Dancer', 'staff', date '1985-06-15');
+insert into public.event_competition_entries (id, event_id, program_id, division_id, display_name, status, eligibility_status, entry_number) values
+  (pg_temp.u('008001'), pg_temp.u('00e001'), pg_temp.u('001001'), pg_temp.u('003001'), 'Fixture Dancer', 'confirmed', 'eligible', '101');
+insert into public.event_competition_entry_participants (event_id, entry_id, competitor_id, participant_role, dance_role, display_name, sort_order) values
+  (pg_temp.u('00e001'), pg_temp.u('008001'), pg_temp.u('007001'), 'dancer', 'leader', 'Fixture Dancer', 1);
 
 -- ============================================================================
 -- 1. Surface: grants, RLS, anon
@@ -254,11 +263,33 @@ select pg_temp.expect_ok('clear chair', format($q$select public.clear_competitio
 select pg_temp.expect_ok('set chair again (judge 1)', format($q$select public.set_competition_chair(%L, %L, %L)$q$, pg_temp.u('00e001'), pg_temp.off('00e001', '000011'), pg_temp.u('f00045')));
 reset role;
 
+-- Readiness threshold (done while round 1 is still draft: round configuration may freeze once a round is active).
+update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = pg_temp.u('006001');
+select pg_temp.chk('min_panel_judges raises the bar', not public.competition_round_panel_ready(pg_temp.u('006001')));
+update public.event_competition_rounds set configuration = '{}'::jsonb where id = pg_temp.u('006001');
+
 -- ============================================================================
 -- 6. Freeze: assignments are frozen once the round leaves draft/scheduled
 -- ============================================================================
 select pg_temp.expect_ok('a scheduled round still accepts a panel', format($q$select public.assign_competition_panel_member(%L, %L, 'A', %L)$q$, pg_temp.u('006002'), pg_temp.off('00e001', '000011'), pg_temp.u('f00050')));
-update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006001');
+-- R-15 (composed runs only): an entry needs eligibility clearance before it is placed in a running order. S4's shared helper
+-- (fixtures/r15_clear_entries.sql) obtains it the way an organizer does, when it is loaded; inert otherwise.
+do $r15$ begin if to_regprocedure('pg_temp.r15_clear_entries(uuid)') is not null then perform pg_temp.r15_clear_entries(); end if; end $r15$;
+-- Round 1 becomes active. With O1 installed (20270106) this goes through the REAL transition RPCs via O1's fixture helper
+-- (sql-tests/fixtures/competition_round_ready.sql, loaded before this file: cat fixtures/competition_round_ready.sql <this file> | psql);
+-- without O1 round status has no writer, so the plain update is the only path.
+do $fx$
+begin
+  if to_regprocedure('public.start_competition_round(uuid,uuid)') is not null then
+    if to_regprocedure('pg_temp.compo1_fixture_activate_round(uuid,uuid)') is null then
+      raise exception 'O1 is installed: load sql-tests/fixtures/competition_round_ready.sql before this suite';
+    end if;
+    perform pg_temp.compo1_fixture_publish_round(pg_temp.u('006001'), pg_temp.u('000001'));
+    perform pg_temp.compo1_fixture_activate_round(pg_temp.u('006001'), pg_temp.u('000001'));
+  else
+    update public.event_competition_rounds set status = 'active' where id = pg_temp.u('006001');
+  end if;
+end $fx$;
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000001'));
 select pg_temp.expect_msg('assign refused on an active round', format($q$select public.assign_competition_panel_member(%L, %L, null, %L)$q$, pg_temp.u('006001'), pg_temp.off('00e001', '000012'), pg_temp.u('f00051')), 'COMP_PANEL_FROZEN');
@@ -283,9 +314,10 @@ select pg_temp.chk('round 1 (3 lettered judges) is panel-ready', public.competit
 select pg_temp.chk('round 3 (no panel) is not ready', not public.competition_round_panel_ready(pg_temp.u('006003')));
 select pg_temp.chk('status reports judge count and chair', (public.competition_round_panel_status(pg_temp.u('006001')) ->> 'judge_count')::int = 3
   and (public.competition_round_panel_status(pg_temp.u('006001')) ->> 'chair_designated')::boolean);
-update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = pg_temp.u('006001');
-select pg_temp.chk('min_panel_judges raises the bar', not public.competition_round_panel_ready(pg_temp.u('006001')));
-update public.event_competition_rounds set configuration = '{}'::jsonb where id = pg_temp.u('006001');
+-- R10-S3 (only where it is applied): the panel minimum is frozen once round 1 has started.
+select pg_temp.expect_msg('the panel minimum cannot change once the round has started',
+  format($q$update public.event_competition_rounds set configuration = jsonb_build_object('min_panel_judges', 5) where id = %L$q$, pg_temp.u('006001')), 'the panel minimum cannot change')
+where exists (select 1 from pg_trigger where tgname = 'compr10_guard_round_panel_config');
 select pg_temp.chk('unknown round is not ready', not public.competition_round_panel_ready(pg_temp.u('0000ee')));
 set role authenticated;
 select pg_temp.as_user(pg_temp.u('000011'));

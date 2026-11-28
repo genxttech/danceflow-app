@@ -1,0 +1,22 @@
+{
+  "id": "OD04-0003",
+  "governing_body": "dance_flow_policy",
+  "format": "All Competition OS events (Studio, Custom and body-declared)",
+  "source": null,
+  "rule_class": "dance_flow_policy",
+  "requirement": "An event that holds scoring evidence (ballots, marks, results, publications, advancement or exclusion decisions, corrections and their audit) cannot be hard-deleted by any path, including organizer-delete cascades and truncate. Events without such evidence keep their existing authorization-controlled deletion; non-competition events are unchanged. Archive or hide through event status (cancelled/completed) and visibility (private).",
+  "implementation": [
+    { "path": "src/lib/supabase/migrations/20270301080000_competition_od04_event_delete_guard.sql", "symbol_or_migration": "compod04_guard_event_delete, compod04_guard_event_truncate" },
+    { "path": "src/lib/supabase/migrations/rollback/20270301080000_competition_od04_event_delete_guard_rollback.sql", "symbol_or_migration": "rollback" }
+  ],
+  "enforcement_point": "Database triggers on public.events (ENABLE ALWAYS). Git-only: not applied to DEV or PROD.",
+  "tests": [
+    { "path": "src/lib/competition/__tests__/eventDeleteGuard.od04.test.ts", "name": "OD-04 migration contains no retention timer and deletes nothing" },
+    { "path": "src/lib/competition/__tests__/eventDeleteGuard.od04.test.ts", "name": "OD-04 rollback removes exactly what the migration creates and touches no table" }
+  ],
+  "verification_status": "unverified",
+  "interpretation_notes": "DanceFlow policy decided by the owner on 2026-11-23 (OD-04). Local SQL suite and race results are recorded in the PR; status stays unverified until the migration is independently reviewed, merged and applied (owner gates). Trigger disablement by the table owner or a superuser is an accepted residual risk.",
+  "applicable_event_versions": ["all"],
+  "decision_refs": ["OD-04 (owner decision 2026-11-23, Option A)"],
+  "last_reviewed": "2026-11-23"
+}

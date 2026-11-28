@@ -1,0 +1,557 @@
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000004","role":"authenticated"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000001","role":"authenticated"}
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000001","role":"authenticated"}
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ set_config | set_config | set_config 
+------------+------------+------------
+            |            | 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000001","role":"authenticated"}
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000002","role":"authenticated"}
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000004","role":"authenticated"}
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000001","role":"authenticated"}
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000004","role":"authenticated"}
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000001","role":"authenticated"}
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+                              set_config                               
+-----------------------------------------------------------------------
+ {"sub":"00000000-0000-0000-0000-0a10a0000003","role":"authenticated"}
+(1 row)
+
+ expect_fail 
+-------------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ set_config | set_config | set_config 
+------------+------------+------------
+            |            | 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ expect_ok 
+-----------
+ 
+(1 row)
+
+ chk 
+-----
+ 
+(1 row)
+
+ERROR:  PHASE 10A SQL SUITE FAIL: manager applies the ballroom starter template => P0001 Competition template not found.; template created program, contests and divisions => 
+CONTEXT:  PL/pgSQL function inline_code_block line 12 at RAISE
