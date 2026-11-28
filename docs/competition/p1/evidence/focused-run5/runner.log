@@ -1,0 +1,20 @@
+[18:51:40Z] lock taken
+[18:51:44Z] WARNING: origin/claude/od31-p1-pilot-restrictions is at 6ef4e4e9f7dc41d19349304038b37d6be71a14f5, not at the pinned 58e27945921ef91ca528ebeb0e551ac867fc76aa
+[18:51:49Z] WARNING: release line moved to 6d45633efbafc92b0baf33570d0c3274fd6ce2e0 since the pinned base
+[18:53:46Z] composed: base 37 (fingerprint d87e42858e6ca50ffef5779fe6d203bfa62992616d5ed8c694a75b397c52ba5d), corrections 12, restriction 1 (58e27945921ef91ca528ebeb0e551ac867fc76aa), warnings 0
+[18:53:49Z] suites A/B/C: 45/59/61; race scripts A/B/C: 20/27/27
+[18:55:25Z] [A] test_T_phase10d1_heat_entry_eligibility: PASS
+[18:56:07Z] [B] test_T_competition_s6_entry_status_guard: PASS [ADAPTED COPY]
+[18:56:13Z] [B] test_T_phase10d1_heat_entry_eligibility: PASS
+[18:57:04Z] [C] test_T_competition_p1_pilot_restrictions: PASS
+[18:57:11Z] [C] test_T_competition_s6_entry_status_guard: FAIL [ADAPTED COPY]
+[18:57:17Z] [C] test_T_phase10d1_heat_entry_eligibility: FAIL
+[18:57:27Z] [C] test_T_phase10d1_heat_entry_eligibility_with_p1: PASS
+[18:57:27Z] focused run: concurrency scripts skipped (C)
+[18:57:50Z] rollback: 13 ok, 0 failed, 0 missing; catalog lines differing from A: 0
+[18:58:13Z] re-apply: 13 ok, 0 failed; catalog lines differing from C: 0
+[18:58:23Z] [E] test_T_competition_p1_pilot_restrictions: PASS
+[18:58:28Z] [E] test_T_competition_s6_entry_status_guard: FAIL [ADAPTED COPY]
+[18:58:39Z] [E] test_T_phase10d1_heat_entry_eligibility: FAIL
+[18:58:44Z] [E] test_T_phase10d1_heat_entry_eligibility_with_p1: PASS
+[18:58:44Z] done
