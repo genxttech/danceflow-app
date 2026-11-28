@@ -40,7 +40,11 @@ let dancerPartnerProfilesTable: FakeTable;
 let dancerProfilesTable: FakeTable;
 let profilesTable: FakeTable;
 let accountDeletionAuditTable: FakeTable;
+let userStudioRolesTable: FakeTable;
+let organizerUsersTable: FakeTable;
 let deleteUserCalls: string[];
+/** A table whose reads answer with an error, to drive the role check's failure branch. */
+let failingTable: string | null = null;
 
 function clientRow(overrides: Partial<Row> & { id: string }): Row {
   return {
@@ -101,6 +105,15 @@ function createFakeAdminClientWithDelete(tables: Record<string, FakeTable>) {
   const base = createFakeEntitlementClient(tables);
   return {
     from(table: string) {
+      if (table === failingTable) {
+        const failed = {
+          select: () => failed,
+          eq: () => failed,
+          limit: () => failed,
+          then: (onFulfilled: (v: { data: null; error: { message: string } }) => unknown) => Promise.resolve({ data: null, error: { message: `${table} unavailable` } }).then(onFulfilled),
+        };
+        return failed;
+      }
       return {
         ...base.from(table),
         ...withDelete(tables[table]),
@@ -151,6 +164,12 @@ vi.mock("@/lib/supabase/admin", () => ({
       get account_deletion_audit() {
         return accountDeletionAuditTable;
       },
+      get user_studio_roles() {
+        return userStudioRolesTable;
+      },
+      get organizer_users() {
+        return organizerUsersTable;
+      },
     } as unknown as Record<string, FakeTable>),
     auth: {
       admin: {
@@ -163,8 +182,23 @@ vi.mock("@/lib/supabase/admin", () => ({
   }),
 }));
 
+// the two entry points (the app's route and the web account action), driven through the real deletion code
+let signedInUser: { id: string; email: string } | null = null;
+vi.mock("@/lib/auth/studentApiAuth", () => ({
+  getStudentApiUser: async () => signedInUser,
+  studentApiJsonError: (message: string, status = 400) => Response.json({ error: message }, { status }),
+}));
+vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: signedInUser } }) } }) }));
+vi.mock("next/navigation", () => ({
+  redirect: (to: string) => {
+    throw new Error(`redirect:${to}`);
+  },
+}));
+
+const { DELETE: deleteRoute } = await import("@/app/api/student/account/route");
+const { deleteAccountAction } = await import("@/app/account/actions");
 const { disconnectClientAccount } = await import("@/lib/student-identity/lifecycle");
-const { leaveStudioRelationship, deleteDanceFlowAccount } = await import(
+const { leaveStudioRelationship, deleteDanceFlowAccount, AccountDeletionBlockedError } = await import(
   "@/lib/student-identity/account-controls"
 );
 
@@ -182,7 +216,10 @@ beforeEach(() => {
   dancerProfilesTable = new FakeTable();
   profilesTable = new FakeTable();
   accountDeletionAuditTable = new FakeTable();
+  userStudioRolesTable = new FakeTable();
+  organizerUsersTable = new FakeTable();
   deleteUserCalls = [];
+  failingTable = null;
 });
 
 describe("disconnectClientAccount -- H2-B3 stale-mirror cleanup", () => {
@@ -433,5 +470,91 @@ describe("deleteDanceFlowAccount -- H2-B3 stale-mirror cleanup", () => {
     await deleteDanceFlowAccount(fakeUser(USER_A));
 
     expect(clientsTable.rows[0].portal_user_id).toBe(USER_OTHER);
+  });
+});
+
+describe("deleteDanceFlowAccount -- logins that also manage something", () => {
+  const fakeUser = (id: string) => ({ id, email: `${id}@example.test` }) as never;
+
+  // A login with an active management role is refused before any write.
+  it.each([
+    ["an active studio role", () => { userStudioRolesTable.rows = [{ id: "r1", user_id: USER_A, studio_id: STUDIO_A, role: "studio_owner", active: true }]; }, "studio_role"],
+    ["an active organizer role", () => { organizerUsersTable.rows = [{ id: "o1", user_id: USER_A, active: true }]; }, "organizer_role"],
+    ["platform admin", () => { profilesTable.rows = [{ id: USER_A, platform_role: "platform_admin" }]; }, "platform_admin"],
+  ])("refuses a login with %s and changes nothing", async (_label, seed, reason) => {
+    seed();
+    linksTable.rows = [linkRow({ id: "link-a" })];
+
+    const error = await deleteDanceFlowAccount(fakeUser(USER_A)).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(AccountDeletionBlockedError);
+    expect((error as InstanceType<typeof AccountDeletionBlockedError>).reasons).toEqual([reason]);
+    expect(deleteUserCalls).toEqual([]);
+    expect(userAccountStatusTable.rows).toEqual([]);
+    expect(linksTable.rows[0].status).toBe("linked");
+    expect(accountDeletionAuditTable.rows).toEqual([]);
+  });
+
+  it("still deletes a login whose studio and organizer roles are all inactive", async () => {
+    userStudioRolesTable.rows = [{ id: "r1", user_id: USER_A, studio_id: STUDIO_A, role: "instructor", active: false }];
+    organizerUsersTable.rows = [{ id: "o1", user_id: USER_A, active: false }];
+    profilesTable.rows = [{ id: USER_A, platform_role: null }];
+
+    await deleteDanceFlowAccount(fakeUser(USER_A));
+
+    expect(deleteUserCalls).toEqual([USER_A]);
+  });
+});
+
+describe("account deletion through the app route and the web action", () => {
+  const owner = () => { userStudioRolesTable.rows = [{ id: "r1", user_id: USER_A, studio_id: STUDIO_A, role: "studio_owner", active: true }]; };
+  const signIn = () => { signedInUser = { id: USER_A, email: `${USER_A}@example.test` }; };
+  const request = () => new Request("https://app.test/api/student/account", { method: "DELETE", body: JSON.stringify({ confirmation: "DELETE" }) });
+  const confirmed = () => { const form = new FormData(); form.set("confirmation", "DELETE"); return form; };
+
+  it.each(["user_studio_roles", "organizer_users", "profiles"])("fails closed when the %s role query errors: nothing is deleted or changed, through the library, the app route and the web action", async (table) => {
+    signIn();
+    linksTable.rows = [linkRow({ id: "link-a" })];
+    failingTable = table;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(deleteDanceFlowAccount(signedInUser as never)).rejects.toThrow(`Account role check failed: ${table} unavailable`);
+    const response = await deleteRoute(request());
+    expect(response.status).toBe(500);
+    expect(((await response.json()) as { error: string }).error).toBe("Your DanceFlow account could not be deleted.");
+    await expect(deleteAccountAction(confirmed())).rejects.toThrow("redirect:/account?error=account_delete_failed");
+
+    expect(deleteUserCalls).toEqual([]);
+    expect(userAccountStatusTable.rows).toEqual([]);
+    expect(linksTable.rows[0].status).toBe("linked");
+    expect(accountDeletionAuditTable.rows).toEqual([]);
+  });
+
+  it("an ordinary account with no management role deletes itself", async () => {
+    signIn();
+    const response = await deleteRoute(request());
+    expect(response.status).toBe(200);
+    expect(deleteUserCalls).toEqual([USER_A]);
+  });
+
+  it("a studio owner is refused by the app route with 409 and a reason, and nothing is deleted", async () => {
+    signIn();
+    owner();
+    const response = await deleteRoute(request());
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toMatch(/can't be deleted here/);
+    expect(deleteUserCalls).toEqual([]);
+    expect(accountDeletionAuditTable.rows).toEqual([]);
+  });
+
+  it("the web account action sends a studio owner back with the reason, and an ordinary account is deleted", async () => {
+    signIn();
+    owner();
+    await expect(deleteAccountAction(confirmed())).rejects.toThrow("redirect:/account?error=account_delete_managed_access");
+    expect(deleteUserCalls).toEqual([]);
+
+    userStudioRolesTable.rows = [];
+    await expect(deleteAccountAction(confirmed())).rejects.toThrow("redirect:/?account=deleted");
+    expect(deleteUserCalls).toEqual([USER_A]);
   });
 });
