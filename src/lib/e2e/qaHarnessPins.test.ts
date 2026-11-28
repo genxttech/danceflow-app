@@ -17,6 +17,11 @@ describe("harness container pin (review P2/P3)", () => {
     expect(pinnedQaDbContainer({})).toBeNull();
   });
 
+  it("also accepts the disposable P1 walkthrough stack, by exact name only", () => {
+    expect(pinnedQaDbContainer({ E2E_LOCAL_DB_CONTAINER: "df-p1walk-db" })).toBe("df-p1walk-db");
+    for (const other of ["df-p1walk-db2", "df-p1walk-other-db", "xdf-p1walk-db"]) expect(pinnedQaDbContainer({ E2E_LOCAL_DB_CONTAINER: other }), other).toBeNull();
+  });
+
   it("the three docker-exec helpers use the pin; none keeps the supabase_db_<anything> allowlist or reads the variable raw", () => {
     expect(read("e2e", "helpers", "cf1Acceptance.ts")).toContain('name !== "supabase_db_cf1c-qa"');
     for (const file of ["cf1Acceptance.ts", "competitionFullEventFixture.ts", "competitionScheduleHeats.ts"]) {
