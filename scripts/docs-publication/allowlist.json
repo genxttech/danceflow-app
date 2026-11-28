@@ -1,0 +1,13 @@
+{
+  "about": "Exact values that may appear in public documentation: published role mailboxes and public service addresses only. Never add a customer, tenant, user or provider account value.",
+  "values": [
+    "support@idanceflow.com",
+    "notify@idanceflow.com",
+    "compliance@idanceflow.com",
+    "sms-compliance@idanceflow.com",
+    "play-review@idanceflow.com",
+    "10dlc-onboarding@twilio.com",
+    "git@github.com",
+    "noreply@anthropic.com"
+  ]
+}
